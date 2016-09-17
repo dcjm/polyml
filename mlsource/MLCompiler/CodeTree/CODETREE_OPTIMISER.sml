@@ -387,7 +387,7 @@ struct
                Also returns a flag indicating if the value came from a constant.
                Constants are already tupled so there's no advantage in untupling
                them unless there are other non-constant arguments as well. *)
-            fun findTuple(Tuple{fields, isVariant=false}) = (List.length fields, false)
+            fun findTuple(Tuple{fields, isVariant=false, ...}) = (List.length fields, false)
             |   findTuple(Constnt(w, _)) =
                     if isShort w orelse flags (toAddress w) <> F_words then (1, false)
                     else (Word.toInt(length (toAddress w)), true)
@@ -544,7 +544,7 @@ struct
     (* Return a tuple if any of the branches returns a tuple.  The idea is
        that if the body actually constructs a tuple on the heap on at least
        one branch it is probably worth attempting to detuple the result. *)
-    fun bodyReturnsTuple (Tuple{fields, isVariant=false}) =
+    fun bodyReturnsTuple (Tuple{fields, isVariant=false, ...}) =
         ArgPattTuple{
             filter=BoolVector.tabulate(List.length fields, fn _ => true),
             allConst=false, fromFields=false
@@ -1029,6 +1029,23 @@ struct
         then SOME(optFields(code, context, use))
         else NONE
 
+    |   optimise (context as { reprocess, ...}, use) (Tuple { fields, isVariant, expand }) =
+        let
+            (* If we have constructed a tuple and then taken fields from it
+               we may be able to discard the tuple completely.  This happens
+               frequently e.g. case (a,b) of ... is compiled by the front-end
+               as a tuple that is then taken apart.
+               Previously, this was applied to all tuples but this can result
+               in blow-ups.  Now we only do this if we actually want fields.
+               We also do it if the tuple is not used.  Even if we don't
+               want the tuple there may be fields that have side-effects. *)
+            val wantFields = null use orelse List.exists(fn UseField _ => true | UseExport => true | _ => false) use
+            val _ = if wantFields andalso not expand then reprocess := true else ()
+        in
+            SOME(Tuple { fields = map (mapCodetree (optimise(context, [UseGeneral]))) fields,
+                         isVariant = isVariant, expand=wantFields })
+        end
+
     |   optimise _ _ = NONE
     
     and optGeneral context exp = mapCodetree (optimise(context, [UseGeneral])) exp
@@ -1315,7 +1332,7 @@ struct
                     optGeneral context (pushContainer(code, fn t => mkInd(offset, t)))
                 fun mkFields n = if n = offset then field else CodeZero
             in
-                Tuple{ fields = List.tabulate(offset+1, mkFields), isVariant = false }
+                Tuple{ fields = List.tabulate(offset+1, mkFields), isVariant = false, expand=true }
             end
 
         |   _ =>
@@ -1344,7 +1361,7 @@ struct
                             else CodeZero :: mkField(n+1, m, hd::tl)
                         |   mkField _ = []
                     in
-                        Tuple{fields = mkField(0, 0, useList), isVariant=false}
+                        Tuple{fields = mkField(0, 0, useList), isVariant=false, expand=true}
                     end
             in
                 mkEnv([makeContainer], container)

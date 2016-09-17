@@ -276,7 +276,7 @@ struct
         
         fun mkRecord isVar xp =
         let
-            val tuple = Tuple{fields = xp, isVariant = isVar }
+            val tuple = Tuple{fields = xp, isVariant = isVar, expand=false }
         in
             if allConsts xp
             then (* Make it now. *) makeConstVal tuple
@@ -401,7 +401,7 @@ struct
 
     (* Create a tuple from a container. *)
     fun mkTupleFromContainer(addr, size) =
-        Tuple{fields = List.tabulate(size, fn n => mkInd(n, mkLoadLocal addr)), isVariant = false}
+        Tuple{fields = List.tabulate(size, fn n => mkInd(n, mkLoadLocal addr)), isVariant = false, expand=false}
 
     (* Get the value from the code. *)
     fun evalue (Constnt(c, _)) = SOME c

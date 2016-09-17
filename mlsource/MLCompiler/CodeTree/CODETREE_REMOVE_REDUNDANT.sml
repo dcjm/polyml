@@ -252,7 +252,7 @@ struct
                        we may be able to record this information.  If it is something else we can't. *)
                     SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, isVariant=false})
 
-            |   doClean codeUse (Tuple{ fields, isVariant = false}) =
+            |   doClean codeUse (Tuple{ fields, isVariant = false, expand}) =
                 let
                     (* If the use of the tuple include UseGeneral or UseExport then every field is
                        required.  If, though, we have UseField we can transfer the corresponding
@@ -273,7 +273,7 @@ struct
                     |   processField(hd::tl, n) =
                             cleanCode(hd, fieldUses n) :: processField(tl, n+1)
                 in
-                    SOME(Tuple{ fields = processField(fields, 0), isVariant = false})
+                    SOME(Tuple{ fields = processField(fields, 0), isVariant = false, expand=expand})
                 end
 
             |   doClean codeUse (Lambda lam) = SOME(Lambda(cleanLambda(lam, codeUse)))

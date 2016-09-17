@@ -78,7 +78,12 @@ struct
 
     |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree, exPacketAddr: int }
 
-    |   Tuple of { fields: codetree list, isVariant: bool } (* Tuples and datatypes *)
+        (* Tuple.  This creates a piece of memory.  isVariant is true if this is
+           actually a datatype constructor and there are other constructors that may
+           make cells of different sizes or tagged values (e.g. list).
+           "expand" is set by the optimiser if fields of the tuple are used
+           locally. *)
+    |   Tuple of { fields: codetree list, isVariant: bool, expand: bool } (* Tuples and datatypes *)
 
     |   SetContainer of (* Copy a tuple to a container. *)
         {
@@ -425,8 +430,8 @@ struct
                 ]
             )
          
-        |   Tuple { fields, isVariant } =>
-                printList(if isVariant then "DATATYPE" else "TUPLE", fields, ",")
+        |   Tuple { fields, isVariant, expand } =>
+                printList((if isVariant then "DATATYPE" else "TUPLE") ^ (if expand then "-expand" else ""), fields, ",")
 
         |   SetContainer{container, tuple, filter} =>
             let
@@ -642,7 +647,7 @@ struct
         |   mapt (Raise r) = Raise(mapCodetree f r)
         |   mapt (Handle{exp, handler, exPacketAddr}) =
                 Handle{exp=mapCodetree f exp, handler=mapCodetree f handler, exPacketAddr=exPacketAddr }
-        |   mapt (Tuple { fields, isVariant} ) = Tuple { fields = map (mapCodetree f) fields, isVariant = isVariant }
+        |   mapt (Tuple { fields, isVariant, expand } ) = Tuple { fields = map (mapCodetree f) fields, isVariant = isVariant, expand=expand }
         |   mapt (SetContainer{container, tuple, filter}) =
                 SetContainer{
                     container = mapCodetree f container, tuple = mapCodetree f tuple, filter = filter }

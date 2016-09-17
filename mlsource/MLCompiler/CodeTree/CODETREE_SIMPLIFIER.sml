@@ -168,8 +168,10 @@ struct
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
             SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
 
-    |   simpGeneral context (Tuple { fields, isVariant }) =
+    |   simpGeneral context (Tuple { fields, isVariant, expand=true }) =
             SOME(specialToGeneral(simpTuple(fields, isVariant, context)))
+
+    |   simpGeneral _ (Tuple { expand=false, ... }) = NONE
 
     |   simpGeneral context (Indirect{ base, offset, isVariant }) =
             SOME(specialToGeneral(simpFieldSelect(base, offset, isVariant, context)))
@@ -186,7 +188,7 @@ struct
                 let
                     val fields = List.tabulate(size, envGeneralToCodetree o #1 o recEnv)
                 in
-                    SOME(simpPostSetContainer(optCont, Tuple{isVariant=false, fields=fields}, cDecs, filter))
+                    SOME(simpPostSetContainer(optCont, Tuple{isVariant=false, fields=fields, expand=false}, cDecs, filter))
                 end
 
             |   _ => SOME(simpPostSetContainer(optCont, cGen, cDecs, filter))
@@ -405,7 +407,8 @@ struct
     |   simpSpecial (Cond(condTest, condThen, condElse), context) =
             simpIfThenElse(condTest, condThen, condElse, context)
 
-    |   simpSpecial (Tuple { fields, isVariant }, context) = simpTuple(fields, isVariant, context)
+    |   simpSpecial (Tuple { fields, isVariant, expand=true }, context) =
+            simpTuple(fields, isVariant, context)
 
     |   simpSpecial (Indirect{ base, offset, isVariant }, context) = simpFieldSelect(base, offset, isVariant, context)
 
@@ -1240,8 +1243,8 @@ struct
 
         val genRec =
             if List.all isConstnt generalFields
-            then makeConstVal(Tuple{ fields = generalFields, isVariant = isVariant })
-            else Tuple{ fields = generalFields, isVariant = isVariant }
+            then makeConstVal(Tuple{ fields = generalFields, isVariant = isVariant, expand=true })
+            else Tuple{ fields = generalFields, isVariant = isVariant, expand=true }
 
         val allBindings = List.foldr(op @) [] bindings
         

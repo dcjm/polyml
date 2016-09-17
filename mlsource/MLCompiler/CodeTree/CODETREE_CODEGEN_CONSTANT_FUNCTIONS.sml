@@ -200,7 +200,7 @@ struct
             |   _ => SOME(Newenv(bindings, body))
         end
 
-    |   cgFuns context (Tuple{ fields, isVariant }) =
+    |   cgFuns context (Tuple{ fields, isVariant, ... }) =
             (* Create any constant tuples that have arisen because they contain
                constant functions. *)
             SOME((if isVariant then mkDatatype else mkTuple)(map (mapCodetree (cgFuns context)) fields))

@@ -92,7 +92,12 @@ sig
 
     |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree, exPacketAddr: int }
 
-    |   Tuple of { fields: codetree list, isVariant: bool } (* Tuples and datatypes *)
+        (* Tuple.  This creates a piece of memory.  isVariant is true if this is
+           actually a datatype constructor and there are other constructors that may
+           make cells of different sizes or tagged values (e.g. list).
+           "expand" is set by the optimiser if fields of the tuple are used
+           locally. *)
+    |   Tuple of { fields: codetree list, isVariant: bool, expand: bool } (* Tuples and datatypes *)
 
     |   SetContainer of { container: codetree, tuple: codetree, filter: BoolVector.vector}
          (* Copy a tuple to a container. *)
