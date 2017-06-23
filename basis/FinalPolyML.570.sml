@@ -237,9 +237,6 @@ local
     |   CPBindingSeq of unit -> int
         (* Used to create a sequence no for PTdefId properties.  This can be used in an IDE
            to allocate a unique Id for an identifier.  Default fn _ => 0. *)
-    
-    |   CPOptimisation of bool
-        (* Can be used to switch off optimisation (on by default.) *)
 
     (* References for control and debugging. *)
     val timing = ref false
@@ -260,7 +257,6 @@ local
     and reportDiscardFunction = ref true
     and reportDiscardNonUnit = ref false
     val lowlevelOptimise = ref true
-    val optimiseCode = ref true
     
     val debug = ref false
     val inlineFunctors = ref true
@@ -490,7 +486,6 @@ local
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
             val allocProfiling = find(fn CPAllocationProfiling l  => SOME l | _ => NONE) (if !allocationProfiling then 1 else 0) parameters
             val bindingSeq = find(fn CPBindingSeq l  => SOME l | _ => NONE) (fn () => 0) parameters
-            val optimisation = find (fn CPOptimisation t => SOME t | _ => NONE) (! optimiseCode) parameters
             local
                 (* Default is to filter the parse tree argument. *)
                 fun defaultCompilerResultFun (_, NONE) = raise Fail "Static Errors"
@@ -540,8 +535,7 @@ local
                     tagInject narrowOverloadFlexRecordTag (! narrowOverloadFlexRecord),
                     tagInject createPrintFunctionsTag (! createPrintFunctions),
                     tagInject reportDiscardedValuesTag
-                        (if ! reportDiscardNonUnit then 2 else if ! reportDiscardFunction then 1 else 0),
-                    tagInject optimisationTag optimisation
+                        (if ! reportDiscardNonUnit then 2 else if ! reportDiscardFunction then 1 else 0)
                     ])
         in
             compilerResultFun treeAndCode
@@ -1998,8 +1992,7 @@ in
                             tagInject icodeTag (! icode),
                             tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                             tagInject assemblyCodeTag (! assemblyCode),
-                            tagInject codetreeAfterOptTag (! codetreeAfterOpt),
-                            tagInject optimisationTag (! optimiseCode)
+                            tagInject codetreeAfterOptTag (! codetreeAfterOpt)
                         ], numLocals)
                 end
         end

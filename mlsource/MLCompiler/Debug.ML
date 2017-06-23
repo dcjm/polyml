@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2013, 2015-16.
+    Modified David C.J. Matthews 2008, 2013, 2015-17.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,20 +24,20 @@ struct
         open Universal
     in
         (* Get the current line number. *)
-        val lineNumberTag: (unit->FixedInt.int) tag           = tag()
+        val lineNumberTag: (unit->FixedInt.int) tag  = tag()
         (* Get the current offset (position on line or in file). *)
-        val offsetTag: (unit->FixedInt.int) tag               = tag()
+        val offsetTag: (unit->FixedInt.int) tag      = tag()
         (* File name. *)
         val fileNameTag: string tag                  = tag()
         (* Binding counter *)
-        val bindingCounterTag: (unit->FixedInt.int) tag       = tag()
+        val bindingCounterTag: (unit->FixedInt.int) tag = tag()
 
         (* How much to print in error messages?  default 6 *)
-        val errorDepthTag: FixedInt.int tag                   = tag()
+        val errorDepthTag: FixedInt.int tag            = tag()
         (* Control print depth in PolyML.print. *)
-        val printDepthFunTag: (unit->FixedInt.int) tag            = tag()
+        val printDepthFunTag: (unit->FixedInt.int) tag = tag()
         (* Length of line in PolyML.print. error messages etc. *)
-        val lineLengthTag: FixedInt.int tag                   = tag()
+        val lineLengthTag: FixedInt.int tag          = tag()
         (* Compile in debugging code?  default false *)
         val debugTag: bool tag                       = tag()
         (* Compilation fine tuning. *)
@@ -48,7 +48,9 @@ struct
         (* Add profile information to each allocation?  default zero.
            At the moment this is effectively a bool but having an int allows
            for the possibility of recording different information. *)
-        val profileAllocationTag: FixedInt.int tag            = tag()
+        val profileAllocationTag: FixedInt.int tag   = tag()
+        (* Control optimisation by the compiler. *)
+        val optimisationTag: bool tag                = tag()
 
         (* Compiler debugging. *)
         (* Print parsetree after parsing? default false *)
@@ -72,7 +74,7 @@ struct
         (* Create print functions for datatypes based on the constructors. *)
         val createPrintFunctionsTag: bool tag        = tag()
         (* Warning level for discarding values *)
-        val reportDiscardedValuesTag: FixedInt.int tag           = tag()
+        val reportDiscardedValuesTag: FixedInt.int tag = tag()
         val reportDiscardNone     = 0: FixedInt.int (* No reports *)
         and reportDiscardFunction = 1: FixedInt.int (* Only report discarded functions *)
         and reportDiscardNonUnit  = 2: FixedInt.int (* Report discarding any non unit values *)
@@ -110,7 +112,8 @@ struct
             tagInject reportExhaustiveHandlersTag false,
             tagInject narrowOverloadFlexRecordTag false,
             tagInject createPrintFunctionsTag true,
-            tagInject reportDiscardedValuesTag reportDiscardFunction
+            tagInject reportDiscardedValuesTag reportDiscardFunction,
+            tagInject optimisationTag true
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

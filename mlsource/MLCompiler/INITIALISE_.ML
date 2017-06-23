@@ -1553,6 +1553,7 @@ struct
                 ("lowlevelOptimiseTag",    toMachineWord (lowlevelOptimiseTag: bool tag),       Tag Bool),
                 ("codetreeAfterOptTag",    toMachineWord (codetreeAfterOptTag: bool tag),       Tag Bool),
                 ("inlineFunctorsTag",      toMachineWord (inlineFunctorsTag: bool tag),         Tag Bool),
+                ("optimisationTag",        toMachineWord (optimisationTag: bool tag),           Tag Bool),
                 ("debugTag",               toMachineWord (debugTag: bool tag),                  Tag Bool),
                 ("printDepthFunTag",       toMachineWord (DEBUG.printDepthFunTag: (unit->FixedInt.int) tag), Tag (Unit->>fixedIntType)),
                 ("errorDepthTag",          toMachineWord (DEBUG.errorDepthTag: FixedInt.int tag),        Tag fixedIntType),

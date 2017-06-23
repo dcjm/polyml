@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2016 David C.J. Matthews
+    Copyright (c) 2013-2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,6 +39,7 @@ sig
     val parsetreeTag : bool Universal.tag
     val printDepthFunTag : (unit -> FixedInt.int) Universal.tag
     val profileAllocationTag : FixedInt.int Universal.tag
+    val optimisationTag: bool Universal.tag
     val reportExhaustiveHandlersTag : bool Universal.tag
     val reportUnreferencedIdsTag : bool Universal.tag
     val reportDiscardedValuesTag: FixedInt.int Universal.tag
