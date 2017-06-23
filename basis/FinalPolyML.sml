@@ -1237,6 +1237,7 @@ in
             and createPrintFunctions = createPrintFunctions
             and reportDiscardFunction = reportDiscardFunction
             and reportDiscardNonUnit = reportDiscardNonUnit
+            and optimiseCode = optimiseCode
             
             val debug = debug
             val inlineFunctors = inlineFunctors
