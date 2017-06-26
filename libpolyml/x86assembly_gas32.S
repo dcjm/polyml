@@ -205,3 +205,29 @@ INLINE_ROUTINE(X86AsmAtomicIncrement)
     movl    %ecx,%eax
     ret
 
+# Call a function where the arguments are passed as tuples.
+# The closure address is passed in edx and the argument tuple in esi.
+INLINE_ROUTINE(X86AsmCallcodeTupled)
+    pop     %edi                    # Load the return address since we may add args.
+    movl    -4(%esi),%ecx           # Load the length word
+    andl    $0x00ffffffff,%ecx      # Remove any tags in the top byte
+    movl    $1,%eax                 # Default the argument to unit just in case
+    jecxz   xacct9
+    movl    (%esi),%eax             # Load the register arguments
+    addl    $4,%esi
+    decl    %ecx
+    jecxz   xacct9
+    movl    (%esi),%ebx
+    addl    $4,%esi
+    decl    %ecx
+    jecxz   xacct9
+
+xacct1:                             # Anything else goes on the stack
+    push    (%esi)
+    addl    $4,%esi
+    loop    xacct1
+
+xacct9:
+    push    %edi                    # Put the return address on the stack.
+    jmp     *(%edx)                 # and jump to the function address in the closure.
+
