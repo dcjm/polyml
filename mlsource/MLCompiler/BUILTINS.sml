@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-7
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -87,6 +87,8 @@ sig
     |   LargeWordShift of shiftOperations
     |   RealComparison of testConditions
     |   RealArith of arithmeticOperations
+        (* Call a function by unwrapping a tuple argument. *)
+    |   CallCodeTupled
         
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string

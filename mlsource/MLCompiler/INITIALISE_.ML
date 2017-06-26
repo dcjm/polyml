@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-16
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -312,7 +312,7 @@ struct
         end
 
         local
-            val a = makeTV() and b = makeTV()
+            val a = makeTV() and b = makeTV() and c = makeTV()
             open BuiltIns
         in
             (* isShort - test if a value is tagged rather than being an address. *)
@@ -374,6 +374,9 @@ struct
                     mkLoadOperationFn LoadStoreUntaggedUnsigned, String ** Word ->> Word)
             val () = enterRunCall ("storeUntagged",
                     mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit)
+            (* Callcode tupled. *)
+            val () = enterRunCall ("callCode",
+                        makePolymorphic([a, b, c], mkBinaryFn CallCodeTupled), (a ->> b) ** c (* Probably should be vector. *) ->> b)
         end
 
         local

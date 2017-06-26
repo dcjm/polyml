@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-16
+    Further work copyright David C. J. Matthews 2011-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -171,7 +171,7 @@ typedef struct _AssemblyArgs {
     POLYUNSIGNED    saveCStack;         // Saved C stack frame.
     PolyObject      *threadId;          // My thread id.  Saves having to call into RTS for it.
     PolyWord        *stackPtr;          // Current stack pointer
-    POLYCODEPTR     unusedProgramCtr;
+    byte            *codecallTupleCall;
     byte            *heapOverFlowCall;  // These are filled in with the functions.
     byte            *stackOverFlowCall;
     byte            *stackOverFlowCallEx;
@@ -306,6 +306,7 @@ extern "C" {
     extern int X86AsmCallbackException(void);
     extern int X86AsmPopArgAndClosure(void);
     extern int X86AsmRaiseException(void);
+    extern int X86AsmCallcodeTupled(void);
     extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
@@ -320,6 +321,7 @@ extern "C" {
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
+    assemblyInterface.codecallTupleCall = (byte*)X86AsmCallcodeTupled;
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;

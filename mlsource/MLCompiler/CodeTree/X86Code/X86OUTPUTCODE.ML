@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-16
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-17
     
     Based on original code:    
     Copyright (c) 2000
@@ -195,6 +195,7 @@ struct
     and memRegCStackPtr           = 6 * wordSize
     and memRegThreadSelf          = 7 * wordSize
     and memRegStackPtr            = 8 * wordSize
+    and memRegCallcodeCall        = 9 * wordSize
     and memRegHeapOverflowCall    = 10 * wordSize
     and memRegStackOverflowCall   = 11 * wordSize
     and memRegStackOverflowCallEx = 12 * wordSize
@@ -1729,6 +1730,7 @@ struct
         StackOverflowCall
     |   StackOverflowCallEx
     |   HeapOverflowCall
+    |   CallCodeTupleCall
 
     (* RTS call.  We need to save any registers that may contain addresses to the stack.
        All the registers are preserved but not seen by the GC. *)
@@ -1739,6 +1741,7 @@ struct
                     StackOverflowCall   => memRegStackOverflowCall
                 |   StackOverflowCallEx => memRegStackOverflowCallEx
                 |   HeapOverflowCall    => memRegHeapOverflowCall
+                |   CallCodeTupleCall   => memRegCallcodeCall
         in
             genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), cvec)
         end
@@ -2084,6 +2087,7 @@ struct
                     StackOverflowCall => stream "StackOverflowCall"
                 |   HeapOverflowCall => stream "HeapOverflow"
                 |   StackOverflowCallEx => stream "StackOverflowCallEx"
+                |   CallCodeTupleCall => stream "CallCodeTupleCall"
             )
 
         |   AllocStore { size, output, ... } =>

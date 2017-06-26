@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1052,6 +1052,16 @@ struct
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(instr, context, isTail, destination)
+
+        |   codeToICode(BICBinary {oper=BuiltIns.CallCodeTupled, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val closureReg = newPReg() and tupleReg = newPReg()
+                val closureCode = codeToICodeTarget(arg1, context, false, closureReg)
+                val argCode = codeToICodeTarget(arg2, context, false, tupleReg)
+            in
+                (closureCode @ argCode @ [CallCode{closure=closureReg, arguments=tupleReg, dest=target}], RegisterArgument target, false)
+            end
         
         |   codeToICode(BICArbitrary {oper, shortCond, arg1, arg2, longCall}, context, _, destination) =
             let

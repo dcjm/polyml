@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,16 David C.J. Matthews
+    Copyright (c) 2012,13,16-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -142,6 +142,7 @@ struct
                     |   RealComparison _ => applicative
                         (* Real arithmetic operations depend on the current rounding setting. *)
                     |   RealArith _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   CallCodeTupled => 0w0 (* As EVAL. *)
 
             in
                 operProps andb codeProps arg1 andb codeProps arg2

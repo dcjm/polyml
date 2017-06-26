@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2016
+;  Copyright (c) David C. J. Matthews 2000-2017
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -190,5 +190,32 @@ X86AsmCallExtra&index&:
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+
+; Call a function where the arguments are passed as tuples.
+; The closure address is passed in edx and the argument tuple in esi.
+PUBLIC X86AsmCallcodeTupled
+X86AsmCallcodeTupled:
+    pop     edi                     ; Load the return address since we may add args.
+    mov     ecx,[-4+esi]            ; Load the length word
+    and     ecx,00ffffffH           ; Remove any tags in the top byte
+    mov     eax,1                   ; Default the argument to unit just in case
+    jecxz   xacct9
+    mov     eax,[esi]               ; Load the register arguments
+    add     esi,4
+    sub     ecx,1
+    jecxz   xacct9
+    mov     ebx,[esi]
+    add     esi,4
+    sub     ecx,1
+    jecxz   xacct9
+
+xacct1:                             ; Anything else goes on the stack
+    push    [esi]
+    add     esi,4
+    loop    xacct1
+
+xacct9:
+    push    edi                     ; Put the return address on the stack.
+    jmp     dword ptr [edx]         ; and jump to the function address in the closure.
 
 END

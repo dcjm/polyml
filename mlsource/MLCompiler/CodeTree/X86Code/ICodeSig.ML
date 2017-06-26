@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -286,6 +286,9 @@ sig
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
+
+        (* Call closure with arguments as a vector. *)
+    |   CallCode of { closure: 'reg, arguments: 'reg, dest: 'reg }
 
     val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: reg list,
             functionName: string, debugSwitches: Universal.universal list } -> address

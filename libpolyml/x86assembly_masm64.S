@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2016
+;  Copyright (c) David C. J. Matthews 2000-2017
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -58,7 +58,7 @@ UnusedAlign         DWORD   ?
 SaveCStack          QWORD   ?       ; Saved C stack frame
 ThreadId            QWORD   ?       ; My thread id
 StackPtr            QWORD   ?       ; Stack pointer
-UnusedProgramCtr    QWORD   ?
+CodecallTupleCall   QWORD   ?
 HeapOverFlowCall    QWORD   ?
 StackOverFlowCall   QWORD   ?
 StackOverFlowCallEx QWORD   ?
@@ -252,5 +252,45 @@ X86AsmCallExtra&index&:
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+
+; Call a function where the arguments are passed as tuples.
+; The closure address is passed in rdx and the argument tuple in rsi.
+PUBLIC X86AsmCallcodeTupled
+X86AsmCallcodeTupled:
+    pop     rdi                     ; Load the return address since we may add args.
+    mov     rcx,[-8+rsi]            ; Load the length word
+    shl     rcx,8                   ; Remove any tags in the top byte
+    shr     rcx,8
+    mov     rax,1                   ; Default the argument to unit just in case
+    jrcxz   xacct9
+    mov     rax,[rsi]               ; Load the register arguments
+    add     rsi,8
+    sub     rcx,1
+    jrcxz   xacct9
+    mov     rbx,[rsi]
+    add     rsi,8
+    sub     rcx,1
+    jrcxz   xacct9
+    mov     r8,[rsi]
+    add     rsi,8
+    sub     rcx,1
+    jrcxz   xacct9
+    mov     r9,[rsi]
+    add     rsi,8
+    sub     rcx,1
+    jrcxz   xacct9
+    mov     r10,[rsi]
+    add     rsi,8
+    sub     rcx,1
+    jrcxz   xacct9
+
+xacct1:                             ; Anything else goes on the stack
+    push    [rsi]
+    add     rsi,8
+    loop    xacct1
+
+xacct9:
+    push    rdi                     ; Put the return address on the stack.
+    jmp     qword ptr [rdx]         ; and jump to the function address in the closure.
 
 END

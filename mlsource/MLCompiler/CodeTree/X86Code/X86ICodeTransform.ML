@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -880,6 +880,17 @@ struct
                 pushRegisters(rest,
                     destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                         arg2Code @ arg1Code @ code, newContext)
+            end
+    
+        |   pushRegisters((CallCode { closure, arguments, dest }, _) :: rest, code, context) =
+            let
+                val (closVal, closCode) = mapSrcReg(closure, context)
+                val (argVal, argCode) = mapSrcReg(arguments, context)
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest,
+                    destCode @ CallCode{dest=destVal, closure=closVal, arguments=argVal} ::
+                        argCode @ closCode @ code, newContext)
             end
 
         and skipToLabel([], code) = code
@@ -2108,6 +2119,22 @@ struct
             end
     
         |   codeExtended((SSE2FPArith _, _) :: _, _) = raise InternalError "codeExtended - SSE2FPArith"
+        
+        |   codeExtended((CallCode{closure=PReg(cReg, _), arguments=PReg(aReg, _), dest=PReg(dReg, _)}, _) :: rest, context) =
+            let
+                val () = addRealHint(cReg, GenReg edx)
+                val () = addRealHint(aReg, GenReg esi)
+                val () = addRealHint(dReg, GenReg eax)
+                val code = codeExtended(rest, context)
+                val destReg = findRegister(dReg, SOME(GenReg eax), generalRegisters)
+                val realClosReg = findRegister(cReg, SOME(GenReg edx), generalRegisters)
+                val realArgReg = findRegister(aReg, SOME(GenReg esi), generalRegisters)
+            in
+                moveMultipleRegisters[
+                    {src=realClosReg, dst=GenReg edx}, {src=realArgReg, dst=GenReg esi}] @
+                    (CallCode{closure=GenReg edx, arguments=GenReg esi, dest=GenReg eax} ::
+                        moveIfNecessary{dst=destReg, src=GenReg eax}) @ code
+            end
 
     in
         codeExtended(identifiedCode, [])

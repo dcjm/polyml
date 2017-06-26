@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -263,6 +263,9 @@ struct
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
+
+        (* Call closure with arguments as a vector. *)
+    |   CallCode of { closure: 'reg, arguments: 'reg, dest: 'reg }
  
     local
 
@@ -633,7 +636,17 @@ struct
                 printArg(arg2, stream, printReg); stream " => ";
                 printReg(resultReg, stream)
             )
-            
+
+        |   printICode(CallCode {closure, arguments, dest}, stream, printReg) =
+            (
+                stream "\tCallCode\tclosure=";
+                printReg(closure, stream);
+                stream ",arguments=";
+                printReg(arguments, stream);
+                stream ",dest=";
+                printReg(dest, stream)
+            )
+
         fun printConcreteReg(reg, stream) = stream(regRepr reg)
 
         and printAbstractReg(PReg(i, PRegGeneral), stream) = stream("G" ^ Int.toString i)
@@ -1287,6 +1300,15 @@ struct
 
         |   codeGenICode(FloatFixedInt _ :: _, _) =
                 raise InternalError "codeGenICode: FloatFixedInt: TODO"
+        
+        |   codeGenICode(CallCode {closure, arguments, dest} :: rest, code) =
+            let
+                val _ = asGenReg closure = edx orelse raise InternalError "codeGenICode: CallCode closure not edx"
+                val _ = asGenReg arguments = esi orelse raise InternalError "codeGenICode: CallCode arguments not esi"
+                val _ = asGenReg dest = eax orelse raise InternalError "codeGenICode: CallCode destination not eax"
+            in
+                codeGenICode(rest, CallRTS {rtsEntry=CallCodeTupleCall, saveRegs=[]} :: code)
+            end
 
             (* ReserveContainer should have been removed by earlier passes. *)
         |   codeGenICode(ReserveContainer _ :: _, _) =

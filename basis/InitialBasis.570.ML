@@ -28,7 +28,7 @@ infix  0  before
 structure RunCall =
 struct
     open RunCall
-    (*val callCode: ('a -> 'b) * 'c -> 'b = fn _ => raise Fail "callCode not implemented"*)
+    val callCode: ('a -> 'b) * 'c -> 'b = fn _ => raise Fail "callCode not implemented"
 end;
 
 (* Types and values from the initial Bool structure. *)

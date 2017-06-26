@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -976,6 +976,26 @@ struct
 
         |   identify((instr as SSE2FPArith{resultReg, arg1, arg2, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
                 addSourcesAndDests(instr, rest, labels, loopLabels, loopNest, ccIn, sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg])
+
+        |   identify((instr as CallCode { closure, arguments, dest }) :: rest, labels, loopLabels, loopNest, ccIn) =
+            let
+                (* We use specific registers here. *)
+                val dReg = destReg dest
+                val cReg = sourceReg closure
+                val aReg = sourceReg arguments
+                val sources = [cReg, aReg]
+                val (tail, refLabels, resLoopLabels, _, currentRegs) =
+                    identify(rest, labels, loopLabels, loopNest, ccIn)
+                (* We must push everything. *)
+                val () =
+                    List.app(
+                        fn i => (if i = dReg then () else Array.update(regPushState, i, MustPush))) (setToList currentRegs)
+                (* Since the registers have been pushed we don't need to add them to the active set.
+                   The active set is just the arguments. *)
+                val () = addNewConflicts(emptySet, sources)
+            in
+                ((instr, sources) :: tail, refLabels, resLoopLabels, CCIndeterminate, removePushed(listToSet sources))
+            end
 
         val (decorated, _, resultLoop, _, _) = identify(icode, [], loopLabels, [], CCIndeterminate)
         
