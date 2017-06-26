@@ -287,3 +287,41 @@ INLINE_ROUTINE(X86AsmAtomicIncrement)
     movq    %rcx,%rax
     ret
 
+# Call a function where the arguments are passed as tuples.
+# The closure address is passed in rdx and the argument tuple in rsi.
+INLINE_ROUTINE(X86AsmCallcodeTupled)
+    pop     %rdi                    # Load the return address since we may add args.
+    movq    -8(%rsi),%rcx           # Load the length word
+    shlq    $8,%rcx                 # Remove any tags in the top byte
+    shrq    $8,%rcx
+    movq    $1,%rax                 # Default the argument to unit just in case
+    jrcxz   xacct9
+    movq    (%rsi),%rax             # Load the register arguments
+    addq    $8,%rsi
+    subq    $1,%rcx
+    jrcxz   xacct9
+    movq    (%rsi),%rbx
+    addq    $8,%rsi
+    subq    $1,%rcx
+    jrcxz   xacct9
+    movq    (%rsi),%r8
+    addq    $8,%rsi
+    subq    $1,%rcx
+    jrcxz   xacct9
+    movq    (%rsi),%r9
+    addq    $8,%rsi
+    subq    $1,%rcx
+    jrcxz   xacct9
+    movq    (%rsi),%r10
+    addq    $8,%rsi
+    subq    $1,%rcx
+    jrcxz   xacct9
+
+xacct1:                             # Anything else goes on the stack
+    push    (%rsi)
+    addq    $8,%rsi
+    loop    xacct1
+
+xacct9:
+    push    %rdi                    # Put the return address on the stack.
+    jmp     *(%rdx)                 # and jump to the function address in the closure.
