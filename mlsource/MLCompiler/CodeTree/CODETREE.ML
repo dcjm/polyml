@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15-16 David C.J. Matthews
+    Copyright (c) 2012,13,15-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,6 +40,8 @@ sig
     structure Sharing: sig type codetree = codetree and envSpecial = envSpecial and codeBinding = codeBinding end
 end
 
+structure INTERPRETER: CodetreeInterpreterSig
+
 sharing type
     PRETTY.pretty
 =   BASECODETREE.pretty
@@ -49,6 +51,7 @@ sharing
 =   CODETREE_FUNCTIONS.Sharing
 =   BACKEND.Sharing
 =   OPTIMISER.Sharing
+=   INTERPRETER.Sharing
 
 ) : CODETREESIG =
 struct
@@ -112,6 +115,16 @@ struct
        maximum local address used. *)
 
     fun genCode(pt, debugSwitches, numLocals) =
+    if not (DEBUG.getParameter DEBUG.optimisationTag debugSwitches)
+    then (* Construct code to use the interpreter. *)
+    let
+        val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
+        and compilerOut        = PRETTY.getCompilerOutput debugSwitches
+        val () = if printCodeTree then compilerOut(pretty pt) else ()
+    in
+        fn () => Constnt(INTERPRETER.interpret(pt, numLocals), [])
+    end
+    else
     let
         val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
         and compilerOut        = PRETTY.getCompilerOutput debugSwitches

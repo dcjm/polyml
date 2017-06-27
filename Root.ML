@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2010, 2015-16 David C. J. Matthews
+    Copyright (c) 2009, 2010, 2015-17 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -43,7 +43,9 @@ use "mlsource/MLCompiler/CodeTree/BackendIntermediateCodeSig.sml";
 use "mlsource/MLCompiler/CodeTree/BaseCodeTreeSig.sml";
 use "mlsource/MLCompiler/CodeTree/CodetreeFunctionsSig.sml";
 use "mlsource/MLCompiler/CodeTree/CodegenTreeSig.sml";
+use "mlsource/MLCompiler/CodeTree/CodetreeInterpreterSig.sml";
 use "mlsource/MLCompiler/Codetree/GENCODESIG.sml";
+use "mlsource/MLCompiler/CodeTree/CODETREE_INTERPRETER.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_FUNCTIONS.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_STATIC_LINK_AND_CASES.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_CODEGEN_CONSTANT_FUNCTIONS.sml";

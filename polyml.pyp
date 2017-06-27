@@ -108,12 +108,14 @@
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_CODEGEN_CONSTANT_FUNCTIONS.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_FUNCTIONS.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\CODETREE_INTERPRETER.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_LAMBDA_LIFT.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_OPTIMISER.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_REMOVE_REDUNDANT.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_SIMPLIFIER.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_STATIC_LINK_AND_CASES.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CodetreeFunctionsSig.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\CodetreeInterpreterSig.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\GCode.i386.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\GCode.interpreted.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\GCode.x86_64.ML" />

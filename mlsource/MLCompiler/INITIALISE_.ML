@@ -376,7 +376,7 @@ struct
                     mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit)
             (* Callcode tupled. *)
             val () = enterRunCall ("callCode",
-                        makePolymorphic([a, b, c], mkBinaryFn CallCodeTupled), (a ->> b) ** c (* Probably should be vector. *) ->> b)
+                        makePolymorphic([a, b, c], mkBinaryFn CallCodeTupled), a ** b (* Probably should be vector. *) ->> c)
         end
 
         local

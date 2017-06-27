@@ -60,6 +60,12 @@ local
             and         PRETTY              = Pretty
             and         DEBUG               = Debug
         )
+   
+    structure CodetreeInterpreter =
+        CODETREE_INTERPRETER(
+            structure BASECODETREE = BaseCodeTree
+            structure BACKEND = CodetreeCodegenConstantFns
+        )
 
     structure CodetreeRemoveRedundant =
         CODETREE_REMOVE_REDUNDANT(
@@ -84,7 +90,7 @@ local
             structure REMOVE_REDUNDANT = CodetreeRemoveRedundant
             structure SIMPLIFIER    = CodetreeSimplifier
         )
-
+ 
 in
     structure CodeTree = 
         CODETREE (
@@ -94,6 +100,7 @@ in
             structure CODETREE_FUNCTIONS = CodetreeFunctions
             structure BACKEND = CodetreeCodegenConstantFns
             structure OPTIMISER     = CodetreeOptimiser
+            structure INTERPRETER   = CodetreeInterpreter
         )
 end;
 
