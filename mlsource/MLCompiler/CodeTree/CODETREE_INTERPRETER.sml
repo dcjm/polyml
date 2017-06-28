@@ -15,6 +15,8 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+(* Interpreter for codetree. *)
+
 functor CODETREE_INTERPRETER(
 
     structure BASECODETREE: BaseCodeTreeSig
@@ -38,6 +40,10 @@ functor CODETREE_INTERPRETER(
 struct
     open BASECODETREE
     open Address
+    open BuiltIns
+    
+    val word0 = toMachineWord 0
+    and word1 = toMachineWord 1
     
     type context =
     {
@@ -51,72 +57,67 @@ struct
 
     val F_mutable_words : Word8.word = Word8.orb (F_words, F_mutable)
     
-    val check = true
+    exception LoopAgain of machineWord list
 
     (* We need different versions of this each number of arguments. *)
-    
-    fun createFunctionCode nArgs =
-    let
+    local
+        fun createFunctionCode nArgs =
+        let
         
-        val code =
-            Lambda {
-                body =
+            val code =
                 Lambda {
                     body =
-                        Eval {
-                            function = Extract(LoadClosure 0),
-                            argList = [
-                                (
-                                    Tuple {
-                                        fields = [
-                                            Extract LoadRecursive,
-                                            Tuple {
-                                                fields = List.tabulate(nArgs, fn n => Extract (LoadArgument n)),
-                                                isVariant = false
-                                            }
-                                        ],
-                                        isVariant = false
-                                    } ,
-                                GeneralType)
-                            ],
-                            resultType = GeneralType
+                    Lambda {
+                        body =
+                            Eval {
+                                function = Extract(LoadClosure 0),
+                                argList = [
+                                    (
+                                        Tuple {
+                                            fields = [
+                                                Extract LoadRecursive,
+                                                if nArgs = 0
+                                                then Constnt(word0, [])
+                                                else Tuple {
+                                                    fields = List.tabulate(nArgs, fn n => Extract (LoadArgument n)),
+                                                    isVariant = false
+                                                }
+                                            ],
+                                            isVariant = false
+                                        } ,
+                                    GeneralType)
+                                ],
+                                resultType = GeneralType
+                            },
+                        isInline = NonInline,
+                        name = "function1()()",
+                        closure = [LoadArgument 0],
+                        argTypes = List.tabulate (nArgs, fn _ => (GeneralType, [])),
+                        resultType = GeneralType,
+                        localCount = 0,
+                        recUse = []
                         },
                     isInline = NonInline,
-                    name = "function1()()",
-                    closure = [LoadArgument 0],
-                    argTypes = List.tabulate (nArgs, fn _ => (GeneralType, [])),
+                    name = "function1()",
+                    closure = [],
+                    argTypes = [(GeneralType, [])], (* Argument is the interpreter function. *)
                     resultType = GeneralType,
                     localCount = 0,
                     recUse = []
-                    },
-                isInline = NonInline,
-                name = "function1()",
-                closure = [],
-                argTypes = [(GeneralType, [])], (* Argument is the interpreter function. *)
-                resultType = GeneralType,
-                localCount = 0,
-                recUse = []
-                }
-        val (compileCode, _) = BACKEND.codeGenerate(code, 0, [])
-        val buildCode = compileCode()
+                    }
+            val (compileCode, _) = BACKEND.codeGenerate(code, 0, [])
+            val buildCode = compileCode()
+        in
+            RunCall.unsafeCast buildCode : (machineWord * machineWord vector -> machineWord) -> machineWord -> machineWord
+        end
+
+        val functionTable = Vector.tabulate(20, fn i => createFunctionCode i)
+
     in
-        RunCall.unsafeCast buildCode : (machineWord * machineWord vector -> machineWord) -> machineWord -> machineWord
+        fun createFunction n =
+            Vector.sub(functionTable, n)
+                handle Subscript => raise InternalError ("TODO: Function code for " ^ Int.toString n ^ " args")
     end
-
-    val function1 = createFunctionCode 1
-    val function2 = createFunctionCode 2
-    val function3 = createFunctionCode 3
-    val function4 = createFunctionCode 4
-    val function5 = createFunctionCode 5
-    val function6 = createFunctionCode 6
-
-    fun createFunction 1 = function1
-    |   createFunction 2 = function2
-    |   createFunction 3 = function3
-    |   createFunction 4 = function4
-    |   createFunction 5 = function5
-    |   createFunction 6 = function6
-    |   createFunction n = raise InternalError ("TODO: Function code for " ^ Int.toString n ^ " args")
     
     fun interpretCode (context as { locals, ...} : context) (Newenv(decs, exp)) =
         let
@@ -127,7 +128,7 @@ struct
                 let
                     (* Allocate each closure and set the values in the local table. *)
                     val closures =
-                        List.map (fn {lambda={closure, ...}, ...} => Array.array(List.length closure, toMachineWord 0)) l
+                        List.map (fn {lambda={closure, ...}, ...} => Array.array(List.length closure, word0)) l
                     fun createFunction({addr, lambda={argTypes, body, localCount, ...}, ...}, clArray) =
                     let
                         val fnCode = toMachineWord(getFunctionCode(List.length argTypes) (localCount, clArray, body))
@@ -151,7 +152,13 @@ struct
 
             |   processBinding(NullBinding exp) = ignore (interpretCode context exp)
 
-            |   processBinding(Container{addr, use, size, setter}) = raise Fail "TODO - Container"
+            |   processBinding(Container{addr, size, setter, ...}) =
+                let
+                    val vec : address = allocWordData(Word.fromInt size, F_mutable_words, word0)
+                    val () = Array.update(locals, addr, SOME(toMachineWord vec))
+                in
+                    ignore (interpretCode context setter)
+                end
         in
             List.app processBinding decs;
             interpretCode context exp
@@ -165,28 +172,50 @@ struct
         let
             val b = interpretCode context base
         in
-            if check andalso (isShort b
-                orelse not (Address.isWords (toAddress b))
-                orelse Address.length (toAddress b) <= Word.fromInt offset)
-            then raise InternalError "interpretCode - check"
-            else loadWord (toAddress b, Word.fromInt offset)
+            loadWord (toAddress b, Word.fromInt offset)
         end
 
     |   interpretCode context (Eval { function, argList, ... }) =
         let
             val fVal = interpretCode context function
+            (* TODO: If we have compiled a functor with inlineFunctor set then
+               the constant value will be zero.  This will only happen if the
+               functor was not compiled with optimisation off but the application
+               of the functor was. *)
             val args = List.map(fn (c, _) => interpretCode context c) argList
+            val _ = isShort fVal andalso raise InternalError "Eval - not a function"
         in
             RunCall.callCode(fVal, Vector.fromList args)
         end
 
     |   interpretCode _ GetThreadId = raise InternalError "TODO GetThreadId"
 
+    |   interpretCode context (Unary { oper=NotBoolean, arg1 }) =
+            if PolyML.pointerEq(interpretCode context arg1, word1)
+            then word0
+            else word1
+
+    |   interpretCode context (Unary { oper=IsTaggedValue, arg1 }) =
+            if isShort(interpretCode context arg1)
+            then word1
+            else word0
+
     |   interpretCode context (Unary { oper, arg1 }) =
-            raise InternalError "TODO Unary"
+            raise InternalError ("TODO Unary - " ^ unaryRepr oper)
+
+    |   interpretCode context (Binary { oper=WordComparison{test=TestEqual, isSigned=false}, arg1, arg2 }) =
+        let
+            (* This is used for pointer equality as well as unsigned word. *)
+            val arg1Val = interpretCode context arg1
+            and arg2Val = interpretCode context arg2
+        in
+            if PolyML.pointerEq(arg1Val, arg2Val)
+            then word1
+            else word0
+        end
 
     |   interpretCode context (Binary { oper, arg1, arg2 }) =
-            raise InternalError "TODO Binary"
+            raise InternalError ("TODO Binary - " ^ binaryRepr oper)
 
     |   interpretCode context (Arbitrary { oper, shortCond, arg1, arg2, longCall }) =
             raise InternalError "TODO Arbitrary"
@@ -216,22 +245,49 @@ struct
             else interpretCode context t
         end
 
-    |   interpretCode context (BeginLoop{loop, arguments}) =
-            raise InternalError "TODO BeginLoop"
+    |   interpretCode (context as { locals, ...}) (BeginLoop{loop, arguments}) =
+        let
+            val () =
+                List.app(fn ({addr, value, ...}, _) => Array.update(locals, addr, SOME(interpretCode context value)))
+                    arguments
+            fun runLoop () =
+                interpretCode context loop
+                    handle LoopAgain args =>
+                    (
+                        ListPair.app(fn (({addr, ...}, _), argVal) =>
+                                Array.update(locals, addr, SOME argVal))
+                            (arguments, args);
+                        runLoop()
+                    )
+        in
+            runLoop()
+        end
 
     |   interpretCode context (Loop l) =
-            raise InternalError "TODO Loop"
+            raise LoopAgain (List.map (fn (v, _) => interpretCode context v) l)
 
     |   interpretCode context (Raise r) =
-            raise InternalError "TODO Raise"
+        let
+            val packet: exn = RunCall.unsafeCast(interpretCode context r)
+        in
+            PolyML.Exception.reraise packet
+        end
 
-    |   interpretCode context (Handle{exp, handler, exPacketAddr}) =
-            raise InternalError "TODO Handle"
+    |   interpretCode (context as {locals, ...}) (Handle{exp, handler, exPacketAddr}) =
+        (
+            interpretCode context exp
+                handle exn =>
+                let
+                    val () = Array.update(locals, exPacketAddr, SOME(toMachineWord exn))
+                in
+                    interpretCode context handler
+                end
+        )
 
     |   interpretCode context (Tuple { fields, ...}) =
         let
             val tupleSize = List.length fields
-            val vec : address = allocWordData(Word.fromInt tupleSize, F_mutable_words, toMachineWord 0)
+            val vec : address = allocWordData(Word.fromInt tupleSize, F_mutable_words, word0)
             fun setFields(field::fields, n) =
                 (assignWord (vec, n, interpretCode context field); setFields(fields, n + 0w1))
             |   setFields([], _) = ()
@@ -242,19 +298,73 @@ struct
         end
 
     |   interpretCode context (SetContainer{container, tuple, filter}) =
-            raise InternalError "TODO SetContainer"
+        let
+            (* Generally the source is a tuple and the code-generator
+               recognises this as a special case.  It's not worth it here. *)
+            val cAddr = toAddress(interpretCode context container)
+            val sourceAddr = toAddress(interpretCode context tuple)
+            val filterLength = BoolVector.length filter
 
-    |   interpretCode context (TagTest{test, tag, maxTag}) =
-            raise InternalError "TODO TagTest"
+            fun copyContainer(sourceWord, destWord) =
+                if sourceWord = filterLength
+                then ()
+                else if BoolVector.sub(filter, sourceWord)
+                then
+                let
+                    val fieldVal = loadWord (sourceAddr, Word.fromInt sourceWord)
+                in
+                    assignWord (cAddr, destWord, fieldVal);
+                    copyContainer(sourceWord+1, destWord+0w1)
+                end
+                else copyContainer(sourceWord+1, destWord)
+            val () = copyContainer(0, 0w0)
+        in
+            word0 (* Not used. *)
+        end
+
+    |   interpretCode context (TagTest{test, tag, ...}) =
+        let
+            val tVal = interpretCode context test
+        in
+            if PolyML.pointerEq(tVal, toMachineWord tag)
+            then word1
+            else word0
+        end
+
+    |   interpretCode context (LoadOperation{kind=LoadStoreMLWord _, address={base, index, offset}}) =
+        let
+            val bAddr = toAddress(interpretCode context base)
+            val iAddr =
+                case index of NONE => 0w0 | SOME ndx => toShort(interpretCode context ndx)
+        in
+            loadWord(bAddr, iAddr+offset)
+        end
+
+    |   interpretCode context (LoadOperation{kind=LoadStoreMLByte _, address}) =
+            raise InternalError "TODO LoadOperation - LoadStoreMLByte"
 
     |   interpretCode context (LoadOperation{kind, address}) =
             raise InternalError "TODO LoadOperation"
 
+    |   interpretCode context (StoreOperation{kind=LoadStoreMLWord _, address={base, index, offset}, value}) =
+        let
+            val bAddr = toAddress(interpretCode context base)
+            val iAddr =
+                case index of NONE => 0w0 | SOME ndx => toShort(interpretCode context ndx)
+            val vVal = interpretCode context value
+            val () = assignWord(bAddr, iAddr+offset, vVal)
+        in
+            word0
+        end
+
+    |   interpretCode context (StoreOperation{kind=LoadStoreMLByte _, address, value}) =
+            raise InternalError "TODO StoreOperation - LoadStoreMLByte"
+
     |   interpretCode context (StoreOperation{kind, address, value}) =
-            raise InternalError "TODO SetContainer"
+            raise InternalError "TODO StoreOperation"
 
     |   interpretCode context (BlockOperation{kind, sourceLeft, destRight, length}) =
-            raise InternalError "TODO SetContainer"
+            raise InternalError "TODO BlockOperation"
 
     and interpretExtract { args, ...} (LoadArgument a) = Vector.sub(args, a)
     |   interpretExtract { locals, ...} (LoadLocal addr) = valOf(Array.sub(locals, addr))
