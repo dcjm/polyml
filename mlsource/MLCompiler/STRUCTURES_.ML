@@ -2969,7 +2969,10 @@ struct
                         val matchedCode = applyMatchActions(strLoad, matchToResult, getIds, mkAddr, level)
                     in
                         val functorCode = (* The function that implements the functor. *)
-                            (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
+                            (* We have to turn off inline functors if we are not optimising. *)
+                            (if getParameter inlineFunctorsTag (debugParams lex)
+                                andalso getParameter optimisationTag (debugParams lex)
+                             then mkMacroProc else mkProc)
                                 (mkEnv(mkDec(localAddr, mkLoadArgument 0) :: (fBindDebugDecs @ strCode), matchedCode),
                                 1, name, getClosure level, mkAddr 0)
                     end
