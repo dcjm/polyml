@@ -3981,7 +3981,7 @@ struct
                     safeIndex @
                         [tagValue{source=destReg, output=destReg},
                          LoadByteR{source=BaseOffset{base=base, offset=0, index=Index1 indexR}, output=destReg},
-                         ShiftConstant{shiftType=SRL, output=indexR, shift=0w1} (* Untag. *)]
+                         ShiftConstant{shiftType=SHR, output=indexR, shift=0w1} (* Untag. *)]
                 end
 
             |   genLoadInstr _ _ = raise InternalError "genLoadInstr"
@@ -4031,7 +4031,7 @@ struct
                     val (untagIndex, retagIndex) =
                         case index of
                             InRegister indexReg =>
-                                ([ShiftConstant{shiftType=SRL, output=asGenReg indexReg, shift=0w1}],
+                                ([ShiftConstant{shiftType=SHR, output=asGenReg indexReg, shift=0w1}],
                                  [tagValue{source=asGenReg indexReg, output=asGenReg indexReg }])
                         |   _ => ([], [])
                     val address =
@@ -4052,7 +4052,7 @@ struct
                             [
                                 tagValue{source=toStore, output=toStore },
                                 StoreByteRegToMemory{ toStore=toStore, address=address },
-                                ShiftConstant{shiftType=SRL, output=toStore, shift=0w1}(* Untag value to store *)
+                                ShiftConstant{shiftType=SHR, output=toStore, shift=0w1}(* Untag value to store *)
                             ] @ untagIndex
                     |   LiteralSource toStore =>
                             retagIndex @
@@ -4117,7 +4117,7 @@ struct
                             (* If it's in a register untag it, add it and then retag. *)
                             tagValue{ source=offsetReg, output=offsetReg},
                             ArithRR{ opc=ADD, output=baseReg, source=offsetReg },
-                            ShiftConstant{ shiftType=SRL, output=offsetReg, shift=0w1}
+                            ShiftConstant{ shiftType=SHR, output=offsetReg, shift=0w1}
                         ]
                         |   getOffset(LiteralSource lit, baseReg) =
                             let
@@ -4131,7 +4131,7 @@ struct
                     [MakeSafe ecx, MakeSafe esi, MakeSafe edi, RepeatOperation MOVSB] @
                     getOffset(destOffset, edi) @ getOffset(sourceOffset, esi) @
                     (* Untag the length. *)
-                    [ShiftConstant{ shiftType=SRL, output=ecx, shift=0w1}]
+                    [ShiftConstant{ shiftType=SHR, output=ecx, shift=0w1}]
                 end
 
             |   byteMemMove _ = raise InternalError "byteMemMove"
@@ -4156,7 +4156,7 @@ struct
                     [MakeSafe ecx, MakeSafe esi, MakeSafe edi, RepeatOperation MOVSL] @
                     getOffset(destOffset, edi) @ getOffset(sourceOffset, esi) @
                     (* Untag the length. *)
-                    [ShiftConstant{ shiftType=SRL, output=ecx, shift=0w1}]
+                    [ShiftConstant{ shiftType=SHR, output=ecx, shift=0w1}]
                 end
             |   wordMemMove _ = raise InternalError "wordMemMove"
 
@@ -4441,7 +4441,7 @@ struct
                             (* If it's in a register untag it, add it and then retag. *)
                             tagValue{ source=offsetReg, output=offsetReg },
                             ArithRR{opc=ADD, output=baseReg, source=offsetReg},
-                            ShiftConstant{shiftType=SRL, output=offsetReg, shift=0w1}
+                            ShiftConstant{shiftType=SHR, output=offsetReg, shift=0w1}
                         ]
                     |   getOffset(LiteralSource lit, baseReg) =
                         let
@@ -4460,7 +4460,7 @@ struct
                         MakeSafe edi,
                         RepeatOperation CMPSB, (* Compare the bytes. *)
                         ArithRR{opc=CMP, output=ecx, source=ecx}, (* Set the Z flag before we start. *)
-                        ShiftConstant{shiftType=SRL, output=ecx, shift=0w1} (* Untag the length. *)
+                        ShiftConstant{shiftType=SHR, output=ecx, shift=0w1} (* Untag the length. *)
                     ] @ getOffset(offset2, edi) @ getOffset(offset1, esi)
                 end
 
@@ -4765,7 +4765,7 @@ struct
                 [
                     tagValue{ source=length, output=length }, (* Retag it *)
                     StoreRegToMemory{ toStore=length, address=BaseOffset{offset=0, base=base, index=NoIndex }},
-                    ShiftConstant{shiftType=SRL, output=length, shift=0w1 } (* Untag it *)
+                    ShiftConstant{shiftType=SHR, output=length, shift=0w1 } (* Untag it *)
                 ]
             |   genSetStringLength _ = raise InternalError "genSetStringStringLength"
         in
@@ -5020,7 +5020,7 @@ struct
 
             fun genConstShift(_, 0w0) _ = [] (* Zero shifts do nothing *)
 
-            |   genConstShift(SLL, shift) (_, SOME(GenReg reg)) =
+            |   genConstShift(SHL, shift) (_, SOME(GenReg reg)) =
                     (* Left shift. Use LEAL for some cases otherwise perform the
                        shift and then subtract 1 << shift -1.  This removes the existing shifted
                        tag and sets the bottom bit. *)
@@ -5036,27 +5036,27 @@ struct
                             if shift < 0w32
                             then (* Can remove the shifted tag and set the new tag. *)
                                 [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
-                                 ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift}]
+                                 ShiftConstant{shiftType=SHL, output=reg, shift=wordToWord8 shift}]
                             else (* 64-bit only.  If the shift is more than 32 bits we remove the
                                     tag beforehand and put it back afterwards. *)
                                 [ArithRConst{opc=OR, output=reg, source=1 },
-                                 ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift},
+                                 ShiftConstant{shiftType=SHL, output=reg, shift=wordToWord8 shift},
                                  ArithRConst{opc=SUB, output=reg, source=1 }]
                     )
 
-            |   genConstShift(SRL, shift) (_, SOME(GenReg reg)) = (* Right logical shift. *)
+            |   genConstShift(SHR, shift) (_, SOME(GenReg reg)) = (* Right logical shift. *)
                     if shift > maxShift
                     then [MoveConstR{source=tag 0, output=reg}](* This is defined to return zero. *)
                     else (* The original tag will have been shifted out but we have to
                             set the bottom bit as the tag. *)
                         [ArithRConst{opc=OR, output=reg, source=1 },
-                          ShiftConstant{shiftType=SRL, output=reg, shift=wordToWord8 shift}]
+                          ShiftConstant{shiftType=SHR, output=reg, shift=wordToWord8 shift}]
 
-            |   genConstShift(SRA, shift) (_, SOME(GenReg reg)) = (* Right shifts absorb the tag. *)
+            |   genConstShift(SAR, shift) (_, SOME(GenReg reg)) = (* Right shifts absorb the tag. *)
                     (* If the shift is more than the word length this returns 0 for positive values
                        and all ones for negative.  We just limit the shift to 31/63. *)
                     [ArithRConst{opc=OR, output=reg, source=1 },
-                     ShiftConstant{shiftType=SRA, output=reg,
+                     ShiftConstant{shiftType=SAR, output=reg,
                         shift=wordToWord8(Word.min(maxShift, shift))}]
 
             |   genConstShift _ _ = raise InternalError "genConstShift"
@@ -5075,7 +5075,7 @@ struct
                         MakeSafe ecx, (* ecx may be invalid. *)
                         ArithRConst{ opc=OR, output=reg, source= 1 }, (* Set dest tag. *)
                         ShiftVariable { shiftType=shift, output=reg }, (* Do the shift *)
-                        ShiftConstant{shiftType=SRL, output=ecx, shift=0w1}(* Untag ecx *)
+                        ShiftConstant{shiftType=SHR, output=ecx, shift=0w1}(* Untag ecx *)
                     ] @ forwardJumpLabel lab @
                     [ MoveConstR{ source=tag(Word.toLargeInt maxShift), output=ecx } ] @ test @
                     [ ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toLargeInt maxShift) }
@@ -5084,7 +5084,7 @@ struct
                         (* If this is a left shift we have to remove the tag.  That isn't needed
                            for right shifts.  Use a subtraction because we may be able to merge
                            this with preceding operations. *)
-                        case shift of SLL => [ArithRConst{ opc=SUB, output=reg, source= 1}]
+                        case shift of SHL => [ArithRConst{ opc=SUB, output=reg, source= 1}]
                         |   _ => []
                     )
                 end
@@ -5141,14 +5141,14 @@ struct
                 ArithRConst{opc=ADD, output=eax, source=1},
                 Group3Ops(edx, MUL),
                 (* Shift down the multiplier. *)
-                ShiftConstant{shiftType=SRL, output=edx, shift=0w1 },
+                ShiftConstant{shiftType=SHR, output=edx, shift=0w1 },
                 (* Untag, but don't shift the multiplicand. *)
                 ArithRConst{opc=SUB, output=eax, source=1}
             ]
          in
             fun upShiftWordConstant(arg, shift, transtable, whereto) =
             let
-                val (opRes, opCode) = constantShift (SLL, shift) (transtable, [arg], whereto)
+                val (opRes, opCode) = constantShift (SHL, shift) (transtable, [arg], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
@@ -5156,14 +5156,14 @@ struct
             fun upShiftWordVariable(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
-                val (opRes, opCode) = variableShift SLL (transtable, args, whereto)
+                val (opRes, opCode) = variableShift SHL (transtable, args, whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun downShiftWordConstant(arg, shift, transtable, whereto) =
             let
-                val (opRes, opCode) = constantShift (SRL, shift) (transtable, [arg], whereto)
+                val (opRes, opCode) = constantShift (SHR, shift) (transtable, [arg], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
@@ -5171,14 +5171,14 @@ struct
             fun downShiftWordVariable(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
-                val (opRes, opCode) = variableShift SRL (transtable, args, whereto)
+                val (opRes, opCode) = variableShift SHR (transtable, args, whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun downShiftWordArithmeticConstant(arg, shift, transtable, whereto) =
             let
-                val (opRes, opCode) = constantShift (SRA, shift) (transtable, [arg], whereto)
+                val (opRes, opCode) = constantShift (SAR, shift) (transtable, [arg], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
@@ -5186,7 +5186,7 @@ struct
             fun downShiftWordArithmeticVariable(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
-                val (opRes, opCode) = variableShift SRA (transtable, args, whereto)
+                val (opRes, opCode) = variableShift SAR (transtable, args, whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
@@ -5216,7 +5216,7 @@ struct
                         [
                             SignedMultiply{source=m2, output=m1},
                             (* Shift down the multiplier. *)
-                            ShiftConstant{shiftType=SRA, output=m2, shift=0w1 },
+                            ShiftConstant{shiftType=SAR, output=m2, shift=0w1 },
                             (* Untag, but don't shift the multiplicand. *)
                             ArithRConst{opc=SUB, output=m1, source=1}
                         ]
@@ -5359,9 +5359,9 @@ struct
                         then (* Initialise it as bytes. *)
                             [MakeSafe eax, RepeatOperation STOSB,
                              (* Untag the initialiser in eax. *)
-                             ShiftConstant{ shiftType=SRL, output=eax, shift=0w1},
+                             ShiftConstant{ shiftType=SHR, output=eax, shift=0w1},
                              (* Convert the length, which is in words, to bytes. *)
-                             ShiftConstant{shiftType=SLL, output=ecx,
+                             ShiftConstant{shiftType=SHL, output=ecx,
                                 shift=if wordSize=4 then 0w2 else 0w3}]
                         else [RepeatOperation STOSL]
                     val filteredSave = List.filter (fn r => r <> edi) saveRegs
@@ -5381,7 +5381,7 @@ struct
                         StoreRegToMemory{toStore=ecx,
                             address=BaseOffset{base=edi, offset= ~wordSize, index=NoIndex}},
                         (* It's now safe to untag ecx *)
-                        ShiftConstant{ shiftType=SRL, output=ecx, shift=0w1},
+                        ShiftConstant{ shiftType=SHR, output=ecx, shift=0w1},
                         (* Allocate the memory *)
                         AllocStoreVariable{output=edi, saveRegs=filteredSave},
                         (* Compute the number of bytes into edi. The length in ecx is the number
