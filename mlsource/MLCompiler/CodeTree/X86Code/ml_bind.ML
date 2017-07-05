@@ -41,6 +41,24 @@ local
             structure X86CODE       = X86OutputCode
             structure X86OPTIMISE   = X86Optimise
         )
+
+    structure X86OldCodeCons =
+        X86FIRST_STAGE(
+            structure X86CODE = X86OutputCode
+            structure X86OPTIMISE = X86Optimise
+    	    structure DEBUG    = Debug
+    	    structure MISC     = Misc
+    	    structure PRETTY   = Pretty
+        )
+
+    structure X86OldCodeGen =
+        GENERATE_CODE(
+            structure CODECONS = X86OldCodeCons
+            structure BACKENDTREE   = BackendIntermediateCode
+            structure DEBUG         = Debug
+            structure X86FOREIGN    = X86ForeignCall
+        )
+
 in
 
     structure X86Code = 
@@ -49,6 +67,7 @@ in
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
             structure X86FOREIGN    = X86ForeignCall
+            structure X86OLDCODEGEN = X86OldCodeGen
         )
 
 end;

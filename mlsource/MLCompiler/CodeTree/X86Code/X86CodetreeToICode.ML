@@ -20,6 +20,9 @@ functor X86CodetreeToICode(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
     structure X86FOREIGN: FOREIGNCALLSIG
+    structure X86OLDCODEGEN : GENCODESIG
+    sharing BACKENDTREE.Sharing = X86OLDCODEGEN.Sharing
+    
 ): GENCODESIG =
 struct
     open BACKENDTREE
@@ -584,6 +587,8 @@ struct
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure
     end
+    
+    val gencodeLambda = X86OLDCODEGEN.gencodeLambda
     
     structure Foreign = X86FOREIGN
     
