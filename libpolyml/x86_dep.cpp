@@ -675,11 +675,30 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
     ASSERT(newp == ((PolyWord*)new_stack)+new_length);
 }
 
-
-// Store a constant in the code segment.  This has to be handled specially because
-// the constant is probably an address.
+// Set code constant.  This can be a fast call.  The only reason it is in the RTS is
+// to ensure that there is no possibility of a GC while the individual bytes are being
+// copied.
 // At the moment this assumes we're dealing with a 32-bit constant on a 32-bit machine
 // and a 64-bit constant on a 64-bit machine.
+
+POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c, PolyWord flags)
+{
+    // pointer is the start of the code segment.
+    // c will usually be an address.
+    // offset is a byte offset
+    pointer += offset.UnTaggedUnsigned();
+    if (flags == TAGGED(1))
+        c -= (POLYUNSIGNED)(pointer + sizeof(PolyWord)); // Relative address.  Relative to AFTER the pointer.
+    // Store the value into the code.  It can be on an arbitrary alignment.
+    for (unsigned i = 0; i < sizeof(PolyWord); i++)
+    {
+        pointer[i] = (byte)(c & 255); 
+        c >>= 8;
+    }
+    return TAGGED(0).AsUnsigned();
+}
+
+// Legacy RTS call version.
 static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
 {
     POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORD(offseth)); // Byte offset
@@ -1764,3 +1783,19 @@ void X86TaskData::AtomicReset(Handle mutexp)
 static X86Dependent x86Dependent;
 
 MachineDependent *machineDependent = &x86Dependent;
+
+static struct _entrypts entryPtTable[] =
+{
+    { "PolySetCodeConstant",              (polyRTSFunction)&PolySetCodeConstant},
+
+    { NULL, NULL} // End of list.
+};
+
+class X86Module: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static X86Module timingModule;

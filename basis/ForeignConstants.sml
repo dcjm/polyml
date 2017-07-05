@@ -24,9 +24,9 @@ struct
     local
         fun getSizeAndAlign (n: int) =
         let
-            val ffiType = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (52, n)
+            val ffiType = Compat560.ffiGeneral (52, n)
             val (size: word, align: word, _, _) = (* Just get the first two fields. *)
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (53, ffiType)
+                Compat560.ffiGeneral (53, ffiType)
         in
             {size=size, align=align}
         end
@@ -54,8 +54,8 @@ struct
     end
     
     val bigEndian : bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian ()
-    val wordSize : word = RunCall.run_call0 RuntimeCalls.POLY_SYS_bytes_per_word ()
+    val wordSize : word = RunCall.bytesPerWord
     
     (* Minimum argument size. *)
-    val ffiMinArgSize: Word.word = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (51, 15)
+    val ffiMinArgSize: Word.word = Compat560.ffiGeneral (51, 15)
 end;

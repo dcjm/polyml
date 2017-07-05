@@ -112,10 +112,8 @@ PolyWord PECOFFExport::createRelocation(PolyWord p, void *relocAddr)
     return PolyWord::FromUnsigned(offset);
 }
 
-#ifdef POLY_LINKAGE_PREFIX
-#define PLTOSTRING1(x) #x
-#define PLTOSTRING(x) PLTOSTRING1(x)
-#define POLY_PREFIX_STRING PLTOSTRING(POLY_LINKAGE_PREFIX)
+#ifdef SYMBOLS_REQUIRE_UNDERSCORE
+#define POLY_PREFIX_STRING "_"
 #else
 #define POLY_PREFIX_STRING ""
 #endif
@@ -392,6 +390,7 @@ void PECOFFExport::exportStore(void)
             writeSymbol(buff, 0, i+1, false);
         }
     }
+
     // Exported symbol for table.
     writeSymbol("poly_exports", 0, memTableEntries+1, true);
 

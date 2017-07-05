@@ -41,7 +41,7 @@ struct
 
     (* This is used for newly added functions in the Standard Basis. *)
     fun callReal (code: int) args =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_Dispatch (code,args);
+        Compat560.realGeneral (code,args);
 
     fun setRoundingMode (r: rounding_mode) : unit =
     let

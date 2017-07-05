@@ -284,6 +284,21 @@ struct
             (* Load a word from an immutable.  *)
             val () = enterRunCall ("loadWordFromImmutable",
                     makePolymorphic([a, b], mkBuiltIn2Fn(LoadWord{isImmutable=true})), a ** Word ->> b)
+            (* load a byte. The index is in bytes and is always zero or positive.  Probably the
+               result should be a Word8.word value or a char. *)
+            val () = enterRunCall ("loadByte",
+                    makePolymorphic([a, b], mkBuiltIn2Fn(LoadByte{isImmutable=false})), a ** Word ->> b)
+            (* Load a byte from an immutable.  *)
+            val () = enterRunCall ("loadByteFromImmutable",
+                    makePolymorphic([a, b], mkBuiltIn2Fn(LoadByte{isImmutable=true})), a ** Word ->> b)
+            (* Get the length of a heap cell. *)
+            val () = enterRunCall ("memoryCellLength", makePolymorphic([a], mkBuiltIn1Fn MemoryCellLength), a ->> Word)
+            (* Return the flags.  Perhaps this could return a Word8.word value instead of a word. *)
+            val () = enterRunCall ("memoryCellFlags", makePolymorphic([a], mkBuiltIn1Fn MemoryCellFlags), a ->> Word)
+            (* Return the number of bytes per word.  This is a constant since we have separate pre-built
+               compilers for 32-bit and 64-bit.  N.B. The byte order is not a constant since we
+               only have a single pre-built compiler for little-endian and big-endian interpreted code. *)
+            val () = enterRunCall ("bytesPerWord", mkConst(toMachineWord wordSize), Word)
         end
 
         local
@@ -759,8 +774,8 @@ struct
                     mkProc(
                         mkEnv([
                             (* Length of the items. *)
-                            mkDec(0, mkBuiltIn(POLY_SYS_get_length, [mkLoadArgument 0])),
-                            mkDec(1, mkBuiltIn(POLY_SYS_get_length, [mkLoadArgument 1])),
+                            mkDec(0, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 0)),
+                            mkDec(1, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 1)),
                             mkMutualDecs[(2, (* Loop function. *)
                                 mkProc(
                                     mkIf(
@@ -828,8 +843,8 @@ struct
                 mkProc(
                     mkEnv([
                         (* Length of the items. *)
-                        mkDec(0, mkBuiltIn(POLY_SYS_get_length, [mkLoadArgument 0])),
-                        mkDec(1, mkBuiltIn(POLY_SYS_get_length, [mkLoadArgument 1]))
+                        mkDec(0, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 0)),
+                        mkDec(1, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 1))
                         ],
                         mkIf(
                             (* Test the lengths. *)
@@ -840,7 +855,7 @@ struct
                                    the number of bytes per word. *)
                                 mkDec(2,
                                     mkBuiltIn(POLY_SYS_mul_word,
-                                        [mkBuiltIn(POLY_SYS_bytes_per_word, []), mkLoadLocal 0]
+                                        [mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0]
                                     ))
                                 ],
                                 mkBuiltIn(POLY_SYS_bytevec_eq,

@@ -655,13 +655,6 @@
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
 
-/* Define prefix of external names */
-#ifdef _WIN64
-#   undef POLY_LINKAGE_PREFIX
-#else
-#   define POLY_LINKAGE_PREFIX _
-#endif
-
 /* Define to the type of arg 1 for `select'. */
 #undef SELECT_TYPE_ARG1
 
@@ -701,6 +694,13 @@
 
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
+
+/* Defined if external symbols are prefixed by underscores */
+#ifdef _WIN64
+#   undef SYMBOLS_REQUIRE_UNDERSCORE
+#else
+#   define SYMBOLS_REQUIRE_UNDERSCORE 1
+#endif
 
 /* Define to 1 if you can safely include both <sys/time.h> and <time.h>. */
 #undef TIME_WITH_SYS_TIME

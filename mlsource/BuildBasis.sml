@@ -29,10 +29,9 @@ PolyML.use "mlsource/extra/CInterface/clean";
 
 (* XWindows/Motif *)
 let
-   val xcall: int*int->int*int =
-    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows;
-   (* See if the RTS supports the X GetTimeOfDay call. *)
-   val isX = (xcall(30, 0); true) handle _ => false
+    val xcall: int*int->int*int = Compat560.xWindowsGeneral
+    (* See if the RTS supports the X GetTimeOfDay call. *)
+    val isX = (xcall(30, 0); true) handle _ => false
 in
    if isX
    then

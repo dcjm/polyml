@@ -43,8 +43,8 @@ struct
     (* Return the position of the highest bit set in the value. *)
     local
         val isShort: int -> bool = RunCall.isShort
-        val loadByte: LargeInt.int * Int.int -> word = RunCall.run_call2 POLY_SYS_load_byte_immut
-        val segLength: LargeInt.int -> Int.int = RunCall.run_call1 POLY_SYS_get_length
+        fun loadByte(l: LargeInt.int, i: Int.int):word = RunCall.loadByteFromImmutable(l, Word.fromInt i)
+        val segLength: LargeInt.int -> Int.int = Word.toInt o RunCall.memoryCellLength
 
         (* Compute log2 for a short value.  The top bit of i will always be
            zero since we've checked that it's positive so it will always
@@ -72,8 +72,7 @@ struct
             then log2Word(Word.fromLargeInt i, 0w2, 1)
             else (* i is actually a pointer to a byte segment. *)
             let
-                val bytes =
-                    segLength i * RunCall.unsafeCast LibrarySupport.wordSize
+                val bytes = segLength i * Word.toInt RunCall.bytesPerWord
             in
                log2Long(i, bytes-1)
             end

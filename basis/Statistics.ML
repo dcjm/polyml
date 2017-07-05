@@ -184,13 +184,13 @@ in
         structure Statistics =
         struct
             fun getLocalStats() =
-                convStats(RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (29, ()))
+                convStats(Compat560.polySpecificGeneral (29, ()))
             and getRemoteStats(pid: int) =
-                convStats(RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (30, pid))
+                convStats(Compat560.polySpecificGeneral (30, pid))
             and numUserCounters(): int =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (27, ())
+                Compat560.polySpecificGeneral (27, ())
             and setUserCounter(which: int, value: int): unit =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (28, (which, value))
+                Compat560.polySpecificGeneral (28, (which, value))
         end
     end
 end;

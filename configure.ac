@@ -131,7 +131,7 @@ AC_CHECK_LIB(gdi32, main)
 ## prior to 4.5.0) were faulty.
 LT_SYS_SYMBOL_USCORE
 if test x$sys_symbol_underscore = xyes; then
-    AC_DEFINE(POLY_LINKAGE_PREFIX, [_], [Define prefix of external names])
+    AC_DEFINE(SYMBOLS_REQUIRE_UNDERSCORE, [1], [Defined if external symbols are prefixed by underscores])
 fi
 
 # Solaris needs -lsocket, -lnsl and -lrt

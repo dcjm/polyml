@@ -41,6 +41,7 @@ sig
         NotBoolean (* true => false; false => true - XOR *)
     |   IsTaggedValue (* Test the tag bit. *)
     |   MemoryCellLength (* Return the length of a memory cell (heap object) *)
+    |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
 
     and builtIn2Ops =
         (* Compare two words and return the result.  This is used for both
@@ -56,6 +57,7 @@ sig
            arguments are constants it can be folded at compile time since the result will
            never change. *)
     |   LoadWord of { isImmutable: bool }
+    |   LoadByte of { isImmutable: bool }
 
     and builtIn3Ops =
         Built3PlaceHolder

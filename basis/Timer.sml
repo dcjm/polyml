@@ -46,8 +46,7 @@ struct
 
     local
         open Time
-        val doCall: int*unit -> Time.time
-             = RunCall.run_call2 RuntimeCalls.POLY_SYS_timing_dispatch
+        val doCall: int*unit -> Time.time = Compat560.timingGeneral
         fun getUserTime() = doCall(7, ())
         and getSysTime() = doCall(8, ())
         and getGCUTime() = doCall(9, ())

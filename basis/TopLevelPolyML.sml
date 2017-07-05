@@ -1554,10 +1554,10 @@ in
         fun rootFunction () : unit =
         let
             val argList = CommandLine.arguments()
-            fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
-            fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
+            fun rtsRelease() = Compat560.polySpecificGeneral (10, ())
+            fun rtsHelp() = Compat560.polySpecificGeneral (19, ())
             val gitVersion =
-                case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (9, ()) of
+                case Compat560.polySpecificGeneral (9, ()) of
                    "" => ""
                 |   s => " (Git version " ^ s ^ ")"
             

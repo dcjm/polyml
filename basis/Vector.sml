@@ -27,7 +27,6 @@ local
        type variables. *)
     val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
     val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
-    val System_length: word -> word = RunCall.run_call1 POLY_SYS_get_length;
     val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
     val System_move_words:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
@@ -69,13 +68,13 @@ struct
        not pointer equality. *)
     val listLength = length; (* Pick this up from the prelude. *)
  
-    fun length v = wordAsInt(System_length(vecAsWord v));
+    fun length v = wordAsInt(RunCall.memoryCellLength(vecAsWord v));
 
     fun op sub (vec:'a vector, i: int): 'a =
     let
         val v = vecAsWord vec
     in
-        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length v
+        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= RunCall.memoryCellLength v
         then raise General.Subscript
         else unsafeSub(vec, i)
     end
@@ -208,7 +207,7 @@ struct
         PolyVectorOperations(
             struct
                 type 'a vector = 'a vector
-                fun length v = System_length(vecAsWord v)
+                fun length v = RunCall.memoryCellLength(vecAsWord v)
                 local val u = unsafeSub in fun unsafeSub (v: 'a vector, i: word) = u(v, wordAsInt i) end
                 fun unsafeSet _ = raise Fail "Should not be called"
             end);

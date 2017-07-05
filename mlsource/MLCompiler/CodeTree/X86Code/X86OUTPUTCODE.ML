@@ -659,15 +659,15 @@ struct
     |   arithOpRepr XOR = "Xor"
     |   arithOpRepr CMP = "Cmp"
 
-    datatype shiftType = SLL | SRL | SRA
+    datatype shiftType = SHL | SHR | SAR
 
-    fun shiftTypeToWord SLL = 0w4: Word8.word
-    |   shiftTypeToWord SRL = 0w5
-    |   shiftTypeToWord SRA = 0w7
+    fun shiftTypeToWord SHL = 0w4: Word8.word
+    |   shiftTypeToWord SHR = 0w5
+    |   shiftTypeToWord SAR = 0w7
 
-    fun shiftTypeRepr SLL = "Shift Left Logical"
-    |   shiftTypeRepr SRL = "Shift Right Logical"
-    |   shiftTypeRepr SRA = "Shift Right Arithemetic"
+    fun shiftTypeRepr SHL = "Shift Left Logical"
+    |   shiftTypeRepr SHR = "Shift Right Logical"
+    |   shiftTypeRepr SAR = "Shift Right Arithemetic"
 
     datatype group3Ops = NOT | NEG | MUL | IMUL | DIV | IDIV
     
@@ -3246,22 +3246,25 @@ SS-relative addressing modes:
                     |   (0w0, 0w5, _) => print32 () (* Absolute in 32-bit mode.  PC-relative in 64-bit ?? *)
                     |   _ => ();
           
-                    print "(";
+                    print "[";
         
                     if md <> 0w0 orelse base <> 0w5
-                    then print (genRegRepr (mkReg (base, rexB), sz32_64))
-                    else if isX64 then print "rip" else ();
+                    then
+                    (
+                        print (genRegRepr (mkReg (base, rexB), sz32_64));
+                        if index = 0w4 then () else print ","
+                    )
+                    else ();
         
-                    if index <> 0w4 (* No index. *)
-                    then 
-                        print ("," ^ genRegRepr (mkReg(index, rexX), sz32_64) ^ 
+                    if index = 0w4 (* No index. *)
+                    then ()
+                    else print (genRegRepr (mkReg(index, rexX), sz32_64) ^ 
                             (if ss = 0w0 then "*1"
                             else if ss = 0w1 then "*2"
                             else if ss = 0w2 then "*4"
-                            else "*8"))
-                    else ();
+                            else "*8"));
         
-                    print ")"
+                    print "]"
                 end
       
             |   (0w0, 0w5, false) => (* Absolute address.*) (print prefix; print32 ())
@@ -3276,7 +3279,7 @@ SS-relative addressing modes:
                     else if md = 0w2 then print32 ()
                     else ();
          
-                    print ("(" ^ genRegRepr (mkReg(rm, rexB), sz32_64) ^ ")")
+                    print ("[" ^ genRegRepr (mkReg(rm, rexB), sz32_64) ^ "]")
                 )
         end;
  
@@ -3437,16 +3440,30 @@ SS-relative addressing modes:
                     val opByte2  = Word8.toInt (csegGet (seg, !ptr))
                     val () = (ptr +:= 0w1)
                 in
-                    if opByte2 = 0xB6 orelse opByte2 = 0xC1 orelse opByte2 = 0xAF
+                    if opByte2 = 0xC1
                     then
                     let
                         val nb = csegGet (seg, !ptr);
                         val reg = (nb >>- 0w3) andb8 0w7
                     in
-                        print (if opByte2 = 0xB6 then "movzx\t" else if opByte2 = 0xC1 then "xadd\t" else "imul\t");
+                        (* The address argument comes first in the assembly code. *)
+                        print "xadd\t";
                         printEA (rex, sizeFromRexW);
                         print ",";
-                        print (genRegRepr (mkReg(reg, rexR), if opByte2 = 0xB6 then SZByte else sizeFromRexW))
+                        print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
+                    end
+                    
+                    else if opByte2 = 0xB6 orelse opByte2 = 0xAF
+                    then
+                    let
+                        val nb = csegGet (seg, !ptr);
+                        val reg = (nb >>- 0w3) andb8 0w7
+                    in
+                        (* The register argument comes first. *)
+                        print (if opByte2 = 0xB6 then "movzx\t" else "imul\t");
+                        print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                        print ",";
+                        printEA (rex, if opByte2 = 0xB6 then SZByte else sizeFromRexW)
                     end
        
                     else if opByte2 >= 0x80 andalso opByte2 <= 0x8f
@@ -3644,7 +3661,7 @@ SS-relative addressing modes:
             |   0wxbe => printMovCToR (opByte, sizeFromRexW, rexB)
             |   0wxbf => printMovCToR (opByte, sizeFromRexW, rexB)
    
-            |   0wxc1 => (* Group2_8_A *) printShift (opByte, rex, SZByte)
+            |   0wxc1 => (* Group2_8_A *) printShift (opByte, rex, sizeFromRexW)
 
             |   0wxc2 => (print "ret \t"; print16 ())
             |   0wxc3 => print "ret"

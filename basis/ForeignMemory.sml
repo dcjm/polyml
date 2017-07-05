@@ -163,8 +163,8 @@ struct
         if wordSize = 0w4 then fn (s, i, v) => set32(s, i, Word32.fromLargeWord v) else set64
 
     local
-        fun systemMalloc (s: word): voidStar = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (0, s)
-        (*fun systemFree (s: voidStar): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (1, s)*)
+        fun systemMalloc (s: word): voidStar = Compat560.ffiGeneral (0, s)
+        (*fun systemFree (s: voidStar): unit = Compat560.ffiGeneral (1, s)*)
         
         (* Simple malloc/free implementation to reduce the number of RTS calls needed. *)
         val lock = Thread.Mutex.mutex()

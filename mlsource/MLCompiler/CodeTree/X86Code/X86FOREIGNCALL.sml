@@ -67,12 +67,7 @@ struct
         toMachineWord profileObject
     end
 
-    val makeEntryPoint: string -> machineWord =
-        RunCall.run_call1 RuntimeCalls.POLY_SYS_get_entry_point
-(*
-    val makeEntryPoint:
-        Thread.Thread.thread * string -> machineWord =
-            RunCall.rtsCall2 "PolyCreateEntryPointObject"*)
+    val makeEntryPoint: string -> machineWord = Compat560.createEntryPointObject
 
     datatype abi = X86_32 | X64Win | X64Unix
 
@@ -88,7 +83,7 @@ struct
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi =
-            case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (108, 0) of
+            case Compat560.polySpecificGeneral (108, 0) of
                 1 => X64Unix
             |   2 => X64Win
             |   _ => X86_32
@@ -221,7 +216,7 @@ struct
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi =
-            case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (108, 0) of
+            case Compat560.polySpecificGeneral (108, 0) of
                 1 => X64Unix
             |   2 => X64Win
             |   _ => X86_32
@@ -317,7 +312,7 @@ struct
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi =
-            case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (108, 0) of
+            case Compat560.polySpecificGeneral (108, 0) of
                 1 => X64Unix
             |   2 => X64Win
             |   _ => X86_32

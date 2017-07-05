@@ -31,10 +31,8 @@ local
 
     val wordSize : word = LibrarySupport.wordSize;
 
-    val System_loadbV: Bootstrap.byteVector*word->word = RunCall.run_call2 POLY_SYS_load_byte;
     val System_setbV: Bootstrap.byteVector * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte
-    val System_loadbA: Bootstrap.byteArray*word->word = RunCall.run_call2 POLY_SYS_load_byte;
-    val System_setbA: Bootstrap.byteArray * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
+    val System_setbA: Bootstrap.byteArray * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte
 
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
@@ -135,8 +133,7 @@ local
     fun uncheckedSub (v, i: int): bool =
         let
             val iW = Word.fromInt i
-            val System_loadb = RunCall.run_call2 POLY_SYS_load_byte
-            val byte = System_loadb(v, iW >> 0w3)
+            val byte = RunCall.loadByte(v, iW >> 0w3)
             val mask = 0w1 << (iW andb 0w7)
         in
             byte andb mask <> 0w0
@@ -159,7 +156,7 @@ local
             if len >= 8
             then let
                 (* Get the next byte and shift it up *)
-                val newbyte = last orb (System_loadbV(src, byte) << dest_bit)
+                val newbyte = last orb (RunCall.loadByteFromImmutable(src, byte) << dest_bit)
             in
                 (* Store the low-order 8 bits into the destination. *)
                 System_setbV(dest, dest_byte+byte, newbyte);
@@ -172,7 +169,7 @@ local
             else (* 0 < len < 8 *)
             let
                 (* Get the next byte and shift it up *)
-                val nextsrc = System_loadbV(src, byte);
+                val nextsrc = RunCall.loadByteFromImmutable(src, byte);
                 val newbyte: word = last orb (nextsrc << dest_bit)
                 (* This assumes that any extra bits of the source are
                    zero. *)
@@ -265,7 +262,7 @@ in
                 fun copy b l =
                     if l <= 0 then ()
                     else let
-                        val byte = System_loadbV(vec, b)
+                        val byte = RunCall.loadByteFromImmutable(vec, b)
                         val res =
                             (* Map each byte to get the result.  Must not
                                apply the function beyond the last bit. *)
@@ -376,7 +373,7 @@ in
         let
             val iW = Word.fromInt i
             val byteOffsetW = iW >> 0w3
-            val byte = System_loadbA(v, byteOffsetW);
+            val byte = RunCall.loadByte(v, byteOffsetW);
             val mask = 0w1 << (iW andb 0w7)
             val newByte =
                 if new then byte orb mask

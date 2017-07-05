@@ -77,7 +77,7 @@ sig
     end
 
     datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
-    and      shiftType = SLL | SRL | SRA
+    and      shiftType = SHL | SHR | SAR
     and      repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ

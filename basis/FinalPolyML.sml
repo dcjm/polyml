@@ -2015,7 +2015,7 @@ in
 
         local
             val systemProfile : int -> (int * string) list =
-                    RunCall.run_call1 RuntimeCalls.POLY_SYS_profiler
+                RunCall.rtsCallFull1 "PolyProfiling"
 
             fun printProfile profRes =
             let
@@ -2093,12 +2093,11 @@ in
         structure SaveState =
         struct
             local
-                val getOS: int =
-                    RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0)
+                val getOS: int = RunCall.rtsCallFast1 "PolyGetOSType" ()
                 fun loadMod (args: string): Universal.universal list =
-                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (32, args)
+                    Compat560.polySpecificGeneral (32, args)
                 and systemDir(): string =
-                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (34, ())
+                    Compat560.polySpecificGeneral (34, ())
             in
                 fun loadModuleBasic (fileName: string): Universal.universal list =
                 (* If there is a path separator use the name and don't search further. *)
@@ -2135,20 +2134,20 @@ in
             end
 
             fun saveChild(f: string, depth: int): unit =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
+                Compat560.polySpecificGeneral (20, (f, depth))
             fun saveState f = saveChild (f, 0);
             fun showHierarchy(): string list =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
+                Compat560.polySpecificGeneral (22, ())
             fun renameParent{ child: string, newParent: string }: unit =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
+                Compat560.polySpecificGeneral (23, (child, newParent))
             fun showParent(child: string): string option =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
+                Compat560.polySpecificGeneral (24, child)
 
-            fun loadState (f: string): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
+            fun loadState (f: string): unit = Compat560.polySpecificGeneral (21, f)
             and loadHierarchy (s: string list): unit =
                 (* Load hierarchy takes a list of file names in order with the parents
                    before the children.  It's easier for the RTS if this is reversed. *)
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (33, List.rev s)
+                Compat560.polySpecificGeneral (33, List.rev s)
             
             (* Module loading and storing. *)
             structure Tags =
@@ -2164,7 +2163,7 @@ in
             
             val saveModuleBasic: string * Universal.universal list -> unit =
                 fn (_, nil) => raise Fail "Cannot create an empty module"
-                |  args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
+                |  args => Compat560.polySpecificGeneral (31, args)
 
             fun saveModule(s, {structs, functors, sigs, onStartup}) =
             let

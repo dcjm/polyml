@@ -47,20 +47,7 @@ struct
        (i.e. where its value depends only arguments and can safely
        be reordered). *)
 
-    local
-        val doCall: int*machineWord -> Word.word
-            = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific
-    in
-        (* The RTS has a table of properties for RTS functions.  The 103 call
-           returns these Or-ed into the register mask. *)
-        val PROPWORD_NORAISE  = 0wx40000000
-        and PROPWORD_NOUPDATE = 0wx20000000
-        and PROPWORD_NODEREF  = 0wx10000000
-
-        val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
-        (* This function takes the address rather than the io call no. *)
-        fun rtsProperties ioCall = doCall(103, ioOp ioCall)
-    end
+    val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
 
     local
         (* Convert the address of an RTS function into a code. *)
@@ -73,27 +60,15 @@ struct
         val rtsCodeFromAddress = findNo 0
     end
 
-    (* RTS calls that can be evaluated at compile-time i.e. they always return the
-       same result and have no side-effects but may raise an exception for
-       particular arguments. *)
-    fun earlyRtsCall rtsNo =
-    let
-        val props = rtsProperties rtsNo
-        val noUpdateNoDeref = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NODEREF)
-    in
-        Word.andb(props, noUpdateNoDeref) = noUpdateNoDeref
-    end
+    (* The RTS has a table of properties for RTS functions.  The 103 call
+       returns these Or-ed into the register mask. *)
+    val PROPWORD_NORAISE  = 0wx40000000
+    and PROPWORD_NOUPDATE = 0wx20000000
+    and PROPWORD_NODEREF  = 0wx10000000
 
-    (* RTS calls that have no side-effects and do not raise exceptions.
-       They may return different results for different calls but that doesn't
-       matter if the result is going to be discarded. *)
-    and sideEffectFreeRTSCall rtsNo =
-    let
-        val props = rtsProperties rtsNo
-        val noUpdateNoRaise = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
-    in
-        Word.andb(props, noUpdateNoRaise) = noUpdateNoRaise
-    end
+    (* Since RTS calls are being eliminated leave residual versions of these. *)
+    fun earlyRtsCall _ = false
+    and sideEffectFreeRTSCall _ = false
 
     local
         infix orb andb
@@ -143,6 +118,8 @@ struct
                         NotBoolean => applicative
                     |   IsTaggedValue => applicative
                     |   MemoryCellLength => applicative
+                        (* MemoryCellFlags could return a different result if a mutable cell was locked. *)
+                    |   MemoryCellFlags => applicative
             in
                 operProps andb codeProps arg1
             end
@@ -160,6 +137,8 @@ struct
                     |   WordArith _ => applicative
                     |   LoadWord {isImmutable = true } => applicative
                     |   LoadWord {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   LoadByte {isImmutable = true } => applicative
+                    |   LoadByte {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

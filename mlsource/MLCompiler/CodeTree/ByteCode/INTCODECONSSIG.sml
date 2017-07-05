@@ -205,6 +205,4 @@ sig
    val linkLabels: labels * labels * code -> labels (* Link label lists. *)
    val jumpback: addrs * code -> unit (* Backwards jump. *)
    val resetStack: int * bool * code -> unit (* Set a pending reset *)
-   val alignOffWord: code * int -> unit (* Add a pad byte if the value would
-                                            be word-aligned. *)
 end ;

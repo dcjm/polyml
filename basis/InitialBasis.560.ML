@@ -354,4 +354,49 @@ struct
 
     fun loadWord(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_word(a, i)
     and loadWordFromImmutable(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_word_immut(a, i)
+ 
+    fun loadByte(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_byte(a, i)
+    and loadByteFromImmutable(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_byte_immut(a, i)
+   
+    fun memoryCellLength(a:'a): word = run_call1 RuntimeCalls.POLY_SYS_get_length a
+    and memoryCellFlags(a:'a): word = run_call1 RuntimeCalls.POLY_SYS_get_flags a
+    
+    val bytesPerWord: word = run_call0 RuntimeCalls.POLY_SYS_bytes_per_word ()
+end;
+
+(* This is used to provide compatibility between 5.6.0 and 5.6.1. *)
+structure Compat560 =
+struct
+    fun setCodeConstant(addr:'a , offset: word, cnstnt: 'b, flags: word): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_set_code_constant (addr, offset, cnstnt, flags)
+    
+    fun ffiGeneral(code: int, arg: 'a): 'b =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (code, arg)
+        
+    fun oldForeignGeneral(code: int, arg: 'a): 'b =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_foreign_dispatch (code, arg)
+        
+    fun xWindowsGeneral (arg:'a):'b =
+        RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows arg
+    
+    fun threadGeneral(code: int, arg:'a):'b =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_thread_dispatch (code, arg)
+
+    fun createEntryPointObject(s: string): 'a =
+        RunCall.run_call1 RuntimeCalls.POLY_SYS_get_entry_point s
+    
+    fun osSpecificGeneral(code: int, arg:'a):'b =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (code, arg)
+
+    fun polySpecificGeneral(code: int, arg:'a):'b =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (code, arg)
+
+    fun timingGeneral(code: int, arg:'a):'b =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_timing_dispatch (code, arg)
+
+    fun processEnvGeneral(code: int, arg:'a):'b =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env (code, arg)
+
+    fun realGeneral(code: int, arg:'a):'b =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_Dispatch (code, arg)
 end;

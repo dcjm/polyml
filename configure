@@ -17854,7 +17854,7 @@ $as_echo "$lt_cv_sys_symbol_underscore" >&6; }
 
 if test x$sys_symbol_underscore = xyes; then
 
-$as_echo "#define POLY_LINKAGE_PREFIX _" >>confdefs.h
+$as_echo "#define SYMBOLS_REQUIRE_UNDERSCORE 1" >>confdefs.h
 
 fi
 

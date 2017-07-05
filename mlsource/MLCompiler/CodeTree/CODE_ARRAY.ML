@@ -88,7 +88,7 @@ struct
     fun csegConvertToCode (r as ref (Bytes, addr)) : unit =
         let
             (* Convert the byte data into code. *)
-            val newAddr = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (107, addr)
+            val newAddr = Compat560.polySpecificGeneral (107, addr)
         in
             r := (UnlockedCode, newAddr)
         end
@@ -98,7 +98,7 @@ struct
     fun csegLockAndGetExecutable (ref (UnlockedCode, addr)): address =
         (* Lock the code and return the executable address.  This currently just returns
            the original address. *)
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (106, addr)
+        Compat560.polySpecificGeneral (106, addr)
 
     |   csegLockAndGetExecutable _ = raise InternalError "csegLockAndGetExecutable: not an unlocked code segment"
  
@@ -211,8 +211,7 @@ struct
     in
         if lengthBytes <= byteIndex
         then raise Subscript
-        else RunCall.run_call4 RuntimeCalls.POLY_SYS_set_code_constant
-                (addr, byteIndex, value, option)
+        else Compat560.setCodeConstant(addr, byteIndex, value, option)
     end
     | csegPutConstant _ = raise InternalError "csegPutConstant: not an unlocked code segment"
 

@@ -131,6 +131,7 @@
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(PolyObject *threadId);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -150,6 +151,7 @@ extern "C" {
 static struct _entrypts entryPtTable[] =
 {
     { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
+    { "PolyThreadKillSelf",             (polyRTSFunction)&PolyThreadKillSelf},
 
     { NULL, NULL} // End of list.
 };
@@ -941,6 +943,16 @@ Handle exitThread(TaskData *taskData)
    thread function returns the thread goes away. */  
 {
     processesModule.ThreadExit(taskData);
+}
+
+// Terminate the current thread.  Never returns.
+POLYUNSIGNED PolyThreadKillSelf(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall(); // Possibly not needed since we never return
+    processesModule.ThreadExit(taskData);
+    return 0; 
 }
 
 /* Called when a thread is about to block, usually because of IO.

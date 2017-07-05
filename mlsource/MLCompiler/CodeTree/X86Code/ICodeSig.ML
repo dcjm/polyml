@@ -44,7 +44,8 @@ sig
     and xmm4:xmmReg and xmm5:xmmReg and xmm6:xmmReg
 
     datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
-    datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
+    and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
+    and      shiftType = SHL | SHR | SAR
 
     datatype argument =
         PReg of int (* A pseudo-register - an abstract register. *)
@@ -56,6 +57,13 @@ sig
     and memoryIndex =
         NoMemIndex | MemIndex1 of argument | MemIndex2 of argument | MemIndex4 of argument | MemIndex8 of argument
 
+    (* Kinds of moves.
+       WordToWord copies the whole value.  This is the "normal" move.
+       ByteToByte overwrites only a byte.  This is used to store a byte.
+       ByteToWordZeroExtend loads a byte and zero extends it to fill the
+       destination.  This is used when loading a byte. *)
+    datatype moveKind = WordToWord | ByteToByte | ByteToWordZeroExtend
+
     datatype iLabel = ILabel of int
     
     (* The reference to a condition code. *)
@@ -64,9 +72,9 @@ sig
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
-        MoveArgument of { source: argument, dest: argument}
+        MoveArgument of { source: argument, dest: argument, kind: moveKind }
 
-    |   MoveStackArgToPreg of { offset: int, dest: argument} (* Load an argument or the return address *)
+    |   MoveStackArgToPreg of { offset: int, dest: argument } (* Load an argument or the return address *)
     
         (* Call or jump to a function.  Currently the closure is loaded into edx/rdx as one of the
            regArgs. The result is stored in the destination register.  If isTail is true this is tail-recursive
@@ -140,8 +148,12 @@ sig
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
 
-        (* This provides the LEA instruction which can be used for various sorts of arithmetic. *)
-    |   LoadEffectiveAddress of { base: argument, offset: int, index: memoryIndex, dest: argument }
+        (* This provides the LEA instruction which can be used for various sorts of arithmetic.
+           The base register is optional in this case. *)
+    |   LoadEffectiveAddress of { base: argument option, offset: int, index: memoryIndex, dest: argument }
+
+        (* Shift a word by an amount that can either be a constant or a register. *)
+    |   ShiftOperation of { shift: shiftType, resultReg: argument, operand: argument, shiftAmount: argument, ccRef: ccRef }
 
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address

@@ -456,19 +456,19 @@ struct
     structure System =
     struct
         type voidStar = Memory.voidStar
-        fun loadLibrary(s: string): voidStar = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (2, s)
-        and loadExecutable(): voidStar = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (3, ())
-        and freeLibrary(s: voidStar): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (4, s)
-        and getSymbol(lib: voidStar, s: string): voidStar = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (5, (lib, s))
+        fun loadLibrary(s: string): voidStar = Compat560.ffiGeneral (2, s)
+        and loadExecutable(): voidStar = Compat560.ffiGeneral (3, ())
+        and freeLibrary(s: voidStar): unit = Compat560.ffiGeneral (4, s)
+        and getSymbol(lib: voidStar, s: string): voidStar = Compat560.ffiGeneral (5, (lib, s))
     end
 
     structure LibFFI =
     struct
         type abi = Word.word
-        val abiList: (string * abi) list = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (50, ())
+        val abiList: (string * abi) list = Compat560.ffiGeneral (50, ())
 
         local
-            fun getConstant (n: int) : Word.word = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (51, n)
+            fun getConstant (n: int) : Word.word = Compat560.ffiGeneral (51, n)
         in
             val abiDefault          = getConstant 0
             
@@ -493,7 +493,7 @@ struct
         and voidStar2ffiType = id
 
         local
-            fun getFFItype (n: int) (): ffiType = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (52, n)
+            fun getFFItype (n: int) (): ffiType = Compat560.ffiGeneral (52, n)
         in
             val getFFItypeVoid      = getFFItype 0
             and getFFItypeUint8     = getFFItype 1
@@ -520,7 +520,7 @@ struct
         fun extractFFItype (s: ffiType) =
         let
             val (size: word, align: word, typ: word, elem: Memory.voidStar) =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (53, s)
+                Compat560.ffiGeneral (53, s)
             (* Unpack the "elements". *)
             open Memory
             fun loadElements i =
@@ -541,7 +541,7 @@ struct
         
         (* Construct a new FFItype in allocated memory. *)
         fun createFFItype { size: word, align: word, typeCode: word, elements: ffiType list }: ffiType =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (54, (size, align, typeCode, elements))
+            Compat560.ffiGeneral (54, (size, align, typeCode, elements))
 
         type cif = Memory.voidStar
         val cif2voidStar = id
@@ -549,20 +549,20 @@ struct
 
         (* Construct and prepare a CIF in allocated memory. *)
         fun createCIF (abi: abi, resultType: ffiType, argTypes: ffiType list): cif =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (55, (abi, resultType, argTypes))
+            Compat560.ffiGeneral (55, (abi, resultType, argTypes))
 
         (* Call a function. We have to pass some space for the result *)
         fun callFunction
             { cif: cif, function: Memory.voidStar, result: Memory.voidStar, arguments: Memory.voidStar }: unit =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (56, (cif, function, result, arguments))
+            Compat560.ffiGeneral (56, (cif, function, result, arguments))
 
         (* Create a callback.  Returns the C function. *)
         fun createCallback(f: Memory.voidStar * Memory.voidStar -> unit, cif: cif): Memory.voidStar =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (57, (f, cif))
+            Compat560.ffiGeneral (57, (f, cif))
         
         (* Free a callback.  This takes the C function address returned by createCallback *)
         fun freeCallback(cb: Memory.voidStar): unit =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (58, cb)
+            Compat560.ffiGeneral (58, cb)
     end
 
     type library = unit -> Memory.voidStar

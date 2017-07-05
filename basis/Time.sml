@@ -62,7 +62,7 @@ struct
 
     open RuntimeCalls
 
-    val doTiming: int*int->time = RunCall.run_call2 POLY_SYS_timing_dispatch
+    val doTiming: int*int->time = Compat560.timingGeneral
     fun callTiming (code: int) args = doTiming (code,args);
 
     (* Get the number of ticks per microsecond and compute the corresponding

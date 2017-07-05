@@ -33,10 +33,14 @@ struct
     
 
     fun loadMemory(reg, base, offset) =
-        [MoveArgument{source=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex}, dest=RealRegister(GenReg reg)}]
+        [MoveArgument{
+            source=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex},
+            dest=RealRegister(GenReg reg), kind=WordToWord}]
     and loadStack(reg, offset) = loadMemory(reg, esp, offset)
     and storeMemory(reg, base, offset) =
-        [MoveArgument{source=RealRegister(GenReg reg), dest=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex}}]
+        [MoveArgument{
+            source=RealRegister(GenReg reg),
+            dest=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex}, kind=WordToWord}]
 
     val raxAsArg = RealRegister(GenReg eax) and rbxAsArg = RealRegister(GenReg ebx)
 
@@ -86,7 +90,9 @@ struct
         fun loadSource(source, dest, state) =
             case findEntry (source, state) of
                 InRax =>
-                    if dest = eax then [] else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest)}]
+                    if dest = eax
+                    then []
+                    else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest), kind=WordToWord}]
             |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
 
         (* If the top of the stack is in RAX push it otherwise do nothing. *)
@@ -399,7 +405,8 @@ struct
             (* MoveArgument - this is used for loads, stores and moves.  *)
             (* Create a new Preg containing the contents of another Preg.
                We only ever want the top item to be in RAX so we push the top of the stack. *)
-        |   codeICode{icode=MoveArgument{source=PReg srcReg, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
+        |   codeICode{
+                icode=MoveArgument{source=PReg srcReg, dest=PReg destReg, kind=WordToWord} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 val load = loadSource(srcReg, eax, pushedState)
@@ -409,7 +416,9 @@ struct
                     code=load @ pushCode @ code, context=context}
             end
 
-        |   codeICode{icode=MoveArgument{source=RealRegister(GenReg srcReg), dest=PReg destReg} :: rest, state=NormalState state, code, context} =
+        |   codeICode{
+                icode=MoveArgument{source=RealRegister(GenReg srcReg), dest=PReg destReg, kind=WordToWord} :: rest,
+                state=NormalState state, code, context} =
             (* Move a specific register to the stack.  If it is anything but RAX we push it immediately. *)
             let
                 val (pushedState, pushCode) = pushRax state
@@ -430,7 +439,7 @@ struct
             end
             
             (* Move a constant to a preg.  First push anything in RAX then load the constant into RAX. *)
-        |   codeICode{icode=MoveArgument{source as AddressConstant srcValue, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=MoveArgument{source as AddressConstant srcValue, dest=PReg destReg, kind} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 (* The constant should be an address. *)
@@ -438,24 +447,24 @@ struct
             in
                 codeICode{
                     icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=MoveArgument{source=source, dest=raxAsArg} :: pushCode @ code,
+                    code=MoveArgument{source=source, dest=raxAsArg, kind=kind} :: pushCode @ code,
                     context=context}
             end
 
             (* Move a short constant to a preg.  First push anything in RAX then load the constant into RAX. *)
-        |   codeICode{icode=MoveArgument{source as IntegerConstant _, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=MoveArgument{source as IntegerConstant _, dest=PReg destReg, kind} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
             in
                 codeICode{
                     icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=MoveArgument{source=source, dest=raxAsArg} :: pushCode @ code,
+                    code=MoveArgument{source=source, dest=raxAsArg, kind=kind} :: pushCode @ code,
                     context=context}
             end
 
             (* Load a value from a piece of memory, typically the offset in a tuple. *)
         |   codeICode{
-                icode=MoveArgument{ source=MemoryLocation{offset, base, index=NoMemIndex}, dest=PReg destReg} :: rest,
+                icode=MoveArgument{ source=MemoryLocation{offset, base, index=NoMemIndex}, dest=PReg destReg, kind} :: rest,
                 state=NormalState state, code, context} =
             let
                 val bReg = argToPReg base
@@ -465,11 +474,11 @@ struct
                 val poppedState = checkTopInRax(state, bReg)
             in
                 codeICode{icode=rest, state=NormalState(addRaxToState(poppedState, destReg)),
-                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=raxAsArg} :: code, context=context}
+                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=raxAsArg, kind=kind} :: code, context=context}
             end
 
         |   codeICode{
-                icode=MoveArgument{ source=MemoryLocation {offset, base, index}, dest=PReg destReg} :: rest,
+                icode=MoveArgument{ source=MemoryLocation {offset, base, index}, dest=PReg destReg, kind} :: rest,
                 state=NormalState state, code, context} =
             let
                 (* The index value is going to be at the top of the stack. We replace this value with
@@ -489,14 +498,15 @@ struct
             in
                 codeICode{icode=rest, state=NormalState(addRaxToState(startState, destReg)),
                     code =
-                        MoveArgument{source=MemoryLocation {offset=offset, base=rbxAsArg, index=indexed}, dest=raxAsArg} ::
-                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rbxAsArg} ::
+                        MoveArgument{source=MemoryLocation {offset=offset, base=rbxAsArg, index=indexed}, dest=raxAsArg, kind=kind} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rbxAsArg, kind=WordToWord} ::
                         code,
                     context=context}
             end
 
             (* Store a pseudo-register in a memory location. *)
-        |   codeICode{icode=MoveArgument{ source=PReg srcReg, dest=MemoryLocation{offset, base, index=NoMemIndex}} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=MoveArgument{ source=PReg srcReg, dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+                      state=NormalState state, code, context} =
             let
                 val bReg = argToPReg base
                 (* We currently generate these so that the top of the state is the allocated
@@ -509,14 +519,18 @@ struct
                             else raise InternalError "MoveArgument to MemoryLocation"
                     |   _ => raise InternalError "MoveArgument to MemoryLocation"
                 (* Pop the value to store into ebx and store it in the tuple. *)
-                val store = storeMemory(ebx, eax, offset) @ (ResetStackPtr{numWords=1} :: loadMemory(ebx, esp, 0))
+                val store =
+                    MoveArgument{
+                        source=RealRegister(GenReg ebx),
+                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind} ::
+                    ResetStackPtr{numWords=1} :: loadMemory(ebx, esp, 0)
             in
                 codeICode{
                     (* We currently have the base in eax.  Leave it there because it may be used again. *)
                     icode=rest, state=NormalState(addRaxToState(newState, bReg)), code=store @ code, context=context}
             end
 
-        |   codeICode{icode=MoveArgument{ source=PReg _, dest=MemoryLocation _} :: _, ...} =
+        |   codeICode{icode=MoveArgument{ source=PReg _, dest=MemoryLocation _, kind=_} :: _, ...} =
                 raise InternalError "TODO: codeICode MemoryLocation index destination"
 
             (* Other combinations of move aren't used at the moment. *)
@@ -700,7 +714,7 @@ struct
                     state=NormalState(
                             {valueStack={loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: #valueStack pushedState,
                              ccState=CCIndeterminate}),
-                    code=MoveArgument{source=RealRegister(GenReg esp), dest=raxAsArg} :: (pushAll @ pushCode) @ code, context=context}
+                    code=MoveArgument{source=RealRegister(GenReg esp), dest=raxAsArg, kind=WordToWord} :: (pushAll @ pushCode) @ code, context=context}
             end
 
         |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, cases, startValue} :: rest,
@@ -775,8 +789,8 @@ struct
                             oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=RealRegister(GenReg ebx), ccRef=ccRef } ::
                         MoveArgument
                             { source=MemoryLocation{offset=(stackPtr state - secondArg - 1) * wordSize, base=RealRegister(GenReg esp), index=NoMemIndex},
-                              dest=raxAsArg } ::
-                        MoveArgument { source=raxAsArg, dest=RealRegister(GenReg ebx)} ::
+                              dest=raxAsArg, kind=WordToWord } ::
+                        MoveArgument { source=raxAsArg, dest=RealRegister(GenReg ebx), kind=WordToWord} ::
                         code,
                     context=context}
             end
@@ -784,8 +798,37 @@ struct
         |   codeICode{icode=ArithmeticFunction _ :: _, ...} =
                 raise InternalError "TODO: CodeTransform ArithmeticFunction"
 
+        |   codeICode{icode=LoadEffectiveAddress { base=NONE, offset, index=MemIndex2(PReg iReg), dest } :: rest,
+                      state=NormalState state, code, context} =
+            (* Currently just used for tagging. *)
+            let
+                val resReg = argToPReg dest
+                val topState = checkTopInRax(state, iReg)
+                val resultState = addRaxToState(topState, resReg)
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=LoadEffectiveAddress{ base=NONE, offset=offset, index=MemIndex2 raxAsArg, dest=raxAsArg } :: code,
+                    context=context}
+            end
+
         |   codeICode{icode=LoadEffectiveAddress _ :: _, ...} =
                 raise InternalError "TODO: CodeTransform LoadEffectiveAddress"
+
+        |   codeICode{icode=ShiftOperation {shift, resultReg, operand=PReg operReg, shiftAmount as IntegerConstant _, ccRef } :: rest,
+                      state=NormalState state, code, context} =
+            let
+                val resReg = argToPReg resultReg
+                val topState = checkTopInRax(state, operReg)
+                val resultState = addRaxToState(topState, resReg)
+                val checkState = {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i)}
+            in
+                codeICode{icode=rest, state=NormalState checkState,
+                    code=ShiftOperation { shift=shift, resultReg=raxAsArg, operand=raxAsArg, shiftAmount=shiftAmount, ccRef=ccRef } :: code,
+                    context=context}
+            end
+
+        |   codeICode{icode=ShiftOperation _ :: _, ...} =
+                raise InternalError "TODO: CodeTransform ShiftOperation"
 
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"

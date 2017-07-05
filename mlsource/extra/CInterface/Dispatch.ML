@@ -23,7 +23,7 @@ struct
    abstype machineWord = MachineWord of word
     with
         val toWord      : 'a -> machineWord   = RunCall.unsafeCast;
-        val isShortInt  : machineWord -> bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short;
+        val isShortInt  : machineWord -> bool = RunCall.isShort;
         val toShortInt  : machineWord -> int  = RunCall.unsafeCast; (* used for tags *)
         val unsafeCast  : machineWord -> 'a   = RunCall.unsafeCast; (* used for data values *)
     end
@@ -259,8 +259,7 @@ struct
     end
 
         
-    fun foreign code args =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_foreign_dispatch (code:int,args);
+    fun foreign code args = Compat560.oldForeignGeneral(code:int,args)
         
     local
         val dispatch_index = ref 0;

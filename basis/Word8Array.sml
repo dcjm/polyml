@@ -33,9 +33,7 @@ local
     type vector = LibrarySupport.Word8Array.vector
     datatype array = datatype LibrarySupport.Word8Array.array
 
-    val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_loads: vector*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
-    val System_loadb: address*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
+    val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg
     val System_setb: address * word * Word8.word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val System_move_bytes:
         address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
@@ -75,7 +73,7 @@ in
             if i < 0 orelse i >= length v then raise General.Subscript
             else if System_isShort v
             then RunCall.unsafeCast v
-            else System_loads (v, intAsWord i + wordSize)
+            else RunCall.loadByteFromImmutable (v, intAsWord i + wordSize)
      
         (* Because Word8Vector.vector is implemented as a string and Word8.word
            as a byte all these functions have the same implementation in
@@ -103,7 +101,7 @@ in
                     type vector = vector and elem = elem
                     val length = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
                     fun unsafeSub (s, i) =
-                        if System_isShort s then RunCall.unsafeCast s else System_loads(s, i + wordSize);
+                        if System_isShort s then RunCall.unsafeCast s else RunCall.loadByteFromImmutable(s, i + wordSize);
                     fun unsafeSet _ = raise Fail "Should not be called"
                 end);
     
@@ -168,7 +166,7 @@ in
     
         fun op sub (Array(l, v), i: int): elem =
             if i < 0 orelse i >= wordAsInt l then raise General.Subscript
-            else System_loadb (v, intAsWord i)
+            else RunCall.loadByte (v, intAsWord i)
     
         fun update (Array (l, v), i: int, new) : unit =
             if i < 0 orelse i >= wordAsInt l
@@ -210,7 +208,7 @@ in
             if len = 0w0 then emptyVec
             else if len = 0w1
             then (* Single character string is the character itself. *)
-                RunCall.unsafeCast (System_loadb (vec, 0w0))
+                RunCall.unsafeCast (RunCall.loadByte (vec, 0w0))
             else
             let
                 (* Make an array initialised to zero. *)
@@ -254,7 +252,7 @@ in
                 struct
                     type vector = array and elem = elem
                     fun length(Array(len, _)) = len
-                    fun unsafeSub(Array(_, v), i) = System_loadb(v, i)
+                    fun unsafeSub(Array(_, v), i) = RunCall.loadByte(v, i)
                     and unsafeSet(Array(_, v), i, c) = System_setb(v, i, c)
                 end);
     
@@ -302,7 +300,7 @@ in
                     val vecLength = wVecLength
                     fun unsafeVecSub(s, i: word) =
                         if System_isShort s then RunCall.unsafeCast s
-                        else System_loads(s, i + wordSize)
+                        else RunCall.loadByteFromImmutable(s, i + wordSize)
                     fun unsafeVecUpdate _ = raise Fail "Should not be called" (* Not applicable *)
                 end);
     
@@ -359,7 +357,7 @@ in
             VectorSliceOperations(
                 struct
                     type vector = array and elem = Word8.word
-                    fun unsafeVecSub(Array(_, s), i) = System_loadb(s, i)
+                    fun unsafeVecSub(Array(_, s), i) = RunCall.loadByte(s, i)
                     and unsafeVecUpdate(Array(_, s), i, x) = System_setb (s, i, x)
                     and vecLength(Array(l, _)) = l
                 end);
@@ -379,7 +377,7 @@ in
                 if length = 0 then emptyVec
                 else if length = 1
                 then (* Single character string is the character itself. *)
-                    RunCall.unsafeCast (System_loadb (vec, intAsWord start))
+                    RunCall.unsafeCast (RunCall.loadByte (vec, intAsWord start))
                 else
                 let
                     val len = intAsWord length

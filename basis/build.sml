@@ -129,8 +129,7 @@ val () = Bootstrap.use "basis/SingleAssignment.sml";
 
 (* Build Windows or Unix structure as appropriate. *)
 local
-    val getOS: int =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0)
+    val getOS: int = Compat560.osSpecificGeneral (0, 0)
 in
     val () =
     if getOS = 0

@@ -596,7 +596,7 @@ structure Posix :>
 struct
     open RuntimeCalls;
 
-    fun getConst i : SysWord.word = RunCall.run_call2 POLY_SYS_os_specific (4, i)
+    fun getConst i : SysWord.word = Compat560.osSpecificGeneral (4, i)
 
     structure BitFlags =
     (* This structure is used as the basis of all the BIT_FLAGS structures. *)
@@ -720,7 +720,7 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun fork () =
                 case doCall(5, ()) of
@@ -729,7 +729,7 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             (* Map the pid argument to positive, zero or
                negative. *)
@@ -739,7 +739,7 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             (* The format of a result may well be sufficiently fixed
                that we could decode it without calling the RTS.  It's
@@ -754,7 +754,7 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
             fun doWait(kind: int, pid: pid, flags: W.flags list) =
             let
                 val (pid, status) =
@@ -780,11 +780,11 @@ struct
         end
 
         fun exec(p, args) =
-            RunCall.run_call2 POLY_SYS_os_specific(17, (p, args))
+            Compat560.osSpecificGeneral(17, (p, args))
         and exece(p, args, env) =
-            RunCall.run_call2 POLY_SYS_os_specific(18, (p, args, env))
+            Compat560.osSpecificGeneral(18, (p, args, env))
         and execp(p, args) =
-            RunCall.run_call2 POLY_SYS_os_specific(19, (p, args))
+            Compat560.osSpecificGeneral(19, (p, args))
 
         (* The definition of "exit" is obviously designed to allow
            OS.Process.exit to be defined in terms of it. In particular
@@ -800,7 +800,7 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
             fun toAbsolute t =
                 if t < Time.zeroTime
                 then raise OS.SysErr("Invalid time", NONE)
@@ -835,7 +835,7 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun pause() = doCall(21, ())
         end
@@ -851,7 +851,7 @@ struct
         and wordToGid = SysWord.toInt
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getpid () = doCall(7, ())
             and getppid () = doCall(8, ())
@@ -868,34 +868,34 @@ struct
         fun environ() = RunCall.run_call2 POLY_SYS_process_env(21, ())
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun setuid(u: uid) = doCall(23, u)
             and setgid(g: gid) = doCall(24, g)
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getgroups() = doCall(25, ())
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getlogin() = doCall(26, ())
             and ctermid() = doCall(30, ())
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             (* In each case NONE as an argument is taken as 0. *)
             fun setpgid{pid, pgid} = doCall(28, (getOpt(pid, 0), getOpt(pgid, 0)))
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun uname() = doCall(29, ())
         end
@@ -919,19 +919,19 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun ttyname(f: file_desc) = doCall(31, f)
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun isatty(f: file_desc) = doCall(32, f)
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun sysconf(s: string) = SysWord.fromInt(doCall(33, s))
         end
@@ -1044,20 +1044,20 @@ struct
         fun creat(s, m) = createf(s, O_WRONLY, O.trunc, m)
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun umask m = SysWord.fromInt(doCall(50, SysWord.toInt m))
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun link{old, new} = doCall(51, (old, new))
             and symlink{old, new} = doCall(54, (old, new))
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun mkdir(name, mode) = doCall(52, (name, SysWord.toInt mode))
             and mkfifo(name, mode) = doCall(53, (name, SysWord.toInt mode))
@@ -1097,8 +1097,8 @@ struct
         end
 
         local
-            val doCall1 = RunCall.run_call2 POLY_SYS_os_specific
-            val doCall2 = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall1 = Compat560.osSpecificGeneral
+            val doCall2 = Compat560.osSpecificGeneral
             fun convStat(mode, kind, ino, dev, nlink, uid, gid, size,
                      atime, mtime, ctime) =
                 { mode = SysWord.fromInt mode, kind = kind, ino = ino,
@@ -1114,7 +1114,7 @@ struct
         datatype access_mode = datatype OS.FileSys.access_mode
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
             val rOK = getConst 156 and wOK = getConst 157
             and eOK = getConst 158 and fOK = getConst 159
             fun abit A_READ = rOK
@@ -1129,36 +1129,36 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun fchmod(fd, mode) = doCall(60, (fd, SysWord.toInt mode))
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun chown(name, uid, gid) = doCall(61, (name, uid, gid))
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun fchown(fd, uid, gid) = doCall(62, (fd, uid, gid))
         end
         local
-            val doCall1 = RunCall.run_call2 POLY_SYS_os_specific
-            and doCall2 = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall1 = Compat560.osSpecificGeneral
+            and doCall2 = Compat560.osSpecificGeneral
         in
             fun utime (name, NONE) = doCall1(64, name)
              |  utime (name, SOME{actime, modtime}) =
                 doCall2(63, (name, actime, modtime))
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun ftruncate(fd, size) = doCall(65, (fd, size))
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun pathconf(name, var) =
             let
@@ -1169,7 +1169,7 @@ struct
             end
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun fpathconf(fd, var) =
             let
@@ -1212,7 +1212,7 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun pipe() =
             let
@@ -1223,25 +1223,25 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun dup fd = doCall(111, fd)
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun dup2{old, new} = doCall(112, (old, new))
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun dupfd{old, base} = doCall(113, (old, base))
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
             val o_rdonly = getConst 63
             and o_wronly = getConst 64
             and o_accmode = getConst 166 (* Access mode mask. *)
@@ -1261,7 +1261,7 @@ struct
             end
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun setfd(fd, flags) = doCall(115, (fd, SysWord.toInt flags))
             and setfl(fd, flags) = doCall(117, (fd, SysWord.toInt flags))
@@ -1284,13 +1284,13 @@ struct
                 else SEEK_END
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun lseek(fd, pos, whence) = doCall(115, (fd, pos, seekWhence whence))
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun fsync fd = doCall(119, fd)
         end
@@ -1332,7 +1332,7 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getlk(fd, (t, w, s, l, p)) = doCall(120, (fd, t, w, s, l, p))
             (* Note: the return type of setlk and setlkw is Flock.lock
@@ -1372,22 +1372,22 @@ struct
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getpwnam (s: string): Passwd.passwd = doCall(100, s)
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getpwuid (u: uid): Passwd.passwd = doCall(101, u)
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getgrnam (s: string): Group.group = doCall(102, s)
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getgrgid (g: gid): Group.group = doCall(103, g)
         end
@@ -1576,7 +1576,7 @@ struct
             val ioflush : queue_sel = SysWord.toInt(getConst 144)
 
             local
-                val doCall = RunCall.run_call2 POLY_SYS_os_specific
+                val doCall = Compat560.osSpecificGeneral
             in
                 fun getattr f =
                 let
@@ -1595,7 +1595,7 @@ struct
             end
 
             local
-                val doCall = RunCall.run_call2 POLY_SYS_os_specific
+                val doCall = Compat560.osSpecificGeneral
             in
                 fun setattr (f, sa,
                     {iflag, oflag, cflag, lflag, cc, ispeed, ospeed}) =
@@ -1605,34 +1605,34 @@ struct
             end
 
             local
-                val doCall = RunCall.run_call2 POLY_SYS_os_specific
+                val doCall = Compat560.osSpecificGeneral
             in
                 fun sendbreak (f, d) = doCall(152, (f, d))
             end
             local
-                val doCall = RunCall.run_call2 POLY_SYS_os_specific
+                val doCall = Compat560.osSpecificGeneral
             in
                 fun drain f = doCall(153, f)
             end
             local
-                val doCall = RunCall.run_call2 POLY_SYS_os_specific
+                val doCall = Compat560.osSpecificGeneral
             in
                 fun flush (f, qs) = doCall(154, (f, qs))
             end
             local
-                val doCall = RunCall.run_call2 POLY_SYS_os_specific
+                val doCall = Compat560.osSpecificGeneral
             in
                 fun flow (f, fa) = doCall(155, (f, fa))
             end
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun getpgrp (f: file_desc): pid = doCall(156, f)
         end
         local
-            val doCall = RunCall.run_call2 POLY_SYS_os_specific
+            val doCall = Compat560.osSpecificGeneral
         in
             fun setpgrp (f: file_desc, p: pid): unit = doCall(157, (f,p))
         end

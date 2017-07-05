@@ -53,6 +53,13 @@ struct
     and memoryIndex =
         NoMemIndex | MemIndex1 of argument | MemIndex2 of argument | MemIndex4 of argument | MemIndex8 of argument
 
+    (* Kinds of moves.
+       WordToWord copies the whole value.  This is the "normal" move.
+       ByteToByte overwrites only a byte.  This is used to store a byte.
+       ByteToWordZeroExtend loads a byte and zero extends it to fill the
+       destination.  This is used when loading a byte. *)
+    datatype moveKind = WordToWord | ByteToByte | ByteToWordZeroExtend
+
     datatype iLabel = ILabel of int
     (* The reference to a condition code. *)
     and ccRef = CcRef of int
@@ -60,9 +67,9 @@ struct
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
-        MoveArgument of { source: argument, dest: argument}
+        MoveArgument of { source: argument, dest: argument, kind: moveKind }
 
-    |   MoveStackArgToPreg of { offset: int, dest: argument} (* Load an argument or the return address *)
+    |   MoveStackArgToPreg of { offset: int, dest: argument } (* Load an argument or the return address *)
     
         (* Call or jump to a function.  Currently the closure is loaded into edx/rdx as one of the
            regArgs. The result is stored in the destination register.  If isTail is true this is tail-recursive
@@ -136,8 +143,12 @@ struct
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
 
-        (* This provides the LEA instruction which can be used for various sorts of arithmetic. *)
-    |   LoadEffectiveAddress of { base: argument, offset: int, index: memoryIndex, dest: argument }
+        (* This provides the LEA instruction which can be used for various sorts of arithmetic.
+           The base register is optional in this case. *)
+    |   LoadEffectiveAddress of { base: argument option, offset: int, index: memoryIndex, dest: argument }
+
+        (* Shift a word by an amount that can either be a constant or a register. *)
+    |   ShiftOperation of { shift: shiftType, resultReg: argument, operand: argument, shiftAmount: argument, ccRef: ccRef }
 
     
     exception InternalError = Misc.InternalError
@@ -188,45 +199,46 @@ struct
             case findLabelDef lab of l as Labels{uses, ...} => (uses := !uses + 1; l)
 
         fun memoryAddressAsBaseOffset({offset, base=RealRegister(GenReg baseReg), index}) =
-        let
-            val mIndex =
-                case index of
-                    NoMemIndex => NoIndex
-                |   MemIndex1(RealRegister(GenReg iReg)) => Index1 iReg
-                |   MemIndex2(RealRegister(GenReg iReg)) => Index2 iReg
-                |   MemIndex4(RealRegister(GenReg iReg)) => Index4 iReg
-                |   MemIndex8(RealRegister(GenReg iReg)) => Index8 iReg
-                |   _ => raise InternalError "memoryAddressAsBaseOffset"
-        in
-            BaseOffset{base=baseReg, offset=offset, index=mIndex}
-        end
+            BaseOffset{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
         |   memoryAddressAsBaseOffset _ = raise InternalError "memoryAddressAsBaseOffset"
+
+        and memoryIndexAsIndex NoMemIndex = NoIndex
+        |   memoryIndexAsIndex(MemIndex1(RealRegister(GenReg iReg))) = Index1 iReg
+        |   memoryIndexAsIndex(MemIndex2(RealRegister(GenReg iReg))) = Index2 iReg
+        |   memoryIndexAsIndex(MemIndex4(RealRegister(GenReg iReg))) = Index4 iReg
+        |   memoryIndexAsIndex(MemIndex8(RealRegister(GenReg iReg))) = Index8 iReg
+        |   memoryIndexAsIndex _ = raise InternalError "memoryIndexAsIndex"
 
         (* Turn the icode into machine code.  This produces the code in reverse. *)
         fun codeGenICode([], code) = code
 
         |   codeGenICode(
                 (* Register-register move. *)
-                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=RealRegister(GenReg destReg)} :: rest, code) =
-                codeGenICode(rest, MoveRR { source=sourceReg, output=destReg } :: code)
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
+                    codeGenICode(rest, MoveRR { source=sourceReg, output=destReg } :: code)
 
         |   codeGenICode(
                 (* Load from memory. *)
-                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg)} :: rest, code) =
+                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
                 codeGenICode(rest, LoadMemR{source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
+
+        |   codeGenICode(
+                (* Load from memory. *)
+                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=ByteToWordZeroExtend} :: rest, code) =
+                codeGenICode(rest, LoadByteR{source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
                 (* Store to memory *)
         |   codeGenICode(
-                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc} :: rest, code) =
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=WordToWord} :: rest, code) =
                 codeGenICode(rest,
                     StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
 
                 (* Move a short constant to a register *)
-        |   codeGenICode(MoveArgument {source=IntegerConstant srcValue, dest=RealRegister(GenReg destReg)} :: rest, code) =
+        |   codeGenICode(MoveArgument {source=IntegerConstant srcValue, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
                 codeGenICode(rest, MoveConstR{source=srcValue, output=destReg} :: code)
 
                 (* Move a long constant to a register *)
-        |   codeGenICode(MoveArgument {source=AddressConstant srcValue, dest=RealRegister(GenReg destReg)} :: rest, code) =
+        |   codeGenICode(MoveArgument {source=AddressConstant srcValue, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
                 codeGenICode(rest, MoveLongConstR{source=srcValue, output=destReg} :: code)
 
         |   codeGenICode(MoveArgument _ :: _, _) =
@@ -408,8 +420,26 @@ struct
         |   codeGenICode(ResetStackPtr {numWords} :: rest, code) =
                 codeGenICode(rest, ResetStack numWords :: code)
 
-        |   codeGenICode(LoadEffectiveAddress _ :: _, _) =
-                raise InternalError "codeGenICode: TODO codeGenICode LoadEffectiveAddress"
+        |   codeGenICode(LoadEffectiveAddress { base, offset, index, dest } :: rest, code) =
+            let
+                val bReg = Option.map asGenReg base
+                val indexR = memoryIndexAsIndex index
+            in
+                codeGenICode(rest, LoadAddress{ output=asGenReg dest, offset=offset, base=bReg, index=indexR } :: code)
+            end
+
+        |   codeGenICode(
+                ShiftOperation{
+                    shift, resultReg=RealRegister(GenReg resReg), operand=RealRegister(GenReg opReg),
+                    shiftAmount=IntegerConstant shiftValue, ...} :: rest, code) =
+            let
+                val _ = resReg = opReg orelse raise InternalError "codeGenICode: ArithmeticFunction"
+            in
+                codeGenICode(rest, ShiftConstant{ shiftType=shift, output=resReg, shift=Word8.fromLargeInt shiftValue } :: code)
+            end
+
+        |   codeGenICode(ShiftOperation _ :: _, _) =
+                raise InternalError "codeGenICode: TODO ShiftOperation"
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)
         |   codeGenICode(MoveStackArgToPreg _ :: _, _) =

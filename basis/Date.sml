@@ -81,7 +81,7 @@ struct
     open RuntimeCalls
 
     fun callTiming (code: int) args =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_timing_dispatch (code,args);
+        Compat560.timingGeneral (code,args);
     
     (* Get the local time offset which applied at the specific time.
        The time is in seconds since the epoch. The result may be the

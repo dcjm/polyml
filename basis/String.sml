@@ -28,12 +28,10 @@ local
     open LibrarySupport
 
     val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_loadb: string*word->char = RunCall.run_call2 POLY_SYS_load_byte;
     val System_setb: string * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val MemMove: string*word*string*word*word -> unit = RunCall.run_call5 POLY_SYS_move_bytes
 
     (* Redefine these as functions on the abstract type. *)
-    val System_loadbA: address*word->char = RunCall.run_call2 POLY_SYS_load_byte;
     val System_setbA: address * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val System_move_bytesA:
         address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
@@ -66,7 +64,7 @@ local
     (* This can be used where we have already checked the range. *)
     fun unsafeStringSub(s: string, i: word): char =
         if isShortString s then singleCharStringAsChar s
-        else System_loadb(s, i + wordSize)
+        else RunCall.loadByteFromImmutable(s, i + wordSize)
 
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
@@ -117,7 +115,7 @@ local
         fun exp_str (num, res) =
             if num = 0w0
             then res
-            else exp_str (num - 0w1, System_loadb(s, num+i-0w1+wordSize) :: res)
+            else exp_str (num - 0w1, RunCall.loadByteFromImmutable(s, num+i-0w1+wordSize) :: res)
     in
         (* Handle the special case of a single character string which is
            represented by the character itself.  N.B. because we use this
@@ -198,7 +196,7 @@ local
         val str: char ->string = charAsString
     
         val maxSize: int =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env (101, ())
+            Compat560.processEnvGeneral (101, ())
                     
         val alloc = allocString
     
@@ -303,7 +301,7 @@ local
             then raise General.Subscript
             else if System_isShort s
             then singleCharStringAsChar s
-            else System_loadb(s, intAsWord i + wordSize);
+            else RunCall.loadByteFromImmutable(s, intAsWord i + wordSize);
     
         (* Explode a string into a list of characters. *)
         fun explode (s : string) : char list = stringExplode(s, 0w0, sizeAsWord s)
@@ -324,7 +322,7 @@ local
                 (* Accumulate the characters into a list. *)
                 fun mapChars i l =
                     if i = len then l
-                    else mapChars (i+0w1) (f(System_loadb(s, i+wordSize)) :: l)
+                    else mapChars (i+0w1) (f(RunCall.loadByteFromImmutable(s, i+wordSize)) :: l)
                 
                 (* Reverse has not yet been defined. *)
                 fun revAppend([], a) = a
@@ -399,7 +397,7 @@ local
             if size_s1 <= size_s2
             then if size_s1 = 1 (* We have to deal with the case of single chars. *)
             then if size_s2 = 1 then singleCharStringAsChar s1 = singleCharStringAsChar s2
-            else singleCharStringAsChar s1 = System_loadb(s2, wordSize)
+            else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, wordSize)
             else byteMatch s1 s2 0w0 0w0 (intAsWord size_s1)
             else false
         end
@@ -412,7 +410,7 @@ local
             if size_s1 <= size_s2
             then if size_s1 = 1 (* We have to deal with the case of single chars. *)
             then if size_s2 = 1 then singleCharStringAsChar s1 = singleCharStringAsChar s2
-            else singleCharStringAsChar s1 = System_loadb(s2, wordSize+intAsWord(size_s2-1))
+            else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, wordSize+intAsWord(size_s2-1))
             else byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
             else false
         end
@@ -458,7 +456,7 @@ local
                     type vector = vector and elem = elem
                     val length = sizeAsWord
                     fun unsafeSub(s, i) =
-                        if System_isShort s then singleCharStringAsChar s else System_loadb(s, i + wordSize);
+                        if System_isShort s then singleCharStringAsChar s else RunCall.loadByteFromImmutable(s, i + wordSize);
                     fun unsafeSet(_, _, _) = raise Fail "Should not be called"
                 end);
     
@@ -479,7 +477,7 @@ local
                     
                 fun domap i =
                     if i >= byte_limit then ()
-                    else (System_setb(new_vec, i, f(System_loadb(vec, i))); domap(i+0w1))
+                    else (System_setb(new_vec, i, f(RunCall.loadByteFromImmutable(vec, i))); domap(i+0w1))
             in
                 domap wordSize;
                 System_lock new_vec;
@@ -838,7 +836,7 @@ in
                 fun domap j =
                     if j >= len then ()
                     else (System_setb(new_vec, j+wordSize,
-                            f(wordAsInt(j), System_loadb(vec, j+wordSize)));
+                            f(wordAsInt(j), RunCall.loadByteFromImmutable(vec, j+wordSize)));
                           domap(j+0w1))
             in
                 domap 0w0;
@@ -994,7 +992,7 @@ in
                     fun getSize i n =
                         if i = len then n
                         else getSize (i+0w1)
-                                (n + size(convert(System_loadb(s, i+wordSize))))
+                                (n + size(convert(RunCall.loadByteFromImmutable(s, i+wordSize))))
                     (* The result could possibly be long so we add the lengths
                        as integers and convert and check when we've finished. *)
                     val newSize = unsignedShortOrRaiseSize (getSize 0w0 0)
@@ -1012,7 +1010,7 @@ in
                         if i = len then ()
                         else
                         let
-                            val conv = convert(System_loadb(s, i+wordSize))
+                            val conv = convert(RunCall.loadByteFromImmutable(s, i+wordSize))
                             val convSize = sizeAsWord conv
                         in
                             if convSize = 0w1
@@ -1152,7 +1150,7 @@ in
         in
             (* Negative values will always be >= l when compared unsigned. *)
             if iW >= l then raise General.Subscript
-            else System_loadbA (v, iW)
+            else RunCall.loadByte (v, iW)
         end
     
         fun update (Array (l, v), i: int, new) : unit =
@@ -1209,7 +1207,7 @@ in
             if len = 0w0 then ""
             else if len = 0w1
             then (* Single character string is the character itself. *)
-                charAsString (System_loadbA (vec, 0w0))
+                charAsString (RunCall.loadByte (vec, 0w0))
             else
             let
                 (* Make an array initialised to zero. *)
@@ -1254,7 +1252,7 @@ in
                 struct
                     type vector = array and elem = elem
                     fun length(Array(len, _)) = len
-                    fun unsafeSub(Array(_, v), i) = System_loadbA(v, i)
+                    fun unsafeSub(Array(_, v), i) = RunCall.loadByte(v, i)
                     and unsafeSet(Array(_, v), i, c) = System_setbA(v, i, c)
                 end);
     
@@ -1350,7 +1348,7 @@ in
                     type vector = vector and elem = char
                     val vecLength = sizeAsWord
                     fun unsafeVecSub(s, i: word) =
-                        if System_isShort s then singleCharStringAsChar s else System_loadb(s, i + wordSize)
+                        if System_isShort s then singleCharStringAsChar s else RunCall.loadByteFromImmutable(s, i + wordSize)
                     fun unsafeVecUpdate _ = raise Fail "Should not be called" (* Not applicable *)
                 end);
     
@@ -1436,7 +1434,7 @@ in
             else if size_s1 = 0w1
             then if System_isShort s2
             then singleCharStringAsChar s1 = singleCharStringAsChar s2
-            else singleCharStringAsChar s1 = System_loadb(s2, i + wordSize)
+            else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + wordSize)
             else byteMatch s1 s2 0w0 i size_s1
         end
 
@@ -1450,7 +1448,7 @@ in
             else if size_s1 = 0w1
             then if System_isShort s2
             then singleCharStringAsChar s1 = singleCharStringAsChar s2
-            else singleCharStringAsChar s1 = System_loadb(s2, i + l - 0w1 + wordSize)
+            else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + l - 0w1 + wordSize)
             else byteMatch s1 s2 0w0 (l + i - size_s1) size_s1
         end
 
@@ -1463,7 +1461,7 @@ in
             if s < size_s1 then false (* The remainder of the string is too small to match. *)
             else if (
                if size_s1 = 0w1
-               then singleCharStringAsChar s1 = System_loadb(s2, i + wordSize)
+               then singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + wordSize)
                else byteMatch s1 s2 0w0 i size_s1
                )
             then true
@@ -1635,7 +1633,7 @@ in
             VectorSliceOperations(
                 struct
                     type vector = array and elem = char
-                    fun unsafeVecSub(Array(_, s: LibrarySupport.address), i) = System_loadbA(s, i)
+                    fun unsafeVecSub(Array(_, s: LibrarySupport.address), i) = RunCall.loadByte(s, i)
                     and unsafeVecUpdate(Array(_, s), i, x) = System_setbA (s, i, x)
                     and vecLength(Array(l, _)) = l
                 end);
@@ -1650,7 +1648,7 @@ in
                 if length = 0 then ""
                 else if length = 1
                 then (* Single character string is the character itself. *)
-                    RunCall.unsafeCast (System_loadbA (vec, intAsWord start))
+                    RunCall.unsafeCast (RunCall.loadByte (vec, intAsWord start))
                 else
                 let
                     val len = intAsWord length

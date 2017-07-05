@@ -320,17 +320,9 @@ struct
              the stack adjustment code at the end of gencde will take care
              of this. This means that I don't want to do any clever "end-of-function"
              optimisation either. SPF 6/1/97
-
-         The exception handler must be aligned to an odd word boundary
-         so that the garbage collector does not get confused when it
-         finds the address on the stack. Values on full-word
-         boundaries always point to the start of objects whereas
-         values off full-word boundaries (either return addresses or
-         catch-phrases) point into code-segments.
           *)
           val () = realstackptr := oldsp;
           val () = exited := false;
-            val () = alignOffWord (cvec, 0);
           val () = apply (fn handlerLab => fixup (handlerLab, cvec)) handlerList;
       (* If we were executing machine code we must re-enter the interpreter. *)
           val () = genEnterIntCatch cvec;
@@ -365,9 +357,7 @@ struct
                             Word.toLargeInt (max-min)
                         end
             in
-                if 3 * numberOfCases < range + 5
-                then genSparseCase(cas, whereto, tailKind, loopAddr)
-                else genDenseCase (cas, whereto, tailKind, loopAddr)
+                genDenseCase (cas, whereto, tailKind, loopAddr)
             end
   
         |   BICTuple recList =>
@@ -462,13 +452,10 @@ struct
         |   BICTagTest { test, tag, ... } =>
             let
                 (* Convert this into a simple equality function. *)
-                val code =
-                    BICEval {
-                        function = BICConstnt(ioOp POLY_SYS_word_eq, []),
-                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag, []), GeneralType)],
-                        resultType=GeneralType }
+                val () = gencde (test, ToStack, NotEnd, loopAddr)
+                val () = pushConst (toMachineWord tag, cvec)
             in
-                gencde (code, whereto, tailKind, loopAddr)
+                genOpcode(opcode_equalWord, cvec)
             end
 
         |   BICBuiltIn0 { oper } => raise InternalError "intgcode: BICBuiltIn0"
@@ -877,11 +864,9 @@ struct
      val () =
        if min = 0 then ()
        else let (* Subtract lower limit. *)
-         val () = pushConst(toMachineWord min, cvec);
-         val () = pushConst(ioOp POLY_SYS_aminus, cvec);
-         val () = genCallClosure cvec;
+         val () = pushConst(toMachineWord min, cvec)
        in
-         genEnterIntCall (cvec, 2) (* added SPF 28/6/95 *)
+         genOpcode(opcode_fixedSub, cvec) (* Is this fixed, word or arbitrary? *)
        end;
 
      val () = genCase (limit, cvec);
@@ -945,76 +930,6 @@ struct
    in
      exited := false
    end (* genDenseCase *)
-
-   (* Generate a sparse case. *)
-   and genSparseCase
-        (pt : caseForm,
-         whereto : whereto,
-         tailKind : tail,
-         loopAddr) : unit =
-   let
-     (* Have already dealt with cases where there is only one case. *)
-
-      (* The exit jumps are chained together. *)
-      val lastEndJump = ref noJump;
-
-      fun caseCode ([], othersExited : bool) : bool = othersExited
-        | caseCode ((body : backendIC, matches : word) :: otherCases, othersExited : bool) : bool =
-      let
-        local
-          (* Is this really safe? What about multiple side-effects? SPF *)
-          val () = gencde (#test pt, ToStack, NotEnd, loopAddr);
-            
-          (* Push the value to be compared. *)
-          val () = pushConst(toMachineWord matches, cvec);
-            
-          (* Compare them. *)
-          val () =
-            pushConst (ioOp (POLY_SYS_word_eq), cvec);
-               
-          val () = genCallClosure cvec;
-          val () = genEnterIntCall(cvec, 2); (* added SPF 28/6/95 *)
-        in
-          val lab : labels = putBranchInstruction (jumpFalse, cvec);
-          val ()     = decsp (); (* Remove result of test. *)
-        end
-        
-        (* Now the expression. *)
-        val () = gencde(body, whereto, tailKind, loopAddr);
-        val thisHasExited : bool = !exited;
-        
-        (* Remove the result - the default case will leave it. *)
-        val () = case whereto of ToStack => decsp () | NoResult => ();
-        
-        val () = 
-          lastEndJump :=
-             linkLabels
-               (!lastEndJump,
-                if thisHasExited then noJump else putBranchInstruction(jump, cvec),
-                cvec);
-                
-        (* Now the next case. *)
-        val () = fixup (lab, cvec);
-        val () = exited := false;
-      in
-        caseCode (otherCases, othersExited andalso thisHasExited)
-      end; (* caseCode *)
-
-      (* First the cases. *)
-      val casesExited : bool = caseCode (#cases pt, true);
-      
-      val () = exited := false;
-      
-      val () =
-        let
-          val () = gencde(#default pt, whereto, tailKind, loopAddr);
-        in
-          exited := (!exited andalso casesExited)
-        end;
-    in
-      (* Finally go down the list of exit labels pointing them to here. *)
-      fixup (!lastEndJump, cvec)
-    end
      
     (* Closure functions must start with ``enterIntProc''. This is actually a
        break-point instruction in the machine-code instruction set to make sure
@@ -1052,8 +967,7 @@ struct
     end
 
     local
-        val makeEntryPoint: string -> machineWord =
-            RunCall.run_call1 RuntimeCalls.POLY_SYS_get_entry_point
+        val makeEntryPoint: string -> machineWord = Compat560.createEntryPointObject
 
         fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
         let

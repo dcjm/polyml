@@ -312,7 +312,7 @@ struct
         end
         
         local
-            val doCall: int*unit->unit = RunCall.run_call2 POLY_SYS_thread_dispatch
+            val doCall: int*unit->unit = Compat560.threadGeneral
         in
             fun testInterrupt() =
                 (* If there is a pending request the word in the thread object
@@ -352,7 +352,7 @@ struct
                 RunCall.run_call3 POLY_SYS_assign_word (self(), threadIdFlags,
                     Word.orb(newValue, Word.andb(Word.notb mask, oldValues)));
                 if stack = getStackSizeAsInt me
-                then () else RunCall.run_call2 POLY_SYS_thread_dispatch (15, stack);
+                then () else Compat560.threadGeneral (15, stack);
                 (* If we are now handling interrupts asynchronously check whether
                    we have a pending interrupt now.  This will only be effective
                    if we were previously handling them synchronously or blocking
@@ -381,7 +381,7 @@ struct
                    interrupts synchronously. *)
                 val (defaultAttrs, _) =
                     attrsToWord[EnableBroadcastInterrupt false, InterruptState InterruptSynch]
-                val doCall = RunCall.run_call2 POLY_SYS_thread_dispatch
+                val doCall = Compat560.threadGeneral
             in
                 fun fork(f:unit->unit, attrs: threadAttribute list): thread =
                 let
@@ -395,29 +395,29 @@ struct
             end
         end
 
-        val exit: unit -> unit = RunCall.run_call0 POLY_SYS_kill_self
+        val exit: unit -> unit = RunCall.rtsCallFull0 "PolyThreadKillSelf"
         
         local
-            val doCall: int*thread->bool = RunCall.run_call2 POLY_SYS_thread_dispatch
+            val doCall: int*thread->bool = Compat560.threadGeneral
         in
             fun isActive(t: thread): bool = doCall(8, t)
         end
         
         local
-            val doCall: int*unit->unit = RunCall.run_call2 POLY_SYS_thread_dispatch
+            val doCall: int*unit->unit = Compat560.threadGeneral
         in
             fun broadcastInterrupt() = doCall(10, ())
         end
 
         local
-            val doCall: int*thread->unit = RunCall.run_call2 POLY_SYS_thread_dispatch
+            val doCall: int*thread->unit = Compat560.threadGeneral
         in
             fun kill(t: thread) = doCall(12, t)
             and interrupt(t: thread) = doCall(9, t)
         end
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_thread_dispatch
+            val doCall = Compat560.threadGeneral
         in
             fun numProcessors():int = doCall(13, 0)
 
@@ -435,7 +435,7 @@ struct
         and atomicDecr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_decr
         and atomicReset: Word.word ref -> unit     = RunCall.run_call1 POLY_SYS_atomic_reset
 
-        val doCall: int * mutex -> unit = RunCall.run_call2 POLY_SYS_thread_dispatch
+        val doCall: int * mutex -> unit = Compat560.threadGeneral
 
         (* A mutex is implemented as a Word.word ref.  It is initially set to 1 and locked
            by atomically decrementing it.  If it was previously unlocked the result will
@@ -524,7 +524,7 @@ struct
         val infinity = Time.zeroTime;
 
         local
-            val doCall = RunCall.run_call2 POLY_SYS_thread_dispatch
+            val doCall = Compat560.threadGeneral
             fun Sleep(mt: Mutex.mutex * Time.time): unit = doCall(3, mt)
         in
             fun innerWait({lock, threads}: conditionVar, m: Mutex.mutex, t: Time.time) : bool =
@@ -623,7 +623,7 @@ struct
         end
         
         local
-            val doCall = RunCall.run_call2 POLY_SYS_thread_dispatch
+            val doCall = Compat560.threadGeneral
             (* This call wakes up the specified thread.  If the thread has already been
                interrupted and is not ignoring interrupts it returns false.  Otherwise
                it wakes up the thread and returns true.  We have to use this because

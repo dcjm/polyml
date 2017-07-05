@@ -24,7 +24,6 @@ local
     val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store;
     val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
     val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg
-    val System_length: word -> word = RunCall.run_call1 POLY_SYS_get_length
     val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
     val System_move_words:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
@@ -85,15 +84,15 @@ struct
         end
 
     val listLength = length; (* Pick this up from the prelude. *)
-    fun length (vec: 'a array): int = wordAsInt(System_length(arrayAsWord vec))
+    fun length (vec: 'a array): int = wordAsInt(RunCall.memoryCellLength(arrayAsWord vec))
     
     fun op sub (vec: 'a array, i: int): 'a =
-        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length(arrayAsWord vec)
+        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= RunCall.memoryCellLength vec
         then raise General.Subscript
         else unsafeSub(vec, i)
  
     fun update (vec: 'a array, i: int, new: 'a) : unit =
-        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length(arrayAsWord vec)
+        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= RunCall.memoryCellLength vec
         then raise General.Subscript
         else System_setw (arrayAsWord vec, intAsWord i, RunCall.unsafeCast new);
 
