@@ -128,9 +128,9 @@ struct
 
     |   simpGeneral context (Eval {function, argList, resultType}) =
             SOME(specialToGeneral(simpFunctionCall(function, argList, resultType, context)))
-
+(*
     |   simpGeneral context (BuiltIn(function, argList)) =
-            SOME(specialToGeneral(simpBuiltIn(function, argList, context)))
+            SOME(specialToGeneral(simpBuiltIn(function, argList, context)))*)
 
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
             SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
@@ -236,8 +236,8 @@ struct
     |   simpSpecial (Eval {function, argList, resultType}, context) =
             simpFunctionCall(function, argList, resultType, context)
 
-    |   simpSpecial (BuiltIn (function, argList), context) =
-            simpBuiltIn(function, argList, context)
+(*    |   simpSpecial (BuiltIn (function, argList), context) =
+            simpBuiltIn(function, argList, context)*)
 
     |   simpSpecial (Cond(condTest, condThen, condElse), context) =
             simpIfThenElse(condTest, condThen, condElse, context)
@@ -612,8 +612,8 @@ struct
                 (cGen, functDecs @ (copiedArgs @ cDecs), cSpec)
             end
 
-        |   (_, gen as Constnt(w, _), _) => (* Not inlinable - constant function. *)
-            if isIoAddress(toAddress w)
+        |   (_, gen as Constnt _, _) => (* Not inlinable - constant function. *)
+            (*if isIoAddress(toAddress w)
             then (* If it is the address of a built-in function convert it. *)
             let
                 val () = reprocess := true
@@ -621,7 +621,7 @@ struct
             in
                 (evCopiedCode, decsFunct @ decs, evSpec)
             end
-            else
+            else*)
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
                 val evCopiedCode =
@@ -639,7 +639,7 @@ struct
                 (evCopiedCode, decsFunct, EnvSpecNone)
             end
     end
-
+(*
     (* A built-in function.  We can call certain built-ins immediately if
        the arguments are constants.  *)
     and simpBuiltIn(rtsCallNo, argList, context as { reprocess, ...}) =
@@ -765,7 +765,7 @@ struct
             (gen, preDecs, spec)
         end
     end
-
+*)
     and simpIfThenElse(condTest, condThen, condElse, context) =
     (* If-then-else.  The main simplification is if we have constants in the
        test or in both the arms. *)
@@ -793,7 +793,7 @@ struct
         |   test =>
             let
                 val simpTest = specialToGeneral test
-                fun mkNot arg = BuiltIn(RuntimeCalls.POLY_SYS_not_bool, [arg])
+                fun mkNot arg = BuiltIn1{oper=BuiltIns.NotBoolean, arg1=arg}
             in
                 case (simpSpecial(condThen, context), simpSpecial(condElse, context)) of
                     ((thenConst as Constnt(thenVal, _), [], _), (elseConst as Constnt(elseVal, _), [], _)) =>

@@ -1237,9 +1237,8 @@ struct
     |   makeGuard (value as Value{class=Exception, ...}, _, testing, level, typeVarMap) =
         (* Should only be an exception. Get the value of the exception identifier 
            and compare with the identifier in the exception packet. *)
-        mkTestptreq 
-            (mkInd (0, testing),
-                codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
+        mkEqualWord (mkInd (0, testing),
+                        codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
 
     |   makeGuard _ = raise InternalError "makeGuard"
 

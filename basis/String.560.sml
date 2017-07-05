@@ -40,7 +40,7 @@ local
 
     (* If a vector/string is short (i.e. has an integer tag) it must be the character
        itself rather than a pointer to a segment. *)
-    val System_isShort   : string -> bool = RunCall.isShort
+    val System_isShort   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
     val wordSize : word = LibrarySupport.wordSize
     
     (* We use the same representation for a char and a single-character string. *)
@@ -61,7 +61,7 @@ local
 
     (* If a vector/string is short (i.e. has an integer tag) it must be the character
        itself rather than a pointer to a segment. *)
-    val isShortString: string -> bool = RunCall.isShort
+    val isShortString: string -> bool = RunCall.run_call1 POLY_SYS_is_short
 
     (* This can be used where we have already checked the range. *)
     fun unsafeStringSub(s: string, i: word): char =

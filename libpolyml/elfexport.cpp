@@ -519,6 +519,8 @@ void ELFExport::exportStore(void)
     unsigned long dataRelName = makeStringTableEntry(useRela ? ".rela.data" : ".rel.data", &sectionStrings);
     unsigned long textName = makeStringTableEntry(".text", &sectionStrings);
     unsigned long textRelName = makeStringTableEntry(useRela ? ".rela.text" : ".rel.text", &sectionStrings);
+    unsigned long rodataName = makeStringTableEntry(".rodata", &sectionStrings);
+    unsigned long rodataRelName = makeStringTableEntry(useRela ? ".rela.rodata" : ".rel.rodata", &sectionStrings);
 
     // Main data sections.  Each one has a relocation section.
     for (i=0; i < memTableEntries; i++)
@@ -545,12 +547,19 @@ void ELFExport::exportStore(void)
                 sections[s].sh_flags = SHF_WRITE | SHF_ALLOC;
                 sections[s+1].sh_name = dataRelName; // Name of relocation section
             }
-            else
+            else if (memTable[i].mtFlags & MTF_EXECUTABLE)
             {
-                // Immutable areas are marked as executable.
+                // Code areas are marked as executable.
                 sections[s].sh_name = textName;
                 sections[s].sh_flags = SHF_ALLOC | SHF_EXECINSTR;
                 sections[s+1].sh_name = textRelName; // Name of relocation section
+            }
+            else
+            {
+                // Non-code immutable areas
+                sections[s].sh_name = rodataName;
+                sections[s].sh_flags = SHF_ALLOC;
+                sections[s+1].sh_name = rodataRelName; // Name of relocation section
             }
             // sections[s].sh_size is set later
             // sections[s].sh_offset is set later.

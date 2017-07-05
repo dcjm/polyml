@@ -302,6 +302,11 @@ struct
 
     val opcode_callFastRTSFtoF   = Opcode 0x8f
     and opcode_callFastRTSGtoF   = Opcode 0x90
+    
+    val opcode_notBoolean        = Opcode 0x91
+    val opcode_isTagged          = Opcode 0x92
+    
+    val opcode_equalWord         = Opcode 0xa0
  
     (* val opcode_last              = opcode_ioVec_225; *)
 
@@ -423,6 +428,9 @@ struct
       val () = repUpdate(opcode_callFullRTS5,  "callFullRTS5")
       val () = repUpdate(opcode_callFastRTSFtoF,  "callFullRTSFtoF")
       val () = repUpdate(opcode_callFastRTSGtoF,  "callFullRTSGtoF")
+      val () = repUpdate(opcode_notBoolean,     "notBoolean")
+      val () = repUpdate(opcode_isTagged,       "isTagged")
+      val () = repUpdate(opcode_equalWord,      "equalWord")
     in
       fun repr (Opcode n) : string = Array.sub (repArray, n);
     end;
@@ -936,7 +944,9 @@ struct
     val () = resetSp cvec;
   in
     genByte (opn, cvec)
-  end; 
+  end
+  
+    fun genOpcode (oper, code) = genOpc(oper, 1, code)
 
   fun genRaiseEx (cvec: code) : unit =
     genOpc (opcode_raiseEx, 1, cvec);

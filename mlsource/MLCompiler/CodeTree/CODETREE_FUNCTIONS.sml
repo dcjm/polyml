@@ -84,7 +84,7 @@ struct
         Word.andb(props, noUpdateNoDeref) = noUpdateNoDeref
     end
 
-    (* RTS calls that have have no side-effects and do not raise exceptions.
+    (* RTS calls that have no side-effects and do not raise exceptions.
        They may return different results for different calls but that doesn't
        matter if the result is going to be discarded. *)
     and sideEffectFreeRTSCall rtsNo =
@@ -122,16 +122,71 @@ struct
 
         |   codeProps (Indirect{base, ...}) = codeProps base
 
-            (* An RTS call, which may actually be code which is inlined
-               by the code-generator, may be side-effect free.  This can
+            (* A built-in function may be side-effect free.  This can
                occur if we have, for example, "if exp1 orelse exp2"
                where exp2 can be reduced to "true", typically because it's
                inside an inline function and some of the arguments to the
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        |   codeProps (BuiltIn(function, argList)) =
-                List.foldl(fn (c, r) => codeProps c andb r) (rtsProperties function) argList
+        |   codeProps (BuiltIn0{oper}) =
+            (
+                case oper of
+                    BuiltIns.Built0PlaceHolder => 0w0
+            )
+
+        |   codeProps (BuiltIn1{oper, arg1}) =
+            let
+                open BuiltIns
+                val operProps =
+                    case oper of
+                        NotBoolean => applicative
+                    |   IsTaggedValue => applicative
+            in
+                operProps andb codeProps arg1
+            end
+
+        |   codeProps (BuiltIn2{oper, arg1, arg2}) =
+            let
+                open BuiltIns
+                val mayRaise = PROPWORD_NOUPDATE orb PROPWORD_NODEREF
+                val operProps =
+                    case oper of
+                        WordComparison _ => applicative
+                    |   FixedPrecisionArith _ => mayRaise
+                    |   WordArith ArithQuot => mayRaise (* Check this: the higher level ops check for zero. *)
+                    |   WordArith ArithRem => mayRaise
+                    |   WordArith _ => applicative
+            in
+                operProps andb codeProps arg1 andb codeProps arg2
+            end
+
+        |   codeProps (BuiltIn3{oper, arg1, arg2, arg3}) =
+            let
+                val operProps =
+                    case oper of
+                        BuiltIns.Built3PlaceHolder => 0w0
+            in
+                operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3
+            end
+
+        |   codeProps (BuiltIn4{oper, arg1, arg2, arg3, arg4}) =
+            let
+                val operProps =
+                    case oper of
+                        BuiltIns.Built4PlaceHolder => 0w0
+            in
+                operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3 andb codeProps arg4
+            end
+
+        |   codeProps (BuiltIn5{oper, arg1, arg2, arg3, arg4, arg5}) =
+            let
+                val operProps =
+                    case oper of
+                        BuiltIns.Built5PlaceHolder => 0w0
+            in
+                operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3 andb codeProps arg4 andb codeProps arg5
+            end
 
         |   codeProps (Eval _) = 0w0
 

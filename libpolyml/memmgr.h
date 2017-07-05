@@ -236,7 +236,7 @@ public:
     bool DeleteStackSpace(StackSpace *space);
 
     // Create and delete export spaces
-    PermanentMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv);
+    PermanentMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv, bool code);
     void DeleteExportSpaces(void);
     bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
@@ -343,6 +343,7 @@ public:
 
 private:
     bool AddLocalSpace(LocalMemSpace *space);
+    bool AddCodeSpace(CodeSpace *space);
 
     POLYUNSIGNED reservedSpace;
     unsigned nextAllocator;

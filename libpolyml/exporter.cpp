@@ -105,7 +105,7 @@ GraveYard::~GraveYard()
 
 CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
 {
-    defaultImmSize = defaultMutSize = 0;
+    defaultImmSize = defaultMutSize = defaultCodeSize = 0;
     defaultNoOverSize = 4096; // This can be small.
     tombs = 0;
     graveYard = 0;
@@ -136,6 +136,8 @@ void CopyScan::initialise(bool isExport/*=true*/)
             POLYUNSIGNED size = (space->top-space->bottom)/4;
             if (space->isMutable)
                 defaultMutSize += size;
+            else if (space->isCode)
+                defaultCodeSize += size;
             else
                 defaultImmSize += size;
             if (space->hierarchy == 0 && ! space->isMutable)
@@ -158,6 +160,8 @@ void CopyScan::initialise(bool isExport/*=true*/)
         // overestimated while the immutable size is correct.
         if (space->isMutable)
             defaultMutSize += size/4;
+        else if (space->isCode)
+            defaultCodeSize += size/2;
         else
             defaultImmSize += size/2;
     }
@@ -166,12 +170,14 @@ void CopyScan::initialise(bool isExport/*=true*/)
         // Minimum 1M words.
         if (defaultMutSize < 1024*1024) defaultMutSize = 1024*1024;
         if (defaultImmSize < 1024*1024) defaultImmSize = 1024*1024;
+        if (defaultCodeSize < 1024*1024) defaultCodeSize = 1024*1024;
     }
     else
     {
         // Much smaller minimum sizes for saved states.
         if (defaultMutSize < 1024) defaultMutSize = 1024;
         if (defaultImmSize < 4096) defaultImmSize = 4096;
+        if (defaultCodeSize < 4096) defaultImmSize = 4096;
     }
 }
 
@@ -266,18 +272,21 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     bool isMutableObj = obj->IsMutable();
     bool isNoOverwrite = false;
     bool isByteObj = false;
+    bool isCodeObj = false;
     if (isMutableObj)
     {
         isNoOverwrite = obj->IsNoOverwriteObject();
         isByteObj = obj->IsByteObject();
     }
+    else isCodeObj = obj->IsCodeObject();
     // Allocate a new address for the object.
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
         PermanentMemSpace *space = gMem.eSpaces[i];
         if (isMutableObj == space->isMutable &&
             isNoOverwrite == space->noOverwrite &&
-            isByteObj == space->byteOnly)
+            isByteObj == space->byteOnly &&
+            isCodeObj == space->isCode)
         {
             ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
             POLYUNSIGNED spaceLeft = space->top - space->topPointer;
@@ -293,12 +302,19 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     {
         // Didn't find room in the existing spaces.  Create a new space.
         POLYUNSIGNED spaceWords;
-        if (!isMutableObj) spaceWords = defaultImmSize;
-        else if (isNoOverwrite) spaceWords = defaultNoOverSize;
-        else spaceWords = defaultMutSize;
+        if (isMutableObj)
+        {
+            if (isNoOverwrite) spaceWords = defaultNoOverSize;
+            else spaceWords = defaultMutSize;
+        }
+        else
+        {
+            if (isCodeObj) spaceWords = defaultCodeSize;
+            else spaceWords = defaultImmSize;
+        }
         if (spaceWords <= words)
             spaceWords = words+1; // Make sure there's space for this object.
-        PermanentMemSpace *space = gMem.NewExportSpace(spaceWords, isMutableObj, isNoOverwrite);
+        PermanentMemSpace *space = gMem.NewExportSpace(spaceWords, isMutableObj, isNoOverwrite, isCodeObj);
         if (isByteObj) space->byteOnly = true;
         if (space == 0)
         {
@@ -515,7 +531,9 @@ void Exporter::RunExport(PolyObject *rootFunction)
                 entry->mtAddr = space->bottom;
                 entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
                 entry->mtIndex = space->index;
-                entry->mtFlags = space->isMutable ? MTF_WRITEABLE : 0; 
+                entry->mtFlags = 0;
+                if (space->isMutable) entry->mtFlags |= MTF_WRITEABLE;
+                if (space->isCode) entry->mtFlags |= MTF_EXECUTABLE;
             }
         }
         newAreas = memEntry;
@@ -528,13 +546,13 @@ void Exporter::RunExport(PolyObject *rootFunction)
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = hierarchy == 0 ? memEntry-1 : space->index;
+        entry->mtFlags = 0;
         if (space->isMutable)
         {
             entry->mtFlags = MTF_WRITEABLE;
             if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
         }
-        else
-            entry->mtFlags = MTF_EXECUTABLE;
+        if (space->isCode) entry->mtFlags |= MTF_EXECUTABLE;
         if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
     }
 

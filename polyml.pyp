@@ -99,6 +99,7 @@
 	<source name="basis\Word8Array.sml" />
 	<source name="basis\WordSignature.sml" />
 	<source name="mlsource\MLCompiler\Address.ML" />
+	<source name="mlsource\MLCompiler\BUILTINS.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BaseCodeTree.sml" />
@@ -129,6 +130,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86FIRST_STAGE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86FOREIGNCALL.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeToX86Code.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeTransform.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODETRANSFORMSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OPTIMISE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OUTPUTCODE.ML" />
 	<source name="mlsource\MLCompiler\CODETREESIG.ML" />

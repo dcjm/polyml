@@ -164,7 +164,16 @@ struct
         |   checkUse isMain (Eval{function, argList, ...}, cl, _) =
                 checkUse isMain (function, List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) (cl--2) argList, false)
 
-        |   checkUse isMain (BuiltIn(_, argList), cl, _) = checkUseList isMain (argList, cl)
+        |   checkUse _ (BuiltIn0 _, cl, _) = cl -- 1
+        |   checkUse isMain (BuiltIn1{arg1, ...}, cl, _) = checkUse isMain (arg1, cl -- 1, false)
+        |   checkUse isMain (BuiltIn2{arg1, arg2, ...}, cl, _) =
+                checkUseList isMain ([arg1, arg2], cl -- 1)
+        |   checkUse isMain (BuiltIn3{arg1, arg2, arg3, ...}, cl, _) =
+                checkUseList isMain ([arg1, arg2, arg3], cl -- 1)
+        |   checkUse isMain (BuiltIn4{arg1, arg2, arg3, arg4, ...}, cl, _) =
+                checkUseList isMain ([arg1, arg2, arg3, arg4], cl -- 1)
+        |   checkUse isMain (BuiltIn5{arg1, arg2, arg3, arg4, arg5, ...}, cl, _) =
+                checkUseList isMain ([arg1, arg2, arg3, arg4, arg5], cl -- 1)
 
         |   checkUse isMain (Cond(i, t, e), cl, isTail) =
                 checkUse isMain (i, checkUse isMain (t, checkUse isMain (e, cl -- 2, isTail), isTail), false)

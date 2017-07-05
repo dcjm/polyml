@@ -16,8 +16,8 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* This signature is defined in terms of Word and LargeWord so 
-   we have to define it after the structures.  *)
+(* This depends on there being suitable definitions of both Word and LargeWord
+   structures.  We have basic definitions of those before we define this.  *)
 signature WORD =
 sig
     eqtype  word

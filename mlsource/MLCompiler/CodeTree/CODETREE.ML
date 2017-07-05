@@ -400,19 +400,41 @@ struct
         resultType=resultType
     }
 
-    val mkBuiltIn = BuiltIn
+    (* Old version that called RTS functions. *)
+    fun mkBuiltIn(ioCall, args) = mkEval(rtsFunction ioCall, args)
+
+    (* Basic built-in operations. *)
+    fun mkBuiltIn0 oper = BuiltIn0 { oper = oper }
+    and mkBuiltIn1 (oper, arg1) = BuiltIn1 { oper = oper, arg1 = arg1 }
+    and mkBuiltIn2 (oper, arg1, arg2) =
+        BuiltIn2 { oper = oper, arg1 = arg1, arg2 = arg2 }
+    and mkBuiltIn3 (oper, arg1, arg2, arg3) =
+        BuiltIn3 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3 }
+    and mkBuiltIn4 (oper, arg1, arg2, arg3, arg4) =
+        BuiltIn4 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3, arg4 = arg4 }
+    and mkBuiltIn5 (oper, arg1, arg2, arg3, arg4, arg5) =
+        BuiltIn5 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3, arg4 = arg4, arg5 = arg5 }
+
+    (* Builtins wrapped as functions. *)
+    fun mkBuiltIn0Fn oper =
+        mkInlproc(mkBuiltIn0 oper, 0, BuiltIns.builtIn0Repr oper ^ "()", [], 0)
+    and mkBuiltIn1Fn oper =
+        mkInlproc(mkBuiltIn1(oper, mkLoadArgument 0), 1, BuiltIns.builtIn1Repr oper ^ "()", [], 0)
+    and mkBuiltIn2Fn oper =
+        mkInlproc(mkBuiltIn2(oper, mkLoadArgument 0, mkLoadArgument 1), 2, BuiltIns.builtIn2Repr oper ^ "()", [], 0)
+    and mkBuiltIn3Fn oper =
+        mkInlproc(mkBuiltIn3(oper, mkLoadArgument 0, mkLoadArgument 1, mkLoadArgument 2), 3, BuiltIns.builtIn3Repr oper ^ "()", [], 0)
 
     local
-        open RuntimeCalls
+        open BuiltIns
+        (* Word equality.  The value of isSigned doesn't matter. *)
+        val eqWord = WordComparison{test=TestEqual, isSigned=false}
     in
-        fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg])
-        val testptreqFunction    = rtsFunction POLY_SYS_word_eq
-
-        (* N.B. int equality is SHORT integer equality *)
-        fun mkTestinteq (xp1, xp2) = 
-            mkEval (rtsFunction POLY_SYS_word_eq, [xp1,xp2]);
-
-        fun mkTestptreq  (xp1, xp2) = mkEval (testptreqFunction, [xp1,xp2]);
+        fun mkNot arg = BuiltIn1{oper=NotBoolean, arg1=arg}
+        and mkIsShort arg = BuiltIn1{oper=IsTaggedValue, arg1=arg}
+        and mkEqualWord (arg1, arg2) =
+            BuiltIn2{oper=eqWord, arg1=arg1, arg2=arg2}
+        val equalWordFn = mkBuiltIn2Fn eqWord
     end
 
     fun identityFunction (name : string) : codetree = 
@@ -421,7 +443,6 @@ struct
     (* Test a tag value. *)
     fun mkTagTest(test: codetree, tagValue: word, maxTag: word) =
         TagTest {test=test, tag=tagValue, maxTag=maxTag }
-        (*mkEval (rtsFunction POLY_SYS_word_eq, [test, Constnt(toMachineWord tagValue)], true);*)
 
     fun mkHandle (exp, handler) = Handle {exp = exp, handler = handler};
 

@@ -285,17 +285,22 @@ struct
     val op ** = regSetIntersect and op ++ = regSetUnion and op -- = regSetMinus and op ins = inSet
 
     fun allocStore{size, flags, output, saveRegs} =
-    if isX64 andalso flags <> 0w0
-    then
-        [StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
-         StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
-         AllocStore{size=size, output=output, saveRegs=saveRegs}]
-    else
     let
-        val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
+        (* Filter out the result register which may be present but shouldn't be pushed yet. *)
+        val regsToSave = List.filter(fn r => r <> output) saveRegs
     in
-        [StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
-         AllocStore{size=size, output=output, saveRegs=saveRegs}]
+        if isX64 andalso flags <> 0w0
+        then
+            [StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
+             StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+             AllocStore{size=size, output=output, saveRegs=regsToSave}]
+        else
+        let
+            val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
+        in
+            [StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+             AllocStore{size=size, output=output, saveRegs=regsToSave}]
+        end
     end
 
     val allocationComplete = [StoreInitialised]
@@ -1033,7 +1038,7 @@ struct
     
     (* Get the currently active registers.  These are the ones that need to be saved onto the
        stack if we need to GC. *)
-    fun findActiveRegisters(table as Ttab{pstackptr, ...}) =
+(*    fun findActiveRegisters(table as Ttab{pstackptr, ...}) =
     let
         fun getEntry(entry, limit, accumulator) =
         if entry < limit
@@ -1053,6 +1058,14 @@ struct
         else accumulator
     in
         getEntry(first, ! pstackptr, noRegisters)
+    end*)
+    
+    fun findActiveRegisters(Ttab{regset={vec, ...}, ...}) =
+    let
+        val genR = setToList generalRegisters
+        val activeR = List.mapPartial(fn r => if Array.sub(vec, nReg r) > 0 then SOME r else NONE) genR
+    in
+        listToSet activeR
     end
 
     (* Frees registers by pushing values onto the stack or moving them to

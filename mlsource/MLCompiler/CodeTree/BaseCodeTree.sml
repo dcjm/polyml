@@ -26,6 +26,8 @@ struct
     open Address
 
     datatype argumentType = datatype BackendIntermediateCode.argumentType
+    
+    structure BuiltIns = BackendIntermediateCode.BuiltIns
 
     datatype inlineStatus =
         NonInline
@@ -57,8 +59,14 @@ struct
             resultType: argumentType
         }
 
-    |   BuiltIn of int * codetree list (* Call to an RTS/built-in function. *)
-    
+        (* Built-in functions. *)
+    |   BuiltIn0 of {oper: BuiltIns.builtIn0Ops}
+    |   BuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: codetree}
+    |   BuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: codetree, arg2: codetree}
+    |   BuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: codetree, arg2: codetree, arg3: codetree}
+    |   BuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: codetree, arg2: codetree, arg3: codetree, arg4: codetree}
+    |   BuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: codetree, arg2: codetree, arg3: codetree, arg4: codetree, arg5: codetree}
+
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
     |   Cond of codetree * codetree * codetree (* If-statement *)
@@ -191,6 +199,20 @@ struct
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
 
+        fun prettyBuiltin(opers, arglist) =
+                PrettyBlock (2, false, [],
+                    [
+                        PrettyString opers,
+                        PrettyBreak(1, 2),
+                        PrettyBlock(2, true, [],
+                            [
+                                printList("", arglist, ","),
+                                PrettyBreak (0, 0),
+                                PrettyString (")")
+                            ]
+                        )
+                    ]
+                )
     in
         case pt of
             Eval {function, argList, ...} =>
@@ -221,20 +243,23 @@ struct
                     ]
                 )
 
-        |   BuiltIn (function, argList) => 
-                PrettyBlock (2, false, [],
-                    [
-                        PrettyString(rtsFunctionName function),
-                        PrettyBreak(1, 2),
-                        PrettyBlock(2, true, [],
-                            [
-                                printList("", argList, ","),
-                                PrettyBreak (0, 0),
-                                PrettyString (")")
-                            ]
-                        )
-                    ]
-                )
+        |   BuiltIn0 { oper } =>
+                prettyBuiltin(BuiltIns.builtIn0Repr oper, [])
+
+        |   BuiltIn1 { oper, arg1 } =>
+                prettyBuiltin(BuiltIns.builtIn1Repr oper, [arg1])
+
+        |   BuiltIn2 { oper, arg1, arg2 } =>
+                prettyBuiltin(BuiltIns.builtIn2Repr oper, [arg1, arg2])
+
+        |   BuiltIn3 { oper, arg1, arg2, arg3 } =>
+                prettyBuiltin(BuiltIns.builtIn3Repr oper, [arg1, arg2, arg3])
+
+        |   BuiltIn4 { oper, arg1, arg2, arg3, arg4 } =>
+                prettyBuiltin(BuiltIns.builtIn4Repr oper, [arg1, arg2, arg3, arg4])
+
+        |   BuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 } =>
+                prettyBuiltin(BuiltIns.builtIn5Repr oper, [arg1, arg2, arg3, arg4, arg5])
 
         |   Extract(LoadArgument addr) => string ("Arg" ^ Int.toString addr)
         |   Extract(LoadLocal addr) => string ("Local" ^ Int.toString addr)
@@ -541,7 +566,19 @@ struct
                     argList = map (fn(c, a) => (mapCodetree f c, a)) argList,
                     resultType = resultType
                 }
-        |   mapt(BuiltIn (function, arglist)) = BuiltIn (function, map (mapCodetree f) arglist)
+        |   mapt(b as BuiltIn0 _) = b
+        |   mapt(BuiltIn1 { oper, arg1 }) =
+                BuiltIn1 { oper = oper, arg1 = mapCodetree f arg1 }
+        |   mapt(BuiltIn2 { oper, arg1, arg2 }) =
+                BuiltIn2 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2 }
+        |   mapt(BuiltIn3 { oper, arg1, arg2, arg3 }) =
+                BuiltIn3 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2, arg3 = mapCodetree f arg3 }
+        |   mapt(BuiltIn4 { oper, arg1, arg2, arg3, arg4 }) =
+                BuiltIn4 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2,
+                           arg3 = mapCodetree f arg3, arg4 = mapCodetree f arg4 }
+        |   mapt(BuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 }) =
+                BuiltIn5 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2,
+                           arg3 = mapCodetree f arg3, arg4 = mapCodetree f arg4, arg5 = mapCodetree f arg5 }
         |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
                 Lambda {
                     body = mapCodetree f body, isInline = isInline, name = name,
@@ -597,7 +634,14 @@ struct
         |   ftree (Indirect{base, ...}, v) = foldtree f v base
         |   ftree (Eval { function, argList, ...}, v) =
                 foldl(fn((c, _), w) => foldtree f w c) (foldtree f v function) argList
-        |   ftree (BuiltIn (_, arglist), v) = foldl (fn (c, w) => foldtree f w c) v arglist
+        |   ftree (BuiltIn0 _, v) = v
+        |   ftree (BuiltIn1 {arg1, ...}, v) = foldtree f v arg1
+        |   ftree (BuiltIn2 {arg1, arg2, ...}, v) = foldtree f (foldtree f v arg1) arg2
+        |   ftree (BuiltIn3 {arg1, arg2, arg3, ...}, v) = foldtree f (foldtree f (foldtree f v arg1) arg2) arg3
+        |   ftree (BuiltIn4 {arg1, arg2, arg3, arg4, ...}, v) =
+                foldtree f (foldtree f (foldtree f (foldtree f v arg1) arg2) arg3) arg4
+        |   ftree (BuiltIn5 {arg1, arg2, arg3, arg4, arg5, ...}, v) =
+                foldtree f (foldtree f (foldtree f (foldtree f (foldtree f v arg1) arg2) arg3) arg4) arg5
         |   ftree (Lambda { body, closure, ...}, v) =
                 foldtree f (foldl (fn (c, w) => foldtree f w (Extract c)) v closure) body
         |   ftree (Cond(i, t, e), v) = foldtree f (foldtree f (foldtree f v i) t) e
@@ -630,6 +674,12 @@ struct
         and  envSpecial = envSpecial
         and  codeUse = codeUse
         and  foldControl = foldControl
+        and  builtIn0Ops = BuiltIns.builtIn0Ops
+        and  builtIn1Ops = BuiltIns.builtIn1Ops
+        and  builtIn2Ops = BuiltIns.builtIn2Ops
+        and  builtIn3Ops = BuiltIns.builtIn3Ops
+        and  builtIn4Ops = BuiltIns.builtIn4Ops
+        and  builtIn5Ops = BuiltIns.builtIn5Ops
     end
 
 end;

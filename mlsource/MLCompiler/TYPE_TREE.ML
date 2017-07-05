@@ -205,9 +205,7 @@ struct
             and boxedRepEither = 0w3   (* Either boxed or tagged e.g. (arbitrary precision) int *)
             fun make n = mkConst(Address.toMachineWord n)
             fun isCode n =
-                mkInlproc(
-                    mkBuiltIn(RuntimeCalls.POLY_SYS_word_eq, [mkLoadArgument 0, make n]),
-                    1, "test-box", [], 0)
+                mkInlproc(mkEqualWord(mkLoadArgument 0, make n), 1, "test-box", [], 0)
         in
             val boxedNever  = make boxedRepNever
             and boxedAlways = make boxedRepAlways
@@ -284,22 +282,19 @@ struct
         (* since code generator relies on these representations,
            we may as well export them *)
         (* wordEq is used both for tagged words and for pointer equality *)
-        val wordEq = rtsFunction POLY_SYS_word_eq
-
+        val wordEq = equalWordFn
         (* Strings can be either tagged single characters or vectors whose first word is
            the length. *)
         local
             val stringEquality =
                 mkInlproc(
                     mkCor( (* Either they're equal... *)
-                        mkBuiltIn(POLY_SYS_word_eq, [mkLoadArgument 0, mkLoadArgument 1]),
+                        mkEqualWord(mkLoadArgument 0, mkLoadArgument 1),
                         (* ... or they're both long and ...*)
                         mkCand(
                             mkCand(
-                                mkBuiltIn(POLY_SYS_not_bool,
-                                    [mkBuiltIn(POLY_SYS_is_short, [mkLoadArgument 0])]),
-                                mkBuiltIn(POLY_SYS_not_bool,
-                                    [mkBuiltIn(POLY_SYS_is_short, [mkLoadArgument 1])])
+                                mkNot(mkIsShort(mkLoadArgument 0)),
+                                mkNot(mkIsShort(mkLoadArgument 1))
                             ),
                             (* ... their contents are equal.  Because the first word contains the
                                length if we include this in the test we will have tested the length
@@ -335,10 +330,8 @@ struct
                         (* ... or they're both long and ...*)
                         mkCand(
                             mkCand(
-                                mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 0])]),
-                                mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 1])])
+                                mkNot(mkIsShort(mkLoadArgument 0)),
+                                mkNot(mkIsShort(mkLoadArgument 1))
                             ),
                             (* ... they are equal arbitrary precision values.
                                This could use bytewise equality.  That would be correct whether

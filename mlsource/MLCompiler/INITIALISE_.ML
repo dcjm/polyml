@@ -200,14 +200,18 @@ struct
         local
             val falseCons =
                 mkGconstr ("false", Bool,
-                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, [], "false"), true, 2, declInBasis);
+                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, [], "false"), true, 2, declInBasis)
             val trueCons  =
                 mkGconstr ("true",  Bool,
-                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, [], "true"), true, 2, declInBasis);
+                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, [], "true"), true, 2, declInBasis)
+            val boolEnv = makeStructure(globalEnv, "Bool") (* Bool structure *)
+            val notFn =
+                mkGvar("not", Bool ->> Bool, mkBuiltIn1Fn BuiltIns.NotBoolean, declInBasis)
         in
-            val () = enterGlobalType  ("bool",  TypeConstrSet(boolConstr, [trueCons, falseCons]));
-            val () = enterGlobalValue ("true",  trueCons);
-            val () = enterGlobalValue ("false", falseCons);
+            val () = #enterType boolEnv ("bool",  TypeConstrSet(boolConstr, [trueCons, falseCons]))
+            val () = #enterVal boolEnv ("true",  trueCons)
+            val () = #enterVal boolEnv ("false", falseCons)
+            val () = #enterVal boolEnv ("not", notFn)
         end;
         
         val () = enterGlobalType ("int", TypeConstrSet(if intIsArbitraryPrecision then intInfConstr else fixedIntConstr, []))
@@ -252,21 +256,23 @@ struct
         end
   
         local
-            val a = makeTV ();
-            val b = makeTV ();
-            val unsafeCastType = a ->> b;
+            (* unsafeCast.  Can be used to convert any value to any type. *)
+            val a = makeTV ()
+            val b = makeTV ()
 
-            val unsafeCastEntry : codetree =
-            let 
-                val name = "unsafeCast(1)";
-                val args  = 1;
-                val body  = mkLoadArgument 0  (* just the parameter *)
-            in
-                mkInlproc (body, args, name, [], 0)
-            end;
+            val unsafeCastEntry =
+                mkInlproc (mkLoadArgument 0  (* just the parameter *), 1, "unsafeCast(1)", [], 0)
         in
             val () =
-                enterRunCall ("unsafeCast", makePolymorphic([a, b], unsafeCastEntry), unsafeCastType);
+                enterRunCall ("unsafeCast", makePolymorphic([a, b], unsafeCastEntry), a ->> b)
+        end
+
+        local
+            val a = makeTV()
+        in
+            (* isShort - test if a value is tagged rather than being an address. *)
+            val () =
+                enterRunCall ("isShort", makePolymorphic([a], mkBuiltIn1Fn BuiltIns.IsTaggedValue), a ->> Bool)
         end
 
         local
@@ -543,19 +549,122 @@ struct
                 ]
         end
 
-        (* LargeInt.  We need to create the arbitrary precision int type here and
-           the easiest way is to create the structure.  It's then filled out in the
-           basis library. *)
+        (* Standard Basis structures for basic types.  These contain the definitions of the basic
+           types and operations on them.  The structures are extended in the basis library and
+           overloaded functions are extracted from them. *)
         local
             val largeIntEnv = makeStructure(globalEnv, "LargeInt")
         in
             val () = #enterType largeIntEnv ("int", TypeConstrSet(intInfConstr, []))
         end
-        
+
         local
             val fixedIntEnv = makeStructure(globalEnv, "FixedInt")
+            open BuiltIns
+            fun enterComparison(name, test) =
+            let
+                val typ = fixedIntType ** fixedIntType ->> Bool
+                (* This function takes a tuple. *)
+                val entry =
+                    mkInlproc(
+                        mkBuiltIn2(
+                            WordComparison{test=test, isSigned=true}, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)),
+                        1, name ^ "()", [], 0)
+                val value = mkGvar (name, typ, entry, declInBasis)
+            in
+                #enterVal fixedIntEnv (name, value)
+            end
         in
             val () = #enterType fixedIntEnv ("int", TypeConstrSet(fixedIntConstr, []))
+            val () = enterComparison("<",   TestLess)
+            val () = enterComparison("<=",  TestLessEqual)
+            val () = enterComparison(">",   TestGreater)
+            val () = enterComparison(">=",  TestGreaterEqual)
+        end
+
+        local
+            val wordStructEnv = makeStructure(globalEnv, "Word")
+            open BuiltIns
+            fun enterComparison(name, test) =
+            let
+                val typ = Word ** Word ->> Bool
+                (* This function takes a tuple. *)
+                val entry =
+                    mkInlproc(
+                        mkBuiltIn2(
+                            WordComparison{test=test, isSigned=false}, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)),
+                        1, name ^ "()", [], 0)
+                val value = mkGvar (name, typ, entry, declInBasis)
+            in
+                #enterVal wordStructEnv (name, value)
+            end
+        in
+            val () = #enterType wordStructEnv ("word", TypeConstrSet(wordConstr, []))
+            val () = enterComparison("<",   TestLess)
+            val () = enterComparison("<=",  TestLessEqual)
+            val () = enterComparison(">",   TestGreater)
+            val () = enterComparison(">=",  TestGreaterEqual)
+        end
+
+        local
+            val largeWordEnv = makeStructure(globalEnv, "LargeWord")
+            fun monoTypePrinter _ = PRETTY.PrettyString "?"
+
+            val idCode =
+                let
+                    open TypeValue
+                    val code =
+                        createTypeValue{
+                            eqCode=CODETREE.rtsFunction POLY_SYS_eq_longword,
+                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
+                            boxedCode = boxedNever,
+                            sizeCode = singleWord
+                            }
+                in
+                   Global (genCode(code, [], 0) ())
+                end
+            val largeWordType =
+                makeTypeConstructor("word",
+                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
+        in
+            val () = #enterType largeWordEnv ("word", TypeConstrSet(largeWordType, []))
+        end
+ 
+        local
+            val charEnv = makeStructure(globalEnv, "Char")
+            open BuiltIns
+            (* Comparison functions are the same as Word. *)
+            fun enterComparison(name, test) =
+            let
+                val typ = Char ** Char ->> Bool
+                (* This function takes a tuple. *)
+                val entry =
+                    mkInlproc(
+                        mkBuiltIn2(
+                            WordComparison{test=test, isSigned=false}, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)),
+                        1, name ^ "()", [], 0)
+                val value = mkGvar (name, typ, entry, declInBasis)
+            in
+                #enterVal charEnv (name, value)
+            end
+        in
+            val () = #enterType charEnv ("char", TypeConstrSet(charConstr, []))
+            val () = enterComparison("<",   TestLess)
+            val () = enterComparison("<=",  TestLessEqual)
+            val () = enterComparison(">",   TestGreater)
+            val () = enterComparison(">=",  TestGreaterEqual)
+        end
+
+        local
+            val stringEnv = makeStructure(globalEnv, "String")
+        in
+            val () = #enterType stringEnv ("string", TypeConstrSet(stringConstr, []))
+        end
+
+        local
+            val realEnv = makeStructure(globalEnv, "Real")
+        in
+            val () = #enterType realEnv ("real", TypeConstrSet(realConstr, []))
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
@@ -639,7 +748,7 @@ struct
                                 mkProc(
                                     mkIf(
                                         (* Finished? *)
-                                        mkBuiltIn(POLY_SYS_word_eq, [mkLoadClosure 0, mkLoadArgument 0]),
+                                        mkEqualWord(mkLoadClosure 0, mkLoadArgument 0),
                                         CodeTrue, (* Yes, all equal. *)
                                         mkIf(
                                             mkEval(
@@ -665,7 +774,7 @@ struct
                             ],
                             mkIf(
                                 (* Test the lengths. *)
-                                mkBuiltIn(POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
+                                mkEqualWord(mkLoadLocal 0, mkLoadLocal 1),
                                 (* Equal - test the contents. *)
                                 mkEval(mkLoadLocal 2, [CodeZero]),
                                 CodeFalse (* Not same length- result false *)
@@ -707,7 +816,7 @@ struct
                         ],
                         mkIf(
                             (* Test the lengths. *)
-                            mkBuiltIn(POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
+                            mkEqualWord(mkLoadLocal 0, mkLoadLocal 1),
                             (* Equal - test the contents. *)
                             mkEnv([
                                 (* POLY_SYS_bytevec_eq takes a byte length so we have to multiply by
@@ -739,32 +848,6 @@ struct
                 makeTypeConstructor("byteVector",
                     makeFreeId(0, idCode, true, basisDescription "byteVector"), declInBasis)
             val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []))
-        end
-
-        (* Similarly we need LargeWord.word *)
-        local
-            fun monoTypePrinter _ = PRETTY.PrettyString "?"
-
-            val idCode =
-                let
-                    open TypeValue
-                    val code =
-                        createTypeValue{
-                            eqCode=CODETREE.rtsFunction POLY_SYS_eq_longword,
-                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
-                            boxedCode = boxedNever,
-                            sizeCode = singleWord
-                            }
-                in
-                   Global (genCode(code, [], 0) ())
-                end
-        in
-            val largeWordType =
-                makeTypeConstructor("word",
-                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
-            (* This is put in Bootstrap so it can be picked out in the basis library.
-               The default "word" type (Word.word) is in the global namespace. *)
-            val () = #enterType bootstrapEnv ("word", TypeConstrSet(largeWordType, []))
         end
 
     (* We also need array and Array2.array to be passed through here so that

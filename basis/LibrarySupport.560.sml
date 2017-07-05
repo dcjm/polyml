@@ -129,10 +129,10 @@ struct
            int is arbitrary precision.  If int is fixed precision it will
            always be true. *)
         fun isShortInt(i: int): bool =
-            not Bootstrap.intIsArbitraryPrecision orelse RunCall.isShort i
+            not Bootstrap.intIsArbitraryPrecision orelse RunCall.run_call1 POLY_SYS_is_short i
 
         (* Test whether a large int will fit in the short format. *)
-        val largeIntIsSmall: LargeInt.int -> bool = RunCall.isShort
+        val largeIntIsSmall: LargeInt.int -> bool = RunCall.run_call1 POLY_SYS_is_short
 
         fun unsignedShortOrRaiseSize (i: int): word =
             if isShortInt i andalso i >= 0

@@ -41,6 +41,12 @@ local
             structure X86CODE       = X86OutputCode
             structure X86OPTIMISE   = X86Optimise
         )
+        
+    structure X86ICodeTransform =
+        X86ICodeTransform (
+            structure DEBUG         = Debug
+            structure ICODE         = X86ICode
+        )
 
     structure X86OldCodeCons =
         X86FIRST_STAGE(
@@ -67,6 +73,7 @@ in
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
             structure X86FOREIGN    = X86ForeignCall
+            structure ICODETRANSFORM = X86ICodeTransform
             structure X86OLDCODEGEN = X86OldCodeGen
         )
 

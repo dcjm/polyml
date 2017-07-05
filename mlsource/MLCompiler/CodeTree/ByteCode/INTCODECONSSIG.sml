@@ -30,6 +30,10 @@ sig
     val jump       : opcode
     val setHandler : opcode
     val delHandler : opcode
+    
+    val opcode_notBoolean: opcode
+    val opcode_isTagged: opcode
+    val opcode_equalWord: opcode
 
     val addrPlus  : addrs * int -> addrs
     val addrMinus : addrs * addrs -> int
@@ -70,6 +74,8 @@ sig
    val genRTSCallFast:    int * code -> unit
    val genRTSCallFull:    int * code -> unit
    val genRTSCallFastFloatFloat: code -> unit
+   
+   val genOpcode: opcode * code -> unit
 
    (* genEnter instructions are only needed when machine-code routines
       can call interpreted routines or vice-versa. The enterInt instruction

@@ -25,6 +25,8 @@ sig
         GeneralType
     |   FloatingPtType
     
+    structure BuiltIns: BUILTINS
+    
     datatype backendIC =
         BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
 
@@ -42,7 +44,13 @@ sig
             resultType: argumentType
         }
 
-    |   BICBuiltIn of int * backendIC list (* Call an RTS/built-in function. *)
+        (* Built-in functions. *)
+    |   BICBuiltIn0 of {oper: BuiltIns.builtIn0Ops}
+    |   BICBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: backendIC}
+    |   BICBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: backendIC, arg2: backendIC}
+    |   BICBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC}
+    |   BICBuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC, arg4: backendIC}
+    |   BICBuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC, arg4: backendIC, arg5: backendIC}
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
@@ -132,6 +140,12 @@ sig
         and  argumentType = argumentType
         and  bicCodeBinding = bicCodeBinding
         and  bicSimpleBinding = bicSimpleBinding
+        and  builtIn0Ops = BuiltIns.builtIn0Ops
+        and  builtIn1Ops = BuiltIns.builtIn1Ops
+        and  builtIn2Ops = BuiltIns.builtIn2Ops
+        and  builtIn3Ops = BuiltIns.builtIn3Ops
+        and  builtIn4Ops = BuiltIns.builtIn4Ops
+        and  builtIn5Ops = BuiltIns.builtIn5Ops
     end
 
 end;

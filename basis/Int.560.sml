@@ -415,9 +415,6 @@ struct
         val smallestInt = fromLarge(~ maxIntP1)
         val minInt = SOME smallestInt
     end
-    
-    (* Can now open FixedInt. *)
-    open FixedInt
 
     infix 7 quot rem
 
@@ -455,7 +452,7 @@ struct
         if i < j then General.LESS
         else if i > j then General.GREATER else General.EQUAL
     
-    (*fun abs i = if i >= 0 then i else ~ i*)
+    fun abs i = if i >= 0 then i else ~ i
     
     fun min (i, j) = if i < j then i else j
     and max (i, j) = if i > j then i else j
@@ -499,7 +496,7 @@ struct
     end 
     
     (* These are overloaded functions and are treated specially. *)
-(*    val ~ : int->int = ~
+    val ~ : int->int = ~
     and op * : int*int->int = op *
     and op + : int*int->int = op +
     and op - : int*int->int = op -
@@ -507,7 +504,7 @@ struct
     val op < : int*int->bool = op <
     and op > : int*int->bool = op >
     and op <= : int*int->bool = op <=
-    and op >= : int*int->bool = op >=*)
+    and op >= : int*int->bool = op >=
 end;
 
 val () = RunCall.addOverload FixedInt.div "div"

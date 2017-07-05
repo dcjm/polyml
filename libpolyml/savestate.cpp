@@ -102,6 +102,7 @@ typedef char TCHAR;
 #include "gc.h" // For FullGC.
 #include "timing.h"
 #include "rtsentry.h"
+#include "check_objects.h"
 
 #ifdef _MSC_VER
 // Don't tell me about ISO C++ changes.
@@ -182,7 +183,8 @@ typedef struct _savedStateSegmentDescr
 #define SSF_WRITABLE    1               // The segment contains mutable data
 #define SSF_OVERWRITE   2               // The segment overwrites the data (mutable) in a parent.
 #define SSF_NOOVERWRITE 4               // The segment must not be further overwritten
-#define SSF_BYTES       8               // The segment containing only byte data
+#define SSF_BYTES       8               // The segment contains only byte data
+#define SSF_CODE        16              // The segment contains only code
 
 typedef struct _relocationEntry
 {
@@ -482,14 +484,15 @@ void SaveRequest::Perform()
             entry->mtAddr = space->bottom;
             entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
             entry->mtIndex = space->index;
+            entry->mtFlags = 0;
             if (space->isMutable)
             {
-                entry->mtFlags = MTF_WRITEABLE;
+                entry->mtFlags |= MTF_WRITEABLE;
                 if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
                 if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
             }
-            else
-                entry->mtFlags = MTF_EXECUTABLE;
+            if (space->isCode)
+                entry->mtFlags |= MTF_EXECUTABLE;
         }
     }
     unsigned permanentEntries = memTableCount; // Remember where new entries start.
@@ -502,14 +505,15 @@ void SaveRequest::Perform()
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = space->index;
+        entry->mtFlags = 0;
         if (space->isMutable)
         {
-            entry->mtFlags = MTF_WRITEABLE;
+            entry->mtFlags |= MTF_WRITEABLE;
             if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
             if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
         }
-        else
-            entry->mtFlags = MTF_EXECUTABLE;
+        if (space->isCode)
+            entry->mtFlags |= MTF_EXECUTABLE;
     }
 
     exports.memTableEntries = memTableCount;
@@ -522,6 +526,11 @@ void SaveRequest::Perform()
         LocalMemSpace *space = gMem.lSpaces[l];
         fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
         fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
+    }
+    for (unsigned l = 0; l < gMem.ncSpaces; l++)
+    {
+        CodeSpace *space = gMem.cSpaces[l];
+        fixup.ScanAddressesInRegion(space->bottom, space->top);
     }
     GCModules(&fixup);
 
@@ -645,6 +654,8 @@ void SaveRequest::Perform()
     (void)AddHierarchyEntry(fileName, saveHeader.timeStamp);
 
     delete[](descrs);
+
+    CheckMemory();
 }
 
 Handle SaveState(TaskData *taskData, Handle args)

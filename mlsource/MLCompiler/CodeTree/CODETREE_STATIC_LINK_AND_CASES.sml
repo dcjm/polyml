@@ -184,7 +184,22 @@ struct
                     BICEval {function = func, argList = newargs, resultType=resultType}
                 end
 
-            |   insert(BuiltIn (function, argList)) = BICBuiltIn (function, map insert argList)
+            |   insert(BuiltIn0 { oper }) = BICBuiltIn0 { oper = oper }
+
+            |   insert(BuiltIn1 { oper, arg1 }) =
+                    BICBuiltIn1 { oper = oper, arg1 = insert arg1 }
+
+            |   insert(BuiltIn2 { oper, arg1, arg2 }) =
+                    BICBuiltIn2 { oper = oper, arg1 = insert arg1, arg2 = insert arg2 }
+
+            |   insert(BuiltIn3 { oper, arg1, arg2, arg3 }) =
+                    BICBuiltIn3 { oper = oper, arg1 = insert arg1, arg2 = insert arg2, arg3 = insert arg3 }
+
+            |   insert(BuiltIn4 { oper, arg1, arg2, arg3, arg4 }) =
+                    BICBuiltIn4 { oper = oper, arg1 = insert arg1, arg2 = insert arg2, arg3 = insert arg3, arg4 = insert arg4 }
+
+            |   insert(BuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 }) =
+                    BICBuiltIn5 { oper = oper, arg1 = insert arg1, arg2 = insert arg2, arg3 = insert arg3, arg4 = insert arg4, arg5 = insert arg5 }
 
             |   insert(Extract ext) =
                     (* Load the value bound to an identifier. The closure flag is
@@ -578,8 +593,9 @@ struct
                                             mkEval(BICConstnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
                                                    [test, BICConstnt(toMachineWord t, [])])
                                     |   CaseWord =>
-                                            mkEval(BICConstnt(ioOp RuntimeCalls.POLY_SYS_word_eq, []),
-                                                   [test, BICConstnt(toMachineWord t, [])])
+                                            BICBuiltIn2{
+                                                oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
+                                                arg1=test, arg2=BICConstnt(toMachineWord t, [])}
                                     |   CaseTag maxTag => BICTagTest { test=test, tag=t, maxTag=maxTag }
                             in
                                 BICCond(test, c, reconvert rest)

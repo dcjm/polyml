@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015 David C.J. Matthews
+    Copyright (c) 2009, 2013, 2015-16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -122,7 +122,7 @@ struct
         (* The run-time test whether a value matches a constructor. *)
         fun constrMatch (test: representations, value:codetree) : codetree =
         let
-            fun testTag (tag, v) = mkTestinteq (mkTag tag, v)
+            fun testTag (tag, v) = mkEqualWord(mkTag tag, v)
 
             fun testTagOf(tag, maxTag, v) = mkTagTest (v, tag, maxTag)
       
@@ -131,8 +131,7 @@ struct
                 (* Tag is first field.  It is always present and is always the tag so
                    we can use mkInd here rather than mkVarField. *)
 
-            fun testBoxed (v: codetree) = (* not (isShort v) *)
-                mkBuiltIn(POLY_SYS_not_bool, [mkBuiltIn(POLY_SYS_is_short, [v])])
+            val testBoxed = mkNot o mkIsShort (* not (isShort v) *)
 
             (* get the tag from a TaggedBox or ConstForm *)
             fun loadTag (u: machineWord) : machineWord = 

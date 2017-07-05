@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013
+    Modified David C. J. Matthews 2008-2010, 2013, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -31,6 +30,8 @@ sig
     datatype argumentType =
         GeneralType
     |   FloatingPtType
+    
+    structure BuiltIns: BUILTINS
 
     (* How variables are used.  Added and examined by the optimisation pass. *)
     datatype codeUse =
@@ -58,7 +59,13 @@ sig
             resultType: argumentType
         }
 
-    |   BuiltIn of int * codetree list (* Call to an RTS/built-in function. *)
+        (* Built-in functions. *)
+    |   BuiltIn0 of {oper: BuiltIns.builtIn0Ops}
+    |   BuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: codetree}
+    |   BuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: codetree, arg2: codetree}
+    |   BuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: codetree, arg2: codetree, arg3: codetree}
+    |   BuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: codetree, arg2: codetree, arg3: codetree, arg4: codetree}
+    |   BuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: codetree, arg2: codetree, arg3: codetree, arg4: codetree, arg5: codetree}
 
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
@@ -158,6 +165,12 @@ sig
         and  envSpecial = envSpecial
         and  codeUse = codeUse
         and  foldControl = foldControl
+        and  builtIn0Ops = BuiltIns.builtIn0Ops
+        and  builtIn1Ops = BuiltIns.builtIn1Ops
+        and  builtIn2Ops = BuiltIns.builtIn2Ops
+        and  builtIn3Ops = BuiltIns.builtIn3Ops
+        and  builtIn4Ops = BuiltIns.builtIn4Ops
+        and  builtIn5Ops = BuiltIns.builtIn5Ops
     end
 
 end;

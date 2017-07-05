@@ -85,7 +85,10 @@ void DoCheck (const PolyWord pt)
     // in a call to set_code_constant on X86/64
     if (pt.IsCodePtr())
         CheckAddress((PolyWord*)ObjCodePtrToPtr(pt.AsCodePtr()));
-    else CheckAddress(pt.AsStackAddr());
+    // Normally we never return the address of the base of an area;
+    // there's always a length word.  The exception is the base of the IO area.
+    else if (pt.AsStackAddr() != gMem.IoSpace()->bottom)
+        CheckAddress(pt.AsStackAddr());
 } 
 
 class ScanCheckAddress: public ScanAddress

@@ -1,11 +1,12 @@
 (*
     Title:      Install a pretty printer for the exn type
     Author:     David Matthews
-    Copyright   David Matthews 2009, 2016
+    Copyright   David Matthews 2009
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License version 2.1 as published by the Free Software Foundation.
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,11 +19,12 @@
 *)
 local
     open PolyML
+    open RunCall
     (* Print exception packet. Run-time system exceptions have
        to be processed specially because the IDs don't have printer functions. *)
     fun exnPrint depth _ exn =
     let
-        val (exnId, exnName, exnArg, _) = RunCall.unsafeCast exn
+        val (exnId, exnName, exnArg, _) = unsafeCast exn
 
         (* This parenthesis code is used in various places and probably should be centralised. *)
         fun parenthesise(s as PrettyBlock(_, _, _, [ _ ])) = s
@@ -45,14 +47,14 @@ local
         fun stringException(s, arg: string) =
             parameterException(s, PolyML.prettyRepresentation(arg, depth-1))
     in
-        if RunCall.isShort exnId
+        if run_call1 RuntimeCalls.POLY_SYS_is_short exnId
         then
             case exn of
-                RunCall.Conversion s => stringException(exnName, s)
+                Conversion s => stringException(exnName, s)
             |   Fail s => stringException(exnName, s)
-            |   RunCall.Foreign s => stringException(exnName, s)
-            |   RunCall.Thread s => stringException(exnName, s)
-            |   RunCall.XWindows s => stringException(exnName, s)
+            |   Foreign s => stringException(exnName, s)
+            |   Thread s => stringException(exnName, s)
+            |   XWindows s => stringException(exnName, s)
             |   OS.SysErr param =>
                     parameterException("SysErr",
                         if depth <= 1 then PrettyString "..." else PolyML.prettyRepresentation(param, depth-1))

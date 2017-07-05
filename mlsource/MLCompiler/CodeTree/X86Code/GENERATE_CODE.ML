@@ -66,7 +66,13 @@ struct
             resultType: argumentType
         }
 
-    |   OGCBuiltIn of int * oldGenCodeIC list (* Call an RTS/built-in function. *)
+        (* Built-in functions. *)
+    |   OGCBuiltIn0 of {oper: BuiltIns.builtIn0Ops}
+    |   OGCBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: oldGenCodeIC}
+    |   OGCBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC}
+    |   OGCBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC, arg3: oldGenCodeIC}
+    |   OGCBuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC, arg3: oldGenCodeIC, arg4: oldGenCodeIC}
+    |   OGCBuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC, arg3: oldGenCodeIC, arg4: oldGenCodeIC, arg5: oldGenCodeIC}
 
     |   OGCLambda of oldGenCodeLambdaForm (* Lambda expressions. *)
 
@@ -167,7 +173,12 @@ struct
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        | sideEffectFree (BICBuiltIn _) = false
+        | sideEffectFree (BICBuiltIn0 _) = false
+        | sideEffectFree (BICBuiltIn1 _) = false
+        | sideEffectFree (BICBuiltIn2 _) = false
+        | sideEffectFree (BICBuiltIn3 _) = false
+        | sideEffectFree (BICBuiltIn4 _) = false
+        | sideEffectFree (BICBuiltIn5 _) = false
 
         | sideEffectFree(BICContainer _) = true
             (* But since SetContainer has a side-effect we'll always create the
@@ -355,7 +366,17 @@ struct
                         OGCEval {function = func, argList = newargs, resultType=resultType}
                     end
 
-                |   insert(BICBuiltIn (function, argList)) = OGCBuiltIn(function, mapright insert argList)
+                |   insert(BICBuiltIn0 {oper}) = OGCBuiltIn0 {oper=oper}
+                |   insert(BICBuiltIn1 {oper, arg1}) = OGCBuiltIn1{oper=oper, arg1=insert arg1}
+                    (* These must be processed in reverse order so the order of the arguments is
+                       significant. *)
+                |   insert(BICBuiltIn2 {oper, arg1, arg2}) = OGCBuiltIn2{oper=oper, arg2=insert arg2, arg1=insert arg1}
+                |   insert(BICBuiltIn3 {oper, arg1, arg2, arg3}) =
+                        OGCBuiltIn3{oper=oper, arg3=insert arg3, arg2=insert arg2, arg1=insert arg1}
+                |   insert(BICBuiltIn4 {oper, arg1, arg2, arg3, arg4}) =
+                        OGCBuiltIn4{oper=oper, arg4=insert arg4, arg3=insert arg3, arg2=insert arg2, arg1=insert arg1}
+                |   insert(BICBuiltIn5 {oper, arg1, arg2, arg3, arg4, arg5}) =
+                        OGCBuiltIn5{oper=oper, arg5=insert arg5, arg4=insert arg4, arg3=insert arg3, arg2=insert arg2, arg1=insert arg1}
 
                 |   insert(BICExtract ext) = locaddr ext
 
@@ -882,12 +903,11 @@ struct
             (* Get a register for the result. *)
             val (resultReg, regCode) =
                 getRegisterInSet(transtable, case whereto of UseReg rr => rr | _ => generalRegisters)
-
-            (* Get the active register set after we've spilled any registers but before
-               we add the result register. *)
-            val activeRegs = findActiveRegisters transtable
         
             val resAddr = pushReg (transtable, resultReg)
+
+            (* Get the active register set after we've spilled any registers. *)
+            val activeRegs = findActiveRegisters transtable
         in
             if addAllocatingFunction
             then
@@ -1065,9 +1085,23 @@ struct
           OGCEval {function, argList, resultType, ...} =>
             genEval (function, argList, resultType, primBoolOps, whereto, tailKind)
             
-        |   OGCBuiltIn(function, argList) =>
-                (* Temporarily map this back to genEval *)
-                genEval(OGCConstnt(ioOp function, []), map (fn c => (c, GeneralType)) argList, GeneralType, primBoolOps, whereto, tailKind)
+        |   OGCBuiltIn0{oper=BuiltIns.Built0PlaceHolder} => raise InternalError "TODO: OGCBuiltIn0"
+
+        |   instr as OGCBuiltIn1{oper=BuiltIns.NotBoolean,...} => codeAsConditional(instr, whereto, tailKind)
+
+        |   instr as OGCBuiltIn1{oper=BuiltIns.IsTaggedValue, ...} => codeAsConditional(instr, whereto, tailKind)
+
+        |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith _, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith"
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith _, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith"
+
+        |   OGCBuiltIn3{oper=BuiltIns.Built3PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn3"
+
+        |   OGCBuiltIn4{oper=BuiltIns.Built4PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn4"
+
+        |   OGCBuiltIn5{oper=BuiltIns.Built5PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn5"
 
         | OGCExtract ext =>
             let
@@ -1679,17 +1713,8 @@ struct
                 else MergeIndex(pushConst (transtable, DummyValue))
             end
 
-        |   OGCTagTest { test, tag, ... } =>
-            let
-                (* Convert this into a simple equality function. *)
-                val code =
-                    OGCEval {
-                        function = OGCConstnt(ioOp POLY_SYS_word_eq, []),
-                        argList=[(test, GeneralType), (OGCConstnt(Address.toMachineWord tag, []), GeneralType)],
-                        resultType=GeneralType }
-            in
-                gencde (code, true(* Try to put in-line *), whereto, tailKind, loopAddr)
-            end
+        |   instr as OGCTagTest _ => (* Better handled as a conditional *)
+                codeAsConditional(instr, whereto, tailKind)
 
         |   OGCKillItems { expression, killSet, killBefore } =>
             let 
@@ -2159,6 +2184,89 @@ struct
                 genTest(code, jumpOn)
             end
 
+            
+        |   OGCBuiltIn0{oper} =>
+            (
+                case oper of
+                    BuiltIns.Built0PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn0"
+            )
+
+        |   OGCBuiltIn1{oper, arg1} =>
+            (
+                case oper of
+                    BuiltIns.NotBoolean => genTest(arg1, not jumpOn)
+
+                |   BuiltIns.IsTaggedValue =>
+                    let
+                        val argLocn = genToStack arg1
+                        val (label, testCode) =
+                            (if jumpOn then testShortInt else testNotShortInt) (argLocn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+            )
+
+        |   OGCBuiltIn2{oper, arg1, arg2} =>
+            (
+                case oper of
+                    BuiltIns.WordComparison{test, isSigned} =>
+                    let
+                        open BuiltIns
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            case (test, jumpOn, isSigned) of
+                                (* Equality and inequality are the same for signed and unsigned. *)
+                                (TestEqual, true, _) => equalWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestEqual, false, _) => notEqualWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestNotEqual, true, _) => notEqualWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestNotEqual, false, _) => equalWord(arg1Locn, arg2Locn, transtable)
+                                (* Unsigned (Word.word) comparisons. *)
+                            |   (TestLess, true, false) => lessThanWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestLess, false, false) => greaterOrEqualWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreater, true, false) => greaterThanWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreater, false, false) => lessOrEqualWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestLessEqual, true, false) => lessOrEqualWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestLessEqual, false, false) => greaterThanWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreaterEqual, true, false) => greaterOrEqualWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreaterEqual, false, false) => lessThanWord(arg1Locn, arg2Locn, transtable)
+                                (* Signed (FixedInt.int) comparisons. *)
+                            |   (TestLess, true, true) => lessThanFixed(arg1Locn, arg2Locn, transtable)
+                            |   (TestLess, false, true) => greaterOrEqualFixed(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreater, true, true) => greaterThanFixed(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreater, false, true) => lessOrEqualFixed(arg1Locn, arg2Locn, transtable)
+                            |   (TestLessEqual, true, true) => lessOrEqualFixed(arg1Locn, arg2Locn, transtable)
+                            |   (TestLessEqual, false, true) => greaterThanFixed(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreaterEqual, true, true) => greaterOrEqualFixed(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreaterEqual, false, true) => lessThanFixed(arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                |   BuiltIns.FixedPrecisionArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-FixedPrecisionArith"
+
+                |   BuiltIns.WordArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordArith"
+            )
+
+        |   OGCBuiltIn3{oper, ...} =>
+            (
+                case oper of
+                    BuiltIns.Built3PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn3"
+            )
+
+        |   OGCBuiltIn4{oper, ...} =>
+            (
+                case oper of
+                    BuiltIns.Built4PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn4"
+            )
+
+        |   OGCBuiltIn5{oper, ...} =>
+            (
+                case oper of
+                    BuiltIns.Built5PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn5"
+            )
+
         |   OGCEval {function = OGCConstnt(oper, _), argList = args, ...} =>
             (* May be an interface operation which can be put in line. *)
             let
@@ -2494,6 +2602,10 @@ struct
                 mergeRes
             end
         end (* genCond *)
+        
+        (* If we have an instruction that is better generated as a test we do it this way. *)
+        and codeAsConditional(instr, whereto, tailKind) =
+            genCond (instr, constntTrue, constntFalse, whereto, tailKind, NONE)
 
         (* Call a function. Detects special cases of calls to the run-time system
            to do simple operations such as int arithmetic and generates the

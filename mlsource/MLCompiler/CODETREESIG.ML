@@ -27,6 +27,8 @@ sig
     datatype argumentType =
         GeneralType
     |   FloatingPtType
+    
+    structure BuiltIns: BUILTINS
  
     val CodeTrue:           codetree (* code for "true"  *)
     val CodeFalse:          codetree (* code for "false" *)
@@ -61,11 +63,8 @@ sig
     val mkTuple:            codetree list -> codetree
     val mkDatatype:         codetree list -> codetree
     val mkRaise:            codetree -> codetree
-    val mkNot:              codetree -> codetree
     val mkCor:              codetree * codetree -> codetree
     val mkCand:             codetree * codetree -> codetree
-    val mkTestptreq:        codetree * codetree -> codetree
-    val mkTestinteq:        codetree * codetree -> codetree
     val mkHandle:           codetree * codetree -> codetree
     val mkEval:             codetree * codetree list -> codetree
     val mkBuiltIn:          int * codetree list -> codetree
@@ -82,6 +81,11 @@ sig
     val mkMutualDecs:       (int * codetree) list -> codeBinding
     val mkNullDec:          codetree -> codeBinding
     val mkContainer:        int * int * codetree -> codeBinding
+    
+    val mkNot:              codetree -> codetree
+    val mkIsShort:          codetree -> codetree
+    val mkEqualWord:        codetree * codetree -> codetree
+    val equalWordFn:        codetree
 
     val decSequenceWithFinalExp: codeBinding list -> codetree
 
@@ -99,6 +103,18 @@ sig
     val getClosure:         level -> codetree list
     val multipleUses: codetree * (unit -> int) * level -> {load: level -> codetree, dec: codeBinding list}
     
+    val mkBuiltIn0: BuiltIns.builtIn0Ops -> codetree
+    and mkBuiltIn1: BuiltIns.builtIn1Ops * codetree -> codetree
+    and mkBuiltIn2: BuiltIns.builtIn2Ops * codetree * codetree -> codetree
+    and mkBuiltIn3: BuiltIns.builtIn3Ops * codetree * codetree * codetree -> codetree
+    and mkBuiltIn4: BuiltIns.builtIn4Ops * codetree * codetree * codetree * codetree -> codetree
+    and mkBuiltIn5: BuiltIns.builtIn5Ops * codetree * codetree * codetree * codetree * codetree -> codetree
+
+    val mkBuiltIn0Fn: BuiltIns.builtIn0Ops -> codetree
+    and mkBuiltIn1Fn: BuiltIns.builtIn1Ops -> codetree
+    and mkBuiltIn2Fn: BuiltIns.builtIn2Ops -> codetree
+    and mkBuiltIn3Fn: BuiltIns.builtIn3Ops -> codetree
+
     structure Foreign: FOREIGNCALLSIG
     structure Sharing:
     sig

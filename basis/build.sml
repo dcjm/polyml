@@ -48,8 +48,8 @@ val () = Bootstrap.use "basis/Int.sml";
 val () = Bootstrap.use (if Bootstrap.intIsArbitraryPrecision then "basis/IntAsLargeInt.sml" else "basis/IntAsFixedInt.sml");
 val () =
     case FixedInt.precision of SOME 31 => Bootstrap.use "basis/Int31.sml" | SOME 63 => Bootstrap.use "basis/Int63.sml" | _ => ();
+val () = Bootstrap.use "basis/WordSignature.sml";
 val () = Bootstrap.use "basis/LargeWord.sml";
-val () = Bootstrap.use "basis/WordSignature.sml"; (* Depends on LargeWord. *)
 val () = Bootstrap.use "basis/VectorSignature.sml";
 val () = Bootstrap.use "basis/VectorSliceSignature.sml";
 val () = Bootstrap.use "basis/Vector.sml";

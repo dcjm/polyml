@@ -1270,7 +1270,7 @@ in
                    into a list.  The bottom entry will generally be the state from
                    non-debugging code and needs to be filtered out. *)
                 fun toList r =
-                    if RunCall.isShort r
+                    if RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short r
                     then []
                     else
                     let
@@ -1279,13 +1279,14 @@ in
                         and l = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w2)
                         and n = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w3)
                     in
-                        if RunCall.isShort s orelse
-                           RunCall.isShort l
+                        if RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short s orelse
+                           RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short l
                         then toList n
                         else (s, d, l) :: toList n
                     end
             in
-                if RunCall.isShort static orelse RunCall.isShort locationInfo
+                if RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short static orelse
+                   RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short locationInfo
                 then toList stack
                 else (static, dynamic, locationInfo) :: toList stack
             end
