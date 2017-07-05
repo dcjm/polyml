@@ -21,7 +21,8 @@
 signature STRUCTVALSIG =
 sig
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
     val inBasis: location
 
     type codetree and level
@@ -169,7 +170,7 @@ sig
         DeclaredAt of location
     |   OpenedAt of location
     |   StructureAt of location
-    |   SequenceNo of int
+    |   SequenceNo of FixedInt.int
 
     withtype labelledRec =
     {

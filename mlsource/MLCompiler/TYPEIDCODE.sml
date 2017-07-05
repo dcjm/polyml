@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015 David C. J. Matthews
+    Copyright (c) 2009, 2013, 2015-16 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -102,12 +102,13 @@ struct
     (* Generate code to check that the depth is not less than the allowedDepth
        and if it is to print "..." rather than the given code. *)
     and checkDepth(depthCode: codetree, allowedDepth: int, codeOk, codeFail) =
-        mkIf(mkBuiltIn(POLY_SYS_int_lss, [depthCode, mkConst(toMachineWord allowedDepth)]),
+        mkIf(mkBuiltIn2(BuiltIns.WordComparison{test=BuiltIns.TestLess, isSigned=true},
+                depthCode, mkConst(toMachineWord allowedDepth)),
              codeFail, codeOk)
 
     (* Subtract one from the current depth to produce the depth for sub-elements. *)
     and decDepth depthCode =
-        mkBuiltIn(POLY_SYS_aminus, [depthCode, mkConst(toMachineWord 1)])
+        mkBuiltIn2(BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, depthCode, mkConst(toMachineWord 1))
 
     val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default", [], 0)
 

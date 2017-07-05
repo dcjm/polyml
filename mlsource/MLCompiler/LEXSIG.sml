@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2015 David C.J. Matthews
+    Copyright (c) 2009, 2015-16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,8 @@ sig
     type pretty;
 
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
 
     val insymbol: lexan -> unit;
      
@@ -55,9 +56,9 @@ sig
        debug/control parameters here. *)
     val debugParams: lexan -> Universal.universal list
     (* This is also not really part of the lexical analyser. *)
-    val newBindingId: lexan -> int
+    val newBindingId: lexan -> FixedInt.int
 
-    val errorDepth: lexan -> int
+    val errorDepth: lexan -> FixedInt.int
 
     (* Print error and warning messages. *)
     val errorMessageProcTag:

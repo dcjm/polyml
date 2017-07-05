@@ -63,7 +63,7 @@ struct
      a result of compiling and executing an expression or
      declaration. *) 
 
-    fun printList (doPrint: 'a*int->pretty) (c: 'a list, separator, depth): pretty list =
+    fun printList (doPrint: 'a*FixedInt.int->pretty) (c: 'a list, separator, depth: FixedInt.int): pretty list =
         if depth <= 0 then [PrettyString "..."]
         else
         case c of
@@ -83,7 +83,7 @@ struct
   
    (* Generates a pretty-printed representation of a piece of tree. *)
     fun displayParsetree (c      : parsetree, (* The value to print. *)
-                   depth  : int) : pretty = (* The number of levels to display. *)
+                   depth  : FixedInt.int) : pretty = (* The number of levels to display. *)
     let
         val displayList = printList displayParsetree
         and displayListWithBpts = printList (fn ((c,_), depth) => displayParsetree(c, depth))

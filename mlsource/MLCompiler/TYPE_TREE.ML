@@ -847,11 +847,11 @@ struct
     end
 
     (* prints a block of items *)
-    fun tDisp (t : types, depth : int, typeVarName : typeVarForm -> string, env: printTypeEnv,
+    fun tDisp (t : types, depth : FixedInt.int, typeVarName : typeVarForm -> string, env: printTypeEnv,
                sigMap: (int->typeId)option) : pretty =
     let
         (* prints a block of items *)
-        fun dispP (t : types, depth : int) : pretty =
+        fun dispP (t : types, depth : FixedInt.int) : pretty =
         let
             (* prints a block of items *)
             fun parenthesise depth t =
@@ -1179,9 +1179,9 @@ struct
                          equality=false, printable=false})
 
     (* Print a type (as a block of items) *)
-    fun displayWithMap (t : types, depth : int, env, sigMap) =
+    fun displayWithMap (t : types, depth : FixedInt.int, env, sigMap) =
         tDisp (t, depth, varNameSequence (), env, sigMap)
-    and display (t : types, depth : int, env) =
+    and display (t : types, depth : FixedInt.int, env) =
         tDisp (t, depth, varNameSequence (), env, NONE)
 
     (* Print out zero, one or more type variables (unblocked) *)
@@ -1222,7 +1222,7 @@ struct
   
   
     (* Version used in parsetree. *)
-    fun displayTypeVariables (vars : typeVarForm list, depth : int) =
+    fun displayTypeVariables (vars : typeVarForm list, depth : FixedInt.int) =
       printTypeVars (vars, depth, varNameSequence ())
     
  
@@ -2691,7 +2691,7 @@ struct
                 )
             end (* displayTypeConstrsWithMap *)
 
-    fun displayTypeConstrs (tCons : typeConstrSet, depth : int, typeEnv) : pretty =
+    fun displayTypeConstrs (tCons : typeConstrSet, depth : FixedInt.int, typeEnv) : pretty =
         displayTypeConstrsWithMap(tCons, depth, typeEnv, NONE)
 
     (* Return a type constructor from an overload.  If there are

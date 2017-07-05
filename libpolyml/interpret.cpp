@@ -1533,6 +1533,21 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_cellLength:
+            /* Return the length word. */
+            *sp = TAGGED((*sp).AsObjPtr()->Length());
+            break;
+
+        case INSTR_loadMLWord:
+        {
+            // The values on the stack are base, index and offset.
+            POLYUNSIGNED offset = UNTAGGED(*sp++);
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            PolyObject *p = (PolyObject*)((*sp).AsCodePtr() + offset);
+            *sp = p->Get(index);
+            break;
+        }
+
         default: Crash("Unknown instruction %x\n", li);
 
         } /* switch */

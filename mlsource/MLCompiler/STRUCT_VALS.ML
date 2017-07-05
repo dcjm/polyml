@@ -70,7 +70,8 @@ struct
   
     (* Location for declarations. *)
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
 
     (* The idea of this is reduce the number of mutable objects. *)
     datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
@@ -265,7 +266,7 @@ struct
         DeclaredAt of location
     |   OpenedAt of location
     |   StructureAt of location
-    |   SequenceNo of int
+    |   SequenceNo of FixedInt.int
   
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we

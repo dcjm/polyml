@@ -41,7 +41,8 @@ sig
     type level
   
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
     type ptProperties
     type exportTree = location * ptProperties list
     type navigation =
@@ -144,7 +145,7 @@ sig
     val setLeastGeneralTypes: parsetree * lexan -> unit
     
     (* Inherited from PrintAndExportParsetree *)
-    val displayParsetree: parsetree * int -> pretty;
+    val displayParsetree: parsetree * FixedInt.int -> pretty;
     val getExportTree: navigation * parsetree -> exportTree
 
     (* Inherited from CodegenParsetree *)

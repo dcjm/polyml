@@ -21,11 +21,11 @@ sig
     type context
     type pretty
     val ContextLocation:
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int } -> context
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int, endLine: FixedInt.int, endPosition: FixedInt.int } -> context
     and ContextProperty: string * string (* User property. *) -> context
 
-    val PrettyBlock: int * bool * context list * pretty list -> pretty
-    and PrettyBreak: int * int -> pretty
+    val PrettyBlock: FixedInt.int * bool * context list * pretty list -> pretty
+    and PrettyBreak: FixedInt.int * FixedInt.int -> pretty
     and PrettyString: string -> pretty
     
     val isPrettyBlock: pretty -> bool

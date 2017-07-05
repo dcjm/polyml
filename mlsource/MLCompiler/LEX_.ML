@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
         
     Further development:
-    Copyright (c) 2000-7, 2015 David C.J. Matthews
+    Copyright (c) 2000-7, 2015-16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,7 +41,7 @@ struct
   open PRETTY;
   open SYMBOLS;              infix 8 eq neq;
   
-  type location = { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+  type location = { file: string, startLine: FixedInt.int, startPosition: FixedInt.int, endLine: FixedInt.int, endPosition: FixedInt.int }
 
   type lexan = 
     {
@@ -56,14 +56,14 @@ struct
       extraChars:  char list ref,
       debugParams: Universal.universal list,
       (* Location information. *)
-      getLineNo:   unit -> int,
-      getOffset:   unit -> int,
+      getLineNo:   unit -> FixedInt.int,
+      getOffset:   unit -> FixedInt.int,
       fileName:    string,
-      startLine:   int ref,
-      endLine:     int ref,
-      startPosition: int ref,
-      endPosition:   int ref,
-      bindingCounter: unit -> int
+      startLine:   FixedInt.int ref,
+      endLine:     FixedInt.int ref,
+      startPosition: FixedInt.int ref,
+      endPosition:   FixedInt.int ref,
+      bindingCounter: unit -> FixedInt.int
     };
     
   (* The lexical analyser reads characters from the stream and updates the

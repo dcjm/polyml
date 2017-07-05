@@ -24,7 +24,7 @@ struct
 
 (*
     datatype ptProperties =
-        PTprint of int -> pretty (* Print the tree *)
+        PTprint of FixedInt.int -> pretty (* Print the tree *)
     |   PTtype of types (* Type of an expression *)
     |   PTdeclaredAt of location (* Declaration location for id. *)
     |   PTopenedAt of location (* When an identifier comes from an "open" the location of the open. *)
@@ -47,15 +47,15 @@ struct
         fun PTbreakPoint(bpt: bool ref): ptProperties = cast(0w0, bpt)
         and PTcompletions(sl: string list): ptProperties = cast(0w1, sl)
         and PTdeclaredAt(loc: location): ptProperties = cast(0w2, loc)
-        and PTdefId(id: int): ptProperties = cast(0w3, id)
+        and PTdefId(id: FixedInt.int): ptProperties = cast(0w3, id)
         and PTfirstChild(entry: unit -> exportTree): ptProperties = cast(0w4, entry)
         and PTnextSibling(entry: unit -> exportTree): ptProperties = cast(0w5, entry)
         and PTopenedAt(loc: location): ptProperties = cast(0w6, loc)
         and PTparent(entry: unit -> exportTree): ptProperties = cast(0w7, entry)
         and PTpreviousSibling(entry: unit -> exportTree): ptProperties = cast(0w8, entry)
-        and PTprint(pr: int -> pretty): ptProperties = cast(0w9, pr)
+        and PTprint(pr: FixedInt.int -> pretty): ptProperties = cast(0w9, pr)
         and PTreferences(exp: bool, locs: location list): ptProperties = cast(0w10, exp, locs)
-        and PTrefId(id: int): ptProperties = cast(0w11, id)
+        and PTrefId(id: FixedInt.int): ptProperties = cast(0w11, id)
         and PTstructureAt(loc: location): ptProperties = cast(0w12, loc)
         and PTtype(typ: types): ptProperties = cast(0w13, typ)
     end

@@ -240,9 +240,9 @@ local
 
     (* References for control and debugging. *)
     val timing = ref false
-    and printDepth = ref 0
-    and errorDepth = ref 6
-    and lineLength = ref 77
+    and printDepth: int ref = ref 0
+    and errorDepth: int ref = ref 6
+    and lineLength: int ref = ref 77
     and allocationProfiling = ref false
     
     val assemblyCode = ref false
@@ -260,7 +260,7 @@ local
     
     val debug = ref false
     val inlineFunctors = ref true
-    val maxInlineSize = ref 80
+    val maxInlineSize: int ref = ref 80
     val printInAlphabeticalOrder = ref true
     val traceCompiler = ref false (* No longer used. *)
     
@@ -511,22 +511,22 @@ local
                     [
                     tagInject errorMessageProcTag errorProc,
                     tagInject compilerOutputTag compilerOut,
-                    tagInject lineNumberTag lineNo,
-                    tagInject offsetTag lineOffset,
+                    tagInject lineNumberTag (FixedInt.fromInt o lineNo),
+                    tagInject offsetTag (FixedInt.fromInt o lineOffset),
                     tagInject fileNameTag fileName,
-                    tagInject bindingCounterTag bindingSeq,
+                    tagInject bindingCounterTag (FixedInt.fromInt o bindingSeq),
                     tagInject inlineFunctorsTag (! inlineFunctors),
-                    tagInject maxInlineSizeTag (! maxInlineSize),
+                    tagInject maxInlineSizeTag (FixedInt.fromInt(! maxInlineSize)),
                     tagInject parsetreeTag (! parsetree),
                     tagInject codetreeTag (! codetree),
                     tagInject pstackTraceTag (! pstackTrace),
                     tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                     tagInject assemblyCodeTag (! assemblyCode),
                     tagInject codetreeAfterOptTag (! codetreeAfterOpt),
-                    tagInject profileAllocationTag allocProfiling,
-                    tagInject errorDepthTag (! errorDepth),
-                    tagInject printDepthFunTag printDepth,
-                    tagInject lineLengthTag (! lineLength),
+                    tagInject profileAllocationTag (FixedInt.fromInt allocProfiling),
+                    tagInject errorDepthTag (FixedInt.fromInt(! errorDepth)),
+                    tagInject printDepthFunTag (FixedInt.fromInt o printDepth),
+                    tagInject lineLengthTag (FixedInt.fromInt(! lineLength)),
                     tagInject debugTag debugging,
                     tagInject printOutputTag prettyOut,
                     tagInject rootTreeTag parentTree,
@@ -1987,7 +1987,7 @@ in
                     genCode(code,
                         [
                             tagInject compilerOutputTag compilerOut,
-                            tagInject maxInlineSizeTag (! maxInlineSize),
+                            tagInject maxInlineSizeTag (FixedInt.fromInt(! maxInlineSize)),
                             tagInject codetreeTag (! codetree),
                             tagInject pstackTraceTag (! pstackTrace),
                             tagInject lowlevelOptimiseTag (! lowlevelOptimise),

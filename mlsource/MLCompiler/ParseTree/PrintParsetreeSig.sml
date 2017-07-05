@@ -24,10 +24,11 @@ sig
     type pretty
 
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
 
-    val displayParsetree: parsetree * int -> pretty
-    val displayMatch: matchtree * int -> pretty
+    val displayParsetree: parsetree * FixedInt.int -> pretty
+    val displayMatch: matchtree * FixedInt.int -> pretty
 
     val errorNear: lexan * bool * parsetree * location * string -> unit
      

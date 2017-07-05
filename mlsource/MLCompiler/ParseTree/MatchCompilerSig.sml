@@ -26,7 +26,8 @@ sig
     type lexan
 
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
     and matchContext =
         { mkAddr: int->int, level: level, typeVarMap: typeVarMap, lex: lexan }
 

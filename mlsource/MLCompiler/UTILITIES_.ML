@@ -38,7 +38,8 @@ structure LEX : LEXSIG
 sig
   type lexan;
   type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
 
   val noDuplicates: (string * 'a * 'a -> unit) -> 
                        { apply: (string * 'a -> unit) -> unit,

@@ -1127,7 +1127,7 @@ struct
                 val (inlineType, updatedBody, localCount) =
                     case evaluateInlining(optBody, List.length argTypes,
                             if maxInlineSize <> 0 andalso lambdaContext = LCImmediateCall
-                            then 1000 else maxInlineSize) of
+                            then 1000 else FixedInt.toInt maxInlineSize) of
                         NonRecursive  => (Inline, optBody, ! addressAllocator)
                     |   TailRecursive bv =>
                             (Inline,

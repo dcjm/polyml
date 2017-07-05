@@ -196,7 +196,7 @@ public:
     AssemblyArgs assemblyInterface;
 
     virtual void GarbageCollect(ScanAddress *process);
-    void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack, bool isCode);
+    void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack);
     virtual Handle EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
@@ -616,42 +616,18 @@ void X86TaskData::GarbageCollect(ScanAddress *process)
     {
         // Now the values on the stack.
         for (PolyWord *q = assemblyInterface.stackPtr; q < stack->top; q++)
-            ScanStackAddress(process, *q, stack, false);
+            ScanStackAddress(process, *q, stack);
     }
 }
 
 // Process a value within the stack.
-void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack, bool isCode)
+void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack)
 {
-    // The value in the pc may look like a tagged integer but isn't.
-    if (val.IsTagged() && ! isCode) return;
+    if (! val.IsDataPtr()) return;
 
-    // We have an address.  Check it's in our memory.  We may have pointers into
-    // the code and we MUSTN'T try to follow them.  We may also have pointers
-    // within the stack.
-    MemSpace *space = gMem.SpaceForAddress(val.AsStackAddr()-1);
-    if (space == 0)
-        return;
-    if (space->spaceType == ST_STACK)
-        return;
-
-    // If isCode is set we definitely have a code address.  It may have the
-    // bottom bit set or it may be word aligned.
-    if (isCode || val.IsCodePtr())
-    {
-        /* Find the start of the code segment */
-        PolyObject *oldObject = ObjCodePtrToPtr(val.AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = val.AsCodePtr() - (byte*)oldObject;
-        PolyObject *newObject = process->ScanObjectAddress(oldObject);
-        val = PolyWord::FromCodePtr((byte*)newObject + offset);
-    }
-
-    else
-    {
-        ASSERT(val.IsDataPtr());
+    MemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr()-1);
+    if (space != 0)
         val = process->ScanObjectAddress(val.AsObjPtr());
-    }
 }
 
 

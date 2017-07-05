@@ -21,14 +21,15 @@ sig
     type pretty
     type types
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
     type locationProp
 
     (* Export tree. *)
     type ptProperties
     type exportTree = location * ptProperties list
 
-    val PTprint: (int -> pretty) -> ptProperties (* Print the tree *)
+    val PTprint: (FixedInt.int -> pretty) -> ptProperties (* Print the tree *)
     val PTtype: types -> ptProperties (* Type of an expression *)
     val PTdeclaredAt: location -> ptProperties (* Declaration location for id. *)
     val PTopenedAt: location -> ptProperties (* When an identifier comes from an "open" the location of the open. *)
@@ -40,8 +41,8 @@ sig
     val PTfirstChild: (unit -> exportTree) -> ptProperties
     val PTcompletions: string list -> ptProperties
     val PTbreakPoint: bool ref -> ptProperties (* Breakpoint associated with location. *)
-    val PTdefId: int -> ptProperties (* Defining binding id *)
-    val PTrefId: int -> ptProperties (* Reference binding id *)
+    val PTdefId: FixedInt.int -> ptProperties (* Defining binding id *)
+    val PTrefId: FixedInt.int -> ptProperties (* Reference binding id *)
     
     type navigation =
         {parent: (unit -> exportTree) option,

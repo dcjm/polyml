@@ -481,6 +481,21 @@ struct
                 case oper of
                     NotBoolean => genOpcode(opcode_notBoolean, cvec)
                 |   IsTaggedValue => genOpcode(opcode_isTagged, cvec)
+                |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
+            end
+
+        |   BICBuiltIn2 { oper=BuiltIns.LoadWord _, arg1, arg2 } =>
+            let
+                (* This is temporary.  The load instructions take three arguments:
+                   base address, index and offset.  This does not currently use the
+                   offset. *)
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+                val () = pushConst (toMachineWord 0, cvec)
+                val () = incsp()
+            in
+                genOpcode(opcode_loadMLWord, cvec);
+                decsp(); decsp()
             end
 
         |   BICBuiltIn2 { oper, arg1, arg2 } =>
@@ -508,6 +523,8 @@ struct
                 |   WordArith ArithAdd => genOpcode(opcode_wordAdd, cvec)
                 |   WordArith ArithSub => genOpcode(opcode_wordSub, cvec)
                 |   WordArith _ => raise InternalError "TODO: WordArith"
+                
+                |   LoadWord _ => raise InternalError "LoadWord"
                 ;
                 decsp() (* Removes one item from the stack. *)
             end

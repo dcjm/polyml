@@ -34,7 +34,8 @@ sig
     type pretty;
     type ptProperties
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
     type exportTree = location * ptProperties list
     type navigation =
         {parent: (unit -> exportTree) option,
@@ -89,15 +90,15 @@ sig
     val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)
 
     (* Print it out prettily *)
-    val display: types * int * printTypeEnv -> pretty;
-    val displayWithMap: types * int * printTypeEnv * (int->typeId) option -> pretty;
+    val display: types * FixedInt.int * printTypeEnv -> pretty;
+    val displayWithMap: types * FixedInt.int * printTypeEnv * (int->typeId) option -> pretty;
 
     (* Print out a type constructor. *)
-    val displayTypeConstrs: typeConstrSet * int * printTypeEnv -> pretty;
-    val displayTypeConstrsWithMap: typeConstrSet * int * printTypeEnv * (int->typeId) option -> pretty;
+    val displayTypeConstrs: typeConstrSet * FixedInt.int * printTypeEnv -> pretty;
+    val displayTypeConstrsWithMap: typeConstrSet * FixedInt.int * printTypeEnv * (int->typeId) option -> pretty;
 
     (* A list of type variables. *)
-    val displayTypeVariables: typeVarForm list * int -> pretty list;
+    val displayTypeVariables: typeVarForm list * FixedInt.int -> pretty list;
 
     (* Returns the preferred type constructor from an overload. *)
     val typeConstrFromOverload: types * bool -> typeConstrs;
@@ -198,7 +199,7 @@ sig
         ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
     val makeParseTypeId: typeVarForm * location -> typeParsetree
     val unitTree: location -> typeParsetree
-    val displayTypeParse: typeParsetree * int * printTypeEnv -> pretty;
+    val displayTypeParse: typeParsetree * FixedInt.int * printTypeEnv -> pretty;
 
     (* Fill in the values of type variables and make checks. *)
     val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;

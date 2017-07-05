@@ -42,7 +42,8 @@ sig
     type machineWord
     type fixStatus
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
     type topdec
     type program
     type ptProperties
@@ -85,7 +86,7 @@ sig
 
     val gencodeStructs: program * lexan -> codetree * int
 
-    val displayProgram: program * int -> pretty;
+    val displayProgram: program * FixedInt.int -> pretty;
 
     val structsExportTree: navigation * program -> exportTree
 

@@ -403,7 +403,7 @@ struct
     (* Displays value as a block, with no external formatting.  This is used at the
        top level but it can be applied to values extracted with #lookup globalNameSpace.
        That can include constructors and overloaded functions. *)
-    fun displayValues (Value{name, typeOf, class, access, locations, ...}, depth, nameSpace, sigMap): pretty =
+    fun displayValues (Value{name, typeOf, class, access, locations, ...}, depth: FixedInt.int, nameSpace, sigMap): pretty =
     let
         (* Create the "val X =" part. *)
         fun valPart (valOrCons, isColon) =
@@ -490,7 +490,7 @@ struct
         | _ => PrettyString "" (* Probably shouldn't occur. *)
 
     (* Prints "sig ... end" as a block, with no external formatting *)
-    fun displaySig (Signatures{tab, typeIdMap, ...}, depth : int, _ : int,
+    fun displaySig (Signatures{tab, typeIdMap, ...}, depth : FixedInt.int, _ : int,
                     { lookupType, lookupStruct, ...}, sigMap: (int-> typeId) option) : pretty =
     let
         (* Construct an environment for the types. *)
@@ -580,7 +580,7 @@ struct
         end (* displaySig *)
 
   (* Print: signature S = sig .... end *)
-  and displaySignatures (str as Signatures{locations, name, ...}, depth : int, nameSpace) : pretty =
+  and displaySignatures (str as Signatures{locations, name, ...}, depth : FixedInt.int, nameSpace) : pretty =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock(0, false, [],

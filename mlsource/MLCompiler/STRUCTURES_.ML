@@ -409,7 +409,7 @@ struct
                 displayList (vs, separator, depth - 1) dodisplay
             end (* displayList *) 
 
-    fun displayStruct (str, depth) =
+    fun displayStruct (str, depth: FixedInt.int) =
         if depth <= 0 (* elide further text. *)
         then PrettyString "..."
 

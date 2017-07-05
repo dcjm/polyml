@@ -57,7 +57,7 @@ struct
         fun cast p = toAddress(toMachineWord p)
     in
         type context = address
-        type loc = { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        type loc = { file: string, startLine: FixedInt.int, startPosition: FixedInt.int, endLine: FixedInt.int, endPosition: FixedInt.int }
         (* Because the argument tuple has more than 4 fields the address is used rather than copying the fields. *)
         fun ContextLocation(p: loc): context = cast(0w0, p)
         and ContextProperty(s1: string, s2: string): context = cast(0w1, s1, s2)
@@ -77,9 +77,9 @@ struct
         
         val maxPrettyTag = 0w4 (* Exported because it is used in TagTest. *)
 
-        fun PrettyBlock(offset: int, consistent: bool, context: context list, items: pretty list): pretty =
+        fun PrettyBlock(offset: FixedInt.int, consistent: bool, context: context list, items: pretty list): pretty =
             cast(tagPrettyBlock, offset, consistent, context, items)
-        and PrettyBreak(breaks: int, offset: int): pretty = cast(tagPrettyBreak, breaks, offset)
+        and PrettyBreak(breaks: FixedInt.int, offset: FixedInt.int): pretty = cast(tagPrettyBreak, breaks, offset)
         and PrettyString(s: string): pretty = cast(tagPrettyString, s)
 
         fun isPrettyBlock p = toShort(loadWord(p, 0w0)) = tagPrettyBlock

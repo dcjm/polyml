@@ -49,7 +49,8 @@ structure UTILITIES :
 sig
     type lexan;
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
 
     val noDuplicates: (string * 'a * 'a -> unit) -> 
                        { apply: (string * 'a -> unit) -> unit,
@@ -381,7 +382,7 @@ struct
             let
                 val firstType = processValue hd
 
-                fun printList (doPrint: 'a*int->pretty) (c: 'a list, separator, depth): pretty list =
+                fun printList (doPrint: 'a*FixedInt.int->pretty) (c: 'a list, separator, depth): pretty list =
                     if depth <= 0 then [PrettyString "..."]
                     else
                     case c of

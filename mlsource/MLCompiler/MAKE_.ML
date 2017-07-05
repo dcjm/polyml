@@ -208,7 +208,7 @@ struct
             fun errorProc {message, hard, location={ file, startLine=line, ... }, ...} =
                TextIO.print(concat
                    [if hard then "Error-" else "Warning-",
-                    " in '", file, "', line ", Int.toString line, ".\n",
+                    " in '", file, "', line ", FixedInt.toString line, ".\n",
                     PRETTY.uglyPrint message, "\n"])
         in
             (

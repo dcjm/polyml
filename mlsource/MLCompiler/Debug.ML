@@ -24,31 +24,31 @@ struct
         open Universal
     in
         (* Get the current line number. *)
-        val lineNumberTag: (unit->int) tag           = tag()
+        val lineNumberTag: (unit->FixedInt.int) tag           = tag()
         (* Get the current offset (position on line or in file). *)
-        val offsetTag: (unit->int) tag               = tag()
+        val offsetTag: (unit->FixedInt.int) tag               = tag()
         (* File name. *)
         val fileNameTag: string tag                  = tag()
         (* Binding counter *)
-        val bindingCounterTag: (unit->int) tag       = tag()
+        val bindingCounterTag: (unit->FixedInt.int) tag       = tag()
 
         (* How much to print in error messages?  default 6 *)
-        val errorDepthTag: int tag                   = tag()
+        val errorDepthTag: FixedInt.int tag                   = tag()
         (* Control print depth in PolyML.print. *)
-        val printDepthFunTag: (unit->int) tag            = tag()
+        val printDepthFunTag: (unit->FixedInt.int) tag            = tag()
         (* Length of line in PolyML.print. error messages etc. *)
-        val lineLengthTag: int tag                   = tag()
+        val lineLengthTag: FixedInt.int tag                   = tag()
         (* Compile in debugging code?  default false *)
         val debugTag: bool tag                       = tag()
         (* Compilation fine tuning. *)
         (* Should functors be made inline? default true. *)
         val inlineFunctorsTag: bool tag              = tag()
         (* Control how big functions should be before they're not inlined. *)
-        val maxInlineSizeTag: int tag                = tag()
+        val maxInlineSizeTag: FixedInt.int tag                = tag()
         (* Add profile information to each allocation?  default zero.
            At the moment this is effectively a bool but having an int allows
            for the possibility of recording different information. *)
-        val profileAllocationTag: int tag            = tag()
+        val profileAllocationTag: FixedInt.int tag            = tag()
 
         (* Compiler debugging. *)
         (* Print parsetree after parsing? default false *)
@@ -72,17 +72,17 @@ struct
         (* Create print functions for datatypes based on the constructors. *)
         val createPrintFunctionsTag: bool tag        = tag()
         (* Warning level for discarding values *)
-        val reportDiscardedValuesTag: int tag           = tag()
-        val reportDiscardNone     = 0 (* No reports *)
-        and reportDiscardFunction = 1 (* Only report discarded functions *)
-        and reportDiscardNonUnit  = 2 (* Report discarding any non unit values *)
+        val reportDiscardedValuesTag: FixedInt.int tag           = tag()
+        val reportDiscardNone     = 0: FixedInt.int (* No reports *)
+        and reportDiscardFunction = 1: FixedInt.int (* Only report discarded functions *)
+        and reportDiscardNonUnit  = 2: FixedInt.int (* Report discarding any non unit values *)
         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
         (* ValueOps.printSpaceTag: ValueOps.nameSpace tag
            Pretty.printOutputTag: (pretty->unit) tag
            Pretty.compilerOutputTag: (pretty->unit) tag
-           Lex.errorMessageProcTag: (pretty * bool * int -> unit) tag
+           Lex.errorMessageProcTag: (pretty * bool * FixedInt.int -> unit) tag
            ExportTreeString.rootTreeTag: (unit -> exportTree) tag
          *)
 

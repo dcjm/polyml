@@ -42,7 +42,8 @@ sig
     type typeParsetree
 
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
 
     type breakPoint = bool ref
 

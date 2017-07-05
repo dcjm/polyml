@@ -31,7 +31,8 @@ sig
     type typeId
     type specs
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
     type exportTree = location * ptProperties list
     type navigation =
         {parent: (unit -> exportTree) option,
@@ -49,7 +50,7 @@ sig
     val mkSigIdent:         string * location -> sigs;
     val mkSig:              specs list * location -> sigs;
 
-    val displaySigs: sigs * int -> pretty
+    val displaySigs: sigs * FixedInt.int -> pretty
     val sigExportTree: navigation * sigs -> exportTree 
     val sigVal: sigs * int * (int->typeId) * env * lexan * location -> signatures
     val undefinedSignature: signatures

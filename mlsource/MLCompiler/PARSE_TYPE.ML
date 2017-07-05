@@ -35,7 +35,8 @@ sig
   type lexan;
   type symset;
   type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
   
   val badsyms:  sys * lexan -> unit;
   val getsym:   sys * lexan -> unit;
@@ -85,7 +86,8 @@ sig
     type typeParsetree;
     type typeVarForm
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
      
     val parseType: symset * lexan * {lookupTvar:string -> typeVarForm} -> typeParsetree * location;
 end =

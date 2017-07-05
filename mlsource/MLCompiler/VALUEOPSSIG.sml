@@ -34,7 +34,8 @@ sig
     type univTable
     type pretty
     type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
     type locationProp
     type typeId
     type typeVarForm
@@ -81,11 +82,11 @@ sig
 
     (* Print values. *)
     val displayFixStatus:  fixStatus -> pretty
-    val displaySignatures: signatures * int * printTypeEnv -> pretty
-    val displayStructures: structVals * int * printTypeEnv -> pretty
-    val displayFunctors:   functors   * int * printTypeEnv -> pretty
-    val displayValues: values * int * printTypeEnv -> pretty
-    val printValues: values * int -> pretty
+    val displaySignatures: signatures * FixedInt.int * printTypeEnv -> pretty
+    val displayStructures: structVals * FixedInt.int * printTypeEnv -> pretty
+    val displayFunctors:   functors   * FixedInt.int * printTypeEnv -> pretty
+    val displayValues: values * FixedInt.int * printTypeEnv -> pretty
+    val printValues: values * FixedInt.int -> pretty
 
     val nullEnvironment : nameSpace
 

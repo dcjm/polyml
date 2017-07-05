@@ -19,30 +19,30 @@
 signature DEBUGSIG =
 sig
     val assemblyCodeTag : bool Universal.tag
-    val bindingCounterTag : (unit -> int) Universal.tag
+    val bindingCounterTag : (unit -> FixedInt.int) Universal.tag
     val codetreeAfterOptTag : bool Universal.tag
     val codetreeTag : bool Universal.tag
     val createPrintFunctionsTag : bool Universal.tag
     val debugTag : bool Universal.tag
     val defaults : Universal.universal list
-    val errorDepthTag : int Universal.tag
+    val errorDepthTag : FixedInt.int Universal.tag
     val fileNameTag : string Universal.tag
     val getParameter : 'a Universal.tag -> Universal.universal list -> 'a
     val inlineFunctorsTag : bool Universal.tag
-    val lineLengthTag : int Universal.tag
-    val lineNumberTag : (unit -> int) Universal.tag
+    val lineLengthTag : FixedInt.int Universal.tag
+    val lineNumberTag : (unit -> FixedInt.int) Universal.tag
     val lowlevelOptimiseTag : bool Universal.tag
-    val maxInlineSizeTag : int Universal.tag
+    val maxInlineSizeTag : FixedInt.int Universal.tag
     val narrowOverloadFlexRecordTag : bool Universal.tag
-    val offsetTag : (unit -> int) Universal.tag
+    val offsetTag : (unit -> FixedInt.int) Universal.tag
     val parsetreeTag : bool Universal.tag
-    val printDepthFunTag : (unit -> int) Universal.tag
-    val profileAllocationTag : int Universal.tag
+    val printDepthFunTag : (unit -> FixedInt.int) Universal.tag
+    val profileAllocationTag : FixedInt.int Universal.tag
     val pstackTraceTag : bool Universal.tag
     val reportExhaustiveHandlersTag : bool Universal.tag
     val reportUnreferencedIdsTag : bool Universal.tag
-    val reportDiscardedValuesTag: int Universal.tag
-    val reportDiscardNone: int (* No reports *)
-    and reportDiscardFunction: int (* Only report discarded functions *)
-    and reportDiscardNonUnit: int (* Report discarding any non unit values *)
+    val reportDiscardedValuesTag: FixedInt.int Universal.tag
+    val reportDiscardNone: FixedInt.int (* No reports *)
+    and reportDiscardFunction: FixedInt.int (* Only report discarded functions *)
+    and reportDiscardNonUnit: FixedInt.int (* Report discarding any non unit values *)
 end;

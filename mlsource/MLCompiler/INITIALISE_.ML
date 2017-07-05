@@ -1341,11 +1341,11 @@ struct
                 [
                 ("compilerVersion",        toMachineWord (VERSION.compilerVersion: string),     String),
                 ("compilerVersionNumber",  toMachineWord (VERSION.versionNumber: int),          Int),
-                ("lineNumberTag",          toMachineWord (lineNumberTag : (unit->int) tag),     Tag (Unit->>Int)),
-                ("offsetTag",              toMachineWord (offsetTag: (unit->int) tag),          Tag (Unit->>Int)),
+                ("lineNumberTag",          toMachineWord (lineNumberTag : (unit->FixedInt.int) tag),     Tag (Unit->>fixedIntType)),
+                ("offsetTag",              toMachineWord (offsetTag: (unit->FixedInt.int) tag),          Tag (Unit->>fixedIntType)),
                 ("fileNameTag",            toMachineWord (fileNameTag: string tag),             Tag String),
-                ("bindingCounterTag",      toMachineWord (bindingCounterTag: (unit->int) tag),  Tag (Unit->>Int)),
-                ("maxInlineSizeTag",       toMachineWord (maxInlineSizeTag: int tag),           Tag Int),
+                ("bindingCounterTag",      toMachineWord (bindingCounterTag: (unit->FixedInt.int) tag),  Tag (Unit->>fixedIntType)),
+                ("maxInlineSizeTag",       toMachineWord (maxInlineSizeTag: FixedInt.int tag),           Tag fixedIntType),
                 ("assemblyCodeTag",        toMachineWord (assemblyCodeTag: bool tag),           Tag Bool),
                 ("parsetreeTag",           toMachineWord (parsetreeTag: bool tag),              Tag Bool),
                 ("codetreeTag",            toMachineWord (codetreeTag: bool tag),               Tag Bool),
@@ -1354,10 +1354,10 @@ struct
                 ("codetreeAfterOptTag",    toMachineWord (codetreeAfterOptTag: bool tag),       Tag Bool),
                 ("inlineFunctorsTag",      toMachineWord (inlineFunctorsTag: bool tag),         Tag Bool),
                 ("debugTag",               toMachineWord (debugTag: bool tag),                  Tag Bool),
-                ("printDepthFunTag",       toMachineWord (DEBUG.printDepthFunTag: (unit->int) tag), Tag (Unit->>Int)),
-                ("errorDepthTag",          toMachineWord (DEBUG.errorDepthTag: int tag),        Tag Int),
-                ("lineLengthTag",          toMachineWord (DEBUG.lineLengthTag: int tag),        Tag Int),
-                ("profileAllocationTag",   toMachineWord (DEBUG.profileAllocationTag: int tag), Tag Int),
+                ("printDepthFunTag",       toMachineWord (DEBUG.printDepthFunTag: (unit->FixedInt.int) tag), Tag (Unit->>fixedIntType)),
+                ("errorDepthTag",          toMachineWord (DEBUG.errorDepthTag: FixedInt.int tag),        Tag fixedIntType),
+                ("lineLengthTag",          toMachineWord (DEBUG.lineLengthTag: FixedInt.int tag),        Tag fixedIntType),
+                ("profileAllocationTag",   toMachineWord (DEBUG.profileAllocationTag: FixedInt.int tag), Tag fixedIntType),
                 ("printOutputTag",         toMachineWord (PRETTY.printOutputTag: (pretty->unit) tag),  Tag (PrettyType->>Unit)) ,               
                 ("compilerOutputTag",      toMachineWord (PRETTY.compilerOutputTag: (pretty->unit) tag), Tag (PrettyType->>Unit)),
                 ("errorMessageProcTag",    toMachineWord (LEX.errorMessageProcTag: errorMessageProcType tag), Tag errorMessageProcType),
@@ -1366,7 +1366,7 @@ struct
                 ("reportExhaustiveHandlersTag", toMachineWord (reportExhaustiveHandlersTag: bool tag), Tag Bool),
                 ("narrowOverloadFlexRecordTag", toMachineWord (narrowOverloadFlexRecordTag: bool tag), Tag Bool),
                 ("createPrintFunctionsTag", toMachineWord (createPrintFunctionsTag: bool tag), Tag Bool),
-                ("reportDiscardedValuesTag", toMachineWord (reportDiscardedValuesTag: int tag), Tag Int)
+                ("reportDiscardedValuesTag", toMachineWord (reportDiscardedValuesTag: FixedInt.int tag), Tag fixedIntType)
                  ]
         end;
  
@@ -1468,11 +1468,11 @@ struct
                                     #enterVal valuesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                     [
                         ("name",    toMachineWord (valName: values -> string), valueVal ->> String),
-                        ("print",   toMachineWord (printValues: values * int -> pretty),
+                        ("print",   toMachineWord (printValues: values * FixedInt.int -> pretty),
                                         mkProductType[valueVal, fixedIntType] ->> PrettyType),
-                        ("printWithType", toMachineWord (exportedDisplayValues: values * int * nameSpace option -> pretty),
+                        ("printWithType", toMachineWord (exportedDisplayValues: values * FixedInt.int * nameSpace option -> pretty),
                                         mkProductType[valueVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
-                        ("printType",    toMachineWord(exportedDisplayTypeExp: types * int * nameSpace option -> pretty),
+                        ("printType",    toMachineWord(exportedDisplayTypeExp: types * FixedInt.int * nameSpace option -> pretty),
                             mkProductType[Types, fixedIntType, Option nameSpaceType] ->> PrettyType),
                         ("typeof",  toMachineWord (valTypeOf: values -> types), valueVal ->> Types),
                         ("code",    toMachineWord (codeForValue: values -> codetree), valueVal ->> CodeTree),
@@ -1495,7 +1495,7 @@ struct
                     [
                     ("name", toMachineWord(nameForType: typeConstrSet -> string), typeVal ->> String),
                     ("print",
-                        toMachineWord (exportedDisplayTypeConstr: typeConstrSet * int * nameSpace option -> pretty),
+                        toMachineWord (exportedDisplayTypeConstr: typeConstrSet * FixedInt.int * nameSpace option -> pretty),
                         mkProductType[typeVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("properties",   toMachineWord (propsForTypeConstr: typeConstrSet ->ptProperties list),
                         typeVal ->> List PtProperties)
@@ -1518,7 +1518,7 @@ struct
                     [
                     ("name", toMachineWord(nameForStruct: structVals -> string), structureVal ->> String),
                     ("print",
-                        toMachineWord (exportedDisplayStructs: structVals * int * nameSpace option -> pretty),
+                        toMachineWord (exportedDisplayStructs: structVals * FixedInt.int * nameSpace option -> pretty),
                         mkProductType[structureVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("code",   toMachineWord (codeForStruct: structVals -> codetree), structureVal ->> CodeTree),
                     ("properties",   toMachineWord (propsForStruct: structVals ->ptProperties list),
@@ -1539,7 +1539,7 @@ struct
                     [
                     ("name", toMachineWord(nameForSig: signatures -> string), signatureVal ->> String),
                     ("print",
-                        toMachineWord (exportedDisplaySigs: signatures * int * nameSpace option -> pretty),
+                        toMachineWord (exportedDisplaySigs: signatures * FixedInt.int * nameSpace option -> pretty),
                         mkProductType[signatureVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("properties",   toMachineWord (propsForSig: signatures ->ptProperties list),
                         signatureVal ->> List PtProperties)
@@ -1562,7 +1562,7 @@ struct
                     [
                     ("name", toMachineWord(nameForFunctor: functors -> string), functorVal ->> String),
                     ("print",
-                        toMachineWord (exportedDisplayFunctors: functors * int * nameSpace option -> pretty),
+                        toMachineWord (exportedDisplayFunctors: functors * FixedInt.int * nameSpace option -> pretty),
                         mkProductType[functorVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("code",    toMachineWord (codeForFunct: functors -> codetree), functorVal ->> CodeTree),
                     ("properties",   toMachineWord (propsForFunctor: functors ->ptProperties list),

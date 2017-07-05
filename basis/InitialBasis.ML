@@ -132,10 +132,11 @@ struct
                 then toShort i >= toShort j
                 else callComp(i, j) >= 0
 
-        (* TODO: Negation. ?? *)
-        val ~ : int -> int = RunCall.run_call1 RuntimeCalls.POLY_SYS_aneg
+        (* Negation.  Just use 0 - X.  *)
+        fun ~ x = 0 - x
 
-        (* TODO: Handle the short precision versions *)
+        (* Define div and mod as quot and rem.  They are redefined properly later. *)
+        (* TODO: Handle the short precision cases *)
         fun op div(_, 0) = raise RunCall.Div | op div(x,y) = callDiv(x, y)
         and op mod(_, 0) = raise RunCall.Div | op mod(x,y) = callRem(x,y)
     end

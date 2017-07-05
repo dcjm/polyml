@@ -123,10 +123,6 @@ struct
 
     fun mkLabel() =
         Labels{forward = ref [], reverse=ref addrUnsetLabel, labId = ref 0, uses = ref 0, chain=ref NONE}
-
-    datatype setCodeseg =
-        Unset
-    |   Set of cseg   (* Used for completing forward references. *)
    
   (* Constants which are too large to go inline in the code are put in
      a list and put at the end of the code. They are arranged so that
@@ -139,7 +135,7 @@ struct
 
     datatype const =
         WVal of machineWord        (* an existing constant *)
-    |   HVal of addrs ref   (* a handler *)
+    |   SelfVal (* The address of the start of the code. *)
 
     and ConstPosn =
         InlineAbsolute      (* The constant is within the code. *)
@@ -160,7 +156,6 @@ struct
       labelList:      labList ref,    (* List of outstanding short branches. *)
       longestBranch:  addrs ref,      (* Address of the earliest 1-byte branch. *)
       procName:       string,         (* Name of the procedure. *)
-      resultSeg:      setCodeseg ref, (* The segment as the final result. *)
       (* These next two are closely related but kept separate to avoid making big
          changes to the code.  They are only non-empty immediately after JumpLabel instructions.
          justComeFrom accumulates forward branches to the current location.  justComeFromAddrs
@@ -232,7 +227,6 @@ struct
             labelList      = ref [],
             longestBranch  = ref addrLast, (* None so far *)
             procName       = name,
-            resultSeg      = ref Unset,   (* Not yet done *)
             justComeFrom   = ref [],
             justComeFromAddrs = ref [],
             exited         = ref false,
@@ -381,7 +375,7 @@ struct
     let
         val icVal = !ic;
     in
-        ic := icVal addrPlus 4;
+        ic := icVal + 0w4;
         set32s (ival, icVal, codeVec)
     end
     else raise InternalError "gen32s: invalid word"
@@ -956,8 +950,6 @@ SS-relative addressing modes:
     end
 
     fun gensib (s : indexType, b : genReg option, cvec : code) = gen8u (sib (s, b), cvec);
-
-    fun scSet (Set x) = x | scSet _ = raise InternalError "scSet";
 
    (* Removes a label from the list when it has been fixed up
       or converted to the long form. *)
@@ -1618,38 +1610,7 @@ SS-relative addressing modes:
     (* Add a register to a constant. *)
     fun genLeal (rd, rs, offset, cvec) = genOpEA (LEAL, offset, rs, rd, cvec)
 
-    type handlerLab = addrs ref;
-  
-    (* Loads the address of the destination of a branch. Used to
-     put in the address of the exception handler.
-     We used to have pushAddress in place of this which pushed the
-     address at the same time.  On this architecture it can save an
-     instruction but it's a problem on machines where we have to load
-     the address into a register - we don't have a spare checked
-     register available. *)
-    fun loadHandlerAddress  (rd, lab, cvec) =
-    let
-        val (rc, rx) = getReg rd
-    in
-        genop(MOVL_32_64_R rc,
-            if isX64 then SOME {w=true, r=false, b=rx, x=false} else NONE, cvec);
-        addConstToVec (HVal lab, InlineAbsolute, cvec)
-    end
-
-    fun fixupHandler (lab:handlerLab, cvec as Code{exited, ic, branchCheck, ...}) : unit =
-    ( 
-        (* Make sure anything pending is done first. *)
-        (* 15 comes from maximum instruction size + up to 3 nops. *)
-        doPending (cvec, maxInstrSize+3); 
-    
-        (* Ensure the return address is aligned onto a word + 2 byte
-           boundary. *)
-        align (0w2, cvec);
-    
-        exited := false;
-        branchCheck := !ic;
-        lab := !ic
-    );
+    type handlerLab = addrs ref
 
     datatype callKinds =
         Recursive           (* The function calls itself. *)
@@ -1662,44 +1623,27 @@ SS-relative addressing modes:
     (* Call a function. *)
     fun callFunction (Recursive, cvec as Code {ic, ... }) =
         (
-            (* Call back to the start of the current function. *)
-            doPending (cvec, maxInstrSize + 3); 
-            align (0w1, cvec);
-
             genop (CALL_32, NONE, cvec);  (* 1 byte  *)
             gen32s (~(Word.toLargeInt(!ic) + 4), cvec)       (* 4 bytes *)
         )
      
     |   callFunction (FullCall, cvec) =
         (
-            (* Make sure anything pending is done first. *)
-            doPending (cvec, maxInstrSize+3); 
-            (* Ensure the return address is aligned on
-               a word + 2 byte boundary.  *)
-            align (0w0, cvec);
-
             genop (Group5, NONE, cvec);
             genmodrm(Based0, 0w2 (* call *), #1 (getReg regClosure), cvec)
         )
 
     |   callFunction (ConstantCode w, cvec) =
         (
-            (* Make sure anything pending is done first. *)
-            doPending (cvec, maxInstrSize+3); 
             if isX64
             then
             (
-                align (0w0, cvec);
                 genop (Group5, NONE, cvec);
                 genmodrm(Based0, 0w2 (* call *), 0w5 (* PC rel *), cvec);
                 addConstToVec (WVal w, ConstArea 0, cvec)
             )
             else
 	 	    (
-		        (* Ensure the return address is aligned on
-		           a word + 2 byte boundary.  *)
-		        align (0w1, cvec);
-
 		        genop (CALL_32, NONE, cvec);
 			    addConstToVec (WVal w, InlineRelative, cvec)
 		    )
@@ -1713,22 +1657,11 @@ SS-relative addressing modes:
         in
             genop  (MOVL_32_64_R rc, SOME {w=true, r=false, b=rx, x=false}, cvec);
             addConstToVec (WVal w, InlineAbsolute, cvec);
-            doPending (cvec, maxInstrSize+3); 
-	        (* Ensure the return address is aligned on
-	            a word + 2 byte boundary.  *)
-	        align (0w0, cvec);
             genop (Group5, NONE, cvec);
             genmodrm(Based0, 0w2 (* call *), rc, cvec)
         end
         else
         (
-	        (* Make sure anything pending is done first. *)
-	        doPending (cvec, maxInstrSize+3); 
-
-	        (* Ensure the return address is aligned on
-	           a word + 2 byte boundary.  *)
-	        align (0w0, cvec);
-
 		    genop (Group5, NONE, cvec);
 		    genmodrm(Based0, 0w2 (* call *), 0w5 (* Immediate address. *), cvec);
 		    addConstToVec (WVal w, InlineAbsolute, cvec)
@@ -2327,15 +2260,30 @@ SS-relative addressing modes:
        the indexed jump at the expense of doubling the size of the table
        itself.  *)
  
-    fun indexedCase (r1:genReg, r2:genReg, min:word, cases, cvec as Code{exited, ic, ...}) =
+    fun indexedCase (r1:genReg, r2:genReg, min:word, cases, code as Code{exited, ic, codeVec, ...}) =
     let
-        val startJumpTable = ref addrZero
         val nCases = List.length cases
         val (rc2, rx2) = getReg r2
+        (* Load the address of the jump table.  We can use Pc-relative addressing on
+           X86/64 but on X86/32 we have to load the start of the code and add
+           the offset. *)
+        val () =
+            if isX64
+            then
+            (
+                genop(LEAL, SOME {w=true, r=false, b=rx2, x=false}, code);
+                genmodrm(Based0, rc2, 0w5 (* Immediate address. *), code)
+            )
+            else
+            (
+                genop(MOVL_32_64_R rc2, NONE, code);
+                addConstToVec (SelfVal, InlineAbsolute, code);
+                genOpRegPlus2(Group1_32_A, r2, arithOpToWord ADD, code)
+            )
+        val startJumpTable = !ic
+        val () = gen32s(0, code)
     in
-        (* Load the address of the jump table. *)
-        genop  (MOVL_32_64_R rc2, if isX64 then SOME {w=true, r=false, b=rx2, x=false} else NONE, cvec);
-        addConstToVec (HVal startJumpTable, InlineAbsolute, cvec);
+        
         (* Compute the jump address.  The index is a tagged
            integer so it is already multiplied by 2.  We need to
            multiply by four to get the correct size. We subtract off
@@ -2350,42 +2298,37 @@ SS-relative addressing modes:
 			if isX64 andalso (adjustment < ~exp2_31 orelse adjustment >= exp2_31)
 			then
 			(
-                genImmed(ADD, r2, adjustment, cvec);
-			 	genOpIndexed(LEAL, 0, SOME r2, Index4 r1, r2, cvec)
+                genImmed(ADD, r2, adjustment, code);
+			 	genOpIndexed(LEAL, 0, SOME r2, Index4 r1, r2, code)
 			)
-        	else genOpIndexed(LEAL, adjustment, SOME r2, Index4 r1, r2, cvec)
+        	else genOpIndexed(LEAL, adjustment, SOME r2, Index4 r1, r2, code)
 		end;
-        (* Jump into the jump table.  Since each entry in the table
-           is 8 bytes long r2 will still be on a word + 2 byte
-           boundary. *)
-        genop (Group5, if rx2 then SOME{w=false, r=false, b=rx2, x=false} else NONE, cvec);
-        genmodrm(Register, 0w4 (* jmp *), #1 (getReg r2), cvec);
+        (* Jump into the jump table. *)
+        genop (Group5, if rx2 then SOME{w=false, r=false, b=rx2, x=false} else NONE, code);
+        genmodrm(Register, 0w4 (* jmp *), #1 (getReg r2), code);
 
         exited := true;
         (* There's a very good chance that we will now extend the branches for
            the "out of range" checks.  The code to do that doesn't know
            that all these branches will come to the same point so will generate three
            separate long branches. We could combine them but it's hardly worth it. *)
-        doPending (cvec, nCases * 8 (* size of table. *) + 3 (* Maximum alignment *));
-    
-        (* The start address must be on a two byte boundary so that the
-           address we've loaded is a valid code address. *)
-        while (!ic) mod 0w4 <> 0w2 do genop (NOP, NONE, cvec);
+        doPending (code, nCases * 8 (* size of table. *) + 3 (* Maximum alignment *));
 
         let
             fun addJump(Labels{forward, reverse=ref reverse, ...}) =
             (
                 reverse = addrUnsetLabel orelse raise InternalError "addJump";
-                gen8u (opToInt JMP_32, cvec);
-                gen32u (0w0, cvec);
+                gen8u (opToInt JMP_32, code);
+                gen32u (0w0, code);
                 forward := [ref(Jump32From (!ic addrPlus ~4))]  @ ! forward;
                 (* Add no-ops to make it 8 bytes. *)
-                gen8u (opToInt NOP, cvec);
-                gen8u (opToInt NOP, cvec);
-                gen8u (opToInt NOP, cvec)
+                gen8u (opToInt NOP, code);
+                gen8u (opToInt NOP, code);
+                gen8u (opToInt NOP, code)
             )
         in
-            startJumpTable := !ic;
+            (* On X86/64 this is a relative offset on X86/32 it is absolute. *)
+            set32u(Word.toLargeWord (if isX64 then !ic - startJumpTable - 0w4 else !ic), startJumpTable, codeVec);
             List.app addJump cases
         end
     end;
@@ -2933,19 +2876,10 @@ SS-relative addressing modes:
             (
                 checkSources[eax];
                 (* Load the current handler into ebx.  Any register will do since we
-                   don't preserve registers across exceptions.
-                   Call, rather than jump to, the exception code so that we have
-                   the address of the caller if we need to produce an exception
-                   trace. *)
+                   don't preserve registers across exceptions. *)
                 genLoad(LargeInt.fromInt memRegHandlerRegister, ebp, ebx, code);
-                doPending (code, maxInstrSize+3);
-                (* Since we're calling we put the "return address" on a word+2 byte
-                  boundary.  This is never actually used as a return address but
-                  it's probably best to make sure it's properly aligned.  It probably
-                  simplifies exception tracing which is the reason it's there. *)
-                align (0w3, code);
                 genop(Group5, NONE, code);
-                genmodrm (Based0, 0w2 (* call *), #1 (getReg ebx), code);
+                genmodrm (Based0, 0w4 (* jmp *), #1 (getReg ebx), code);
                 cgOp remainder
             )
 
@@ -3030,13 +2964,42 @@ SS-relative addressing modes:
             end
 
         |   cgOp(LoadHandlerAddress{ handlerLab, output } :: remainder) =
-            (
+            let
+                val (rc, rx) = getReg output
+            in
                 addDests[output];
-                loadHandlerAddress(output, handlerLab, code);
+                (* On X86/64 we can use pc-relative addressing to set the start of the handler.
+                   On X86/32 we have to load the address of the start of the code and add
+                   an offset. *)
+                if isX64
+                then
+                (
+                    genop(LEAL, SOME {w=true, r=false, b=rx, x=false}, code);
+                    genmodrm(Based0, rc, 0w5 (* Immediate address. *), code)
+                )
+                else
+                (
+                    genop(MOVL_32_64_R rc, NONE, code);
+                    addConstToVec (SelfVal, InlineAbsolute, code);
+                    genOpRegPlus2(Group1_32_A, output, arithOpToWord ADD, code)
+                );
+                handlerLab := !ic;
+                gen32s(0, code);
                 cgOp remainder
-            )
+            end
 
-        |   cgOp(StartHandler{ handlerLab } :: remainder) = (fixupHandler(handlerLab, code);  cgOp remainder)
+        |   cgOp(StartHandler{ handlerLab } :: remainder) =
+            let
+                val Code{exited, ic, branchCheck, codeVec, ...} = code
+            in
+                (* Make sure anything pending is done first. *)
+                doPending (code, maxInstrSize);
+                exited := false;
+                branchCheck := !ic;
+                (* On X86/64 this is a relative offset on X86/32 it is absolute. *)
+                set32u(Word.toLargeWord (if isX64 then !ic - !handlerLab - 0w4 else !ic), !handlerLab, codeVec);
+                cgOp remainder
+            end
 
         |   cgOp(IndexedCase { testReg, workReg, min, cases } :: remainder) =
             (
@@ -3823,7 +3786,7 @@ SS-relative addressing modes:
 
         (* After code generation get the final values of some refs. *)
         val Code{codeVec, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
-                 resultSeg, procName, printAssemblyCode, printStream, profileObject, ...} = cvec
+                 procName, printAssemblyCode, printStream, profileObject, ...} = cvec
     
         (* This aligns ic onto a fullword boundary. *)
         val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genop(NOP, NONE, cvec)
@@ -3864,8 +3827,6 @@ SS-relative addressing modes:
         (* Now make the byte segment that we'll turn into the code segment *)
         val seg : cseg = csegMake segSize
     
-        val _ = resultSeg := Set seg;
-    
         (* Copy the code into the new segment. *)
         val _ = csegCopySeg (codeVec, seg, (! ic), 0w0);
 
@@ -3891,45 +3852,26 @@ SS-relative addressing modes:
         end
     in
         let
-
-            (* constLabels - fill in a constant in the code. *)
-            fun constLabels (Code{resultSeg=ref rseg, ...}, addr, value, InlineAbsolute) =
-                    csegPutConstant (scSet rseg, addr, value, 0w0)
-
-            |   constLabels (Code{resultSeg=ref rseg, ...}, addr, value, InlineRelative) =
-                    csegPutConstant (scSet rseg, addr, value, 0w1)
-
-            |   constLabels (_, _, _, NonAddrArea) = () (* Already done. *)
-
-            |   constLabels (Code{resultSeg=ref rseg, ic = ref endByte, ...},
-                           constAddr, value, ConstArea nonInlineCount) =
+            fun putConst {const, addrs, posn, ...} =
+            let
+                val value =
+                    case const of WVal c => c | SelfVal => toMachineWord(csegAddr seg)
+            in
+                case posn of
+                    InlineAbsolute => csegPutConstant (seg, addrs, value, 0w0)
+                |   InlineRelative => csegPutConstant (seg, addrs, value, 0w1)
+                |   NonAddrArea => () (* Already done. *)
+                |   ConstArea nonInlineCount =>
                     (* Not inline.  Put the constant in the constant area and set the original address
                         to be the relative offset to the constant itself. *)
                     let
+                        val ref endByte = ic
                         val addrOfConst = endByte addrPlus (nonInlineCount-1 + 2+1) * wordSize
-                        val seg       = scSet rseg (* The address of the segment. *)
                     in
                         csegPutConstant (seg, addrOfConst, value, 0w0);
-                        set32s(Word.toLargeInt(addrOfConst - constAddr - 0w4), constAddr, seg)
+                        set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, seg)
                     end
-
-            (* and then copy the objects from the constant list. *)
-            fun putConst {const = WVal c, addrs, posn, ...} =
-                (* Can put these in now. *)
-                    constLabels (cvec, addrs, c, posn)
-
-            |   putConst {const = HVal(ref hv), addrs, posn, ...} =
-                let
-                    val handlerByteOffset = hv
-                    (* Special function to add to an address.
-                       This only works if the resulting value is 
-                       in a code segment and is on a word + 2 byte boundary. *)
-                    val offsetAddr : address * short -> machineWord =
-                        RunCall.run_call2 RuntimeCalls.POLY_SYS_offset_address
-                    val handlerAddr = offsetAddr (csegAddr seg, handlerByteOffset);
-                in
-                    constLabels (cvec, addrs, handlerAddr, posn)
-                end
+            end
 
             val () = List.app putConst constVec
 
