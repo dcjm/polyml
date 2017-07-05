@@ -304,6 +304,11 @@ struct
     end
 
     val allocationComplete = [StoreInitialised]
+    
+    (* Tag a value by multiplying by two and adding one.  Used, for example, when loading
+       a byte value from memory. *)
+    fun tagValue{source, output} =
+        LoadAddress{output=output, offset=1, base=NONE, index=Index2 source}
 
     (* Code to load a floating point constant. *)
     fun loadFPConstant source =
@@ -581,6 +586,20 @@ struct
         @ loadCurrentHandler esp @ [StartHandler v]
 
     fun isPushI _ = true
+    
+    (* Code to raise the overflow exception if the overflow flag is set. *)
+    fun testOverflow() =
+    let
+        val label as Labels{uses, ...} = mkLabel()
+        val () = uses := 1
+    in
+        [
+            JumpLabel label,
+            RaiseException,
+            MoveLongConstR{source=toMachineWord Overflow, output=eax},
+            ConditionalBranch{test=JNO, label=label, predict=PredictTaken}
+        ]
+    end
 
     (* The stack limit register is set at least twice this far from the
        end of the stack so we can simply compare the stack pointer with
@@ -3827,7 +3846,7 @@ struct
             val mask = IntInf.<<(1, (Word.fromInt wordSize-0w1)*0w8) - 1
 
             fun vecLen([InRegister(GenReg base)], SOME(GenReg output)) =
-                [TagValue{source=output, output=output},
+                [tagValue{source=output, output=output},
                  ArithRMem{opc=AND, output=output, base=base, offset= ~ wordSize },
                  MoveConstR{source= mask, output=output }]
             |   vecLen _ = raise InternalError "vecLen"
@@ -3843,7 +3862,7 @@ struct
         local (* Load the flags byte from a memory segment.  The result must be tagged. *)
             (* We could reuse the base register for the output. *)
             fun genVecFlags([InRegister(GenReg baseReg)], SOME(GenReg outReg)) =
-                [TagValue{source=outReg, output=outReg},
+                [tagValue{source=outReg, output=outReg},
                  LoadByteR{source=BaseOffset{base=baseReg, offset= ~1, index=NoIndex}, output=outReg}]
             |   genVecFlags _ = raise InternalError "genVecFlags"
         in
@@ -3860,7 +3879,7 @@ struct
                 let
                     val (code, lab) = condBranch(JE, PredictNeutral)
                 in
-                    [TagValue{source=outReg, output=outReg} ] @ forwardJumpLabel lab @
+                    [tagValue{source=outReg, output=outReg} ] @ forwardJumpLabel lab @
                     [Group3Ops(outReg, NEG)] @ (* Negate if the sign was set. *)
                     code @
                     [
@@ -3927,7 +3946,7 @@ struct
             
             |   genLoadInstr false (* Byte*) ([LiteralSource base, LiteralSource offset], SOME(GenReg destReg)) =
                     if isShort offset andalso toShort offset = 0w0 andalso not isX64
-                    then [TagValue{source=destReg, output=destReg},
+                    then [tagValue{source=destReg, output=destReg},
                           LoadByteR{source=ConstantAddress base, output=destReg}]
                     else raise InternalError "genLoadWord: not zero"
 
@@ -3938,7 +3957,7 @@ struct
 
             |   genLoadInstr false (*Byte*) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
                     (* Byte values need to be tagged.  The offset is a byte offset. *)
-                    [TagValue{source=destReg, output=destReg},
+                    [tagValue{source=destReg, output=destReg},
                      LoadByteR{source=BaseOffset{base=base, offset=Word.toInt(toShort offset), index=NoIndex},
                                output=destReg}]
 
@@ -3960,7 +3979,7 @@ struct
                         if indexR = destReg then [] else [MakeSafe indexR] (* Retag the index. *)
                 in
                     safeIndex @
-                        [TagValue{source=destReg, output=destReg},
+                        [tagValue{source=destReg, output=destReg},
                          LoadByteR{source=BaseOffset{base=base, offset=0, index=Index1 indexR}, output=destReg},
                          ShiftConstant{shiftType=SRL, output=indexR, shift=0w1} (* Untag. *)]
                 end
@@ -4013,7 +4032,7 @@ struct
                         case index of
                             InRegister indexReg =>
                                 ([ShiftConstant{shiftType=SRL, output=asGenReg indexReg, shift=0w1}],
-                                 [TagValue{source=asGenReg indexReg, output=asGenReg indexReg }])
+                                 [tagValue{source=asGenReg indexReg, output=asGenReg indexReg }])
                         |   _ => ([], [])
                     val address =
                         case (base, index) of
@@ -4031,7 +4050,7 @@ struct
                         InRegister(GenReg toStore) =>
                             retagIndex @
                             [
-                                TagValue{source=toStore, output=toStore },
+                                tagValue{source=toStore, output=toStore },
                                 StoreByteRegToMemory{ toStore=toStore, address=address },
                                 ShiftConstant{shiftType=SRL, output=toStore, shift=0w1}(* Untag value to store *)
                             ] @ untagIndex
@@ -4096,7 +4115,7 @@ struct
                     fun getOffset(InRegister(GenReg offsetReg), baseReg) =
                         [
                             (* If it's in a register untag it, add it and then retag. *)
-                            TagValue{ source=offsetReg, output=offsetReg},
+                            tagValue{ source=offsetReg, output=offsetReg},
                             ArithRR{ opc=ADD, output=baseReg, source=offsetReg },
                             ShiftConstant{ shiftType=SRL, output=offsetReg, shift=0w1}
                         ]
@@ -4420,7 +4439,7 @@ struct
                     fun getOffset(InRegister(GenReg offsetReg), baseReg) =
                         [
                             (* If it's in a register untag it, add it and then retag. *)
-                            TagValue{ source=offsetReg, output=offsetReg },
+                            tagValue{ source=offsetReg, output=offsetReg },
                             ArithRR{opc=ADD, output=baseReg, source=offsetReg},
                             ShiftConstant{shiftType=SRL, output=offsetReg, shift=0w1}
                         ]
@@ -4755,7 +4774,7 @@ struct
                 in
                     forwardJumpLabel lab2 @
                     [
-                        TagValue{source=rd, output=rd},
+                        tagValue{source=rd, output=rd},
                         LoadMemR{source=BaseOffset{base=rs, offset=0, index=NoIndex}, output=rd} (* It's an address. *)
                     ] @ forwardJumpLabel lab1 @ uncondBr @
                     [MoveConstR{source=tag 1, output=rd}] @ (* It's a byte: result is 1 *) condBr @
@@ -4777,7 +4796,7 @@ struct
         local (* Set the length word of a string.  Used when constructing strings in the library. *)
             fun genSetStringLength ([InRegister(GenReg base), InRegister(GenReg length)], NONE) =
                 [
-                    TagValue{ source=length, output=length }, (* Retag it *)
+                    tagValue{ source=length, output=length }, (* Retag it *)
                     StoreRegToMemory{ toStore=length, address=BaseOffset{offset=0, base=base, index=NoIndex }},
                     ShiftConstant{shiftType=SRL, output=length, shift=0w1 } (* Untag it *)
                 ]
@@ -4801,7 +4820,12 @@ struct
             |   postTagAdjust(XOR, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
             |   postTagAdjust(CMP, _) = raise InternalError "postTagAdjust"
         
-            fun preTagAdjust(ADD, reg) = [PreAddDetag reg]
+            (* Subtract the tag before an ADD instruction.  This is
+               needed because when testing for overflow in an arbitrary
+               precision operation we have to have removed the tag from one
+               of the arguments.  Use LEAL here because if there is a trap
+               the emulation code needs to treat it specially. *)
+            fun preTagAdjust(ADD, reg) = [LoadAddress{output=reg, offset= ~1, base=SOME reg, index=NoIndex}]
             |   preTagAdjust _ = []
 
             (* TODO: If we have the same argument on both sides (e.g. a+a) this seems to
@@ -4926,7 +4950,7 @@ struct
 
                 |   _ => wordSelectedLeft opRes (table, List.rev args, pref)
 
-            fun overflowTest (operations, _, _) = TestOverflow :: operations
+            fun overflowTest (operations, _, _) = testOverflow() @ operations
 
         in
             fun addWord(arg1, arg2, transtable, whereto) =
@@ -5220,8 +5244,9 @@ struct
                         [
                             MakeSafe m2,
                             (* Add back the tag, but don't shift. *)
-                            ArithRConst{opc=ADD, output=m1, source=1},
-                            TestOverflow,
+                            ArithRConst{opc=ADD, output=m1, source=1}
+                        ] @ testOverflow() @
+                        [
                             SignedMultiply{source=m2, output=m1},
                             (* Shift down the multiplier. *)
                             ShiftConstant{shiftType=SRA, output=m2, shift=0w1 },
@@ -5294,7 +5319,7 @@ struct
                            to shift and tag the quotient.  Either way we have to make the
                            other register safe. *)
                         (if isDiv
-                        then [MakeSafe edx, TagValue{source=eax, output=eax}]
+                        then [MakeSafe edx, tagValue{source=eax, output=eax}]
                         else [MakeSafe eax, ArithRConst{opc=ADD, output=edx, source=1}]) @
                         [
                             ArithRConst{opc=ADD, source=1, output=dividend},

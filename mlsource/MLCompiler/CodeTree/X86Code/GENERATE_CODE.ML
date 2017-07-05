@@ -806,6 +806,9 @@ struct
         val cvec: operations ref = ref []
         val callsAFunction = ref false
         fun codeGenerate(ops: operations, cvec) = cvec := ops @ ! cvec
+        (* cgAndRes - various functions in X86FIRST_STAGE return a pair of the code
+           and the result.  This separates them out. *)
+        fun cgAndRes(opCode, result) = (codeGenerate(opCode, cvec); result)
 
         (* make the translation table *)
         val transtable = ttabCreate(localCount, debugSwitches)
@@ -1091,11 +1094,36 @@ struct
 
         |   instr as OGCBuiltIn1{oper=BuiltIns.IsTaggedValue, ...} => codeAsConditional(instr, whereto, tailKind)
 
+        |   OGCBuiltIn1{oper=BuiltIns.MemoryCellLength, ...} => raise InternalError "TODO: OGCBuiltIn1-MemoryCellLength"
+
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith _, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith"
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
+                cgAndRes(addFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith _, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith"
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2} =>
+                cgAndRes(subtractFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith-ArithMult"
+
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith-ArithQuot"
+
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith-ArithRem"
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2} =>
+                cgAndRes(addWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2} =>
+                cgAndRes(subtractWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithMult, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith-ArithMult"
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith-ArithQuot"
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith-ArithRem"
+
+        |   OGCBuiltIn2{oper=BuiltIns.LoadWord _, arg1, arg2} =>
+                cgAndRes(loadWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
         |   OGCBuiltIn3{oper=BuiltIns.Built3PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn3"
 
@@ -2205,6 +2233,8 @@ struct
                     in
                         label
                     end
+
+                |   BuiltIns.MemoryCellLength => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellLength"
             )
 
         |   OGCBuiltIn2{oper, arg1, arg2} =>
@@ -2247,6 +2277,8 @@ struct
                 |   BuiltIns.FixedPrecisionArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-FixedPrecisionArith"
 
                 |   BuiltIns.WordArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordArith"
+
+                |   BuiltIns.LoadWord _ => genOtherTests() (* TODO - we could use TEST instruction here. *)
             )
 
         |   OGCBuiltIn3{oper, ...} =>
@@ -2954,8 +2986,6 @@ struct
                     MergeIndex(pushReg (transtable, regResult))
                 )
             end (* callClosure *)
-
-            fun cgAndRes(opCode, result) = (codeGenerate(opCode, cvec); result)
 
         in (* body of genEval *)
             case evalFun of
