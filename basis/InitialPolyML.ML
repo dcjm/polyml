@@ -92,12 +92,8 @@ in
         end
     
         val fullGC: unit -> unit = RunCall.rtsCallFull0 "PolyFullGC"
-      
-        local
-            val eqWord : word*word->bool = RunCall.run_call2 POLY_SYS_word_eq
-        in
-            fun pointerEq(x: 'a ,y: 'a): bool = RunCall.unsafeCast eqWord (x,y)
-        end
+
+        val pointerEq = RunCall.pointerEq
 
         local
             val doCall: int * unit -> int = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"

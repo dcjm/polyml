@@ -415,15 +415,17 @@ struct
     and mkBuiltIn5 (oper, arg1, arg2, arg3, arg4, arg5) =
         BuiltIn5 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3, arg4 = arg4, arg5 = arg5 }
 
-    (* Builtins wrapped as functions. *)
+    (* Builtins wrapped as functions.  N.B.  These all take a single argument which may be a tuple. *)
     fun mkBuiltIn0Fn oper =
-        mkInlproc(mkBuiltIn0 oper, 0, BuiltIns.builtIn0Repr oper ^ "()", [], 0)
+        mkInlproc(mkBuiltIn0 oper, 1 (* Ignores argument *), BuiltIns.builtIn0Repr oper ^ "()", [], 0)
     and mkBuiltIn1Fn oper =
         mkInlproc(mkBuiltIn1(oper, mkLoadArgument 0), 1, BuiltIns.builtIn1Repr oper ^ "()", [], 0)
     and mkBuiltIn2Fn oper =
-        mkInlproc(mkBuiltIn2(oper, mkLoadArgument 0, mkLoadArgument 1), 2, BuiltIns.builtIn2Repr oper ^ "()", [], 0)
+        mkInlproc(mkBuiltIn2(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)), 1, BuiltIns.builtIn2Repr oper ^ "()", [], 0)
     and mkBuiltIn3Fn oper =
-        mkInlproc(mkBuiltIn3(oper, mkLoadArgument 0, mkLoadArgument 1, mkLoadArgument 2), 3, BuiltIns.builtIn3Repr oper ^ "()", [], 0)
+        mkInlproc(
+            mkBuiltIn3(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0)),
+            1, BuiltIns.builtIn3Repr oper ^ "()", [], 0)
 
     local
         open BuiltIns
@@ -434,7 +436,8 @@ struct
         and mkIsShort arg = BuiltIn1{oper=IsTaggedValue, arg1=arg}
         and mkEqualWord (arg1, arg2) =
             BuiltIn2{oper=eqWord, arg1=arg1, arg2=arg2}
-        val equalWordFn = mkBuiltIn2Fn eqWord
+        val equalWordFn = (* This takes two words, not a tuple. *)
+            mkInlproc(mkBuiltIn2(eqWord, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualWord()", [], 0)
     end
 
     fun identityFunction (name : string) : codetree = 

@@ -124,8 +124,9 @@ sig
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
     
-        (* Arithmetic or logical operation. *)
-    |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
+        (* Arithmetic or logical operation.  These can set the condition codes. *)
+    |   ArithmeticFunction of
+            { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument, ccRef: ccRef }
 
         (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
     |   TestTagBit of { arg: argument, ccRef: ccRef }

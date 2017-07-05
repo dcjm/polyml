@@ -142,7 +142,6 @@
 #define INSTR_cellLength        0x93
 #define INSTR_cellFlags         0x94
 #define INSTR_clearMutable      0x95
-#define INSTR_clearMutable      0x95
 #define INSTR_stringLength      0x96
 #define INSTR_atomicIncr        0x97
 #define INSTR_atomicDecr        0x98
@@ -189,7 +188,7 @@
 #define INSTR_lgWordLessEq      0xc1
 #define INSTR_lgWordGreater     0xc2
 #define INSTR_lgWordGreaterEq   0xc3
-#define INSTR_lgWorddd          0xc4
+#define INSTR_lgWordAdd         0xc4
 #define INSTR_lgWordSub         0xc5
 #define INSTR_lgWordMult        0xc6
 #define INSTR_lgWordDiv         0xc7
@@ -199,7 +198,7 @@
 #define INSTR_lgWordXor         0xcb
 #define INSTR_lgWordShiftLeft   0xcc
 #define INSTR_lgWordShiftRLog   0xcd
-#define INSTR_lgWordShiftRArit  0xce
+#define INSTR_lgWordShiftRArith 0xce
 #define INSTR_realEqual         0xcf
 #define INSTR_realNotequal      0xd0
 #define INSTR_realLess          0xd1

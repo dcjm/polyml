@@ -177,8 +177,6 @@ sig
     |   FPStatusToEAX
     |   FPLoadIntAndPop
     |   FPFree of fpReg
-    |   PreAddDetag of genReg
-    |   TestOverflow
     |   SignedMultiply of { source: genReg, output: genReg }
     |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
@@ -195,7 +193,6 @@ sig
     val memRegLocalMPointer: int
     and memRegHandlerRegister: int
     and memRegLocalMbottom: int
-    and memRegRaiseOverflow: int
     and memRegStackLimit: int
     and memRegStackOverflowCall: int
     and memRegStackOverflowCallEx: int

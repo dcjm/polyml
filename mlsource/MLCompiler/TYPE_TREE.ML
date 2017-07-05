@@ -301,15 +301,14 @@ struct
                                as well and will stop immediately if the lengths are different. *)
                             mkBuiltIn(POLY_SYS_bytevec_eq,
                                 [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero,
-                                    mkBuiltIn(POLY_SYS_plus_word,
-                                        [
-                                            mkConst(toMachineWord wordSize),
-                                            (* Use argument 1 here rather than 0.  We could use either but this works
-                                               better when we're using equality for pattern matching since it
-                                               gets the length of the constant string.  It also works better
-                                               for the, to me, more natural ordering of variable=constant. *)
-                                            mkBuiltIn(POLY_SYS_string_length, [mkLoadArgument 1])
-                                        ])
+                                    mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithAdd,
+                                        mkConst(toMachineWord wordSize),
+                                        (* Use argument 1 here rather than 0.  We could use either but this works
+                                           better when we're using equality for pattern matching since it
+                                           gets the length of the constant string.  It also works better
+                                           for the, to me, more natural ordering of variable=constant. *)
+                                        mkBuiltIn(POLY_SYS_string_length, [mkLoadArgument 1])
+                                        )
                                 ])
                         )
                     ),

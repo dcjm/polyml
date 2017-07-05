@@ -191,7 +191,6 @@ struct
     and memRegHeapOverflowCall    = if isX64 then ~104 else ~40
     and memRegStackOverflowCall   = if isX64 then ~96 else ~36
     and memRegStackOverflowCallEx = if isX64 then ~88 else ~32
-    and memRegRaiseOverflow       = if isX64 then ~120 else ~48
     and memRegSize                = if isX64 then 144 else 56 (* Size of area on the stack. *)
 
     (* Offsets in the original argument vector. *)
@@ -2047,8 +2046,6 @@ SS-relative addressing modes:
     |   FPStatusToEAX
     |   FPLoadIntAndPop
     |   FPFree of fpReg
-    |   PreAddDetag of genReg
-    |   TestOverflow
     |   SignedMultiply of { source: genReg, output: genReg }
     |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
@@ -2207,7 +2204,6 @@ SS-relative addressing modes:
                 if entry = memRegStackOverflowCall then stream "StackOverflowCall"
                 else if entry = memRegHeapOverflowCall then stream "HeapOverflow"
                 else if entry = memRegStackOverflowCallEx then stream "StackOverflowCallEx"
-                else if entry = memRegRaiseOverflow then stream "RaiseOverflow"
                 else stream(Int.toString entry)
             )
 
@@ -2273,8 +2269,6 @@ SS-relative addressing modes:
         |   FPStatusToEAX => (stream "FPStatus "; printGReg eax)
         |   FPLoadIntAndPop => (stream "FPLoadIntAndPop (%ESP)")
         |   FPFree reg => (stream "FPFree "; printFPReg reg)
-        |   PreAddDetag reg => (stream "Detag "; printGReg reg)
-        |   TestOverflow => stream "TestOverflow"
         |   SignedMultiply {source, output } => (stream "SignedMultiply"; stream " "; printGReg source; stream " *=>"; printGReg output)
         |   XMMLoadFromMemory { base, offset, output } =>
             (
@@ -3208,29 +3202,6 @@ SS-relative addressing modes:
                 (* Pop the stack.  This value is not a valid tagged value. *)
                 cgOp(ResetStack 1 :: remainder) (* Pop the stack. *)
             )
-
-        |   cgOp (PreAddDetag reg :: remainder) =
-            (
-                (* Subtract the tag before an ADD instruction.  This is
-                   needed because when testing for overflow in an arbitrary
-                   precision operation we have to have removed the tag from one
-                   of the arguments.  Use LEAL here because if there is a trap
-                   the emulation code needs to treat it specially. *)
-                genLeal(reg, reg, ~1, code);
-                cgOp remainder
-            )
-            
-       |    cgOp (TestOverflow :: remainder) =
-            let
-                (* For the moment put the trap here and skip it if there is no overflow.
-                   It would be better to jump only on overflow and put in a single trap.
-                   The default branch prediction is not to take forward jumps. *)
-                val lab = [putConditional(JNO, code)]
-            in
-                genOpPlus2(Group5, LargeInt.fromInt memRegRaiseOverflow, ebp, 0w2 (* call *), code);
-                fixup(lab, code);
-                cgOp remainder
-            end
 
         |   cgOp (SignedMultiply {source, output} :: remainder) =
             (

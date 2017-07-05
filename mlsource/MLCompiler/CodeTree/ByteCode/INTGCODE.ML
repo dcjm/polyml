@@ -490,7 +490,21 @@ struct
                 val () = gencde (arg2, ToStack, NotEnd, loopAddr)
             in
                 case oper of
-                    EqualBitwiseWord => genOpcode(opcode_equalWord, cvec);
+                    WordComparison{test=TestEqual, ...} => genOpcode(opcode_equalWord, cvec)
+                |   WordComparison{test=TestLess, isSigned=true} => genOpcode(opcode_lessSigned, cvec)
+                |   WordComparison{test=TestLessEqual, isSigned=true} => genOpcode(opcode_lessEqSigned, cvec)
+                |   WordComparison{test=TestGreater, isSigned=true} => genOpcode(opcode_greaterSigned, cvec)
+                |   WordComparison{test=TestGreaterEqual, isSigned=true} => genOpcode(opcode_greaterEqSigned, cvec)
+                |   WordComparison{test=TestLess, isSigned=false} => genOpcode(opcode_lessUnsigned, cvec)
+                |   WordComparison{test=TestLessEqual, isSigned=false} => genOpcode(opcode_lessEqUnsigned, cvec)
+                |   WordComparison{test=TestGreater, isSigned=false} => genOpcode(opcode_greaterUnsigned, cvec)
+                |   WordComparison{test=TestGreaterEqual, isSigned=false} => genOpcode(opcode_greaterEqUnsigned, cvec)
+                |   WordComparison{test=BuiltIns.TestNotEqual, ...} => raise InternalError "TestNotEqual" (* Temporary. *)
+                
+                |   FixedPrecisionArith _ => raise InternalError "TODO: FixedPrecisionArith"
+                
+                |   WordArith _ => raise InternalError "TODO: WordArith"
+                ;
                 decsp() (* Removes one item from the stack. *)
             end
 

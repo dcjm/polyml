@@ -33,7 +33,100 @@ sig
     
     val opcode_notBoolean: opcode
     val opcode_isTagged: opcode
+    and opcode_cellLength: opcode
+    and opcode_cellFlags: opcode
+    and opcode_clearMutable: opcode
+    and opcode_stringLength: opcode
+    and opcode_atomicIncr: opcode
+    and opcode_atomicDecr: opcode
+    and opcode_atomicReset: opcode
+    and opcode_longWToTagged: opcode
+    and opcode_signedToLongW: opcode
+    and opcode_unsignedToLongW: opcode
+    and opcode_realAbs: opcode
+    and opcode_realNeg: opcode
+    and opcode_floatFixedInt: opcode
+    
     val opcode_equalWord: opcode
+    val opcode_notequalWord: opcode (* Not currently generated. *)
+    and opcode_lessSigned: opcode
+    and opcode_lessUnsigned: opcode
+    and opcode_lessEqSigned: opcode
+    and opcode_lessEqUnsigned: opcode
+    and opcode_greaterSigned: opcode
+    and opcode_greaterUnsigned: opcode
+    and opcode_greaterEqSigned: opcode
+    and opcode_greaterEqUnsigned: opcode
+
+    val opcode_fixedAdd: opcode
+    val opcode_fixedSub: opcode
+    val opcode_fixedMult: opcode
+    val opcode_fixedQuot: opcode
+    val opcode_fixedRem: opcode
+    val opcode_fixedDiv: opcode
+    val opcode_fixedMod: opcode
+    val opcode_wordAdd: opcode
+    val opcode_wordSub: opcode
+    val opcode_wordMult: opcode
+    val opcode_wordDiv: opcode
+    val opcode_wordMod: opcode
+    val opcode_setStringLength: opcode
+    val opcode_wordAnd: opcode
+    val opcode_wordOr: opcode
+    val opcode_wordXor: opcode
+    val opcode_wordShiftLeft: opcode
+    val opcode_wordShiftRLog: opcode
+    val opcode_wordShiftRArith: opcode
+    val opcode_allocByteMem: opcode
+    val opcode_lgWordEqual: opcode
+    val opcode_lgWordNotequal: opcode
+    val opcode_lgWordLess: opcode
+    val opcode_lgWordLessEq: opcode
+    val opcode_lgWordGreater: opcode
+    val opcode_lgWordGreaterEq: opcode
+    val opcode_lgWordAdd: opcode
+    val opcode_lgWordSub: opcode
+    val opcode_lgWordMult: opcode
+    val opcode_lgWordDiv: opcode
+    val opcode_lgWordMod: opcode
+    val opcode_lgWordAnd: opcode
+    val opcode_lgWordOr: opcode
+    val opcode_lgWordXor: opcode
+    val opcode_lgWordShiftLeft: opcode
+    val opcode_lgWordShiftRLog: opcode
+    val opcode_lgWordShiftRArith: opcode
+    val opcode_realEqual: opcode
+    val opcode_realNotequal: opcode
+    val opcode_realLess: opcode
+    val opcode_realLessEq: opcode
+    val opcode_realGreater: opcode
+    val opcode_realGreaterEq: opcode
+    val opcode_realAdd: opcode
+    val opcode_realSub: opcode
+    val opcode_realMult: opcode
+    val opcode_realDiv: opcode
+    val opcode_getThreadId: opcode
+    val opcode_allocWordMemory: opcode
+    val opcode_loadMLWord: opcode
+    val opcode_loadMLByte: opcode
+    val opcode_loadC8: opcode
+    val opcode_loadC16: opcode
+    val opcode_loadC32: opcode
+    val opcode_loadC64: opcode
+    val opcode_loadCFloat: opcode
+    val opcode_loadCDouble: opcode
+    val opcode_storeMLByte: opcode
+    val opcode_storeC8: opcode
+    val opcode_storeC16: opcode
+    val opcode_storeC32: opcode
+    val opcode_storeC64: opcode
+    val opcode_storeCFloat: opcode
+    val opcode_storeCDouble: opcode
+    val opcode_blockMoveWord: opcode
+    val opcode_blockMoveByte: opcode
+    val opcode_blockEqualByte: opcode
+    val opcode_blockCompareByte: opcode
+    
 
     val addrPlus  : addrs * int -> addrs
     val addrMinus : addrs * addrs -> int

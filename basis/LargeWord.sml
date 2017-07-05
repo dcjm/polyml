@@ -152,8 +152,6 @@ local
 
     (* The maximum word is the largest tagged value.  The maximum large-word is
        the largest value that will fit in a machine word. *)
-    val zero = (* 0w *) wordFromInt 0
-
     local
         fun power2' n 0 : LargeInt.int = n
          |  power2' n i = power2' (2*n) (i-1)
@@ -207,39 +205,10 @@ in
         val fromString = StringCvt.scanString (scan StringCvt.HEX)
 
         infix >> << ~>>
-
-        (* Pick up overloads already set. *)
-        val op + : word*word->word = op +
-        and op - : word*word->word = op -
-        and op * : word*word->word = op *
-        and op div : word*word->word = op div
-        and op mod : word*word->word = op mod
-        
-        val orb : word*word->word = RunCall.run_call2 POLY_SYS_or_word
-        and andb : word*word->word = RunCall.run_call2 POLY_SYS_and_word
-        and xorb : word*word->word = RunCall.run_call2 POLY_SYS_xor_word
-        and op >> : word*word->word = RunCall.run_call2 POLY_SYS_shift_right_word
-        and op << : word*word->word = RunCall.run_call2 POLY_SYS_shift_left_word
-        and op ~>> : word*word->word = RunCall.run_call2 POLY_SYS_shift_right_arith_word
-
-        val toLargeWord: word->largeword = RunCall.run_call1 POLY_SYS_unsigned_to_longword
-        and toLargeWordX: word->largeword = RunCall.run_call1 POLY_SYS_signed_to_longword
-        and fromLargeWord: largeword->word = RunCall.run_call1 POLY_SYS_longword_to_tagged
-
-        fun ~ x = zero - x
-
-        val toLarge = toLargeWord and toLargeX = toLargeWordX and fromLarge = fromLargeWord
-
-        fun notb x = xorb(maxWordAsWord, x)
         
         (* We can format the result using the large integer format function. *)
         fun fmt radix i = LargeInt.fmt radix (toLargeInt i)
         val toString = fmt StringCvt.HEX
-        
-        val op > : word*word->bool = RunCall.run_call2 POLY_SYS_word_gtr
-        and op < : word*word->bool = RunCall.run_call2 POLY_SYS_word_lss
-        and op >= : word*word->bool = RunCall.run_call2 POLY_SYS_word_geq
-        and op <= : word*word->bool = RunCall.run_call2 POLY_SYS_word_leq
     
         fun compare (i, j) =
             if i < j then General.LESS
@@ -247,6 +216,11 @@ in
         
         fun min (i, j) = if i < j then i else j
         and max (i, j) = if i > j then i else j
+        
+        open Word (* Include all the initial definitions. *)
+
+        fun notb x = xorb(maxWordAsWord, x)
+
     end (* Word *)
 
     (* LargeWord.word values have one more bit of precision than Word,word values and

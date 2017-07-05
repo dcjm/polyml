@@ -107,6 +107,18 @@ struct
             |   testAsBranch(TestGreaterEqual,  false,  true)       = JNB
             |   testAsBranch(TestGreaterEqual,  false,  false)      = JB
         end
+        
+        fun checkOverflow (ccRef, target) =
+        let
+            val label = newLabel() and excReg = newPReg()
+        in
+            [
+                ConditionalForwardJump{ ccRef=ccRef, condition=JNO, label=label },
+                MoveArgument{source=AddressConstant(toMachineWord(Overflow)), dest=excReg},
+                RaiseExceptionPacket{packet=excReg},
+                ForwardJumpLabel{ label=label, result=SOME target }
+            ]
+        end
 
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.  *)
@@ -185,10 +197,10 @@ struct
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.NotBoolean, arg1}, context, _, target) =
             let
-                val tReg = newPReg()
+                val tReg = newPReg() and ccRef = newCCRef()
             in
                 codeToICode(arg1, context, false, tReg) @
-                    [ArithmeticFunction{oper=XOR, resultReg=target, operand1=tReg, operand2=IntegerConstant(semitag 1)}]
+                    [ArithmeticFunction{oper=XOR, resultReg=target, operand1=tReg, operand2=IntegerConstant(semitag 1), ccRef=ccRef}]
             end
 
         |   codeToICode(instr as BICBuiltIn1{oper=BuiltIns.IsTaggedValue, ...}, context, isTail, target) =
@@ -197,8 +209,141 @@ struct
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, target) =
                 codeAsConditional(instr, context, isTail, target)
 
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+            let
+                val aReg1 = newPReg() and ccRef = newCCRef()
+                (* If the argument is a constant we can subtract the tag beforehand.
+                   This should always be a tagged value if the type is correct.  However it's possible for it not to
+                   be if we have an arbitrary precision value.  There will be a run-time check that the value is
+                   short and so this code will never be executed.  It will generally be edited out by the higher
+                   level be we can't rely on that.  Because it's never executed we can just put in zero. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+            in
+                codeToICode(arg1, context, false, aReg1) @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    checkOverflow (ccRef, target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, target) =
+            let
+                val aReg2 = newPReg() and ccRef = newCCRef()
+                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+            in
+                codeToICode(arg2, context, false, aReg2) @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    checkOverflow (ccRef, target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2}, context, _, target) =
+            let
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg() and ccRef = newCCRef()
+            in
+                codeToICode(arg1, context, false, aReg1) @ codeToICode(arg2, context, false, aReg2) @
+                    (* Subtract the tag bit from the second argument, do the addition and check for overflow. *)
+                    (* TODO: We should really do the detagging in the transform phase.  It can make a better choice of
+                       the argument if one of the arguments is already untagged or if we have a constant argument. *)
+                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
+                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=aReg3, ccRef=ccRef}] @
+                    checkOverflow (ccRef, target)
+            end
+
+            (* Subtraction.  We can handle the special case of the second argument being a constant but not the first. *)
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+            let
+                val aReg1 = newPReg() and ccRef = newCCRef()
+                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+            in
+                codeToICode(arg1, context, false, aReg1) @
+                    [ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    checkOverflow (ccRef, target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2}, context, _, target) =
+            let
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+                val ccRef = newCCRef()
+            in
+                codeToICode(arg1, context, false, aReg1) @ codeToICode(arg2, context, false, aReg2) @
+                    (* Do the subtraction, test for overflow and afterwards add in the tag bit. *)
+                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=aReg2, ccRef=ccRef}] @
+                    checkOverflow (ccRef, target) @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+            end
+
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith _, ...}, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn2: FixedPrecisionArith"
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+            let
+                val aReg1 = newPReg()
+                (* If the argument is a constant we can subtract the tag beforehand.  We shouldn't ever have
+                   a long value here but because it might happen we check. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+            in
+                codeToICode(arg1, context, false, aReg1) @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()}]
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, target) =
+            let
+                val aReg2 = newPReg()
+                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+            in
+                codeToICode(arg2, context, false, aReg2) @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()}]
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, target) =
+            let
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+            in
+                codeToICode(arg1, context, false, aReg1) @ codeToICode(arg2, context, false, aReg2) @
+                    (* Subtract the tag bit from the second argument and do the addition.  No need for overflow check. *)
+                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
+                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=aReg3, ccRef=newCCRef()}]
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+            let
+                val aReg1 = newPReg()
+                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+            in
+                codeToICode(arg1, context, false, aReg1) @
+                    [ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()}]
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, target) =
+            let
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+            in
+                codeToICode(arg1, context, false, aReg1) @ codeToICode(arg2, context, false, aReg2) @
+                    (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
+                       since we don't need to check for overflow. *)
+                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=aReg2, ccRef=newCCRef()},
+                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+            end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn2: WordArith"

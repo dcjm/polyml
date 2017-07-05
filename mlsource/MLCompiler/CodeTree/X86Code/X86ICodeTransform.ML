@@ -506,9 +506,10 @@ struct
             let
                 val destReg = argToPReg dest
                 val (pushedState, pushCode) = pushRax state
+                val resultState = clearCC(addRaxToState(pushedState, destReg)) (* Affects CC *)
             in
                 codeICode{
-                    icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
+                    icode=rest, state=NormalState resultState,
                     code=AllocateMemoryOperation{ size=size, isMutable=isMutable, dest=raxAsArg} :: pushCode @ code, context=context}
             end
 
@@ -691,8 +692,9 @@ struct
                 val (pushedState, pushCode) = pushRax state
                 val load = loadSource(argToPReg addr, eax, pushedState)
                 val lockCode = LockMutable {addr=raxAsArg} :: (load @ pushCode)
+                val resultState = clearCC pushedState (* May affect the CC *)
             in
-                codeICode{icode=rest, state=NormalState pushedState, code=lockCode @ code, context=context}
+                codeICode{icode=rest, state=NormalState resultState, code=lockCode @ code, context=context}
             end
 
        |    codeICode{icode=ReturnResultFromFunction{ resultReg, numStackArgs } :: rest, state=NormalState state, code, context} =
@@ -705,19 +707,48 @@ struct
                 codeICode{icode=rest, state=Exited, code=returnCode @ code, context=context}
             end
 
-        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg oper1Reg, operand2 as IntegerConstant _ } :: rest,
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg oper1Reg, operand2 as IntegerConstant _, ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
                 val resReg = argToPReg resultReg
                 val topState = checkTopInRax(state, oper1Reg)
                 val resultState = addRaxToState(topState, resReg)
-                val resCode = [ArithmeticFunction { oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=operand2 }]
+                val checkState = {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i)}
             in
-                codeICode{icode=rest, state=NormalState resultState, code=resCode @ code, context=context}
+                codeICode{icode=rest, state=NormalState checkState,
+                    code=ArithmeticFunction { oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=operand2, ccRef=ccRef } :: code,
+                    context=context}
+            end
+
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg oper1Reg, operand2=PReg oper2Reg, ccRef } :: rest,
+                      state=NormalState state, code, context} =
+            let
+                (* The top item should be in RAX but that is the second argument.  That's all right for
+                   addition but wrong for subtraction.  Move the first argument into RBX, load the second into
+                   RAX and then do the operation. *)
+                val resReg = argToPReg resultReg
+                val topState = checkTopInRax(state, oper2Reg)
+                val secondArg =
+                    case findEntry (oper1Reg, state) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: ArithmeticFunction"
+                val resultState = addRaxToState(topState, resReg)
+                val checkState = {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i)}
+            in
+                codeICode{icode=rest, state=NormalState checkState,
+                    code= (* N.B. In reverse order *)
+                        ArithmeticFunction {
+                            oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=RealRegister(GenReg ebx), ccRef=ccRef } ::
+                        MoveArgument
+                            { source=MemoryLocation{offset=(stackPtr state - secondArg - 1) * wordSize, base=RealRegister(GenReg esp)},
+                              dest=raxAsArg } ::
+                        MoveArgument { source=raxAsArg, dest=RealRegister(GenReg ebx)} ::
+                        code,
+                    context=context}
             end
 
         |   codeICode{icode=ArithmeticFunction _ :: _, ...} =
-                raise InternalError "TODO: ArithmeticFunction"
+                raise InternalError "TODO: CodeTransform ArithmeticFunction"
 
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"

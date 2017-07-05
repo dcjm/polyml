@@ -120,8 +120,9 @@ struct
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
     
-        (* Arithmetic or logical operation. *)
-    |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
+        (* Arithmetic or logical operation.  These can set the condition codes. *)
+    |   ArithmeticFunction of
+            { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument, ccRef: ccRef }
 
         (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
     |   TestTagBit of { arg: argument, ccRef: ccRef }
@@ -354,16 +355,26 @@ struct
 
         |   codeGenICode(
                 ArithmeticFunction{
-                    oper, resultReg=RealRegister(GenReg resReg), operand1=RealRegister(GenReg op1Reg), operand2=IntegerConstant op2Value
-                } :: rest, code) =
+                    oper, resultReg=RealRegister(GenReg resReg), operand1=RealRegister(GenReg op1Reg),
+                    operand2=IntegerConstant op2Value, ...} :: rest, code) =
             let
                 val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
             in
                 codeGenICode(rest, ArithRConst { opc=oper, output=resReg, source=op2Value } :: code)
             end
 
+        |   codeGenICode(
+                ArithmeticFunction{
+                    oper, resultReg=RealRegister(GenReg resReg), operand1=RealRegister(GenReg op1Reg),
+                    operand2=RealRegister(GenReg op2Reg), ...} :: rest, code) =
+            let
+                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
+            in
+                codeGenICode(rest, ArithRR { opc=oper, output=resReg, source=op2Reg } :: code)
+            end
+
         |   codeGenICode(ArithmeticFunction _ :: _, _) =
-                raise InternalError "codeGenICode: TODO ArithmeticFunction"
+                raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
 
         |   codeGenICode(TestTagBit {arg, ...} :: rest, code) =
                 codeGenICode(rest, TestTagR(asGenReg arg) :: code)

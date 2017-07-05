@@ -1432,6 +1432,62 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_lessSigned:
+        {
+            PolyWord u = *sp++;
+            *sp = ((*sp).AsSigned() < u.AsSigned()) ? True : False;
+            break;
+        }
+
+        case INSTR_lessUnsigned:
+        {
+            PolyWord u = *sp++;
+            *sp = ((*sp).AsUnsigned() < u.AsUnsigned()) ? True : False;
+            break;
+        }
+
+        case INSTR_lessEqSigned:
+        {
+            PolyWord u = *sp++;
+            *sp = ((*sp).AsSigned() <= u.AsSigned()) ? True : False;
+            break;
+        }
+
+        case INSTR_lessEqUnsigned:
+        {
+            PolyWord u = *sp++;
+            *sp = ((*sp).AsUnsigned() <= u.AsUnsigned()) ? True : False;
+            break;
+        }
+
+        case INSTR_greaterSigned:
+        {
+            PolyWord u = *sp++;
+            *sp = ((*sp).AsSigned() > u.AsSigned()) ? True : False;
+            break;
+        }
+
+        case INSTR_greaterUnsigned:
+        {
+            PolyWord u = *sp++;
+            *sp = ((*sp).AsUnsigned() > u.AsUnsigned()) ? True : False;
+            break;
+        }
+
+        case INSTR_greaterEqSigned:
+        {
+            PolyWord u = *sp++;
+            *sp = ((*sp).AsSigned() >= u.AsSigned()) ? True : False;
+            break;
+        }
+
+        case INSTR_greaterEqUnsigned:
+        {
+            PolyWord u = *sp++;
+            *sp = ((*sp).AsUnsigned() >= u.AsUnsigned()) ? True : False;
+            break;
+        }
+
         default: Crash("Unknown instruction %x\n", li);
 
         } /* switch */

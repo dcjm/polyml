@@ -269,10 +269,15 @@ struct
 
         local
             val a = makeTV()
+            open BuiltIns
         in
             (* isShort - test if a value is tagged rather than being an address. *)
             val () =
-                enterRunCall ("isShort", makePolymorphic([a], mkBuiltIn1Fn BuiltIns.IsTaggedValue), a ->> Bool)
+                enterRunCall ("isShort", makePolymorphic([a], mkBuiltIn1Fn IsTaggedValue), a ->> Bool)
+            (* pointer equality *)
+            val () =
+                enterRunCall ("pointerEq", makePolymorphic([a],
+                              mkBuiltIn2Fn(WordComparison{test=TestEqual, isSigned=false})), a ** a ->> Bool)
         end
 
         local
@@ -561,49 +566,60 @@ struct
         local
             val fixedIntEnv = makeStructure(globalEnv, "FixedInt")
             open BuiltIns
-            fun enterComparison(name, test) =
+
+            fun enterBinary(name, oper, typ) =
             let
-                val typ = fixedIntType ** fixedIntType ->> Bool
-                (* This function takes a tuple. *)
-                val entry =
-                    mkInlproc(
-                        mkBuiltIn2(
-                            WordComparison{test=test, isSigned=true}, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)),
-                        1, name ^ "()", [], 0)
-                val value = mkGvar (name, typ, entry, declInBasis)
+                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
             in
                 #enterVal fixedIntEnv (name, value)
             end
+            
+            val compareType = fixedIntType ** fixedIntType ->> Bool
+            and binaryType  = fixedIntType ** fixedIntType ->> fixedIntType
+
+            fun enterComparison(name, test) =
+                enterBinary(name, WordComparison{test=test, isSigned=true}, compareType)
+            and enterBinaryOp(name, oper) =
+                enterBinary(name, FixedPrecisionArith oper, binaryType)
+            
         in
             val () = #enterType fixedIntEnv ("int", TypeConstrSet(fixedIntConstr, []))
             val () = enterComparison("<",   TestLess)
             val () = enterComparison("<=",  TestLessEqual)
             val () = enterComparison(">",   TestGreater)
             val () = enterComparison(">=",  TestGreaterEqual)
+            val () = enterBinaryOp("+", ArithAdd)
+            val () = enterBinaryOp("-", ArithSub)
+            val () = enterBinaryOp("*", ArithMult)
         end
 
         local
             val wordStructEnv = makeStructure(globalEnv, "Word")
             open BuiltIns
-            fun enterComparison(name, test) =
+
+            fun enterBinary(name, oper, typ) =
             let
-                val typ = Word ** Word ->> Bool
-                (* This function takes a tuple. *)
-                val entry =
-                    mkInlproc(
-                        mkBuiltIn2(
-                            WordComparison{test=test, isSigned=false}, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)),
-                        1, name ^ "()", [], 0)
-                val value = mkGvar (name, typ, entry, declInBasis)
+                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
             in
                 #enterVal wordStructEnv (name, value)
             end
+            
+            val compareType = Word ** Word ->> Bool
+            and binaryType  = Word ** Word ->> Word
+
+            fun enterComparison(name, test) =
+                enterBinary(name, WordComparison{test=test, isSigned=false}, compareType)
+            and enterBinaryOp(name, oper) =
+                enterBinary(name, WordArith oper, binaryType)
         in
             val () = #enterType wordStructEnv ("word", TypeConstrSet(wordConstr, []))
             val () = enterComparison("<",   TestLess)
             val () = enterComparison("<=",  TestLessEqual)
             val () = enterComparison(">",   TestGreater)
             val () = enterComparison(">=",  TestGreaterEqual)
+            val () = enterBinaryOp("+", ArithAdd)
+            val () = enterBinaryOp("-", ArithSub)
+            val () = enterBinaryOp("*", ArithMult)
         end
 
         local
@@ -637,12 +653,7 @@ struct
             fun enterComparison(name, test) =
             let
                 val typ = Char ** Char ->> Bool
-                (* This function takes a tuple. *)
-                val entry =
-                    mkInlproc(
-                        mkBuiltIn2(
-                            WordComparison{test=test, isSigned=false}, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)),
-                        1, name ^ "()", [], 0)
+                val entry = mkBuiltIn2Fn(WordComparison{test=test, isSigned=false})
                 val value = mkGvar (name, typ, entry, declInBasis)
             in
                 #enterVal charEnv (name, value)
@@ -761,8 +772,8 @@ struct
                                                 ]),
                                             mkEval(mkLoadClosure 1, (* Recursive call with index+1. *)
                                                 [
-                                                    mkBuiltIn(POLY_SYS_plus_word,
-                                                        [mkLoadArgument 0, mkConst(toMachineWord 1)])
+                                                    mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithAdd,
+                                                        mkLoadArgument 0, mkConst(toMachineWord 1))
                                                 ]),
                                             CodeFalse (* Not equal elements - result false *)
                                         )

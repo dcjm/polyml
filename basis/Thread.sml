@@ -272,7 +272,7 @@ struct
 
         type thread = Word.word ref (* Actually this is a multi-word mutable object. *)
         (* Equality is pointer equality. *)
-        val equal : thread*thread->bool = RunCall.run_call2 POLY_SYS_word_eq
+        val equal : thread*thread->bool = RunCall.pointerEq
         (* Return our own thread object. *)
         val self: unit->thread = RunCall.run_call0 POLY_SYS_thread_self
         

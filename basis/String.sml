@@ -1522,12 +1522,11 @@ in
            QUESTION: The check i'+n' >= i does not guarantee that ss is to the left of ss',
            merely that the end of ss' is to the right of the beginning of ss. 
            I can't remember my reasoning about this at the moment.  *)
-        val equal_ptr: string*string->bool = RunCall.run_call2 POLY_SYS_word_eq
         
         fun span (Slice{vector=s, start=i, length=_}, Slice{vector=s', start=i', length=n'}) =
             (* First check with pointer equality and only if that fails do we use the
                string equality function. *)
-            if (equal_ptr(s, s') orelse s = s') andalso i'+n' >= i
+            if (RunCall.pointerEq(s, s') orelse s = s') andalso i'+n' >= i
             then Slice{vector=s, start=i, length=i'+n'-i}
             else raise General.Span 
            
