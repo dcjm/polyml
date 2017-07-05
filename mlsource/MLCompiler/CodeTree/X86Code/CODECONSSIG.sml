@@ -1,5 +1,5 @@
 (*
-    Copyright (c) David C.J. Matthews 2015, 2016
+    Copyright (c) David C.J. Matthews 2015, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -189,10 +189,6 @@ sig
     and lockVector: stackIndex * ttab * regHint -> operation list * mergeResult
     and absoluteReal: stackIndex * ttab * regHint -> operation list * mergeResult
     and negativeReal: stackIndex * ttab * regHint -> operation list * mergeResult
-    and squareRootReal: stackIndex * ttab * regHint -> operation list * mergeResult
-    and sineReal: stackIndex * ttab * regHint -> operation list * mergeResult
-    and cosineReal: stackIndex * ttab * regHint -> operation list * mergeResult
-    and arctanReal: stackIndex * ttab * regHint -> operation list * mergeResult
     and integerToReal: stackIndex * ttab * regHint -> operation list * mergeResult
 
     val setStringLength: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)

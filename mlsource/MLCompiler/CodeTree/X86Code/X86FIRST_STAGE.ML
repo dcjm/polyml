@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2015-16
+    Copyright David C. J. Matthews 2015-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -4689,39 +4689,6 @@ struct
             and negativeReal(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = getUnaryFP (genUnaryFP FCHS) (transtable, [arg], whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            and squareRootReal(arg, transtable, whereto) =
-            let
-                val (opRes, opCode) = getUnaryFP (genUnaryFP FSQRT) (transtable, [arg], whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            and sineReal(arg, transtable, whereto) =
-            let
-                val (opRes, opCode) = getUnaryFP (genUnaryFP FSIN) (transtable, [arg], whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            and cosineReal(arg, transtable, whereto) =
-            let
-                val (opRes, opCode) = getUnaryFP (genUnaryFP FCOS) (transtable, [arg], whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            and arctanReal(arg, transtable, whereto) =
-            let
-                val (opRes, opCode) =
-                    (* Arctan requires two items on the stack.  The effect is to overwrite fp6 *)
-                    getWorkingRegister(singleton(FPReg fp6),
-                            fn _ =>
-                                getResultRegister(floatingPtRegisters, loadBaseOffsets (genUnaryFP FPATAN))
-                                ) ([NONE], NONE) (transtable, [arg], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end

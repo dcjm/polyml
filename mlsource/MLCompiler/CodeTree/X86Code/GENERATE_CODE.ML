@@ -1090,7 +1090,9 @@ struct
             
         |   OGCBuiltIn0{oper=BuiltIns.Built0PlaceHolder} => raise InternalError "TODO: OGCBuiltIn0"
 
-        |   instr as OGCBuiltIn1{oper=BuiltIns.NotBoolean,...} => codeAsConditional(instr, whereto, tailKind)
+        |   OGCBuiltIn1{oper=BuiltIns.NotBoolean, arg1} =>
+                (* Boolean "not" is coded as xor with "true" *)
+                cgAndRes(xorWord(genToStack arg1, pushConst (transtable, True), transtable, whereto))
 
         |   instr as OGCBuiltIn1{oper=BuiltIns.IsTaggedValue, ...} => codeAsConditional(instr, whereto, tailKind)
 
@@ -2204,10 +2206,8 @@ struct
             let
                 (* Convert this into a simple equality function. *)
                 val code =
-                    OGCEval {
-                        function = OGCConstnt(ioOp POLY_SYS_word_eq, []),
-                        argList=[(test, GeneralType), (OGCConstnt(Address.toMachineWord tag, []), GeneralType)],
-                        resultType=GeneralType }
+                    OGCBuiltIn2{oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
+                        arg1=test, arg2=OGCConstnt(Address.toMachineWord tag, [])}
             in
                 genTest(code, jumpOn)
             end
@@ -2308,10 +2308,7 @@ struct
 
                 |   [(arg, _)] =>
                     (* unary special cases *)
-                    if wordEq (oper,ioOp POLY_SYS_not_bool)
-                    then genTest (arg, not jumpOn)
-    
-                    else if wordEq (oper,ioOp POLY_SYS_is_short)
+                    if wordEq (oper,ioOp POLY_SYS_is_short)
                     then
                     let
                         val argLocn = genToStack arg
@@ -2326,106 +2323,8 @@ struct
 
                 |   [(arg1, _), (arg2, _)] =>
                     (* binary special cases *)
-                    if wordEq (oper,ioOp POLY_SYS_word_eq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then equalWord else notEqualWord) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
 
-                    else if wordEq (oper,ioOp POLY_SYS_word_geq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then greaterOrEqualWord else lessThanWord) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_word_leq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then lessOrEqualWord else greaterThanWord) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_word_gtr)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then greaterThanWord else lessOrEqualWord) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_word_lss)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then lessThanWord else greaterOrEqualWord) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_fixed_geq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then greaterOrEqualFixed else lessThanFixed) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_fixed_leq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then lessOrEqualFixed else greaterThanFixed) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_fixed_gtr)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then greaterThanFixed else lessOrEqualFixed) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_fixed_lss)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then lessThanFixed else greaterOrEqualFixed) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_Real_eq)
+                    if wordEq (oper,ioOp POLY_SYS_Real_eq)
                     then
                     let
                         val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
@@ -3025,10 +2924,6 @@ struct
                             else if wordEq (oper,ioOp POLY_SYS_string_length)
                             then cgAndRes(stringLength(genToStack arg, transtable, whereto))
 
-                            (* Boolean "not" is coded as xor with "true" *)
-                            else if wordEq (oper,ioOp POLY_SYS_not_bool)
-                            then cgAndRes(xorWord(genToStack arg, pushConst (transtable, True), transtable, whereto))
-
                             else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
                             then cgAndRes(atomicIncrement(genToStack arg, transtable, whereto))
 
@@ -3046,19 +2941,6 @@ struct
 
                             else if wordEq (oper,ioOp POLY_SYS_fixed_to_real)
                             then cgAndRes(integerToReal(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_sqrt_real)
-                            then cgAndRes(squareRootReal(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_sin_real)
-                            then cgAndRes(sineReal(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_cos_real)
-                            then cgAndRes(cosineReal(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_arctan_real)
-                            then cgAndRes(arctanReal(genToStack arg, transtable, whereto))
-
                             else if primBoolOps andalso wordEq (oper,ioOp POLY_SYS_is_short)
                             then (* Convert this into "if isShort then true else false" *)
                                 genCond
@@ -3070,12 +2952,6 @@ struct
                         |   [arg1, arg2] => (* Binary *)
                             if wordEq (oper,ioOp POLY_SYS_set_string_length)
                             then cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_fixed_add)
-                            then cgAndRes(addFixed(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_fixed_sub)
-                            then cgAndRes(subtractFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_fixed_mul)
                             then cgAndRes(multiplyFixed(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -3180,9 +3056,6 @@ struct
                             else if wordEq (oper,ioOp POLY_SYS_load_byte)
                             then cgAndRes(loadByte(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                            else if wordEq (oper,ioOp POLY_SYS_load_word)
-                            then cgAndRes(loadWord(genToStack arg1, genToStack arg2, transtable, whereto))
-
                             else if wordEq (oper,ioOp POLY_SYS_Add_real)
                             then cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
@@ -3201,16 +3074,7 @@ struct
                                (the "jumping" boolean code generator) here, but we would like to
                                avoid that. *)
                             else if primBoolOps andalso
-                            (wordEq (oper,ioOp POLY_SYS_word_eq) orelse
-                             wordEq (oper,ioOp POLY_SYS_equal_short_arb) orelse
-                             wordEq (oper,ioOp POLY_SYS_word_geq)  orelse
-                             wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
-                             wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
-                             wordEq (oper,ioOp POLY_SYS_word_lss) orelse
-                             wordEq (oper,ioOp POLY_SYS_fixed_geq)  orelse
-                             wordEq (oper,ioOp POLY_SYS_fixed_leq)  orelse
-                             wordEq (oper,ioOp POLY_SYS_fixed_gtr)  orelse
-                             wordEq (oper,ioOp POLY_SYS_fixed_lss) orelse
+                            (wordEq (oper,ioOp POLY_SYS_equal_short_arb) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_geq) orelse
