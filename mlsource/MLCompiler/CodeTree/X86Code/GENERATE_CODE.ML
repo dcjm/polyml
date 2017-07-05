@@ -1096,7 +1096,9 @@ struct
 
         |   instr as OGCBuiltIn1{oper=BuiltIns.IsTaggedValue, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBuiltIn1{oper=BuiltIns.MemoryCellLength, ...} => raise InternalError "TODO: OGCBuiltIn1-MemoryCellLength"
+        |   OGCBuiltIn1{oper=BuiltIns.MemoryCellLength, arg1} => cgAndRes(vectorLength(genToStack arg1, transtable, whereto))
+
+        |   OGCBuiltIn1{oper=BuiltIns.MemoryCellFlags, arg1} => cgAndRes(vectorFlags(genToStack arg1, transtable, whereto))
 
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
@@ -1126,6 +1128,9 @@ struct
 
         |   OGCBuiltIn2{oper=BuiltIns.LoadWord _, arg1, arg2} =>
                 cgAndRes(loadWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LoadByte _, arg1, arg2} =>
+                cgAndRes(loadByte(genToStack arg1, genToStack arg2, transtable, whereto))
 
         |   OGCBuiltIn3{oper=BuiltIns.Built3PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn3"
 
@@ -2235,6 +2240,8 @@ struct
                     end
 
                 |   BuiltIns.MemoryCellLength => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellLength"
+
+                |   BuiltIns.MemoryCellFlags => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellFlags"
             )
 
         |   OGCBuiltIn2{oper, arg1, arg2} =>
@@ -2279,6 +2286,8 @@ struct
                 |   BuiltIns.WordArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordArith"
 
                 |   BuiltIns.LoadWord _ => genOtherTests() (* TODO - we could use TEST instruction here. *)
+
+                |   BuiltIns.LoadByte _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LoadByte"
             )
 
         |   OGCBuiltIn3{oper, ...} =>
@@ -2306,20 +2315,7 @@ struct
                 case args of
                     [] => genOtherTests () (* We don't currently have any nullary special cases *)
 
-                |   [(arg, _)] =>
-                    (* unary special cases *)
-                    if wordEq (oper,ioOp POLY_SYS_is_short)
-                    then
-                    let
-                        val argLocn = genToStack arg
-                        val (label, testCode) =
-                            (if jumpOn then testShortInt else testNotShortInt) (argLocn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else genOtherTests () (* Non-special unary function.*)
+                |   [_] => genOtherTests () (* Non-special unary function.*)
 
                 |   [(arg1, _), (arg2, _)] =>
                     (* binary special cases *)
@@ -2912,13 +2908,7 @@ struct
                             else callClosure (SOME evalFun, true)
 
                         |*)   [arg] => (* Unary *)
-                            if wordEq (oper,ioOp POLY_SYS_get_length)
-                            then cgAndRes(vectorLength(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_get_flags)
-                            then cgAndRes(vectorFlags(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
+                            if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
                             then cgAndRes(getFirstLong(genToStack arg, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_string_length)
@@ -2941,11 +2931,6 @@ struct
 
                             else if wordEq (oper,ioOp POLY_SYS_fixed_to_real)
                             then cgAndRes(integerToReal(genToStack arg, transtable, whereto))
-                            else if primBoolOps andalso wordEq (oper,ioOp POLY_SYS_is_short)
-                            then (* Convert this into "if isShort then true else false" *)
-                                genCond
-                                    (OGCEval {function = evalFun, argList = argList, resultType=resultType},
-                                    constntTrue, constntFalse, whereto, tailKind, NONE)
 
                             else callClosure (SOME evalFun, true)
 
@@ -3053,8 +3038,6 @@ struct
                                     )
                                 |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
                             )
-                            else if wordEq (oper,ioOp POLY_SYS_load_byte)
-                            then cgAndRes(loadByte(genToStack arg1, genToStack arg2, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_Add_real)
                             then cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
