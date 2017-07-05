@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: General Structure
     Author:     David Matthews
-    Copyright   David Matthews 1999
+    Copyright   David Matthews 1999, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,8 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: checked, no change. *)
 
 signature GENERAL =
   sig
@@ -51,7 +48,6 @@ signature GENERAL =
    did not capture the General structure name. *)
 local
     open RuntimeCalls (* for POLY_SYS and EXC numbers *)
-    val System_loadw: exn*int->string  = RunCall.run_call2 POLY_SYS_load_word
 in
     exception Bind      = RunCall.Bind
     and       Div       = RunCall.Div
@@ -64,7 +60,7 @@ in
 
     (* Exception packets.  The first word is the code, a unique id; the second is
        the exception name and the third is the exception argument. *)
-    fun exnName (ex: exn) = System_loadw(ex, 1)
+    fun exnName (ex: exn) = RunCall.loadWordFromImmutable(ex, 0w1)
     
     (* Since exception packets carry a printer function this is just PolyML.makestring. *)
     fun exnMessage (ex: exn) = PolyML.makestring ex

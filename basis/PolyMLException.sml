@@ -42,7 +42,7 @@ struct
             fun traceException(f: unit->'a, _: string list * exn -> 'a): 'a = f()
 
             fun exceptionLocation(exn: exn): location option =
-                case RunCall.run_call2 POLY_SYS_load_word(exn, 0w3) of
+                case RunCall.loadWordFromImmutable(exn, 0w3) of
                     NoLocation => NONE
                 |   SomeLocation(file, startLine, startPosition, endLine, endPosition) =>
                         SOME { file=file, startLine=startLine, startPosition=startPosition,
@@ -52,9 +52,9 @@ struct
             fun raiseWithLocation(ex: exn, {file, startLine, startPosition, endLine, endPosition}: location) =
             let
                 open RunCall
-                fun getEntry n = run_call2 POLY_SYS_load_word(ex, n)
+                fun getEntry n = RunCall.loadWordFromImmutable(ex, n)
                 val packet =
-                    (getEntry 0, getEntry 1, getEntry 2,
+                    (getEntry 0w0, getEntry 0w1, getEntry 0w2,
                         SomeLocation(file, startLine, startPosition, endLine, endPosition))
             in
                 run_call1 POLY_SYS_raisex packet

@@ -500,9 +500,13 @@ struct
                 |   WordComparison{test=TestGreater, isSigned=false} => genOpcode(opcode_greaterUnsigned, cvec)
                 |   WordComparison{test=TestGreaterEqual, isSigned=false} => genOpcode(opcode_greaterEqUnsigned, cvec)
                 |   WordComparison{test=BuiltIns.TestNotEqual, ...} => raise InternalError "TestNotEqual" (* Temporary. *)
-                
+
+                |   FixedPrecisionArith ArithAdd => genOpcode(opcode_fixedAdd, cvec)
+                |   FixedPrecisionArith ArithSub => genOpcode(opcode_fixedSub, cvec)
                 |   FixedPrecisionArith _ => raise InternalError "TODO: FixedPrecisionArith"
-                
+
+                |   WordArith ArithAdd => genOpcode(opcode_wordAdd, cvec)
+                |   WordArith ArithSub => genOpcode(opcode_wordSub, cvec)
                 |   WordArith _ => raise InternalError "TODO: WordArith"
                 ;
                 decsp() (* Removes one item from the stack. *)

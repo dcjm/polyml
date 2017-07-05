@@ -26,7 +26,6 @@ local
        to or from 'a vector but that gives error messages about free
        type variables. *)
     val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_loadw: word*word->word = RunCall.run_call2 POLY_SYS_load_word;
     val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
     val System_length: word -> word = RunCall.run_call1 POLY_SYS_get_length;
     val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
@@ -45,7 +44,7 @@ local
         fun alloc len = System_alloc(len, 0wx40, 0w0)
     end
     
-    fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.unsafeCast(System_loadw (vecAsWord v, intAsWord i))
+    fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.loadWord (vecAsWord v, intAsWord i)
     and unsafeUpdate(v: 'a vector, i: int, new: 'a): unit =
         System_setw (vecAsWord v, intAsWord i, RunCall.unsafeCast new);
 in
@@ -78,7 +77,7 @@ struct
     in
         if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length v
         then raise General.Subscript
-        else RunCall.unsafeCast(System_loadw (v, intAsWord i))
+        else unsafeSub(vec, i)
     end
  
     (* Create a vector from a list.  We have to treat an empty list specially
@@ -381,8 +380,7 @@ struct
             struct
                 type 'a vector = 'a slice
                 fun length(Slice{length, ...}) = intAsWord length
-                fun unsafeSub (Slice{vector, start, ...}, i) =
-                    RunCall.unsafeCast(System_loadw (vecAsWord vector, i + intAsWord start))
+                val unsafeSub = fn (Slice{vector, start, ...}, i) => unsafeSub (vector, wordAsInt i + start)
                 fun unsafeSet _ = raise Fail "Should not be called"
             end);
 

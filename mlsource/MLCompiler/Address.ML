@@ -93,7 +93,7 @@ struct
 
   val unsafeCast : 'a -> 'b = RunCall.unsafeCast
 
-  val isShort : machineWord->bool = RunCall.run_call1 POLY_SYS_is_short
+  val isShort : machineWord->bool = RunCall.isShort
 
   (* The following cast is always safe *)
   val toMachineWord : 'a    -> machineWord = unsafeCast
@@ -134,8 +134,7 @@ struct
   val loadByte:   (address * Word.word) -> Word8.word = 
     RunCall.run_call2 POLY_SYS_load_byte
     
-  val loadWord:   (address * Word.word) -> machineWord  =
-    RunCall.run_call2 POLY_SYS_load_word
+    val loadWord:   (address * Word.word) -> machineWord  = RunCall.loadWord
 
   val assignByte: (address * Word.word * Word8.word) -> unit =
     RunCall.run_call3 POLY_SYS_assign_byte

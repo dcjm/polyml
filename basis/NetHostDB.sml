@@ -94,7 +94,7 @@ local
                                 |   res => res
                                 )
                             else (* Octal - include the zero. *)
-                                readNum 8 NONE limit src'
+                                readNum 8 NONE limit src
                     |   NONE => SOME(0, src') (* Just the zero. *)
                 )
             |   SOME (_, _) => (* Treat it as a decimal number. *)

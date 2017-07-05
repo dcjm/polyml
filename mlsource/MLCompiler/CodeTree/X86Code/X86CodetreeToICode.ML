@@ -119,6 +119,10 @@ struct
                 ForwardJumpLabel{ label=label, result=SOME target }
             ]
         end
+        
+        (* Generally we have an offset in words and no index register. *)
+        fun wordOffsetAddress(offset, baseReg) =
+            MemoryLocation{offset=offset*wordSize, base=baseReg, index=NoMemIndex}
 
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.  *)
@@ -148,7 +152,7 @@ struct
                    for MoveArgument with MemoryLocation as the source assumes that the base is on the top of the stack. *)
                 [
                     MoveArgument {source=closureRegAddr, dest=baseReg},
-                    MoveArgument {source=MemoryLocation{offset=(c+1)*wordSize, base=baseReg}, dest=target}
+                    MoveArgument {source=wordOffsetAddress(c+1, baseReg), dest=target}
                 ]
             end
 
@@ -167,7 +171,7 @@ struct
                 val baseR = newPReg()
             in
                 codeToICode(base, context, false, baseR) @
-                    [MoveArgument{source=MemoryLocation{offset=offset*wordSize, base=baseR}, dest=target}]
+                    [MoveArgument{source=wordOffsetAddress(offset, baseR), dest=target}]
             end
         
         |   codeToICode(BICEval {function, argList, ...}, context, isTail, target) =
@@ -205,6 +209,17 @@ struct
 
         |   codeToICode(instr as BICBuiltIn1{oper=BuiltIns.IsTaggedValue, ...}, context, isTail, target) =
                 codeAsConditional(instr, context, isTail, target)
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.MemoryCellLength, arg1}, context, _, target) =
+            let
+                val tReg = newPReg() and ccRef = newCCRef()
+                (* Get the length of a memory cell (heap object).  We need to mask out the
+                   top byte containing the flags and to tag the result.  The mask is 56 bits on
+                   64-bit which won't fit in an inline constant. *)
+            in
+                codeToICode(arg1, context, false, tReg) @
+                (raise InternalError "TODO: MemoryCellLength")
+            end
 
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, target) =
                 codeAsConditional(instr, context, isTail, target)
@@ -343,6 +358,32 @@ struct
                        since we don't need to check for overflow. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=aReg2, ccRef=newCCRef()},
                      ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+            let
+                (* Constant offset.  This is very common since it's used for refs. *)
+                (* TODO: We could also handle the case where the case where the base address is a constant
+                   as a special case. *)
+                val baseReg = newPReg()
+                (* The offset should always be positive.  Loading the length word is a separate function. *)
+                val offset = Word.toInt(toShort value)
+            in
+                codeToICode(arg1, context, false, baseReg) @ [MoveArgument {source=wordOffsetAddress(offset, baseReg), dest=target}]
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2}, context, _, target) =
+            let
+                (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
+                   index factor and offset.  *)
+                val baseReg = newPReg() and indexReg = newPReg()
+                val source =
+                    if isX64
+                    then MemoryLocation{base=baseReg, offset= ~4, index= MemIndex4 indexReg}
+                    else MemoryLocation{base=baseReg, offset= ~2, index= MemIndex2 indexReg}
+            in
+                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
+                     [MoveArgument {source=source, dest=target}]
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
@@ -591,7 +632,7 @@ struct
                         val fReg = newPReg()
                         val code = codeToICode(f, context, false, fReg)
                         val restAndAlloc = loadFields(rest, n+1)
-                        val storeValue = [MoveArgument{ source=fReg, dest=MemoryLocation{offset=n*wordSize, base=target} }]
+                        val storeValue = [MoveArgument{ source=fReg, dest=wordOffsetAddress(n, target)}]
                     in
                         code @ restAndAlloc @ storeValue
                     end
@@ -623,9 +664,9 @@ struct
                            specific locations on the stack. *)
                         val srcCopy = newPReg() and loadReg = newPReg() and destCopy = newPReg()
                         val srcCode = MoveArgument{source=tupleTarget, dest=srcCopy}
-                        val load = MoveArgument{source=MemoryLocation{offset=sourceWord*wordSize, base=srcCopy}, dest=loadReg}
+                        val load = MoveArgument{source=wordOffsetAddress(sourceWord, srcCopy), dest=loadReg}
                         val destCode = MoveArgument{source=containerTarget, dest=destCopy}
-                        val storeCode = MoveArgument{source=loadReg, dest=MemoryLocation{offset=destWord*wordSize, base=destCopy}}
+                        val storeCode = MoveArgument{source=loadReg, dest=wordOffsetAddress(destWord, destCopy)}
                     in
                         srcCode :: load :: destCode :: storeCode :: copyContainer(sourceWord+1, destWord+1)
                     end
@@ -680,7 +721,7 @@ struct
                             in
                                 MoveArgument{source=IntegerConstant(tag 0), dest=d} ::
                                     (clear (n+1) @
-                                        [MoveArgument{source=d, dest=MemoryLocation{offset=n*wordSize, base=dest}}])
+                                        [MoveArgument{source=d, dest=wordOffsetAddress(n, dest)}])
                             end
                     in
                         c @ clear 0 @ [InitialisationComplete{dest=dest}]
@@ -703,7 +744,8 @@ struct
                                 val fReg = newPReg()
                                 val code = codeToICode(f, context, false, fReg)
                                 val restAndAlloc = loadFields(rest, n+1)
-                                val storeValue = [MoveArgument{ source=fReg, dest=MemoryLocation{offset=n*wordSize, base=dstCopy} }]
+                                val storeValue =
+                                    [MoveArgument{ source=fReg, dest=wordOffsetAddress(n, dstCopy) }]
                             in
                                 code @ restAndAlloc @ storeValue
                             end

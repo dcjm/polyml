@@ -51,7 +51,10 @@ sig
     |   RealRegister of reg (* A real register. *)
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   MemoryLocation of { base: argument, offset: int } (* A memory location.  Could be the stack. *)
+    |   MemoryLocation of { base: argument, offset: int, index: memoryIndex } (* A memory location.  Could be the stack. *)
+
+    and memoryIndex =
+        NoMemIndex | MemIndex1 of argument | MemIndex2 of argument | MemIndex4 of argument | MemIndex8 of argument
 
     datatype iLabel = ILabel of int
     
@@ -136,6 +139,9 @@ sig
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
+
+        (* This provides the LEA instruction which can be used for various sorts of arithmetic. *)
+    |   LoadEffectiveAddress of { base: argument, offset: int, index: memoryIndex, dest: argument }
 
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address

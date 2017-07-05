@@ -1261,10 +1261,10 @@ in
  
             fun debugState(t: Thread.Thread.thread): debugState list =
             let
-                val stack = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w5)
-                and static = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w6)
-                and dynamic = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w7)
-                and locationInfo = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w8)
+                val stack = RunCall.loadWord(t, 0w5)
+                and static = RunCall.loadWord(t, 0w6)
+                and dynamic = RunCall.loadWord(t, 0w7)
+                and locationInfo = RunCall.loadWord(t, 0w8)
 
                 (* Turn the chain of saved entries along with the current top entry
                    into a list.  The bottom entry will generally be the state from
@@ -1274,10 +1274,10 @@ in
                     then []
                     else
                     let
-                        val s = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w0)
-                        and d = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w1)
-                        and l = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w2)
-                        and n = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w3)
+                        val s = RunCall.loadWordFromImmutable(r, 0w0)
+                        and d = RunCall.loadWordFromImmutable(r, 0w1)
+                        and l = RunCall.loadWordFromImmutable(r, 0w2)
+                        and n = RunCall.loadWordFromImmutable(r, 0w3)
                     in
                         if RunCall.isShort s orelse
                            RunCall.isShort l
@@ -1529,9 +1529,8 @@ in
 
             (* Get the exception id from an exception packet.  The id is
                the first word in the packet.  It's a mutable so treat it
-               as an int ref here. *)
-            fun getExnId(ex: exn): int ref =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word (ex, 0)
+               as an int ref here.  The packet, though, is immutable. *)
+            fun getExnId(ex: exn): int ref = RunCall.loadWordFromImmutable (ex, 0w0)
 
             fun checkExnBreak(ex: exn) =
                 let val exnId = getExnId ex in List.exists (fn n => n = exnId) (! exBreakPoints) end

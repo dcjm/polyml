@@ -73,13 +73,13 @@ struct
         and globalOnBreakPoint  = ref NoFunction
 
         val onEntryCode =
-            mkBuiltIn(POLY_SYS_load_word, [mkConst(toMachineWord globalOnEntry), CodeZero])
+            mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, mkConst(toMachineWord globalOnEntry), CodeZero)
         and onExitCode =
-            mkBuiltIn(POLY_SYS_load_word, [mkConst(toMachineWord globalOnExit), CodeZero])
+            mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, mkConst(toMachineWord globalOnExit), CodeZero)
         and onExitExcCode =
-            mkBuiltIn(POLY_SYS_load_word, [mkConst(toMachineWord globalOnExitExc), CodeZero])
+            mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, mkConst(toMachineWord globalOnExitExc), CodeZero)
         and onBreakPointCode =
-            mkBuiltIn(POLY_SYS_load_word, [mkConst(toMachineWord globalOnBreakPoint), CodeZero])
+            mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, mkConst(toMachineWord globalOnBreakPoint), CodeZero)
 
         (* We need to ensure that any break-point code preserves the state.  It could be modified
            if we hit a break-point and run the interactive debugger with PolyML.Compiler.debug true. *)
@@ -411,7 +411,7 @@ struct
 
             val threadId = multipleUses(mkBuiltIn(POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
             fun loadIdEntry offset =
-                multipleUses(mkBuiltIn(POLY_SYS_load_word, [#load threadId level, offset]), fn () => mkAddr 1, level)
+                multipleUses(mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, #load threadId level, offset), fn () => mkAddr 1, level)
             val currStatic = loadIdEntry threadIdCurrentStatic
             and currDynamic = loadIdEntry threadIdCurrentDynamic
             and currLocation = loadIdEntry threadIdCurrentLocation

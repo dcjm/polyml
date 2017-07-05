@@ -2024,7 +2024,6 @@ SS-relative addressing modes:
     |   ResetStack of int
     |   InterruptCheck
     |   JumpLabel of label
-    |   TagValue of { source: genReg, output: genReg }
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
     |   StartHandler of { handlerLab: addrs ref }
@@ -2196,8 +2195,10 @@ SS-relative addressing modes:
             )
 
         |   TestTagR reg => ( stream "TestTagR "; printGReg reg )
+
         |   TestByteMem { base, offset, bits } =>
                 ( stream "TestByteMem "; printBaseOffset(base, NoIndex, offset); stream " 0x"; stream(Word.toString bits) )
+
         |   CallRTS entry =>
             (
                 stream "CallRTS ";
@@ -2213,9 +2214,6 @@ SS-relative addressing modes:
         |   AllocStoreVariable { output, ...} => (stream "AllocStoreVariable "; printGReg output )
         
         |   StoreInitialised => stream "StoreInitialised"
-
-        |   TagValue { source, output } =>
-                (stream "TagValue "; printGReg output; stream " <= "; printGReg source)
 
         |   CallFunction callKind => (stream "CallFunction "; printCallKind callKind)
 
@@ -2691,14 +2689,6 @@ SS-relative addressing modes:
         |   cgOp(CallRTS entry :: remainder) =
             (
                 genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), code);
-                cgOp remainder
-            )
-
-        |   cgOp(TagValue{ source, output} :: remainder) =
-            (
-                (* Convert an untagged integer into a tagged value by shifting and adding 1. *)
-                checkSources[source]; addDests[output];
-                genOpIndexed (LEAL, 1, SOME source, Index1 source, output, code);
                 cgOp remainder
             )
 

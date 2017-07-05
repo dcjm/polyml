@@ -155,7 +155,6 @@ sig
     |   ResetStack of int
     |   InterruptCheck
     |   JumpLabel of label
-    |   TagValue of { source: genReg, output: genReg }
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
     |   StartHandler of { handlerLab: addrs ref }

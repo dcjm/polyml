@@ -645,6 +645,8 @@ NO_UNDEFINED_FALSE
 NO_UNDEFINED_TRUE
 NATIVE_WINDOWS_FALSE
 NATIVE_WINDOWS_TRUE
+WINDOWS64CALLS_FALSE
+WINDOWS64CALLS_TRUE
 ARCHINTERPRET64_FALSE
 ARCHINTERPRET64_TRUE
 ARCHINTERPRET_FALSE
@@ -3619,12 +3621,14 @@ case $host_os in *\ *) host_os=`echo "$host_os" | sed 's/ /-/g'`;; esac
 # Check also for mingw in which case we want to build native Windows.
 poly_native_windows=no
 # If we are building on cygwin or mingw we need to give the -no-defined flag to
-# build a DLL.
+# build a DLL.  We also have to use Windows calling conventions rather than
+# SysV on 64-bit.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
 # CXXFLAGS before the LIBTOOL macros.
 # When building native Windows set the flag to build the Unicode version and
 # the API version to at least Windows Vista to allow condition variables.
 poly_no_undefined=no
+poly_use_windowscc=no
 case "${host_os}" in
     darwin*)
         OSFLAG=-DMACOSX
@@ -3731,11 +3735,13 @@ fi
 
         poly_native_windows=yes
         poly_no_undefined=yes
+        poly_use_windowscc=yes
         CFLAGS="$CFLAGS -mthreads"
         CXXFLAGS="$CXXFLAGS -mthreads"
         ;;
     *cygwin*)
         poly_no_undefined=yes
+        poly_use_windowscc=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
                 OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
@@ -21811,6 +21817,12 @@ $as_echo "#define HOSTARCHITECTURE_X32 1" >>confdefs.h
                 polyarch=interpret
             fi
             ;;
+      sparc64*)
+
+$as_echo "#define HOSTARCHITECTURE_SPARC64 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
       sparc*)
 
 $as_echo "#define HOSTARCHITECTURE_SPARC 1" >>confdefs.h
@@ -21838,6 +21850,12 @@ $as_echo "#define HOSTARCHITECTURE_ARM 1" >>confdefs.h
       aarch64*)
 
 $as_echo "#define HOSTARCHITECTURE_AARCH64 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
+      hppa*)
+
+$as_echo "#define HOSTARCHITECTURE_HPPA 1" >>confdefs.h
 
             polyarch=interpret
             ;;
@@ -21874,6 +21892,12 @@ $as_echo "#define HOSTARCHITECTURE_S390X 1" >>confdefs.h
       s390*)
 
 $as_echo "#define HOSTARCHITECTURE_S390 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
+      sh*)
+
+$as_echo "#define HOSTARCHITECTURE_SH 1" >>confdefs.h
 
             polyarch=interpret
             ;;
@@ -21963,6 +21987,14 @@ fi
 else
   ARCHINTERPRET64_TRUE='#'
   ARCHINTERPRET64_FALSE=
+fi
+
+ if test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64; then
+  WINDOWS64CALLS_TRUE=
+  WINDOWS64CALLS_FALSE='#'
+else
+  WINDOWS64CALLS_TRUE='#'
+  WINDOWS64CALLS_FALSE=
 fi
 
 
@@ -22255,6 +22287,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${ARCHINTERPRET64_TRUE}" && test -z "${ARCHINTERPRET64_FALSE}"; then
   as_fn_error $? "conditional \"ARCHINTERPRET64\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WINDOWS64CALLS_TRUE}" && test -z "${WINDOWS64CALLS_FALSE}"; then
+  as_fn_error $? "conditional \"WINDOWS64CALLS\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${NATIVE_WINDOWS_TRUE}" && test -z "${NATIVE_WINDOWS_FALSE}"; then

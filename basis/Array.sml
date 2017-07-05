@@ -22,7 +22,6 @@ local
     type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
     val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store;
-    val System_loadw: word*word->word = RunCall.run_call2 POLY_SYS_load_word;
     val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
     val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg
     val System_length: word -> word = RunCall.run_call1 POLY_SYS_get_length
@@ -37,8 +36,7 @@ local
 
     (* Unsafe subscript and update functions used internally for cases
        where we've already checked the range. *)
-    fun unsafeSub(v: 'a array, i: int): 'a =
-        RunCall.unsafeCast(System_loadw (arrayAsWord v, intAsWord i))
+    fun unsafeSub(v: 'a array, i: int): 'a = RunCall.loadWord(arrayAsWord v, intAsWord i)
 
     and unsafeUpdate(v: 'a array, i: int, new: 'a): unit =
         System_setw (arrayAsWord v, intAsWord i, RunCall.unsafeCast new);
@@ -92,7 +90,7 @@ struct
     fun op sub (vec: 'a array, i: int): 'a =
         if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length(arrayAsWord vec)
         then raise General.Subscript
-        else RunCall.unsafeCast(System_loadw (arrayAsWord vec, intAsWord i))
+        else unsafeSub(vec, i)
  
     fun update (vec: 'a array, i: int, new: 'a) : unit =
         if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length(arrayAsWord vec)

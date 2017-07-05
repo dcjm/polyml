@@ -40,6 +40,7 @@ sig
     and builtIn1Ops =
         NotBoolean (* true => false; false => true - XOR *)
     |   IsTaggedValue (* Test the tag bit. *)
+    |   MemoryCellLength (* Return the length of a memory cell (heap object) *)
 
     and builtIn2Ops =
         (* Compare two words and return the result.  This is used for both
@@ -51,6 +52,10 @@ sig
     |   FixedPrecisionArith of arithmeticOperations
         (* Arithmetic operations on word values.  These do not raise Overflow. *)
     |   WordArith of arithmeticOperations
+        (* Load a word at a specific offset in a heap object.  If this is immutable and the
+           arguments are constants it can be folded at compile time since the result will
+           never change. *)
+    |   LoadWord of { isImmutable: bool }
 
     and builtIn3Ops =
         Built3PlaceHolder

@@ -268,7 +268,7 @@ struct
         end
 
         local
-            val a = makeTV()
+            val a = makeTV() and b = makeTV()
             open BuiltIns
         in
             (* isShort - test if a value is tagged rather than being an address. *)
@@ -276,8 +276,14 @@ struct
                 enterRunCall ("isShort", makePolymorphic([a], mkBuiltIn1Fn IsTaggedValue), a ->> Bool)
             (* pointer equality *)
             val () =
-                enterRunCall ("pointerEq", makePolymorphic([a],
-                              mkBuiltIn2Fn(WordComparison{test=TestEqual, isSigned=false})), a ** a ->> Bool)
+                enterRunCall ("pointerEq",
+                    makePolymorphic([a], mkBuiltIn2Fn(WordComparison{test=TestEqual, isSigned=false})), a ** a ->> Bool)
+            (* load a word. The index is in words and is always zero or positive. *)
+            val () = enterRunCall ("loadWord",
+                    makePolymorphic([a, b], mkBuiltIn2Fn(LoadWord{isImmutable=false})), a ** Word ->> b)
+            (* Load a word from an immutable.  *)
+            val () = enterRunCall ("loadWordFromImmutable",
+                    makePolymorphic([a, b], mkBuiltIn2Fn(LoadWord{isImmutable=true})), a ** Word ->> b)
         end
 
         local
@@ -765,10 +771,10 @@ struct
                                             mkEval(
                                                 TypeValue.extractEquality(mkLoadClosure 2), (* Base equality fn *)
                                                 [
-                                                    mkBuiltIn(POLY_SYS_load_word,
-                                                        [mkLoadClosure 3, mkLoadArgument 0]),
-                                                    mkBuiltIn(POLY_SYS_load_word,
-                                                        [mkLoadClosure 4, mkLoadArgument 0])
+                                                    mkBuiltIn2(BuiltIns.LoadWord{isImmutable=true},
+                                                        mkLoadClosure 3, mkLoadArgument 0),
+                                                    mkBuiltIn2(BuiltIns.LoadWord{isImmutable=true},
+                                                        mkLoadClosure 4, mkLoadArgument 0)
                                                 ]),
                                             mkEval(mkLoadClosure 1, (* Recursive call with index+1. *)
                                                 [

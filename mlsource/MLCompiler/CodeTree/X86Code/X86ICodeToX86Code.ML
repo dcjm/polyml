@@ -48,7 +48,10 @@ struct
     |   RealRegister of reg (* A real register. *)
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   MemoryLocation of { base: argument, offset: int } (* A memory location.  Could be the stack. *)
+    |   MemoryLocation of { base: argument, offset: int, index: memoryIndex } (* A memory location.  Could be the stack. *)
+
+    and memoryIndex =
+        NoMemIndex | MemIndex1 of argument | MemIndex2 of argument | MemIndex4 of argument | MemIndex8 of argument
 
     datatype iLabel = ILabel of int
     (* The reference to a condition code. *)
@@ -133,6 +136,9 @@ struct
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
 
+        (* This provides the LEA instruction which can be used for various sorts of arithmetic. *)
+    |   LoadEffectiveAddress of { base: argument, offset: int, index: memoryIndex, dest: argument }
+
     
     exception InternalError = Misc.InternalError
 
@@ -181,6 +187,21 @@ struct
         fun findLabelRef lab =
             case findLabelDef lab of l as Labels{uses, ...} => (uses := !uses + 1; l)
 
+        fun memoryAddressAsBaseOffset({offset, base=RealRegister(GenReg baseReg), index}) =
+        let
+            val mIndex =
+                case index of
+                    NoMemIndex => NoIndex
+                |   MemIndex1(RealRegister(GenReg iReg)) => Index1 iReg
+                |   MemIndex2(RealRegister(GenReg iReg)) => Index2 iReg
+                |   MemIndex4(RealRegister(GenReg iReg)) => Index4 iReg
+                |   MemIndex8(RealRegister(GenReg iReg)) => Index8 iReg
+                |   _ => raise InternalError "memoryAddressAsBaseOffset"
+        in
+            BaseOffset{base=baseReg, offset=offset, index=mIndex}
+        end
+        |   memoryAddressAsBaseOffset _ = raise InternalError "memoryAddressAsBaseOffset"
+
         (* Turn the icode into machine code.  This produces the code in reverse. *)
         fun codeGenICode([], code) = code
 
@@ -191,18 +212,14 @@ struct
 
         |   codeGenICode(
                 (* Load from memory. *)
-                MoveArgument{
-                    source=MemoryLocation{offset, base=RealRegister(GenReg baseReg)},
-                    dest=RealRegister(GenReg destReg)} :: rest, code) =
-                codeGenICode(rest, LoadMemR{source=BaseOffset{base=baseReg, offset=offset, index=NoIndex}, output=destReg} :: code)
+                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg)} :: rest, code) =
+                codeGenICode(rest, LoadMemR{source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
                 (* Store to memory *)
         |   codeGenICode(
-                MoveArgument{
-                    source=RealRegister(GenReg sourceReg),
-                    dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg)}} :: rest, code) =
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc} :: rest, code) =
                 codeGenICode(rest,
-                    StoreRegToMemory{toStore=sourceReg, address=BaseOffset{base=baseReg, offset=offset, index=NoIndex}} :: code)
+                    StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
 
                 (* Move a short constant to a register *)
         |   codeGenICode(MoveArgument {source=IntegerConstant srcValue, dest=RealRegister(GenReg destReg)} :: rest, code) =
@@ -293,7 +310,7 @@ struct
         |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=AddressConstant testVal, ...} :: rest, code) =
                 codeGenICode(rest, ArithRLongConst {opc=CMP, output=asGenReg arg1, source=testVal} :: code)
 
-        |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=MemoryLocation{offset, base}, ...} :: rest, code) =
+        |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=MemoryLocation{offset, base, index=NoMemIndex}, ...} :: rest, code) =
                 codeGenICode(rest, ArithRMem {opc=CMP, output=asGenReg arg1, offset=offset, base=asGenReg base} :: code)
 
         |   codeGenICode(WordComparison _ :: _, _) =
@@ -390,6 +407,9 @@ struct
 
         |   codeGenICode(ResetStackPtr {numWords} :: rest, code) =
                 codeGenICode(rest, ResetStack numWords :: code)
+
+        |   codeGenICode(LoadEffectiveAddress _ :: _, _) =
+                raise InternalError "codeGenICode: TODO codeGenICode LoadEffectiveAddress"
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)
         |   codeGenICode(MoveStackArgToPreg _ :: _, _) =

@@ -1488,6 +1488,51 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_fixedAdd:
+        {
+            PolyWord x = *sp++;
+            PolyWord y = *sp;
+            POLYSIGNED t = UNTAGGED(x) + UNTAGGED(y);
+            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                *sp = TAGGED(t);
+            else
+            {
+                *(--sp) = overflowPacket;
+                goto RAISE_EXCEPTION;
+            }
+            break;
+        }
+
+        case INSTR_fixedSub:
+        {
+            PolyWord x = *sp++;
+            PolyWord y = *sp;
+            POLYSIGNED t = UNTAGGED(y) - UNTAGGED(x);
+            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                *sp = TAGGED(t);
+            else
+            {
+                *(--sp) = overflowPacket;
+                goto RAISE_EXCEPTION;
+            }
+            break;
+        }
+
+        case INSTR_wordAdd:
+        {
+            PolyWord u = *sp++;
+            // Because we're not concerned with overflow we can just add the values and subtract the tag.
+            *sp = PolyWord::FromUnsigned((*sp).AsUnsigned() + u.AsUnsigned() - TAGGED(0).AsUnsigned());
+            break;
+        }
+
+        case INSTR_wordSub:
+        {
+            PolyWord u = *sp++;
+            *sp = PolyWord::FromUnsigned((*sp).AsUnsigned() - u.AsUnsigned() + TAGGED(0).AsUnsigned());
+            break;
+        }
+
         default: Crash("Unknown instruction %x\n", li);
 
         } /* switch */

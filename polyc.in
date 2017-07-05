@@ -36,7 +36,7 @@ trap 'rm -f "$TMPOBJFILE"' 0
 
 compile()
 {
-    echo "use (List.nth(CommandLine.arguments(), 2)); PolyML.export(List.nth(CommandLine.arguments(), 3), main);" | ${COMPILER} -q --error-exit  "$1" "$2"
+    echo "val () = use (List.nth(CommandLine.arguments(), 2)); val () = PolyML.export(List.nth(CommandLine.arguments(), 3), main);" | ${COMPILER} -q --error-exit  "$1" "$2"
 }
 
 link()

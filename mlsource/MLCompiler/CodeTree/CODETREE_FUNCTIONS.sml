@@ -142,6 +142,7 @@ struct
                     case oper of
                         NotBoolean => applicative
                     |   IsTaggedValue => applicative
+                    |   MemoryCellLength => applicative
             in
                 operProps andb codeProps arg1
             end
@@ -157,6 +158,8 @@ struct
                     |   WordArith ArithQuot => mayRaise (* Check this: the higher level ops check for zero. *)
                     |   WordArith ArithRem => mayRaise
                     |   WordArith _ => applicative
+                    |   LoadWord {isImmutable = true } => applicative
+                    |   LoadWord {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

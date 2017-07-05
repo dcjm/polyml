@@ -1,7 +1,6 @@
 /* -----------------------------------------------------------------*-C-*-
-   libffi 3.0.10 - Copyright (c) 2011 Anthony Green
+   libffi 3.2.1 - Copyright (c) 2011, 2014 Anthony Green
                     - Copyright (c) 1996-2003, 2007, 2008 Red Hat, Inc.
-
    Permission is hereby granted, free of charge, to any person
    obtaining a copy of this software and associated documentation
    files (the ``Software''), to deal in the Software without
@@ -9,10 +8,8 @@
    modify, merge, publish, distribute, sublicense, and/or sell copies
    of the Software, and to permit persons to whom the Software is
    furnished to do so, subject to the following conditions:
-
    The above copyright notice and this permission notice shall be
    included in all copies or substantial portions of the Software.
-
    THE SOFTWARE IS PROVIDED ``AS IS'', WITHOUT WARRANTY OF ANY KIND,
    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -21,32 +18,24 @@
    WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
    DEALINGS IN THE SOFTWARE.
-
    ----------------------------------------------------------------------- */
 
 /* -------------------------------------------------------------------
    The basic API is described in the README file.
-
    The raw API is designed to bypass some of the argument packing
    and unpacking on architectures for which it can be avoided.
-
    The closure API allows interpreted functions to be packaged up
    inside a C function pointer, so that they can be called as C functions,
    with no understanding on the client side that they are interpreted.
    It can also be used in other cases in which it is necessary to package
    up a user specified parameter and a function pointer as a single
    function pointer.
-
    The closure API must be implemented in order to get its functionality,
    e.g. for use by gij.  Routines are provided to emulate the raw API
    if the underlying platform doesn't allow faster implementation.
-
    More details on the raw and cloure API can be found in:
-
    http://gcc.gnu.org/ml/java/1999-q3/msg00138.html
-
    and
-
    http://gcc.gnu.org/ml/java/1999-q3/msg00174.html
    -------------------------------------------------------------------- */
 
@@ -58,12 +47,14 @@ extern "C" {
 #endif
 
 /* Specify which architecture libffi is configured for. */
-#if (!defined(X86_WIN32) && ! defined(X86_WIN64))
-#   ifdef _WIN64
-#       define X86_WIN64
-#   else
-#       define X86_WIN32
-#   endif
+#ifdef _WIN64
+#ifndef X86_WIN64
+#define X86_WIN64
+#endif
+#else
+#ifndef X86_WIN32
+#define X86_WIN32
+#endif
 #endif
 
 /* ---- System configuration information --------------------------------- */
@@ -72,7 +63,7 @@ extern "C" {
 
 #ifndef LIBFFI_ASM
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
 #define __attribute__(X)
 #endif
 
@@ -170,24 +161,51 @@ typedef struct _ffi_type
  #error "long size not supported"
 #endif
 
-/* These are defined in types.c */
-extern ffi_type ffi_type_void;
-extern ffi_type ffi_type_uint8;
-extern ffi_type ffi_type_sint8;
-extern ffi_type ffi_type_uint16;
-extern ffi_type ffi_type_sint16;
-extern ffi_type ffi_type_uint32;
-extern ffi_type ffi_type_sint32;
-extern ffi_type ffi_type_uint64;
-extern ffi_type ffi_type_sint64;
-extern ffi_type ffi_type_float;
-extern ffi_type ffi_type_double;
-extern ffi_type ffi_type_pointer;
+/* Need minimal decorations for DLLs to works on Windows. */
+/* GCC has autoimport and autoexport.  Rely on Libtool to */
+/* help MSVC export from a DLL, but always declare data   */
+/* to be imported for MSVC clients.  This costs an extra  */
+/* indirection for MSVC clients using the static version  */
+/* of the library, but don't worry about that.  Besides,  */
+/* as a workaround, they can define FFI_BUILDING if they  */
+/* *know* they are going to link with the static library. */
 
-#if 1
-extern ffi_type ffi_type_longdouble;
+// Poly - We always use the static library so must define FFI_BUILDING
+#define FFI_BUILDING 1
+#if defined _MSC_VER && !defined FFI_BUILDING
+#define FFI_EXTERN extern __declspec(dllimport)
+#else
+#define FFI_EXTERN extern
+#endif
+
+/* These are defined in types.c */
+FFI_EXTERN ffi_type ffi_type_void;
+FFI_EXTERN ffi_type ffi_type_uint8;
+FFI_EXTERN ffi_type ffi_type_sint8;
+FFI_EXTERN ffi_type ffi_type_uint16;
+FFI_EXTERN ffi_type ffi_type_sint16;
+FFI_EXTERN ffi_type ffi_type_uint32;
+FFI_EXTERN ffi_type ffi_type_sint32;
+FFI_EXTERN ffi_type ffi_type_uint64;
+FFI_EXTERN ffi_type ffi_type_sint64;
+FFI_EXTERN ffi_type ffi_type_float;
+FFI_EXTERN ffi_type ffi_type_double;
+FFI_EXTERN ffi_type ffi_type_pointer;
+
+#if 0
+FFI_EXTERN ffi_type ffi_type_longdouble;
 #else
 #define ffi_type_longdouble ffi_type_double
+#endif
+
+#ifdef FFI_TARGET_HAS_COMPLEX_TYPE
+FFI_EXTERN ffi_type ffi_type_complex_float;
+FFI_EXTERN ffi_type ffi_type_complex_double;
+#if 0
+FFI_EXTERN ffi_type ffi_type_complex_longdouble;
+#else
+#define ffi_type_complex_longdouble ffi_type_complex_double
+#endif
 #endif
 #endif /* LIBFFI_HIDE_BASIC_TYPES */
 
@@ -210,6 +228,20 @@ typedef struct {
   FFI_EXTRA_CIF_FIELDS;
 #endif
 } ffi_cif;
+
+#if 0
+/* Used to adjust size/alignment of ffi types.  */
+void ffi_prep_types (ffi_abi abi);
+#endif
+
+/* Used internally, but overridden by some architectures */
+ffi_status ffi_prep_cif_core(ffi_cif *cif,
+			     ffi_abi abi,
+			     unsigned int isvariadic,
+			     unsigned int nfixedargs,
+			     unsigned int ntotalargs,
+			     ffi_type *rtype,
+			     ffi_type **atypes);
 
 /* ---- Definitions for the raw API -------------------------------------- */
 
@@ -278,7 +310,12 @@ size_t ffi_java_raw_size (ffi_cif *cif);
 __declspec(align(8))
 #endif
 typedef struct {
+#if 0
+  void *trampoline_table;
+  void *trampoline_table_entry;
+#else
   char tramp[FFI_TRAMPOLINE_SIZE];
+#endif
   ffi_cif   *cif;
   void     (*fun)(ffi_cif*,void*,void**,void*);
   void      *user_data;
@@ -311,8 +348,12 @@ ffi_prep_closure_loc (ffi_closure*,
 # pragma pack 8
 #endif
 typedef struct {
+#if 0
+  void *trampoline_table;
+  void *trampoline_table_entry;
+#else
   char tramp[FFI_TRAMPOLINE_SIZE];
-
+#endif
   ffi_cif   *cif;
 
 #if !FFI_NATIVE_RAW_API
@@ -332,7 +373,12 @@ typedef struct {
 } ffi_raw_closure;
 
 typedef struct {
+#if 0
+  void *trampoline_table;
+  void *trampoline_table_entry;
+#else
   char tramp[FFI_TRAMPOLINE_SIZE];
+#endif
 
   ffi_cif   *cif;
 
@@ -388,6 +434,13 @@ ffi_status ffi_prep_cif(ffi_cif *cif,
 			ffi_type *rtype,
 			ffi_type **atypes);
 
+ffi_status ffi_prep_cif_var(ffi_cif *cif,
+			    ffi_abi abi,
+			    unsigned int nfixedargs,
+			    unsigned int ntotalargs,
+			    ffi_type *rtype,
+			    ffi_type **atypes);
+
 void ffi_call(ffi_cif *cif,
 	      void (*fn)(void),
 	      void *rvalue,
@@ -405,7 +458,7 @@ void ffi_call(ffi_cif *cif,
 #define FFI_TYPE_INT        1
 #define FFI_TYPE_FLOAT      2    
 #define FFI_TYPE_DOUBLE     3
-#if 1
+#if 0
 #define FFI_TYPE_LONGDOUBLE 4
 #else
 #define FFI_TYPE_LONGDOUBLE FFI_TYPE_DOUBLE
@@ -420,9 +473,10 @@ void ffi_call(ffi_cif *cif,
 #define FFI_TYPE_SINT64     12
 #define FFI_TYPE_STRUCT     13
 #define FFI_TYPE_POINTER    14
+#define FFI_TYPE_COMPLEX    15
 
 /* This should always refer to the last type code (for sanity checks) */
-#define FFI_TYPE_LAST       FFI_TYPE_POINTER
+#define FFI_TYPE_LAST       FFI_TYPE_COMPLEX
 
 #ifdef __cplusplus
 }

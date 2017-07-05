@@ -44,11 +44,13 @@ struct
         and builtIn1Ops =
             NotBoolean
         |   IsTaggedValue
+        |   MemoryCellLength
 
         and builtIn2Ops =
             WordComparison of { test: testConditions, isSigned: bool }
         |   FixedPrecisionArith of arithmeticOperations
         |   WordArith of arithmeticOperations
+        |   LoadWord of {isImmutable: bool }
 
         and builtIn3Ops =
             Built3PlaceHolder
@@ -63,11 +65,14 @@ struct
 
         and builtIn1Repr NotBoolean = "NotBoolean"
         |   builtIn1Repr IsTaggedValue = "IsTaggedValue"
+        |   builtIn1Repr MemoryCellLength = "MemoryCellLength"
 
         and builtIn2Repr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
         |   builtIn2Repr (FixedPrecisionArith arithOp) = (arithRepr arithOp) ^ "Fixed"
         |   builtIn2Repr (WordArith arithOp) =  (arithRepr arithOp) ^ "Word"
+        |   builtIn2Repr (LoadWord {isImmutable=true}) =  "LoadWordImmutable"
+        |   builtIn2Repr (LoadWord {isImmutable=false}) =  "LoadWordMutable"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestNotEqual       = "NotEqual"

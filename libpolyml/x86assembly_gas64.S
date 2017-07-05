@@ -213,12 +213,6 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
 #else
     subq    $(Fr_Size-40),%rsp
     movq    %rdi,%rcx                       # Argument is in %rdi
-/* ***************************************** */
-/* The location has changed.  It used to be offset -32 but that's actually where
-    %r14 is stored.  It's been changed to -48 which is where Windows stores %rdi
-    but we need the old location because old ML code for e.g. PolyFinish uses it.*/
-    movq    %rcx,-32(%rbp)                  # TEMPORARY work-around.
-/* ***************************************** */
 #endif
 
     movq    %rcx,Fr_Argument(%rbp)

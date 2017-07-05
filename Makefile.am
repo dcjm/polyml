@@ -37,7 +37,11 @@ if ARCHINTERPRET64
 POLYIMPORT = $(srcdir)/imports/polymlint64.txt
 else
 if ARCHX86_64
-POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
+if WINDOWS64CALLS
+POLYIMPORT = $(srcdir)/imports/polymlx86_64win.txt
+else
+POLYIMPORT = $(srcdir)/imports/polymlx86_64sysv.txt
+endif
 else
 endif
 endif

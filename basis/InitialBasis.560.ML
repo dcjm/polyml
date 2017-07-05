@@ -345,3 +345,13 @@ and LargeWord =
 struct
     type word = Bootstrap.word
 end;
+
+(* Extend RunCall for compatibility with 5.6.1 *)
+structure RunCall =
+struct
+    open RunCall
+    fun isShort(a:'a): bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short a
+
+    fun loadWord(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_word(a, i)
+    and loadWordFromImmutable(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_word_immut(a, i)
+end;

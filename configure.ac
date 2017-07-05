@@ -33,12 +33,14 @@ AC_CANONICAL_HOST
 # Check also for mingw in which case we want to build native Windows.
 poly_native_windows=no
 # If we are building on cygwin or mingw we need to give the -no-defined flag to
-# build a DLL.
+# build a DLL.  We also have to use Windows calling conventions rather than
+# SysV on 64-bit.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
 # CXXFLAGS before the LIBTOOL macros.
 # When building native Windows set the flag to build the Unicode version and
 # the API version to at least Windows Vista to allow condition variables.
 poly_no_undefined=no
+poly_use_windowscc=no
 case "${host_os}" in
     darwin*)
         AC_SUBST([OSFLAG], [-DMACOSX])
@@ -51,11 +53,13 @@ case "${host_os}" in
         AC_CHECK_TOOL(WINDRES, windres)
         poly_native_windows=yes
         poly_no_undefined=yes
+        poly_use_windowscc=yes
         CFLAGS="$CFLAGS -mthreads"
         CXXFLAGS="$CXXFLAGS -mthreads"
         ;;
     *cygwin*)
         poly_no_undefined=yes
+        poly_use_windowscc=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
                 AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
@@ -548,6 +552,7 @@ AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
 AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4])
 AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8])
+AM_CONDITIONAL([WINDOWS64CALLS], [test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64])
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])

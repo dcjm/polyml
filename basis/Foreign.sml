@@ -797,7 +797,18 @@ struct
         end
 
         local
-            fun load(m: voidStar): int = Word.toIntX(get16(m, 0w0))
+            (* Because the word length is greater than the length returned by
+               get16 we have to do something special to get the sign bit correct.
+               That isn't necessary in the other cases. *)
+            fun load(m: voidStar): int =
+            let
+                (* Could be done with shifts *)
+                val r = Word.toInt(get16(m, 0w0))
+            in
+                if r >= 32768
+                then r - 65536
+                else r
+            end
             fun store(m: voidStar, i: int) =
                 (set16(m, 0w0, Word.fromInt(checkRangeShort(i, ~32768, 32767))); noFree)
         in
