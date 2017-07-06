@@ -23,8 +23,6 @@ sig
 
     type code
 
-    val sameCode: code * code -> bool
-
     (* Registers. *)
     datatype genReg = GeneralReg of Word8.word * bool
     and fpReg = FloatingPtReg of Word8.word
@@ -35,7 +33,7 @@ sig
     |   FPReg of fpReg
     |   XMMReg of xmmReg
 
-    val isX64: bool
+    val isX64: bool and is32bit: LargeInt.int -> bool
 
     val eax: genReg and ebx: genReg and ecx: genReg and edx: genReg
     and edi: genReg and esi: genReg and esp: genReg and ebp: genReg
@@ -185,8 +183,6 @@ sig
     val codeCreate: string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
     val createCodeSegment: operations * code -> address
-
-    val procName:   code -> string      (* Name of the procedure. *)
 
     val memRegLocalMPointer: int
     and memRegHandlerRegister: int

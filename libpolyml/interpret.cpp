@@ -1438,6 +1438,16 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_clearMutable:
+        {
+            PolyObject *obj = (*sp).AsObjPtr();
+            POLYUNSIGNED lengthW = obj->LengthWord();
+            /* Clear the mutable bit. */
+            obj->SetLengthWord(lengthW & ~_OBJ_MUTABLE_BIT);
+            *sp = Zero;
+            break;
+        }
+
         case INSTR_equalWord:
         {
             PolyWord u = *sp++;
@@ -1546,6 +1556,10 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_getThreadId:
+            *(--sp) = this->threadObject;
+            break;
+
         case INSTR_loadMLWord:
         {
             // The values on the stack are base, index and offset.
@@ -1567,6 +1581,27 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_storeMLWord: 
+        {
+            PolyWord toStore = *sp++;
+            POLYUNSIGNED offset = UNTAGGED(*sp++);
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            PolyObject *p = (PolyObject*)((*sp).AsCodePtr() + offset);
+            p->Set(index, toStore);
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_storeMLByte: 
+        {
+            POLYUNSIGNED toStore = UNTAGGED(*sp++);
+            POLYUNSIGNED offset = UNTAGGED(*sp++);
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsCodePtr();
+            p[index+offset] = (byte)toStore;
+            *sp = Zero;
+            break; 
+        }
 
         default: Crash("Unknown instruction %x\n", li);
 

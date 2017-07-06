@@ -307,7 +307,7 @@ struct
                                            better when we're using equality for pattern matching since it
                                            gets the length of the constant string.  It also works better
                                            for the, to me, more natural ordering of variable=constant. *)
-                                        mkBuiltIn(POLY_SYS_string_length, [mkLoadArgument 1])
+                                        mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 1)
                                         )
                                 ])
                         )

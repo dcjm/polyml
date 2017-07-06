@@ -35,6 +35,7 @@ sig
         sig
         datatype array = Array of word*address
         eqtype vector
+        val wVecLength: vector -> word
         end
     val w8vectorToString: Word8Array.vector -> string
     and w8vectorFromString: string -> Word8Array.vector
@@ -66,6 +67,10 @@ struct
         val () = addPrettyPrinter prettyAddress
     end
 
+    (* This is always a short non-negative integer so can be cast as word or int. *)
+    fun sizeAsWord(s: string): word =
+        if RunCall.isShort s then 0w1 else String.lengthWordAsWord s
+
     (* Provide the implementation of CharArray.array, Word8Array.array
        and Word8Array.vector (= Word8Vector.vector) here so that they
        are available to the IO routines. *)
@@ -83,6 +88,7 @@ struct
            define it as "string" here so that it inherits the same equality function.
            The representation is assumed by the RTS. *)
         type vector = string
+        val wVecLength: vector -> word = sizeAsWord
     end
 
     (* Identity functions to provide convertions. *)
@@ -115,9 +121,6 @@ struct
         (* Get the maximum allocation size.  This is the maximum value that can
            fit in the length field of a segment. *)
         val maxAllocation = callProcessEnv (100, ())
-
-        (* This is always a short non-negative integer so can be cast as word or int. *)
-        val sizeAsWord: string -> word = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
 
         (* Check that we have a short int.  This is only necessary if
            int is arbitrary precision.  If int is fixed precision it will

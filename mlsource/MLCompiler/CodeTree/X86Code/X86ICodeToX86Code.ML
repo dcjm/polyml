@@ -259,6 +259,18 @@ struct
         |   codeGenICode(MoveArgument {source=AddressConstant srcValue, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
                 codeGenICode(rest, MoveLongConstR{source=srcValue, output=destReg} :: code)
 
+                (* Store a short constant to memory *)
+        |   codeGenICode(
+                MoveArgument{ source=IntegerConstant srcValue, dest=MemoryLocation mLoc, kind=WordToWord} :: rest, code) =
+                codeGenICode(rest,
+                    StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset mLoc} :: code)
+
+                (* Store a long constant to memory *)
+        |   codeGenICode(
+                MoveArgument{ source=AddressConstant srcValue, dest=MemoryLocation mLoc, kind=WordToWord} :: rest, code) =
+                codeGenICode(rest,
+                    StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset mLoc} :: code)
+
         |   codeGenICode(MoveArgument _ :: _, _) =
                 raise InternalError "codeGenICode: TODO MoveArgument"
 

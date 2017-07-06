@@ -66,7 +66,13 @@ struct
     val exp2_31 =        0x80000000: LargeInt.int
     val exp2_56 = 0x100000000000000: LargeInt.int
     val exp2_64 = 0x10000000000000000: LargeInt.int
-  
+
+    (* Returns true if this a 32-bit machine or if the constant is within 32-bits.
+       This is exported to the higher levels.  N.B.  The test for not isX64
+       avoids a significant overhead with arbitrary precision arithmetic on
+       X86/32. *)
+    fun is32bit v = not isX64 orelse ~exp2_31 <= v andalso v < exp2_31
+
     (* tag a short constant *)
     fun tag c = 2 * c + 1;
 
@@ -174,8 +180,7 @@ struct
     }
 
     (* Exported functions *)
-    fun procName       (Code {procName,...})       = procName
-    and lowLevelOptimise(Code{lowLevelOptimise, ...}) = lowLevelOptimise
+    fun lowLevelOptimise(Code{lowLevelOptimise, ...}) = lowLevelOptimise
 
   (* EBP/RBP points to a structure that interfaces to the RTS.  These are
      offsets into that structure.  *)
@@ -207,10 +212,6 @@ struct
 
     val initialCodeSize = 0w15 (* words. Initial size of segment. *)
 
-    (* Test for identity of the code segments by testing whether
-       the "ic" ref is the same. N.B. NOT its contents. *)
-    fun sameCode(Code{ic=a, ...}, Code{ic=b, ...}) = a=b;
-  
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
     let
@@ -368,9 +369,7 @@ struct
     end
 
     fun gen32s (ival: LargeInt.int, Code {ic, codeVec, ...}) : unit =
-    (* We really only need to check this on the 64-bit machine and it would otherwise
-       be a hot-spot for arbitrary precision arithmetic on 32-bit m/c. *)
-    if not isX64 orelse ~exp2_31 <= ival andalso ival < exp2_31
+    if is32bit ival
     then
     let
         val icVal = !ic;
@@ -1510,7 +1509,7 @@ SS-relative addressing modes:
        genOpRegPlus2(Group1_8_A, rd, arithOpToWord opn, cvec);
        gen8s (LargeInt.toInt imm, cvec)
     )
-    else if not isX64 orelse (~exp2_31 <= imm andalso imm < exp2_31)
+    else if is32bit imm
     then (* Need 32 bit immediate. *)
     (
        genOpRegPlus2(Group1_32_A, rd, arithOpToWord opn, cvec);
@@ -2255,7 +2254,7 @@ SS-relative addressing modes:
 			   fit in 32-bit mode so we avoid an unnecessary long integer test. *)
 			(* We don't need to consider any possible overflow in the execution 
 			   because we've already checked that the value is within the range. *)
-			if isX64 andalso (adjustment < ~exp2_31 orelse adjustment >= exp2_31)
+			if is32bit adjustment
 			then
 			(
                 genImmed(ADD, r2, adjustment, code);

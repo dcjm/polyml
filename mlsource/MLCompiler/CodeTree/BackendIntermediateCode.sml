@@ -47,6 +47,7 @@ struct
         |   MemoryCellLength
         |   MemoryCellFlags
         |   ClearMutableFlag
+        |   StringLengthWord
 
         and builtIn2Ops =
             WordComparison of { test: testConditions, isSigned: bool }
@@ -72,6 +73,7 @@ struct
         |   builtIn1Repr MemoryCellLength = "MemoryCellLength"
         |   builtIn1Repr MemoryCellFlags = "MemoryCellFlags"
         |   builtIn1Repr ClearMutableFlag = "ClearMutableFlag"
+        |   builtIn1Repr StringLengthWord = "StringLengthWord"
 
         and builtIn2Repr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")

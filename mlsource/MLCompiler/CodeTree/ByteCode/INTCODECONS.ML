@@ -391,17 +391,18 @@ struct
     val opcode_loadC64           = Opcode 0xe0
     val opcode_loadCFloat        = Opcode 0xe1
     val opcode_loadCDouble       = Opcode 0xe2
-    val opcode_storeMLByte       = Opcode 0xe3
-    val opcode_storeC8           = Opcode 0xe4
-    val opcode_storeC16          = Opcode 0xe5
-    val opcode_storeC32          = Opcode 0xe6
-    val opcode_storeC64          = Opcode 0xe7
-    val opcode_storeCFloat       = Opcode 0xe8
-    val opcode_storeCDouble      = Opcode 0xe9
-    val opcode_blockMoveWord     = Opcode 0xea
-    val opcode_blockMoveByte     = Opcode 0xeb
-    val opcode_blockEqualByte    = Opcode 0xec
-    val opcode_blockCompareByte  = Opcode 0xed
+    val opcode_storeMLWord       = Opcode 0xe3
+    val opcode_storeMLByte       = Opcode 0xe4
+    val opcode_storeC8           = Opcode 0xe5
+    val opcode_storeC16          = Opcode 0xe6
+    val opcode_storeC32          = Opcode 0xe7
+    val opcode_storeC64          = Opcode 0xe8
+    val opcode_storeCFloat       = Opcode 0xe9
+    val opcode_storeCDouble      = Opcode 0xea
+    val opcode_blockMoveWord     = Opcode 0xeb
+    val opcode_blockMoveByte     = Opcode 0xec
+    val opcode_blockEqualByte    = Opcode 0xed
+    val opcode_blockCompareByte  = Opcode 0xee
  
     (* val opcode_last              = opcode_ioVec_225; *)
 
@@ -607,6 +608,7 @@ struct
         val () = repUpdate(opcode_loadC64, "loadC64")
         val () = repUpdate(opcode_loadCFloat, "loadCFloat")
         val () = repUpdate(opcode_loadCDouble, "loadCDouble")
+        val () = repUpdate(opcode_storeMLWord, "storeMLWord")
         val () = repUpdate(opcode_storeMLByte, "storeMLByte")
         val () = repUpdate(opcode_storeC8, "storeC8")
         val () = repUpdate(opcode_storeC16, "storeC16")

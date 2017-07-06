@@ -110,7 +110,6 @@ struct
   val POLY_SYS_stderr              = 202  (* SPF 10/11/1998 *)
   val POLY_SYS_is_big_endian       = 213  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_shift_right_word    = 216
-  val POLY_SYS_string_length       = 223
   val POLY_SYS_touch_final         = 228
   val POLY_SYS_mul_word            = 238  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_div_word            = 241  (* Reinstated DCJM 9/10/99 *)

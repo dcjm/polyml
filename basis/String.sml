@@ -41,9 +41,6 @@ local
     (* We use the same representation for a char and a single-character string. *)
     val charAsString: char->string = RunCall.unsafeCast
     val singleCharStringAsChar: string->char = RunCall.unsafeCast
-        
-    (* This is always a short non-negative integer so can be cast as word or int. *)
-    val sizeAsWord: string -> word = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
 
     local
         val mem_move: string*word*string*word*word -> unit = 
@@ -187,7 +184,8 @@ local
         and elem = char
         and char = char
 
-        val size : string -> int = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
+        (* We don't have Word.toInt yet so we have to use a cast. *)
+        val size : string -> int = RunCall.unsafeCast o LibrarySupport.sizeAsWord
     
         (* A one character string is simply the character itself. *)
         val str: char ->string = charAsString

@@ -698,8 +698,12 @@ struct
 
         local
             val stringEnv = makeStructure(globalEnv, "String")
+            (* This isn't exactly "size" because it doesn't check for single character strings. *)
+            val lengthWordAsWord =
+                mkGvar ("lengthWordAsWord", String ->> Word, mkBuiltIn1Fn BuiltIns.StringLengthWord, declInBasis)
         in
             val () = #enterType stringEnv ("string", TypeConstrSet(stringConstr, []))
+            val () = #enterVal stringEnv ("lengthWordAsWord", lengthWordAsWord)
         end
 
         local

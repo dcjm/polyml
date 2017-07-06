@@ -458,7 +458,11 @@ struct
                 genOpcode(opcode_equalWord, cvec)
             end
 
-        |   BICBuiltIn0 { oper } => raise InternalError "intgcode: BICBuiltIn0"
+        |   BICBuiltIn0 { oper=BuiltIns.CurrentThreadId } =>
+            (
+                genOpcode(opcode_getThreadId, cvec);
+                incsp()
+            )
 
         |   BICBuiltIn1 { oper, arg1 } =>
             let
@@ -470,6 +474,7 @@ struct
                 |   IsTaggedValue => genOpcode(opcode_isTagged, cvec)
                 |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
                 |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
+                |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
             end
 
         |   BICBuiltIn2 { oper=BuiltIns.LoadWord _, arg1, arg2 } =>
@@ -532,7 +537,35 @@ struct
                 decsp() (* Removes one item from the stack. *)
             end
 
-        |   BICBuiltIn3 { oper, arg1, arg2, arg3 } => raise InternalError "intgcode: BICBuiltIn3"
+        |   BICBuiltIn3 { oper=BuiltIns.StoreWord, arg1, arg2, arg3 } =>
+            let
+                (* This is temporary.  The store instructions take four arguments:
+                   base address, index, offset and value to store.  This does not currently use the
+                   offset. *)
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+                val () = pushConst (toMachineWord 0, cvec)
+                val () = incsp()
+                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
+            in
+                genOpcode(opcode_storeMLWord, cvec);
+                decsp(); decsp(); decsp()
+            end
+
+        |   BICBuiltIn3 { oper=BuiltIns.StoreByte, arg1, arg2, arg3 } =>
+            let
+                (* This is temporary.  The store instructions take four arguments:
+                   base address, index, offset and value to store.  This does not currently use the
+                   offset. *)
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+                val () = pushConst (toMachineWord 0, cvec)
+                val () = incsp()
+                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
+            in
+                genOpcode(opcode_storeMLByte, cvec);
+                decsp(); decsp(); decsp()
+            end
 
         |   BICBuiltIn4 { oper, arg1, arg2, arg3, arg4 } => raise InternalError "intgcode: BICBuiltIn4"
 

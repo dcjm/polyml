@@ -43,7 +43,7 @@ struct
             dest=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex}, kind=WordToWord}]
 
     val raxAsArg = RealRegister(GenReg eax) and rbxAsArg = RealRegister(GenReg ebx)
-    and rcxAsArg = RealRegister(GenReg ecx)
+    and rcxAsArg = RealRegister(GenReg ecx) and rsiAsArg = RealRegister(GenReg esi)
 
     (* Generally we have an offset in words and no index register. *)
     fun wordOffsetAddress(offset, baseReg) =
@@ -82,13 +82,29 @@ struct
         fun findEntry(reg, {valueStack, ...}) = findE(reg, valueStack)
     end
 
-    fun loadSource(source, dest, state) =
-        case findEntry (source, state) of
+    fun loadSource(PReg(src, PRegGeneral), dest, state) =
+    (
+        case findEntry (src, state) of
             InRax =>
                 if dest = eax
                 then []
                 else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest), kind=WordToWord}]
         |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
+    )
+
+    |   loadSource(src as AddressConstant _, dest, _) =
+            [MoveArgument{ source= src, dest=RealRegister(GenReg dest), kind=WordToWord}]
+    |   loadSource(src as IntegerConstant _, dest, _) =
+            [MoveArgument{ source= src, dest=RealRegister(GenReg dest), kind=WordToWord}]
+
+    |   loadSource(MemoryLocation{ base, offset, index=NoMemIndex }, dest, state) =
+            (* Use the destination register as a base address. *)
+            MoveArgument {
+                source=MemoryLocation {base=RealRegister(GenReg dest), offset=offset, index=NoMemIndex },
+                dest=RealRegister(GenReg dest), kind=WordToWord} ::
+                    loadSource(base, dest, state)
+
+    |   loadSource _ = raise InternalError "loadSource"
    
     fun clearCC({valueStack, untaggedRegs, ...}:normalState): normalState =
         {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=untaggedRegs}
@@ -421,10 +437,10 @@ struct
             (* Create a new Preg containing the contents of another Preg.
                We only ever want the top item to be in RAX so we push the top of the stack. *)
         |   codeICode{
-                icode=MoveArgument{source=PReg(srcReg, PRegGeneral), dest=PReg(destReg, PRegGeneral), kind=WordToWord} :: rest, state=NormalState state, code, context} =
+                icode=MoveArgument{source as PReg(_, PRegGeneral), dest=PReg(destReg, PRegGeneral), kind=WordToWord} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
-                val load = loadSource(srcReg, eax, pushedState)
+                val load = loadSource(source, eax, pushedState)
             in
                 codeICode{
                     icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
@@ -480,22 +496,23 @@ struct
 
             (* Load a value from a piece of memory, typically the offset in a tuple. *)
         |   codeICode{
-                icode=MoveArgument{ source=MemoryLocation{offset, base=PReg(bReg, PRegGeneral), index=NoMemIndex}, dest=PReg(destReg, dType), kind} :: rest,
+                icode=MoveArgument{ source=MemoryLocation{offset, base as PReg(_, PRegGeneral), index=NoMemIndex}, dest=PReg(destReg, dType), kind} :: rest,
                 state=NormalState state, code, context} =
             let
-                (* Currently we always make a new preg for the base and that is
-                   on the top of the state.  We can just remove it and replace it
-                   with the result. *)
-                val startState = checkTopInRax(state, bReg)
+                (* This previously replaced the top.  Pushing the previous value is safer but means
+                   values accumulate on the stack. *)
+                val (pushedState, pushCode) = pushRax state
+                val load = loadSource(base, eax, pushedState)
                 val (resultState, resultReg) =
                     case dType of
-                        PRegGeneral => (addRaxToState(startState, destReg), raxAsArg)
+                        PRegGeneral => (addRaxToState(pushedState, destReg), raxAsArg)
                     |   PRegUntagged =>
-                            ({valueStack= #valueStack startState, ccState= #ccState startState,
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
                                 untaggedRegs =[{ureg=destReg, reg=GenReg ecx}]}, rcxAsArg)
             in
                 codeICode{icode=rest, state=NormalState resultState,
-                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=resultReg, kind=kind} :: code, context=context}
+                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=resultReg, kind=kind} :: 
+                        load @ pushCode @ code, context=context}
             end
 
         |   codeICode{
@@ -595,6 +612,46 @@ struct
                 codeICode{
                     icode=rest, state=NormalState pushedState,
                     code=store @ loadBaseToEax @ loadValueToEbx @ pushCode @ code, context=context}
+            end
+
+            (* Store a constant in memory. *)
+        |   codeICode{icode=MoveArgument{ source=AddressConstant value, dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+                      state=NormalState state, code, context} =
+            let
+                val (pushedState, pushCode) = pushRax state
+                val baseOnStack = 
+                    case findEntry (argToPReg base, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val loadBaseToEax = loadStack(eax, (stackPtr pushedState - baseOnStack -1) * wordSize)
+                val store =
+                    [MoveArgument{
+                        source=AddressConstant value,
+                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind}]
+            in
+                codeICode{
+                    icode=rest, state=NormalState pushedState,
+                    code=store @ loadBaseToEax @ pushCode @ code, context=context}
+            end
+
+            (* Store a constant in memory. *)
+        |   codeICode{icode=MoveArgument{ source=IntegerConstant value, dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+                      state=NormalState state, code, context} =
+            let
+                val (pushedState, pushCode) = pushRax state
+                val baseOnStack = 
+                    case findEntry (argToPReg base, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val loadBaseToEax = loadStack(eax, (stackPtr pushedState - baseOnStack -1) * wordSize)
+                val store =
+                    [MoveArgument{
+                        source=IntegerConstant value,
+                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind}]
+            in
+                codeICode{
+                    icode=rest, state=NormalState pushedState,
+                    code=store @ loadBaseToEax @ pushCode @ code, context=context}
             end
 
         |   codeICode{icode=MoveArgument{ source=PReg(valueReg, PRegGeneral), dest=MemoryLocation {offset, base, index}, kind} :: rest,
@@ -699,41 +756,35 @@ struct
             let
                 val destReg = argToPReg dest
                 val (pushedState, pushCode) = pushRax state
-                (* We should find the stack arguments occupy the immediately preceding
-                   entries on the stack.  If not we've got a problem. *)
-                val numStackArgs = List.length stackArgs
-                val currentSp = stackPtr pushedState
+                (* In an earlier version we assumed that the values were actually pushed to
+                   the stack in sequence.  That's no longer true. Explicitly push the
+                   stack arguments. *)
+                local
+                    fun pushAllArgs ([], state, code) = (state, code)
+                    |   pushAllArgs (arg::args, state as {valueStack, ccState, untaggedRegs}, code) =
+                        let
+                            (* TODO: We can push constants and memory addresses directly without loading
+                               them into a register. *)
+                            val load = loadSource(arg, eax, state)
+                            val sp = stackPtr state
+                            val newState =
+                                {valueStack={preg=0, loc=OnStack sp} :: valueStack, ccState=ccState, untaggedRegs=untaggedRegs}
+                        in
+                            pushAllArgs(args, newState, PushValue{arg=raxAsArg} :: load @ code)
+                        end
+                in
+                    val (afterArgs, argCode) = pushAllArgs (stackArgs, pushedState, [])
+                end
 
-                fun checkStackArg ([], _) = ()
-                |   checkStackArg (sa::args, num) =
-                    let
-                        val e = findEntry(argToPReg sa, pushedState)
-                    in
-                        case e of
-                            InRax => raise InternalError "checkStackArg"
-                        |   OnStack s => if s = num then () else raise InternalError "checkStackArg";
-                        checkStackArg(args, num+1)
-                    end
-                val () = checkStackArg(stackArgs, currentSp-numStackArgs)
-                
                 (* Move the register arguments into the correct real registers. *)
-                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(argToPReg pr, gr, pushedState)) [] regArgs
-                
+                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(pr, gr, afterArgs)) [] regArgs
                 (* After the call the stack arguments will have been removed by the caller. *)
-                (* We can just drop the stack args from the state.  We've checked them already.
-                   Actually, we haven't checked that they were immediately preceding on this state list. *)
-                val returnState = List.drop(#valueStack pushedState, numStackArgs)
-                (* We haven't actually checked that the entries we're dropping really
-                   are the register args. *)
-                val poppedState = {valueStack=List.drop(returnState, List.length regArgs), ccState= CCIndeterminate, untaggedRegs=[]}
-                (* Add the result value in Rax to the state *)
-                val (finalState, stackReset) =
-                    resetStack(addRaxToState({valueStack=returnState, ccState= CCIndeterminate, untaggedRegs=[]}, destReg), poppedState, destReg)
+                val returnState = addRaxToState({valueStack= #valueStack pushedState, ccState= CCIndeterminate, untaggedRegs=[]}, destReg)
                 val functionCode =
-                    stackReset @ [FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind}] @
-                        doLoad @ pushCode @ code
+                    FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
+                        doLoad @ argCode @ pushCode @ code
             in
-                codeICode{icode=rest, state=NormalState finalState, code=functionCode, context=context}
+                codeICode{icode=rest, state=NormalState returnState, code=functionCode, context=context}
             end
 
             (* Jump to a function.  The arguments have to be moved into the space currently used
@@ -748,8 +799,8 @@ struct
                    they're lower down the stack and we could overwrite them if we wait. *)
                 (* Load until we've done all the arguments or all the registers whichever is earlier.
                    This includes the closure register. *)
-                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(argToPReg pr, gr, pushedState)) [] regArgs
-                
+                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(pr, gr, pushedState)) [] regArgs
+
                 (* Load the return address.  This could be overwritten by an argument. *)
                 val loadReturn = loadStack(edi, currentSp * wordSize)
 
@@ -758,8 +809,31 @@ struct
                 val argOffset = currentSp + currentStackArgs - numArgsToMove
                 fun copyArgs (_, nil) = []
                 |   copyArgs (n, r :: rl) =
+                    let
                         (* N.B. This is reversed *)
-                        copyArgs(n-1, rl) @ storeMemory(esi, esp, (argOffset+n)*wordSize) @ loadSource(argToPReg r, esi, pushedState)
+                        val dest = MemoryLocation{base=RealRegister(GenReg esp), offset=(argOffset+n)*wordSize, index=NoMemIndex}
+                        (* If this is a 32-bit constant we can do a direct memory move. Othewise load
+                           it into a register.  It might be easier to do some of this in the codetree
+                           translation.  Treating all constants this way saves loading them into
+                           "registers" in order to save the values. *)
+                        val copy =
+                            case r of
+                                c as IntegerConstant value =>
+                                    if is32bit value
+                                    then [MoveArgument{source=c, dest=dest, kind=WordToWord}]
+                                    else [MoveArgument{source=rsiAsArg, dest=dest, kind=WordToWord},
+                                          MoveArgument{source=c, dest=rsiAsArg, kind=WordToWord}]
+                            |   c as AddressConstant _ =>
+                                    if isX64
+                                    then [MoveArgument{source=rsiAsArg, dest=dest, kind=WordToWord},
+                                          MoveArgument{source=c, dest=rsiAsArg, kind=WordToWord}]
+                                    else [MoveArgument{source=c, dest=dest, kind=WordToWord}]
+                           |    r => MoveArgument{source=rsiAsArg, dest=dest, kind=WordToWord} ::
+                                        loadSource(r, esi, pushedState)
+                    in
+                        copyArgs(n-1, rl) @ copy
+                    end
+
                 val moveArgs = copyArgs(numArgsToMove, stackArgs)
                 val storeReturn = storeMemory(edi, esp, argOffset*wordSize)
                 val functionCode =
@@ -799,7 +873,7 @@ struct
                    MoveArgument because the destination already exists. *)
                 fun moveArg{source, loopReg} =
                 let
-                    val load = loadSource(argToPReg source, eax, state)
+                    val load = loadSource(source, eax, state)
                     val store =
                         case findEntry (argToPReg loopReg, state) of
                             OnStack s => storeMemory(eax, esp, (stackPtr state - s - 1) * wordSize)
@@ -821,8 +895,7 @@ struct
                Since this exits we can ignore any further code and return the code and state. *)
         |   codeICode{icode=RaiseExceptionPacket{packet} :: rest, state=NormalState state, code, context} =
             let
-                val pktReg = argToPReg packet
-                val load = loadSource(pktReg, eax, state)
+                val load = loadSource(packet, eax, state)
             in
                 codeICode{icode=rest, state=Exited, code=RaiseExceptionPacket {packet=raxAsArg } :: load @ code, context=context}
             end
@@ -866,7 +939,7 @@ struct
         |   codeICode{icode=LockMutable{ addr } :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
-                val load = loadSource(argToPReg addr, eax, pushedState)
+                val load = loadSource(addr, eax, pushedState)
                 val lockCode = LockMutable {addr=raxAsArg} :: (load @ pushCode)
                 val resultState = clearCC pushedState (* May affect the CC *)
             in
@@ -947,7 +1020,7 @@ struct
 
         |   codeICode{icode=UntagValue { source, dest, isSigned } :: rest, state=NormalState state, code, context} =
             let
-                val sReg = argToPReg source and dReg = argToUReg dest
+                val dReg = argToUReg dest
                 val (pushedState, pushCode) = pushRax state (* Simplifies things *)
                 (* Find a spare untagged register. *)
                 val {valueStack, untaggedRegs, ...} = pushedState
@@ -957,7 +1030,7 @@ struct
                     |   [_] => edx
                     |   _ => raise InternalError "codeICode: UntagValue"
                 val resReg = RealRegister(GenReg spareReg)
-                val loadCode = loadSource(sReg, spareReg, pushedState)
+                val loadCode = loadSource(source, spareReg, pushedState)
                 val resultState =
                     {valueStack= valueStack, ccState= CCIndeterminate, untaggedRegs ={ureg=dReg, reg=GenReg spareReg} :: untaggedRegs}
             in

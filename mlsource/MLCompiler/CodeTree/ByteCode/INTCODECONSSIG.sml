@@ -115,6 +115,7 @@ sig
     val opcode_loadC64: opcode
     val opcode_loadCFloat: opcode
     val opcode_loadCDouble: opcode
+    val opcode_storeMLWord: opcode
     val opcode_storeMLByte: opcode
     val opcode_storeC8: opcode
     val opcode_storeC16: opcode

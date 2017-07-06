@@ -121,6 +121,7 @@ struct
                         (* MemoryCellFlags could return a different result if a mutable cell was locked. *)
                     |   MemoryCellFlags => applicative
                     |   ClearMutableFlag => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
+                    |   StringLengthWord => applicative
             in
                 operProps andb codeProps arg1
             end

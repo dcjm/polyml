@@ -45,8 +45,8 @@ local
 
     val alloc = LibrarySupport.allocBytes
     
-    val vecLength: vector -> int = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length;
-    val wVecLength: vector -> word = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length;
+    val wVecLength: vector -> word = LibrarySupport.Word8Array.wVecLength
+    val vecLength: vector -> int = Word.toInt o wVecLength
 
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
@@ -97,7 +97,7 @@ in
             VectorOperations(
                 struct
                     type vector = vector and elem = elem
-                    val length = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
+                    val length = wVecLength
                     fun unsafeSub (s, i) =
                         if System_isShort s then RunCall.unsafeCast s else RunCall.loadByteFromImmutable(s, i + wordSize);
                     fun unsafeSet _ = raise Fail "Should not be called"

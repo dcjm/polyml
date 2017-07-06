@@ -32,7 +32,7 @@ sig
     |   FPReg of fpReg
     |   XMMReg of xmmReg
 
-    val isX64: bool
+    val isX64: bool and is32bit: LargeInt.int -> bool
 
     val eax: genReg and ebx: genReg and ecx: genReg and edx: genReg
     and edi: genReg and esi: genReg and esp: genReg and ebp: genReg
