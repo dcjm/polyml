@@ -181,6 +181,12 @@ sig
            version. *)
     |   Multiplication of { resultReg: argument, operand1: argument, operand2: argument, ccRef: ccRef }
 
+        (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
+           puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
+           these by pRegs. *)
+    |   Division of { isSigned: bool, dividend: argument, divisor: argument,
+                      quotient: argument, remainder: argument }
+
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 

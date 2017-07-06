@@ -445,10 +445,8 @@ struct
     infix 7 quot rem
 
     local
-        val fquot: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_quot
-        val frem: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_rem
-        val fdiv: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_div
-        val fmod: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_mod
+        val fquot: int * int -> int = op quot
+        val frem: int * int -> int = op rem
     in
         fun _ quot 0 = raise Div
         |   x quot y = 
@@ -462,16 +460,36 @@ struct
         fun _ rem 0 = raise Div
         |   x rem y = frem (x, y)
         
+        (* TODO: We should implement div and mod as built-ins because then they
+           can access the remainder and quotient directly *)
+        
         (* mod adjusts the result of rem to give the correcly signed result. *)
         fun _ mod 0 = raise Div
-        |   x mod y = fmod (x,y)
+        |   x mod y =
+            let
+                val remainder = frem(x, y)
+            in
+                if remainder = 0
+                then 0 (* If the remainder was zero the result is zero. *)
+                else if (remainder < 0) = (y < 0)
+                then remainder (* If the signs are the same there's no adjustment. *)
+                else remainder + y (* Have to add in the divisor. *)
+            end
 
         (* div adjusts the result to round towards -infinity. *)
         fun _ div 0 = raise Div
         |   x div y =
             if y = ~1 andalso x = smallestInt
             then raise Overflow
-            else fdiv(x, y)
+            else
+            let
+                val quotient = fquot(x, y)
+                and remainder = frem(x, y)
+            in
+                if remainder = 0 orelse (remainder < 0) = (y < 0)
+                then quotient
+                else quotient-1
+            end
     end
 
     fun compare (i, j) =

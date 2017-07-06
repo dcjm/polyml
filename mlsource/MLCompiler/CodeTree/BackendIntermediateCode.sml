@@ -55,6 +55,7 @@ struct
         |   WordArith of arithmeticOperations
         |   LoadWord of {isImmutable: bool }
         |   LoadByte of { isImmutable: bool }
+        |   SetStringLengthWord
 
         and builtIn3Ops =
             StoreWord
@@ -83,6 +84,7 @@ struct
         |   builtIn2Repr (LoadWord {isImmutable=false}) =  "LoadWordMutable"
         |   builtIn2Repr (LoadByte {isImmutable=true}) =  "LoadByteImmutable"
         |   builtIn2Repr (LoadByte {isImmutable=false}) =  "LoadByteMutable"
+        |   builtIn2Repr SetStringLengthWord = "SetStringLengthWord"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestNotEqual       = "NotEqual"

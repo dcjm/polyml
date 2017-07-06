@@ -526,10 +526,12 @@ struct
 
                 |   FixedPrecisionArith ArithAdd => genOpcode(opcode_fixedAdd, cvec)
                 |   FixedPrecisionArith ArithSub => genOpcode(opcode_fixedSub, cvec)
+                |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)
                 |   FixedPrecisionArith _ => raise InternalError "TODO: FixedPrecisionArith"
 
                 |   WordArith ArithAdd => genOpcode(opcode_wordAdd, cvec)
                 |   WordArith ArithSub => genOpcode(opcode_wordSub, cvec)
+                |   WordArith ArithMult => genOpcode(opcode_wordMult, cvec)
                 |   WordArith _ => raise InternalError "TODO: WordArith"
                 
                 |   LoadWord _ => raise InternalError "LoadWord"

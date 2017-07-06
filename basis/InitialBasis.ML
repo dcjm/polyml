@@ -41,10 +41,10 @@ struct
     (* These are replaced later on.  We need some of these for e.g. String
        They neither check for overflow nor are they the correct ML definitions. *)
     local
-        (*val q: FixedInt.int * FixedInt.int -> FixedInt.int = quot
-        val r: FixedInt.int * FixedInt.int -> FixedInt.int = rem*)
-        val q: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_quot
-        val r: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_rem
+        val q: FixedInt.int * FixedInt.int -> FixedInt.int = quot
+        val r: FixedInt.int * FixedInt.int -> FixedInt.int = rem
+(*        val q: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_quot
+        val r: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_rem*)
     in
         fun op div(_, 0) = raise RunCall.Div | op div(x,y) = q(x, y)
         fun op mod(_, 0) = raise RunCall.Div | op mod(x,y) = r(x,y)
@@ -161,15 +161,8 @@ struct
     fun ~ x = 0w0 - x
 
     (* Redefine div and mod to include checks for zero. *)
-(*    fun op div(_, 0w0) = raise RunCall.Div | op div(x, y) = Word.div(x, y)
-    fun op mod(_, 0w0) = raise RunCall.Div | op mod(x, y) = Word.mod(x, y)*)
-    local
-        val d: word * word -> word = RunCall.run_call2 RuntimeCalls.POLY_SYS_div_word
-        val m: word * word -> word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word
-    in
-        fun op div(_, 0w0) = raise RunCall.Div | op div(x, y) = d(x, y)
-        fun op mod(_, 0w0) = raise RunCall.Div | op mod(x, y) = m(x, y)
-    end
+    fun op div(_, 0w0) = raise RunCall.Div | op div(x, y) = Word.div(x, y)
+    fun op mod(_, 0w0) = raise RunCall.Div | op mod(x, y) = Word.mod(x, y)
 
     val orb : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_or_word
     and andb : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_and_word

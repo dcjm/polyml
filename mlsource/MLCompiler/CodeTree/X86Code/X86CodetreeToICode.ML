@@ -109,7 +109,7 @@ struct
             |   testAsBranch(TestGreaterEqual,  false,  false)      = JB
         end
     
-        fun checkOverflow (ccRef, target) =
+        fun checkOverflow (ccRef, _ (* No longer used *)) =
         let
             val label = newLabel() and excReg = newPReg()
         in
@@ -490,8 +490,38 @@ struct
                      [ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith _, ...}, _, _, _) =
-                raise InternalError "TODO: BICBuiltIn2: FixedPrecisionArith"
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val arg1Untagged = newUReg() and arg2Untagged = newUReg()
+                val quotient = newUReg() and remainder = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
+                    [UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true},
+                     UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true},
+                     Division { isSigned = true, dividend=arg1Untagged, divisor=arg2Untagged,
+                                quotient=quotient, remainder=remainder },
+                     TagValue { source=quotient, dest=target }], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, arg1, arg2}, context, _, destination) =
+            let
+                (* Identical to Quot except that the result is the remainder. *)
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val arg1Untagged = newUReg() and arg2Untagged = newUReg()
+                val quotient = newUReg() and remainder = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift both of the arguments to remove the tags. *)
+                    [UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true},
+                     UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true},
+                     Division { isSigned = true, dividend=arg1Untagged, divisor=arg2Untagged,
+                                quotient=quotient, remainder=remainder },
+                     TagValue { source=remainder, dest=target }], target)
+            end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
@@ -574,8 +604,38 @@ struct
                      ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
-                raise InternalError "TODO: BICBuiltIn2: WordArith"
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithQuot, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val arg1Untagged = newUReg() and arg2Untagged = newUReg()
+                val quotient = newUReg() and remainder = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
+                    [UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false},
+                     UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false},
+                     Division { isSigned = false, dividend=arg1Untagged, divisor=arg2Untagged,
+                                quotient=quotient, remainder=remainder },
+                     TagValue { source=quotient, dest=target }], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithRem, arg1, arg2}, context, _, destination) =
+            let
+                (* Identical to Quot except that the result is the remainder. *)
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val arg1Untagged = newUReg() and arg2Untagged = newUReg()
+                val quotient = newUReg() and remainder = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift both of the arguments to remove the tags. *)
+                    [UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false},
+                     UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false},
+                     Division { isSigned = false, dividend=arg1Untagged, divisor=arg2Untagged,
+                                quotient=quotient, remainder=remainder },
+                     TagValue { source=remainder, dest=target }], target)
+            end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
@@ -633,6 +693,18 @@ struct
                     [UntagValue{source=indexReg, dest=untaggedIndex, isSigned=false},
                      MoveArgument {source=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 untaggedIndex}, dest=untaggedResReg, kind=ByteToWordZeroExtend},
                      TagValue {source=untaggedResReg, dest=target}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.SetStringLengthWord, arg1, arg2}, context, _, destination) =
+            let
+                val addrReg = newPReg() and lengthReg = newPReg()
+                val untagLength = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, addrReg) @ codeToICodeTarget(arg2, context, false, lengthReg) @
+                        [UntagValue{source=lengthReg, dest=untagLength, isSigned=false},
+                         MoveArgument {source=untagLength, dest=MemoryLocation{base=addrReg, offset=0, index=NoMemIndex}, kind=WordToWord}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =

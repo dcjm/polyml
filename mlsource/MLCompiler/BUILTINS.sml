@@ -60,6 +60,7 @@ sig
            never change. *)
     |   LoadWord of { isImmutable: bool }
     |   LoadByte of { isImmutable: bool }
+    |   SetStringLengthWord (* Untag the second argument and store it at the address in the first. *)
 
     and builtIn3Ops =
         StoreWord

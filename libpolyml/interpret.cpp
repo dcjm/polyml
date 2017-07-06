@@ -1545,6 +1545,25 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_fixedMult:
+        {
+            // We need to detect overflow.  There doesn't seem to be any convenient way to do
+            // this so we use the arbitrary precision package and check whether the result is short.
+            Handle reset = this->saveVec.mark();
+            Handle pushedArg1 = this->saveVec.push(*sp++);
+            Handle pushedArg2 = this->saveVec.push(*sp);
+            Handle result = mult_longc(this, pushedArg2, pushedArg1);
+            PolyWord res = result->Word();
+            this->saveVec.reset(reset);
+            if (! res.IsTagged()) 
+            {
+                *(--sp) = overflowPacket;
+                goto RAISE_EXCEPTION;
+            }
+            *sp = res;
+            break;
+        }
+
         case INSTR_wordAdd:
         {
             PolyWord u = *sp++;
@@ -1557,6 +1576,13 @@ int IntTaskData::SwitchToPoly()
         {
             PolyWord u = *sp++;
             *sp = PolyWord::FromUnsigned((*sp).AsUnsigned() - u.AsUnsigned() + TAGGED(0).AsUnsigned());
+            break;
+        }
+
+        case INSTR_wordMult:
+        {
+            PolyWord u = *sp++;
+            *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) * UNTAGGED_UNSIGNED(u));
             break;
         }
 

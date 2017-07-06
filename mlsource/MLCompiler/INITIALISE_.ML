@@ -621,8 +621,8 @@ struct
             val () = enterBinaryOp("+",     ArithAdd)
             val () = enterBinaryOp("-",     ArithSub)
             val () = enterBinaryOp("*",     ArithMult)
-            (*val () = enterBinaryOp("quot",  ArithQuot)
-            val () = enterBinaryOp("rem",   ArithRem)*)
+            val () = enterBinaryOp("quot",  ArithQuot)
+            val () = enterBinaryOp("rem",   ArithRem)
         end
 
         local
@@ -705,9 +705,12 @@ struct
             (* This isn't exactly "size" because it doesn't check for single character strings. *)
             val lengthWordAsWord =
                 mkGvar ("lengthWordAsWord", String ->> Word, mkBuiltIn1Fn BuiltIns.StringLengthWord, declInBasis)
+            val setLengthWord =
+                mkGvar ("setLengthWord", String ** Word ->> Unit, mkBuiltIn2Fn BuiltIns.SetStringLengthWord, declInBasis)
         in
             val () = #enterType stringEnv ("string", TypeConstrSet(stringConstr, []))
             val () = #enterVal stringEnv ("lengthWordAsWord", lengthWordAsWord)
+            val () = #enterVal stringEnv ("setLengthWord", setLengthWord)
         end
 
         local

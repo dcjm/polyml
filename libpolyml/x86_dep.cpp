@@ -1563,7 +1563,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xf9: /* stc */ case 0xce: /* into */
         case 0xf0: /* lock. */ case 0xf3: /* rep/repe */
         case 0xa4: case 0xa5: case 0xaa: case 0xab: /* movs/stos */
-        case 0xa6: /* cmpsb */ case 0x9e: /* sahf */
+        case 0xa6: /* cmpsb */ case 0x9e: /* sahf */ case 0x99: /* cqo/cdq */
             pt++; break;
 
         case 0x70: case 0x71: case 0x72: case 0x73: case 0x74: case 0x75: case 0x76:

@@ -168,6 +168,12 @@ struct
            version. *)
     |   Multiplication of { resultReg: argument, operand1: argument, operand2: argument, ccRef: ccRef }
 
+        (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
+           puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
+           these by pRegs. *)
+    |   Division of { isSigned: bool, dividend: argument, divisor: argument,
+                      quotient: argument, remainder: argument }
+
     
     exception InternalError = Misc.InternalError
 
@@ -488,6 +494,23 @@ struct
                 val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
             in
                 codeGenICode(rest, SignedMultiply { source=op2Reg, output=resReg } :: code)
+            end
+
+        |   codeGenICode(Division { isSigned, dividend, divisor, quotient, remainder } :: rest, code) =
+            let
+                val dividendReg = asGenReg dividend and divisorReg = asGenReg divisor
+                and quotientReg = asGenReg quotient and remainderReg = asGenReg remainder
+                val _ = dividendReg = eax orelse raise InternalError "codeGenICode: Division"
+                val _ = divisorReg <> eax andalso divisorReg <> edx orelse raise InternalError "codeGenICode: Division"
+                val _ = quotientReg = eax orelse raise InternalError "codeGenICode: Division"
+                val _ = remainderReg = edx orelse raise InternalError "codeGenICode: Division"
+                (* rdx needs to be set to the high order part of the dividend.  For signed
+                   division that means sign-extending rdx, for unsigned division we clear it. *)
+                val setRDX =
+                    if isSigned then SignExtendForDivide
+                    else ArithRR{ opc=XOR, output=edx, source=edx }
+            in
+                codeGenICode(rest, Group3Ops (divisorReg, if isSigned then IDIV else DIV) :: setRDX :: code)
             end
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)

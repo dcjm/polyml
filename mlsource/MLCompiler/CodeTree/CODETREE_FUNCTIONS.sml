@@ -141,6 +141,7 @@ struct
                     |   LoadWord {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   LoadByte {isImmutable = true } => applicative
                     |   LoadByte {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   SetStringLengthWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

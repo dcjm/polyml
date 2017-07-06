@@ -240,7 +240,6 @@ struct
             (POLY_SYS_fixed_to_real,"POLY_SYS_fixed_to_real"),
             (POLY_SYS_stdin,"POLY_SYS_stdin"),
             (POLY_SYS_stdout,"POLY_SYS_stdout"),
-            (POLY_SYS_set_string_length,"POLY_SYS_set_string_length"),
             (POLY_SYS_get_first_long_word,"POLY_SYS_get_first_long_word"),
             (POLY_SYS_bytevec_eq,"POLY_SYS_bytevec_eq"),
             (POLY_SYS_cmem_load_8,"POLY_SYS_cmem_load_8"),
@@ -255,10 +254,6 @@ struct
             (POLY_SYS_cmem_store_64, "POLY_SYS_cmem_store_64"),
             (POLY_SYS_cmem_store_float, "POLY_SYS_cmem_store_float"),
             (POLY_SYS_cmem_store_double, "POLY_SYS_cmem_store_double"),
-            (POLY_SYS_fixed_quot, "POLY_SYS_fixed_quot"),
-            (POLY_SYS_fixed_rem, "POLY_SYS_fixed_rem"),
-            (POLY_SYS_fixed_div, "POLY_SYS_fixed_div"),
-            (POLY_SYS_fixed_mod, "POLY_SYS_fixed_mod"),
             (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
             (POLY_SYS_move_words,"POLY_SYS_move_words"),
             (POLY_SYS_shift_right_arith_word,"POLY_SYS_shift_right_arith_word"),
@@ -267,12 +262,10 @@ struct
             (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
             (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final"),
-            (POLY_SYS_div_word,"POLY_SYS_div_word"),
             (POLY_SYS_or_word,"POLY_SYS_or_word"),
             (POLY_SYS_and_word,"POLY_SYS_and_word"),
             (POLY_SYS_xor_word,"POLY_SYS_xor_word"),
-            (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word"),
-            (POLY_SYS_mod_word,"POLY_SYS_mod_word")
+            (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word")
             ]
 
         val rtsNames =

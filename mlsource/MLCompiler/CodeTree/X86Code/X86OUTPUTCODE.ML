@@ -808,6 +808,7 @@ struct
     |   IMULRR (* Needs escape code. *)
     |   SSE2Load (* movsd with register destination - needs escape sequence. *)
     |   SSE2Store (* movsd with memory destination - needs escape sequence. *)
+    |   CQO_CDQ (* Sign extend before divide.. *)
 
 
     fun opToInt Group1_8_A    =  0wx83
@@ -847,6 +848,7 @@ struct
     |   opToInt IMULRR        = 0wxaf (* Needs escape code. *)
     |   opToInt SSE2Load      = 0wx10 (* Needs F2 0F escape. *)
     |   opToInt SSE2Store     = 0wx11 (* Needs F2 0F escape. *)
+    |   opToInt CQO_CDQ       = 0wx99
 
 (* ...
 
@@ -1368,6 +1370,7 @@ SS-relative addressing modes:
             |   MOVL_32_A => isX64 (* Needed *)
             |   IMULRR => isX64 (* Needed to ensure the result is 64-bits *)
             |   LOCK_XADD => isX64 (* Needed to ensure the result is 64-bits *)
+            |   CQO_CDQ => isX64 (* It's only CQO if there's a Rex prefix. *)
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
     in
@@ -1941,6 +1944,7 @@ SS-relative addressing modes:
     |   SignedMultiply of { source: genReg, output: genReg }
     |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
+    |   SignExtendForDivide
 
     type operations = operation list
 
@@ -2168,6 +2172,7 @@ SS-relative addressing modes:
             (
                 stream "MoveRM "; printXMMReg toStore;  stream " => "; printBaseOffset(base, NoIndex, offset)
             )
+        |   SignExtendForDivide => stream "SignExtendForDivide"
         ;
  
         stream "\n"
@@ -3135,6 +3140,11 @@ SS-relative addressing modes:
                 genMMXEA(SSE2Store, LargeInt.fromInt offset, base, toStore, code);
                 cgOp remainder
             )
+        |   cgOp (SignExtendForDivide :: remainder) =
+            (
+                genop(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE, code);
+                cgOp remainder
+            )
     in
         cgOp ops
     end
@@ -3600,6 +3610,8 @@ SS-relative addressing modes:
             |   0wx8f => (print "pop \t"; printEA(rex, sz32_64))
             |   0wx90 => print "nop"
             
+            |   0wx99 => if rexW then print "cqo" else print "cdq"
+            
             |   0wx9e => print "sahf\n"
 
             |   0wxa4 => print "movsb\n"
@@ -3716,10 +3728,10 @@ SS-relative addressing modes:
                     print
                       (case opc of
                          0 => "test"
-                       | 3 => "neg"
-                       | 4 => "mul"
+                       | 3 => "neg "
+                       | 4 => "mul "
                        | 5 => "imul"
-                       | 6 => "div"
+                       | 6 => "div "
                        | 7 => "idiv"
                        | _ => "???"
                       );

@@ -109,8 +109,8 @@ struct
         val System_alloc: word*word*word->string  =
             RunCall.run_call3 POLY_SYS_alloc_store
 
-        val SetLengthWord: string * word -> unit =
-            RunCall.run_call2 POLY_SYS_set_string_length
+        (* This is put in by Initialise and filtered out later. *)
+        val SetLengthWord: string * word -> unit = String.setLengthWord
           
         val MemMove: string*word*string*word*word -> unit = 
             RunCall.run_call5 POLY_SYS_move_bytes

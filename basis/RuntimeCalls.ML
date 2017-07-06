@@ -81,7 +81,6 @@ struct
   val POLY_SYS_fixed_to_real       = 142
   val POLY_SYS_stdin               = 148
   val POLY_SYS_stdout              = 149
-  val POLY_SYS_set_string_length   = 151  (* DCJM 28/2/01 *)
   val POLY_SYS_get_first_long_word = 152  (* DCJM 28/2/01 *)
   val POLY_SYS_bytevec_eq          = 154  (* DCJM 13/1/10 *)
   val POLY_SYS_cmem_load_8         = 160
@@ -96,10 +95,6 @@ struct
   val POLY_SYS_cmem_store_64       = 169
   val POLY_SYS_cmem_store_float    = 170
   val POLY_SYS_cmem_store_double   = 171
-  val POLY_SYS_fixed_quot          = 183
-  val POLY_SYS_fixed_rem           = 184
-  val POLY_SYS_fixed_div           = 185
-  val POLY_SYS_fixed_mod           = 186
   val POLY_SYS_io_operation        = 189
   val POLY_SYS_move_words_overlap  = 193
   val POLY_SYS_move_words          = 195  (* DCJM 9/10/99 *)
@@ -110,12 +105,10 @@ struct
   val POLY_SYS_is_big_endian       = 213  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_shift_right_word    = 216
   val POLY_SYS_touch_final         = 228
-  val POLY_SYS_div_word            = 241  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_or_word             = 242
   val POLY_SYS_and_word            = 243
   val POLY_SYS_xor_word            = 244
   val POLY_SYS_shift_left_word     = 245
-  val POLY_SYS_mod_word            = 246  (* Reinstated DCJM 9/10/99 *)
 
   (* val POLY_SYS_vecsize = 256 *)
 

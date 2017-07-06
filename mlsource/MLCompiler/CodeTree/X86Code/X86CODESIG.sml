@@ -176,6 +176,7 @@ sig
     |   SignedMultiply of { source: genReg, output: genReg }
     |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
+    |   SignExtendForDivide
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit
