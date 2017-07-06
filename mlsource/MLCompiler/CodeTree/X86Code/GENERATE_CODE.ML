@@ -1193,6 +1193,17 @@ struct
         |   OGCBuiltIn2{oper=BuiltIns.SetStringLengthWord, arg1, arg2} =>
                 cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
 
+        |   OGCBuiltIn2{oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
+                cgAndRes(andWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2} =>
+                cgAndRes(orWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2} =>
+                cgAndRes(xorWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordShift _, arg1, arg2} => raise InternalError "TODO: WordShift"
+
         |   OGCBuiltIn3{oper=BuiltIns.StoreWord, arg1, arg2, arg3} =>
                 cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
 
@@ -2359,6 +2370,10 @@ struct
                 |   BuiltIns.LoadByte _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LoadByte"
 
                 |   BuiltIns.SetStringLengthWord => raise InternalError "TODO-genTest: OGCBuiltIn2-SetStringLengthWord"
+
+                |   BuiltIns.WordLogical _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordLogical"
+
+                |   BuiltIns.WordShift _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordShift"
             )
 
         |   OGCBuiltIn3{oper, ...} =>
@@ -2984,16 +2999,7 @@ struct
                             else callClosure (SOME evalFun, true)
 
                         |   [arg1, arg2] => (* Binary *)
-                            if wordEq (oper,ioOp POLY_SYS_or_word)
-                            then cgAndRes(orWord(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_and_word)
-                            then cgAndRes(andWord(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_xor_word)
-                            then cgAndRes(xorWord(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_shift_left_word)
+                            if wordEq (oper,ioOp POLY_SYS_shift_left_word)
                             then
                             (
                                 case arg2 of
