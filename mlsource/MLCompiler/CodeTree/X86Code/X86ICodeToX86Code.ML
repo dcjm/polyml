@@ -163,6 +163,11 @@ struct
         (* Shift a word by an amount that can either be a constant or a register. *)
     |   ShiftOperation of { shift: shiftType, resultReg: argument, operand: argument, shiftAmount: argument, ccRef: ccRef }
 
+        (* Multiplication.  We can use signed multiplication for both fixed precision and word (unsigned)
+           multiplication.  There are various forms of the instruction including a three-operand
+           version. *)
+    |   Multiplication of { resultReg: argument, operand1: argument, operand2: argument, ccRef: ccRef }
+
     
     exception InternalError = Misc.InternalError
 
@@ -476,6 +481,14 @@ struct
 
         |   codeGenICode(ShiftOperation _ :: _, _) =
                 raise InternalError "codeGenICode: TODO ShiftOperation"
+
+        |   codeGenICode(Multiplication { resultReg, operand1, operand2, ... } :: rest, code) =
+            let
+                val resReg = asGenReg resultReg and op1Reg = asGenReg operand1 and op2Reg = asGenReg operand2
+                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
+            in
+                codeGenICode(rest, SignedMultiply { source=op2Reg, output=resReg } :: code)
+            end
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)
         |   codeGenICode(MoveStackArgToPreg _ :: _, _) =

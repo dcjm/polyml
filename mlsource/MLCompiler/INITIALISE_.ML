@@ -618,9 +618,11 @@ struct
             val () = enterComparison("<=",  TestLessEqual)
             val () = enterComparison(">",   TestGreater)
             val () = enterComparison(">=",  TestGreaterEqual)
-            val () = enterBinaryOp("+", ArithAdd)
-            val () = enterBinaryOp("-", ArithSub)
-            val () = enterBinaryOp("*", ArithMult)
+            val () = enterBinaryOp("+",     ArithAdd)
+            val () = enterBinaryOp("-",     ArithSub)
+            val () = enterBinaryOp("*",     ArithMult)
+            (*val () = enterBinaryOp("quot",  ArithQuot)
+            val () = enterBinaryOp("rem",   ArithRem)*)
         end
 
         local
@@ -647,9 +649,11 @@ struct
             val () = enterComparison("<=",  TestLessEqual)
             val () = enterComparison(">",   TestGreater)
             val () = enterComparison(">=",  TestGreaterEqual)
-            val () = enterBinaryOp("+", ArithAdd)
-            val () = enterBinaryOp("-", ArithSub)
-            val () = enterBinaryOp("*", ArithMult)
+            val () = enterBinaryOp("+",     ArithAdd)
+            val () = enterBinaryOp("-",     ArithSub)
+            val () = enterBinaryOp("*",     ArithMult)
+            val () = enterBinaryOp("div",   ArithQuot) (* Word.div and Word.mod are Quot and Rem. *)
+            val () = enterBinaryOp("mod",   ArithRem)
         end
 
         local
@@ -891,9 +895,8 @@ struct
                                 (* POLY_SYS_bytevec_eq takes a byte length so we have to multiply by
                                    the number of bytes per word. *)
                                 mkDec(2,
-                                    mkBuiltIn(POLY_SYS_mul_word,
-                                        [mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0]
-                                    ))
+                                    mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
+                                        mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0))
                                 ],
                                 mkBuiltIn(POLY_SYS_bytevec_eq,
                                     [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero, mkLoadLocal 2])),

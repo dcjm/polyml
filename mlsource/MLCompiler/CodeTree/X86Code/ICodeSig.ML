@@ -176,6 +176,11 @@ sig
         (* Shift a word by an amount that can either be a constant or a register. *)
     |   ShiftOperation of { shift: shiftType, resultReg: argument, operand: argument, shiftAmount: argument, ccRef: ccRef }
 
+        (* Multiplication.  We can use signed multiplication for both fixed precision and word (unsigned)
+           multiplication.  There are various forms of the instruction including a three-operand
+           version. *)
+    |   Multiplication of { resultReg: argument, operand1: argument, operand2: argument, ccRef: ccRef }
+
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 

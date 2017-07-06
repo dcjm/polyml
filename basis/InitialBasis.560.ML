@@ -366,6 +366,8 @@ struct
     val bytesPerWord: word = run_call0 RuntimeCalls.POLY_SYS_bytes_per_word ()
     
     fun clearMutableBit(a: 'a): unit = run_call1 RuntimeCalls.POLY_SYS_lockseg a
+
+    fun pointerEq(x: 'a ,y: 'a): bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq (x,y)
 end;
 
 (* This is used to provide compatibility between 5.6.0 and 5.6.1. *)

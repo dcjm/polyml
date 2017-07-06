@@ -108,7 +108,7 @@ struct
             |   testAsBranch(TestGreaterEqual,  false,  true)       = JNB
             |   testAsBranch(TestGreaterEqual,  false,  false)      = JB
         end
-        
+    
         fun checkOverflow (ccRef, target) =
         let
             val label = newLabel() and excReg = newPReg()
@@ -117,7 +117,7 @@ struct
                 ConditionalForwardJump{ ccRef=ccRef, condition=JNO, label=label },
                 MoveArgument{source=AddressConstant(toMachineWord(Overflow)), dest=excReg, kind=WordToWord},
                 RaiseExceptionPacket{packet=excReg},
-                ForwardJumpLabel{ label=label, result=SOME target }
+                ForwardJumpLabel{ label=label, result=NONE }
             ]
         end
         
@@ -472,6 +472,24 @@ struct
                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
             end
 
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and arg1Untagged = newUReg()
+                and arg2Untagged = newUReg() and resUntagged = newUReg()
+                val mulCC = newCCRef()
+                (* This is almost the same as the word operation except we use a signed shift and check for overflow. *)
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
+                       if we have a value that is already untagged. *)
+                    [UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *)},
+                     ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
+                     Multiplication{resultReg=resUntagged, operand1=arg1Untagged, operand2=arg2Untagged, ccRef=mulCC} ] @
+                     checkOverflow(mulCC, target) @
+                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
+            end
+
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith _, ...}, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn2: FixedPrecisionArith"
 
@@ -541,6 +559,24 @@ struct
                      ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
             end
 
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and arg1Untagged = newUReg()
+                and arg2Untagged = newUReg() and resUntagged = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
+                       if we have a value that is already untagged. *)
+                    [UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false},
+                     ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
+                     Multiplication{resultReg=resUntagged, operand1=arg1Untagged, operand2=arg2Untagged, ccRef=newCCRef()},
+                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
+                raise InternalError "TODO: BICBuiltIn2: WordArith"
+
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
                 val target = asTarget destination
@@ -598,9 +634,6 @@ struct
                      MoveArgument {source=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 untaggedIndex}, dest=untaggedResReg, kind=ByteToWordZeroExtend},
                      TagValue {source=untaggedResReg, dest=target}], target)
             end
-
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
-                raise InternalError "TODO: BICBuiltIn2: WordArith"
 
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =
             let

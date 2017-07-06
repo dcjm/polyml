@@ -31,11 +31,8 @@ val not = Bool.not;
 structure FixedInt =
 struct
     open FixedInt
-    (* TODO: These should be added by Initialise. *)
-    
-    (*val op + : int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_add*)
-    (*val op - : int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_sub*)
-    val op * : int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_mul
+
+    (*val op * : int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_mul*)
     
     fun ~ (x: int): int = 0 - x
     
@@ -44,6 +41,8 @@ struct
     (* These are replaced later on.  We need some of these for e.g. String
        They neither check for overflow nor are they the correct ML definitions. *)
     local
+        (*val q: FixedInt.int * FixedInt.int -> FixedInt.int = quot
+        val r: FixedInt.int * FixedInt.int -> FixedInt.int = rem*)
         val q: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_quot
         val r: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_rem
     in
@@ -158,12 +157,12 @@ and () = RunCall.addOverload LargeInt.mod  "mod";
 structure Word =
 struct
     open Word
-    (* TODO: These should be added by Initialise. *)
-
-    val op * : word * word -> word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mul_word
 
     fun ~ x = 0w0 - x
 
+    (* Redefine div and mod to include checks for zero. *)
+(*    fun op div(_, 0w0) = raise RunCall.Div | op div(x, y) = Word.div(x, y)
+    fun op mod(_, 0w0) = raise RunCall.Div | op mod(x, y) = Word.mod(x, y)*)
     local
         val d: word * word -> word = RunCall.run_call2 RuntimeCalls.POLY_SYS_div_word
         val m: word * word -> word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word

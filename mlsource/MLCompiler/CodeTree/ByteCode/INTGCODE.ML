@@ -475,6 +475,7 @@ struct
                 |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
                 |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
                 |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
+                |   StringLengthWord => genOpcode(opcode_stringLength, cvec)
             end
 
         |   BICBuiltIn2 { oper=BuiltIns.LoadWord _, arg1, arg2 } =>

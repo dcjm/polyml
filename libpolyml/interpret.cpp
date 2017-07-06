@@ -1448,6 +1448,10 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_stringLength:
+            *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
+            break;
+
         case INSTR_equalWord:
         {
             PolyWord u = *sp++;

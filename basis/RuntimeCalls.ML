@@ -96,7 +96,6 @@ struct
   val POLY_SYS_cmem_store_64       = 169
   val POLY_SYS_cmem_store_float    = 170
   val POLY_SYS_cmem_store_double   = 171
-  val POLY_SYS_fixed_mul           = 182
   val POLY_SYS_fixed_quot          = 183
   val POLY_SYS_fixed_rem           = 184
   val POLY_SYS_fixed_div           = 185
@@ -111,7 +110,6 @@ struct
   val POLY_SYS_is_big_endian       = 213  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_shift_right_word    = 216
   val POLY_SYS_touch_final         = 228
-  val POLY_SYS_mul_word            = 238  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_div_word            = 241  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_or_word             = 242
   val POLY_SYS_and_word            = 243

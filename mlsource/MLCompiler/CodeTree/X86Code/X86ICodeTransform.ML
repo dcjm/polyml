@@ -956,10 +956,10 @@ struct
                 codeICode{icode=rest, state=Exited, code=returnCode @ code, context=context}
             end
 
-        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg(oper1Reg, PRegGeneral), operand2 as IntegerConstant _, ccRef } :: rest,
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegGeneral), operand1=PReg(oper1Reg, PRegGeneral), operand2 as IntegerConstant _, ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
-                val resReg = argToPReg resultReg
+                (* The result is a tagged register.  This is used when the constant operand can be untagged. *)
                 val topState = checkTopInRax(state, oper1Reg)
                 val resultState = addRaxToState(topState, resReg)
                 val checkState =
@@ -967,6 +967,48 @@ struct
             in
                 codeICode{icode=rest, state=NormalState checkState,
                     code=ArithmeticFunction { oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=operand2, ccRef=ccRef } :: code,
+                    context=context}
+            end
+
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg=PReg(dReg, PRegUntagged), operand1 as PReg(_, PRegGeneral), operand2 as IntegerConstant _, ccRef } :: rest,
+                      state=NormalState state, code, context} =
+            let
+                (* The result is an untagged register.  Typically used to untag a value before an operation when we
+                   don't want to shift the argument. *)
+                val (pushedState, pushCode) = pushRax state (* Simplifies things *)
+                (* Find a spare untagged register. *)
+                val {valueStack, untaggedRegs, ...} = pushedState
+                val spareReg =
+                    case untaggedRegs of
+                        [] => ecx
+                    |   [_] => edx
+                    |   _ => raise InternalError "codeICode: ArithmeticFunction"
+                val resReg = RealRegister(GenReg spareReg)
+                val loadCode = loadSource(operand1, spareReg, pushedState)
+                val resultState =
+                    {valueStack= valueStack, ccState= CCState(ccRef, fn i=>i), untaggedRegs ={ureg=dReg, reg=GenReg spareReg} :: untaggedRegs}
+             in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=ArithmeticFunction { oper=oper, resultReg=resReg, operand1=resReg, operand2=operand2, ccRef=ccRef } :: loadCode @ pushCode @ code,
+                    context=context}
+            end
+
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegGeneral), operand1=PReg(oper1Reg, PRegUntagged), operand2 as IntegerConstant _, ccRef } :: rest,
+                      state=NormalState (state as {untaggedRegs, ...}), code, context} =
+            let
+                (* The result is a tagged register but the argument is untagged.  This is typically when we want to set the tag on a  value. *)
+                val realSReg =
+                    case List.find (fn {ureg, ...} => ureg = oper1Reg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: ArithmeticFunction"
+                val (pushedState, pushCode) = pushRax state
+                val addState = addRaxToState(pushedState, resReg)
+                val resultState = removeAfterTag(addState, oper1Reg)
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code= (* TODO: We could use LEA since this is normally (always?) ADD *)
+                        MoveArgument{source=realSReg, dest=raxAsArg, kind=WordToWord} ::
+                        ArithmeticFunction { oper=oper, resultReg=realSReg, operand1=realSReg, operand2=operand2, ccRef=ccRef } :: pushCode @ code,
                     context=context}
             end
 
@@ -1074,6 +1116,30 @@ struct
 
         |   codeICode{icode=ShiftOperation _ :: _, ...} =
                 raise InternalError "TODO: CodeTransform ShiftOperation"
+
+        |   codeICode{icode=Multiplication { resultReg, operand1, operand2, ccRef } :: rest,
+                      state=NormalState ({untaggedRegs, valueStack, ...}), code, context} =
+            let
+                (* For the moment we only implement the case of multiplying two values in registers.
+                   The X86 supports various other multiplication forms if one of the arguments is
+                   a constant including one which takes three arguments. *)
+                val resReg = argToUReg resultReg and op1Reg = argToUReg operand1 and op2Reg = argToUReg operand2
+                val realOp1Reg =
+                    case List.find (fn {ureg, ...} => ureg = op1Reg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: Multiplication"
+                val realOp2Reg =
+                    case List.find (fn {ureg, ...} => ureg = op2Reg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: Multiplication"
+                (* We can replace both the untagged registers. *)
+                val resultState =
+                    {valueStack=valueStack, ccState=CCState(ccRef, fn i=>i), untaggedRegs =[{ureg=resReg, reg=realOp1Reg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=Multiplication{ resultReg=RealRegister realOp1Reg, operand1=RealRegister realOp1Reg,
+                                         operand2=RealRegister realOp2Reg, ccRef=ccRef} :: code, context=context}
+            end
 
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
