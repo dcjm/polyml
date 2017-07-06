@@ -67,7 +67,6 @@ struct
     infix 3 andb orb xorb andbL orbL xorbL andb8 orb8 xorb8
     
     val op orb = Word.orb
-    val op andb8 = Word8.andb
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
 
@@ -3623,13 +3622,13 @@ struct
 
         (* Load to a register (read-only) or, if it's a literal leave it.  In
            64-bit mode we load anything that won't fit in 32-bits when tagged. *)
-        fun loadToRegOrLiteral(regSet, argNo, whenDone) opAndResults (tArgs as (table, args, _)) =
+        fun loadToRegOrLiteral(regSet, modifiable, argNo, whenDone) opAndResults (tArgs as (table, args, _)) =
             case argAsSource table (List.nth(args, argNo)) of
                 ActLiteralSource lit => 
                     if not isX64 orelse is31bitSigned lit
                     then whenDone (replaceOperand(argNo, LiteralSource lit) opAndResults) tArgs
-                    else loadToOneOf(regSet, false, argNo, whenDone) opAndResults tArgs
-            |   _ => loadToOneOf(regSet, false, argNo, whenDone) opAndResults tArgs
+                    else loadToOneOf(regSet, modifiable, argNo, whenDone) opAndResults tArgs
+            |   _ => loadToOneOf(regSet, modifiable, argNo, whenDone) opAndResults tArgs
 
         (* Load a base address for a load or store operation. We can use a constant source but
            only if the index is zero.  The base address is the first argument and the index is the
@@ -3701,7 +3700,7 @@ struct
                 allArgs(fn (argNo, whenDone) => loadToOneOf(regSet, false, argNo, whenDone), whenDone)
 
             fun allInRegsOrLiterals (regSet, whenDone) =
-                allArgs(fn (argNo, whenDone) => loadToRegOrLiteral(regSet, argNo, whenDone), whenDone)
+                allArgs(fn (argNo, whenDone) => loadToRegOrLiteral(regSet, false, argNo, whenDone), whenDone)
         end
 
         (* Some cases require arguments in specific registers. *)
@@ -3773,8 +3772,8 @@ struct
                 (* The first argument, the address needs to be in a register even if
                    it's a constant.  The others may be literals. *)
                 loadBaseAddress(
-                    loadToRegOrLiteral(generalRegisters, 1,
-                        loadToRegOrLiteral(generalRegisters, 2,
+                    loadToRegOrLiteral(generalRegisters, false, 1,
+                        loadToRegOrLiteral(generalRegisters, false, 2,
                             generateInstruction genStoreWord
                             ))) ([NONE, NONE, NONE], NONE)
         in
@@ -4079,9 +4078,9 @@ struct
                 (* As with storeWord, we don't want to reserve a result reg but may still need a
                    unit result. *)
                 val (_, opCode) =
-                   loadToRegOrLiteral(listToSet[GenReg eax, GenReg ebx, GenReg ecx, GenReg edx], 2,
+                   loadToRegOrLiteral(listToSet[GenReg eax, GenReg ebx, GenReg ecx, GenReg edx], true, 2,
                         loadBaseAddress(
-                            loadToRegOrLiteral(generalRegisters, 1,
+                            loadToRegOrLiteral(generalRegisters, false, 1,
                                 generateInstruction genStoreByte))) ([NONE, NONE, NONE], NONE) (transtable, [arg1, arg2, arg3], NoResult)
                 val result =
                     case whereto of
@@ -4500,8 +4499,8 @@ struct
                     loadToSpecificRegister(GenReg esi, true, 0,
                         loadToSpecificRegister(GenReg edi, true, 2,
                             loadToSpecificRegister(GenReg ecx, true, 4,
-                                loadToRegOrLiteral(generalRegisters, 1,
-                                    loadToRegOrLiteral(generalRegisters, 3, generateCode)))))
+                                loadToRegOrLiteral(generalRegisters, false, 1,
+                                    loadToRegOrLiteral(generalRegisters, false, 3, generateCode)))))
                                         ([NONE, NONE, NONE, NONE, NONE], NONE)
             in
                 (testActions: nextAction, destLabel)
@@ -5388,34 +5387,54 @@ struct
                     allocStore{size=length, flags=flags, output=output, saveRegs=filteredSave}
                 end
             |   genFixedAlloc _ _ = raise InternalError "genFixedAlloc"
+        in
+            (* This is used for small (<5 word) segments of, possibly mutable, words. *)
+            fun allocateStoreSmallFixedSize(length: int, flags: Word8.word, initValArg, transtable, whereto) =
+            let
+                val (opRes, opCode) = (* Get a result reg and put the initial value in a reg. *)
+                    generalNegotiator(genFixedAlloc(length, flags, transtable)) (transtable, [initValArg], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+        end
 
-            (* Allocate memory whose length isn't known at compile time and initialise it. *)
-            fun genVarAlloc (flags, transtable) ([InRegister _(*ecx*), InRegister _(*eax*)], SOME _ (* edi*)) =
+        local
+            (* Allocate memory whose length isn't known at compile time and initialise it.
+               This assumes word data not byte data. *)
+            fun genAllocAndInit transtable ([InRegister _(*ecx*), flagEntry, InRegister _(*eax*)], SOME _ (* edi*)) =
                 let
                     val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) (setToList(findActiveRegisters transtable))
-                    val initialiser =
-                        if (flags andb8 F_bytes) <> 0w0
-                        then (* Initialise it as bytes. *)
-                            [MakeSafe eax, RepeatOperation STOSB,
-                             (* Untag the initialiser in eax. *)
-                             ShiftConstant{ shiftType=SHR, output=eax, shift=0w1},
-                             (* Convert the length, which is in words, to bytes. *)
-                             ShiftConstant{shiftType=SHL, output=ecx,
-                                shift=if wordSize=4 then 0w2 else 0w3}]
-                        else [RepeatOperation STOSL]
                     val filteredSave = List.filter (fn r => r <> edi) saveRegs
-                    val _ = if List.exists(fn r => r = ecx) saveRegs then () else raise InternalError "genVarAlloc - ecx not there"
+                    (* We don't actually need to include the length or flags registers.  They
+                       will be saved across any trap and since they don't contain addresses
+                       they don't need to be updated by the GC.  The initial value may be
+                       an address so must be saved. *)
                     val _ = if List.exists(fn r => r = eax) saveRegs then () else raise InternalError "genVarAlloc - eax not there"
+                    val flagsCode =
+                        case flagEntry of
+                            InRegister (GenReg flags) =>
+                            [
+                                (* Set the flags.  At least the mutable bit should be set. *)
+                                StoreByteRegToMemory{
+                                    toStore=flags,
+                                    address=BaseOffset{offset= ~1, base=edi, index=NoIndex}},
+                                (* It's now safe to untag the flags *)
+                                ShiftConstant{ shiftType=SHR, output=flags, shift=0w1}
+                            ]
+                        |   LiteralSource flags =>
+                                [StoreByteConstToMemory{
+                                    toStore=wordToWord8(toShort flags),
+                                    address=BaseOffset{offset= ~1, base=edi, index=NoIndex}}]
+                        |   _ => raise InternalError "genAllocAndInit-flags"
                 in
-                    [PopR edi, StoreInitialised] @ (* Pop the saved edi; initialisation done *)
-                    initialiser @
                     [
-                        PushR edi, (* Save edi, the result reg, while we initialise the data. *)
+                        PopR edi,
+                        StoreInitialised, (* Pop the saved edi; initialisation done *)
+                        RepeatOperation STOSL,
+                        PushR edi (* Save edi, the result reg, while we initialise the data. *)
                         (* Now initialise the memory. *)
-                        (* Set the flags.  At least the mutable bit should be set. *)
-                        StoreByteConstToMemory{
-                            toStore=flags,
-                            address=BaseOffset{offset= ~1, base=edi, index=NoIndex}},
+                    ] @ flagsCode @
+                    [
                         (* Store it as the length field. *)
                         StoreRegToMemory{toStore=ecx,
                             address=BaseOffset{base=edi, offset= ~wordSize, index=NoIndex}},
@@ -5431,34 +5450,89 @@ struct
                         else LoadAddress{output=edi, base=NONE, offset=wordSize-4, index=Index4 ecx }
                     ]
                 end
-            |   genVarAlloc _ _ = raise InternalError "genVarAlloc"
- 
-        in
-            (* This is used for small (<5 word) segments of, possibly mutable, words. *)
-            fun allocateStoreSmallFixedSize(length: int, flags: Word8.word, initValArg, transtable, whereto) =
-            let
-                val (opRes, opCode) = (* Get a result reg and put the initial value in a reg. *)
-                    generalNegotiator(genFixedAlloc(length, flags, transtable)) (transtable, [initValArg], whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            (* This is used where the size isn't a constant or five words or larger. *)
-            and allocateStoreVariableSize(flags: Word8.word, lengthArg, initValArg, transtable, whereto) =
-            let
-                val args = [lengthArg, initValArg]
-                val (opRes, opCode) =
-                    (* When allocating vectors/arrays we have to initialise the store and the easiest way to
-                        do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
-                    loadToSpecificRegister(GenReg ecx, true, 0,
-                        (* We don't actually need this to be modifiable if we're initialising with words. *)
-                        loadToSpecificRegister(GenReg eax, true, 1,
-                            getResultRegister(singleton(GenReg edi), generateInstruction(genVarAlloc(flags, transtable)))))
-                                ([NONE, NONE], NONE) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
+            |   genAllocAndInit _ _ = raise InternalError "genAllocAndInit"
             
+        in
+            fun allocStoreAndInitialise(lengthArg, flagsArg, initValArg, transtable, whereto) =
+            let
+                val args = [lengthArg, flagsArg, initValArg]
+                val (opRes, opCode) =
+                    loadToSpecificRegister(GenReg ecx, true, 0,
+                        (* If we need to load the flags we must use ebx or edx.
+                           We're going to use a store-byte which requires eax, ebx, ecx or edx
+                           but we're using ecx and eax. *)
+                        loadToRegOrLiteral(listToSet[GenReg ebx, GenReg edx], true, 1,
+                            loadToSpecificRegister(GenReg eax, false, 2,
+                                getResultRegister(singleton(GenReg edi), generateInstruction(genAllocAndInit transtable)))))
+                                    ([NONE, NONE, NONE], NONE) (transtable, args, whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+        end
+        
+        local
+            (* Allocate uninitialised - used for byte data. *)
+            (* TODO: The flags will often be a constant. *)
+            fun genAllocUnInit transtable ([InRegister(GenReg length), flagEntry], SOME(GenReg resultReg)) =
+                let
+                    val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) (setToList(findActiveRegisters transtable))
+                    val filteredSave = List.filter (fn r => r <> resultReg) saveRegs
+                    (* We could filter the length and flags as well here.
+                       They don't contain addresses. *)
+                    val flagsCode =
+                        case flagEntry of
+                            InRegister (GenReg flags) =>
+                            [
+                                (* Set the flags.  At least the mutable bit should be set. *)
+                                StoreByteRegToMemory{
+                                    toStore=flags,
+                                    address=BaseOffset{offset= ~1, base=resultReg, index=NoIndex}},
+                                (* It's now safe to untag the flags *)
+                                ShiftConstant{ shiftType=SHR, output=flags, shift=0w1}
+                            ]
+                        |   LiteralSource flags =>
+                                if Word.andb(toShort flags, 0w1) <> 0w1
+                                then raise InternalError "flags value"
+                                else
+                                [StoreByteConstToMemory{
+                                    toStore=wordToWord8(toShort flags),
+                                    address=BaseOffset{offset= ~1, base=resultReg, index=NoIndex}}]
+                        |   _ => raise InternalError "genAllocAndInit-flags"
+                in
+                    [StoreInitialised ] @ flagsCode @
+                    [
+                        (* Store it as the length field. *)
+                        StoreRegToMemory{toStore=length,
+                            address=BaseOffset{base=resultReg, offset= ~wordSize, index=NoIndex}},
+                        (* It's now safe to untag the length *)
+                        ShiftConstant{ shiftType=SHR, output=length, shift=0w1},
+                        (* Allocate the memory *)
+                        AllocStoreVariable{output=resultReg, saveRegs=filteredSave},
+                        (* Compute the number of bytes into resultReg. The length is the number
+                           of words as a tagged value so we need to multiply it, add wordSize to
+                           include one word for the header then subtract the, multiplied, tag. *)
+                        if wordSize = 4
+                        then LoadAddress{output=resultReg, base=SOME length, offset=wordSize-2, index=Index1 length }
+                        else LoadAddress{output=resultReg, base=NONE, offset=wordSize-4, index=Index4 length }
+                    ]
+                end
+
+            |   genAllocUnInit _ _ = raise InternalError "genAllocUnInit"
+        in
+            fun allocStoreUninitialised(lengthArg, flagsArg, transtable, whereto) =
+            let
+                val args = [lengthArg, flagsArg]
+                val (opRes, opCode) =
+                    (* We're going to use a store-byte so we need to use a register that has a
+                        low order form. *)
+                    loadToRegOrLiteral(listToSet[GenReg eax, GenReg ebx, GenReg ecx, GenReg edx], true, 1,
+                        loadToOneOf(generalRegisters, true, 0,
+                             getResultRegister(generalRegisters,
+                                    generateInstruction(genAllocUnInit transtable))))
+                                        ([NONE, NONE], NONE) (transtable, args, whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
         end
     end
 

@@ -219,7 +219,8 @@ sig
     and divideReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
 
     val allocateStoreSmallFixedSize: int * Word8.word * stackIndex * ttab * regHint -> operation list * mergeResult
-    and allocateStoreVariableSize: Word8.word * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and allocStoreAndInitialise: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and allocStoreUninitialised: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and storeWord: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and storeByte: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
 

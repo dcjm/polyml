@@ -796,7 +796,7 @@ struct
     let
         (* The profile object is a single mutable with the F_bytes bit set. *)
         open Address
-        val profileObject = alloc(0w1, Word8.orb(F_mutable, F_bytes), toMachineWord 0w0);
+        val profileObject = allocWordData(0w1, Word8.orb(F_mutable, F_bytes), toMachineWord 0w0);
     in
         toMachineWord profileObject
     end
@@ -1232,11 +1232,56 @@ struct
                 |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
+        |   OGCBuiltIn2{oper=BuiltIns.AllocateByteMemory, arg1, arg2} =>
+                cgAndRes(allocStoreUninitialised(genToStack arg1, genToStack arg2, transtable, whereto))
+
         |   OGCBuiltIn3{oper=BuiltIns.StoreWord, arg1, arg2, arg3} =>
                 cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
 
         |   OGCBuiltIn3{oper=BuiltIns.StoreByte, arg1, arg2, arg3} =>
                 cgAndRes(storeByte(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
+
+        |   OGCBuiltIn3{oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3} =>
+            let
+                (* This is used to allocate all memory apart from tuples and
+                   closures.  We particularly want to be able to profile the
+                   allocation of refs so we consider them specially. *)
+                open Address
+            in
+                case (arg1, arg2) of
+                    (OGCConstnt(len, _), OGCConstnt(flag, _)) =>
+                        (* Both the length and the flags are constants *)
+                        if not(isShort len andalso isShort flag andalso toShort flag <= 0w255)
+                        then raise InternalError "AllocateWordMemory - invalid length or flag"
+                        else
+                        let
+                            val sFlag = Word8.fromLargeWord(Word.toLargeWord(toShort flag))
+                            and sLen = toShort len
+                        in
+                            if sLen = 0w1 andalso sFlag = F_mutable
+                            then
+                            let
+                                val initLoc = genToStackOrGeneralRegister arg3
+                                val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
+                                val () = codeGenerate(vecCode, cvec)
+                                val moveCode = moveToVec (vec, initLoc, 0, transtable)
+                                val () = codeGenerate(moveCode, cvec)
+                                val () = codeGenerate(allocationComplete, cvec)
+                            in
+                                case whereto of
+                                    NoResult => NoMerge (* Unused. *)
+                                |   _ => MergeIndex vec
+                            end
+                            else if sLen < 0w5 andalso (Word8.andb(sFlag, 0w3)) = F_words
+                                (* Small fixed size allocations of words. *)
+                            then cgAndRes(allocateStoreSmallFixedSize(Word.toInt sLen, sFlag, genToStack arg3, transtable, whereto))
+                            else cgAndRes(allocStoreAndInitialise(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
+                        end
+
+                |  _ => (* Variable flags. *)
+                    cgAndRes(allocStoreAndInitialise(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
+
+            end
 
         |   OGCBuiltIn4{oper=BuiltIns.Built4PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn4"
 
@@ -1975,7 +2020,7 @@ struct
             val profileObject = createProfileObject lambdaName
             (* Create a one word item for the closure.  This is returned for recursive references
                and filled in with the address of the code when we've finished. *)
-            val closure = Address.alloc(0w1, F_mutable_words, Address.toMachineWord 0w0)
+            val closure = Address.allocWordData(0w1, F_mutable_words, Address.toMachineWord 0w0)
             val newCode = codeCreate (lambdaName, profileObject, debugSwitches)
 
             fun previous (OGCLoadRecursive, _, newtab) = (* load the address of the closure itself *)
@@ -2408,6 +2453,8 @@ struct
                 |   BuiltIns.WordLogical _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordLogical"
 
                 |   BuiltIns.WordShift _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordShift"
+
+                |   BuiltIns.AllocateByteMemory => raise InternalError "TODO-genTest: OGCBuiltIn2-AllocateByteMemory"
             )
 
         |   OGCBuiltIn3{oper, ...} =>
@@ -2415,6 +2462,7 @@ struct
                 case oper of
                     BuiltIns.StoreWord => raise InternalError "TODO-genTest: OGCBuiltIn3-StoreWord"
                 |   BuiltIns.StoreByte => raise InternalError "TODO-genTest: OGCBuiltIn3-StoreByte"
+                |   BuiltIns.AllocateWordMemory => raise InternalError "TODO-genTest: OGCBuiltIn3-AllocateWordMemory"
             )
 
         |   OGCBuiltIn4{oper, ...} =>
@@ -3006,12 +3054,7 @@ struct
                     then
                     (
                         case args of
-                            (*[] => (* Nullary *)
-                            if wordEq (oper,ioOp POLY_SYS_thread_self)
-                            then cgAndRes(threadSelf(transtable, whereto))
-                            else callClosure (SOME evalFun, true)
-
-                        |*)   [arg] => (* Unary *)
+                            [arg] => (* Unary *)
                             if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
                             then cgAndRes(getFirstLong(genToStack arg, transtable, whereto))
 
@@ -3055,62 +3098,6 @@ struct
                             then genCond
                                     (OGCEval {function = evalFun, argList = argList, resultType=resultType},
                                      constntTrue, constntFalse, whereto, tailKind, NONE)
-
-                            else callClosure (SOME evalFun, true)
-
-                        |   [arg1, arg2, arg3] => (* Trinary *)
-                            if wordEq (oper,ioOp POLY_SYS_alloc_store)
-                            then
-                            let
-                                (* This is used to allocate all memory apart from tuples and
-                                   closures.  We particularly want to be able to profile the
-                                   allocation of refs so we consider them specially. *)
-                                open Address
-                            in
-                               case (arg1, arg2) of
-                                    (OGCConstnt(len, _), OGCConstnt(flag, _)) =>
-                                        (* Both the length and the flags are constants *)
-                                        if isShort len andalso isShort flag andalso toShort flag <= 0w255
-                                        then
-                                        let
-                                            val sFlag = Word8.fromLargeWord(Word.toLargeWord(toShort flag))
-                                            and sLen = toShort len
-                                        in
-                                            if sLen = 0w1 andalso sFlag = F_mutable
-                                            then
-                                            let
-                                                val initLoc = genToStackOrGeneralRegister arg3
-                                                val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
-                                                val () = codeGenerate(vecCode, cvec)
-                                                val moveCode = moveToVec (vec, initLoc, 0, transtable)
-                                                val () = codeGenerate(moveCode, cvec)
-                                                val () = codeGenerate(allocationComplete, cvec)
-                                            in
-                                                case whereto of
-                                                    NoResult => NoMerge (* Unused. *)
-                                                |   _ => MergeIndex vec
-                                            end
-                                            else if sLen < 0w5 andalso (Word8.andb(sFlag, 0w3)) = F_words
-                                                (* Small fixed size allocations of words. *)
-                                            then cgAndRes(allocateStoreSmallFixedSize(Word.toInt sLen, sFlag, genToStack arg3, transtable, whereto))
-                                            else cgAndRes(allocateStoreVariableSize(sFlag, genToStack arg1, genToStack arg3, transtable, whereto))
-                                        end
-                                        else callClosure (SOME evalFun, true) (* Perhaps always raise Size *)
-
-                                |   (_, OGCConstnt(flag, _)) =>
-                                        (* The flags are a constant but the length is a variable. *)
-                                        if isShort flag andalso toShort flag <= 0w255
-                                        then
-                                        let
-                                            val sFlag = Word8.fromLargeWord(Word.toLargeWord(toShort flag))
-                                        in
-                                            cgAndRes(allocateStoreVariableSize(sFlag, genToStack arg1, genToStack arg3, transtable, whereto))
-                                        end
-                                        else callClosure (SOME evalFun, true) (* Perhaps always raise Size *)
-
-                                |  _ => callClosure (SOME evalFun, true)
-
-                            end
 
                             else callClosure (SOME evalFun, true)
 
