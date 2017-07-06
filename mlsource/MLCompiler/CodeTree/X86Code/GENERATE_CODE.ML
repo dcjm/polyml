@@ -1102,6 +1102,8 @@ struct
 
         |   OGCBuiltIn1{oper=BuiltIns.ClearMutableFlag, arg1} => cgAndRes(lockVector(genToStack arg1, transtable, whereto))
 
+        |   OGCBuiltIn1{oper=BuiltIns.StringLengthWord, arg1} => cgAndRes(stringLength(genToStack arg1, transtable, whereto))
+
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
         |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
@@ -2250,6 +2252,8 @@ struct
                 |   BuiltIns.MemoryCellFlags => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellFlags"
  
                 |   BuiltIns.ClearMutableFlag => raise InternalError "TODO-genTest: OGCBuiltIn1 - ClearMutableFlag"
+ 
+                |   BuiltIns.StringLengthWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - StringLengthWord"
            )
 
         |   OGCBuiltIn2{oper, arg1, arg2} =>
@@ -2911,9 +2915,6 @@ struct
                         |*)   [arg] => (* Unary *)
                             if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
                             then cgAndRes(getFirstLong(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_string_length)
-                            then cgAndRes(stringLength(genToStack arg, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
                             then cgAndRes(atomicIncrement(genToStack arg, transtable, whereto))
