@@ -57,6 +57,9 @@ sig
     |   AtomicIncrement
     |   AtomicDecrement
     |   AtomicReset (* Set a value to (tagged) zero atomically. *)
+    |   LongWordToTagged (* Convert a LargeWord.word to a Word.word or FixedInt.int. *)
+    |   SignedToLongWord (* Convert a tagged value to a LargeWord with sign extension. *)
+    |   UnsignedToLongWord (* Convert a tagged value to a LargeWord without sign extension. *)
 
     and builtIn2Ops =
         (* Compare two words and return the result.  This is used for both

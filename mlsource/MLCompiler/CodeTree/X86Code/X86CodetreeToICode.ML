@@ -428,6 +428,40 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination) =
+            let (* This is exactly the same as StringLengthWord at the moment.
+                   TODO: introduce a new ICode entry so that the next stage can optimise
+                   longword operations. *)
+                val target = asTarget destination
+                val addrReg = newPReg() and argReg1 = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, addrReg) @
+                [MoveArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=WordToWord},
+                 TagValue{ source=argReg1, dest=target }], target)
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination) =
+            let
+                val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, argReg1) @
+                    [UntagValue{source=argReg1, dest=untagArg, isSigned=true},
+                     BoxLargeWord{ source=untagArg, dest=addrReg}]
+            in
+                moveIfNotAllowed(destination, code, addrReg)
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.UnsignedToLongWord, arg1}, context, _, destination) =
+            let
+                val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, argReg1) @
+                    [UntagValue{source=argReg1, dest=untagArg, isSigned=false},
+                     BoxLargeWord{ source=untagArg, dest=addrReg}]
+            in
+                moveIfNotAllowed(destination, code, addrReg)
+            end
+
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(instr, context, isTail, destination)
 
@@ -563,8 +597,9 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg()
-                (* If the argument is a constant we can subtract the tag beforehand.  We shouldn't ever have
-                   a long value here but because it might happen we check. *)
+                (* If the argument is a constant we can subtract the tag beforehand.
+                   N.B. it is possible to have type-incorrect values in dead code. i.e. code that will
+                   never be executed because of a run-time check.  *)
                 val constVal =
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
@@ -845,6 +880,35 @@ struct
                      MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 indexReg1}, kind=ByteToByte}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
+        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.AllocateWordMemory, arg1 as BICConstnt(length, _), arg2 as BICConstnt(flags, _), arg3}, context, _, destination) =
+            (* Constant length and flags is used for ref.  We could handle other cases. *)
+            if  isShort length andalso isShort flags andalso toShort length = 0w1
+            then
+            let
+                val vecLength = Word.toInt(toShort length)
+                val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flags))
+                val memAddr = newPReg() and valueReg = newPReg()
+                fun initialise n =
+                    MoveArgument{ source=valueReg, dest=wordOffsetAddress(n, memAddr), kind=WordToWord}
+                val code =
+                    codeToICodeTarget(arg3, context, false, valueReg) @
+                    [AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr}] @
+                    List.tabulate(vecLength, initialise) @
+                    [InitialisationComplete{dest=memAddr}]
+            in
+                moveIfNotAllowed(destination, code, memAddr)
+            end
+            else (* If it's longer use the full run-time form. *)
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                 codeToICodeTarget(arg3, context, false, aReg3) @
+                 [AllocateMemoryVariable{size=aReg1, flags=aReg2, dest=target, initialiser=SOME aReg3},
+                  InitialisationComplete{dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3}, context, _, destination) =

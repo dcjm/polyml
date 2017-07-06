@@ -125,6 +125,9 @@ struct
                     |   AtomicIncrement => PROPWORD_NORAISE
                     |   AtomicDecrement => PROPWORD_NORAISE
                     |   AtomicReset => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
+                    |   LongWordToTagged => applicative
+                    |   SignedToLongWord => applicative
+                    |   UnsignedToLongWord => applicative
             in
                 operProps andb codeProps arg1
             end

@@ -85,12 +85,12 @@ in
 (*                  CODECONS functor body                                    *)
 (*****************************************************************************)
 struct
-  open CODESEG;
-  open DEBUG;
-  open ADDRESS;
-  open MISC;
+    open CODESEG;
+    open DEBUG;
+    open ADDRESS;
+    open MISC;
 
-  (*
+    (*
       The original way of dealing with constants was to store the offset (in bytes)
       of the constant from the end of the instruction.  That has a problem when
       the database is ported to a different word-length machine because while the
@@ -99,41 +99,24 @@ struct
       new instructions which take an extra argument which is the number of the
       constant.  The byte offset is then always the number of bytes to the end of
       the code.  DCJM 25/9/00.
-  *)
-  val usePortableConstantOffset = false;
+    *)
+    val usePortableConstantOffset = false
   
-  (* The "enterInt" instruction is only used when porting to a new architecture.  Since
-     we only use the interpreted version to support non-X86 architectures we don't need
-     to generate them. *)
-  val generateEnterInt = false
+    (* The "enterInt" instruction is only used when porting to a new architecture.  Since
+       we only use the interpreted version to support non-X86 architectures we don't need
+       to generate them. *)
+    val generateEnterInt = false
 
-  (* To make the code portable these are both functions.  Note that
-     similar changes are needed in Code_seg.ML and in the basis library.
-     DCJM 28/9/00. *)
-  (* Unfortunately the code-generator always evaluates these at compile time
-     if it can.  We need to use a ref to force it not to.  It's too
-     complicated making this completely word-length independent but it's
-     useful to have it byte-order independent. *)
-  local
-      val bigEndian = ref RuntimeCalls.POLY_SYS_is_big_endian
-  in
-      fun littleEndian () : bool = not (RunCall.run_call0 (! bigEndian) ())
-  end;
+    (* Typically the compiler is built on a little-endian machine but it could
+       be run on a machine with either endian-ness.  We have to find out the
+       endian-ness when we run.  There are separate versions of the compiler
+       for 32-bit and 64-bit so that can be a constant.  *)
+    fun littleEndian () : bool = not (Compat560.isBigEndian())
 
-  val wordLength = Word.toInt RunCall.bytesPerWord
+    val wordLength = Word.toInt RunCall.bytesPerWord
  
-  val MAXINTARGS = (* 31 *) 126;
+    val MAXINTARGS = (* 31 *) 126;
 
-  fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
-
-  fun applyList (_, [])   = ()
-    | applyList (f, h::t) =
-    let
-      val () = f h;
-    in
-      applyList (f, t)
-    end;
-  
 
 (*****************************************************************************)
 (*                  Abstype for instruction addresses                        *)
@@ -968,15 +951,15 @@ struct
         end
 
 
-  fun fixup ([]  : labels, _: code) : unit = ()
-    | fixup (lab : labels, cvec: code) : unit =
-  let
-    (* Deal with any pending resets. *)
-    val () = resetSp cvec;
-    val target : addrs = ! (ic cvec);
-  in
-    applyList (fn (ref jf) => fixupOffset (jf, target, cvec), lab)
-  end;
+    fun fixup ([], _)  = ()
+    |   fixup (lab, cvec) =
+    let
+        (* Deal with any pending resets. *)
+        val () = resetSp cvec
+        val target = ! (ic cvec)
+    in
+        List.app (fn (ref jf) => fixupOffset (jf, target, cvec)) lab
+    end;
 
   (* Makes a new label and puts it in the list. *)
   fun makeLabel (cvec: code, addr: addrs) : labels =
@@ -1359,33 +1342,30 @@ struct
     fun genRTSCallFastFloatFloat cvec = genOpc (opcode_callFastRTSFtoF, 1, cvec)
     and genRTSCallFastGeneralFloat cvec = genOpc (opcode_callFastRTSGtoF, 1, cvec)
 
-  local
-    fun fixupConstantLoad (constStartAddrs : addrs, cvec : code) =
-      fn (fixupAddr : addrs, constNum : int) =>
-      let
-        val oldOffset : int = getBytes (2, fixupAddr, cvec);
-        val () =
-          if oldOffset = 0 then ()
-          else raise InternalError "fixupConstantLoad: already fixed-up";
+    local
+        fun fixupConstantLoad (constStartAddrs, cvec) (fixupAddr, constNum) =
+        let
+            val oldOffset = getBytes (2, fixupAddr, cvec)
+            val _ = oldOffset = 0 orelse raise InternalError "fixupConstantLoad: already fixed-up"
 
-        val constAddr : addrs =
-           if usePortableConstantOffset
-           then constStartAddrs
-           else constStartAddrs addrPlus (wordLength * (constNum+4));
+            val constAddr =
+                if usePortableConstantOffset
+                then constStartAddrs
+                else constStartAddrs addrPlus (wordLength * (constNum+4));
           
-        (* Offsets are calculated from the END of the instruction, which explains the "+ 2" *)
-        val newOffset : int = constAddr addrMinus (fixupAddr addrPlus 2);
+            (* Offsets are calculated from the END of the instruction, which explains the "+ 2" *)
+            val newOffset = constAddr addrMinus (fixupAddr addrPlus 2)
         
-        val () = 
-          if 0 <= newOffset andalso newOffset < 65536 then ()
-          else raise InternalError "fixupConstantLoad: constant too distant (16-bit offset)"
-      in
-        putBytes (newOffset, 2, fixupAddr, cvec)
-      end
-  in
-    fun fixupConstantLoads (cvec, constStartAddrs, loadInfo) : unit =
-      applyList (fixupConstantLoad (constStartAddrs, cvec), loadInfo);
-  end;
+            val () = 
+                if 0 <= newOffset andalso newOffset < 65536 then ()
+                else raise InternalError "fixupConstantLoad: constant too distant (16-bit offset)"
+        in
+            putBytes (newOffset, 2, fixupAddr, cvec)
+        end
+    in
+        fun fixupConstantLoads (cvec, constStartAddrs, loadInfo) =
+            List.app (fixupConstantLoad (constStartAddrs, cvec)) loadInfo
+    end
 
 
   (* Find the offset in the constant area of a constant. *)
@@ -1639,7 +1619,9 @@ struct
                   val () = printHex(base + getB(2, !ptr, seg));
                 in
                   ptr := !ptr + 2
-                end;
+                end
+                
+               fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n)
               in
                 forLoop printEntry 0 limit
               end

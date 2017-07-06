@@ -200,6 +200,12 @@ sig
            has been updated with its old value added to the increment. *)
     |   AtomicExchangeAndAdd of { destAddr: argument, source: argument }
 
+        (* Create a "box" of a single-word "byte" cell and store the source into it.
+           This can be implemented using AllocateMemoryOperation but the idea is to
+           allow the transform layer to recognise when a value is being boxed and
+           then unboxed and remove unnecessary allocation. *)
+    |   BoxLargeWord of { source: argument, dest: argument }
+
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 

@@ -45,11 +45,6 @@ struct
   val POLY_SYS_shift_left_longword         = 85
   val POLY_SYS_shift_right_longword        = 86
   val POLY_SYS_shift_right_arith_longword  = 87
-  val POLY_SYS_longword_to_tagged          = 89
-  val POLY_SYS_signed_to_longword          = 90
-  val POLY_SYS_unsigned_to_longword        = 91
-  val POLY_SYS_equal_short_arb     = 101
-  val POLY_SYS_quotrem             = 104 (* DCJM 05/03/10 *)
   val POLY_SYS_xora                = 112 (* DCJM 21/6/00 *)
   val POLY_SYS_equala              = 113
   val POLY_SYS_ora                 = 114 (* DCJM 21/6/00 *)

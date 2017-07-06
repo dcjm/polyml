@@ -246,9 +246,9 @@ in
         and op ~>> : word*Word.word->word = RunCall.run_call2 POLY_SYS_shift_right_arith_longword
 
         local
-            val shortToWord: LargeInt.int -> largeword = RunCall.run_call1 POLY_SYS_signed_to_longword
+            val shortToWord: LargeInt.int -> largeword = Word.toLargeWordX o RunCall.unsafeCast
             val getFirstWord: LargeInt.int -> Word.word = RunCall.run_call1 POLY_SYS_get_first_long_word
-            val longToInt: largeword -> LargeInt.int = RunCall.run_call1 POLY_SYS_longword_to_tagged
+            val longToInt: largeword -> LargeInt.int = RunCall.unsafeCast o Word.fromLargeWord
             val zero: largeword = shortToWord 0
             val andbInt : LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.run_call2 POLY_SYS_anda
 

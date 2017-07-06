@@ -161,10 +161,6 @@ struct
     fun op div(_, 0w0) = raise RunCall.Div | op div(x, y) = Word.div(x, y)
     fun op mod(_, 0w0) = raise RunCall.Div | op mod(x, y) = Word.mod(x, y)
 
-(*    val op >> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_word
-    and op << : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_left_word
-    and op ~>> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_arith_word*)
-
     local
         val maxBits = RunCall.bytesPerWord * 0w8 - 0w1
     in
@@ -176,10 +172,6 @@ struct
         val op >> = fn (a, b) => if b >= maxBits then 0w0 else a >> b
         val op ~>> = fn (a, b) => a ~>> (if b > maxBits then maxBits else b)
     end
-
-    val toLargeWord: word->LargeWord.word = RunCall.run_call1 RuntimeCalls.POLY_SYS_unsigned_to_longword
-    and toLargeWordX: word->LargeWord.word = RunCall.run_call1 RuntimeCalls.POLY_SYS_signed_to_longword
-    and fromLargeWord: LargeWord.word->word = RunCall.run_call1 RuntimeCalls.POLY_SYS_longword_to_tagged
 
     val toLarge = toLargeWord and toLargeX = toLargeWordX and fromLarge = fromLargeWord
 end;

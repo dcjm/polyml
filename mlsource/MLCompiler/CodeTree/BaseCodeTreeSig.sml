@@ -114,7 +114,8 @@ sig
         EnvSpecNone
     |   EnvSpecTuple of int * (int -> envGeneral * envSpecial)
     |   EnvSpecInlineFunction of lambdaForm * (int -> envGeneral * envSpecial)
-    |   EnvSpecBuiltIn of int * codetree list
+    |   EnvSpecBuiltIn1 of BuiltIns.builtIn1Ops * codetree
+    |   EnvSpecBuiltIn2 of BuiltIns.builtIn2Ops * codetree * codetree
 
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)

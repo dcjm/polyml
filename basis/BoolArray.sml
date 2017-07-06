@@ -371,20 +371,18 @@ in
 
         fun array (len, ini) =
         let
-            (* Create the array with zeros initially. *)
+            (* Create the uninitialised array. *)
             val vec = alloc len
-            (* If we need to set this to true we set all the bytes to 0xff.
-               This could mean that we have bits set which don't correspond
-               to values in the range and so two arrays with the same
-               abstract values could have different representations.  That's
-               safe for arrays because equality is pointer equality but
-               wouldn't be safe for immutables because structure equality
-               could give the wrong answer. *)
-            fun setTrue i b =
-                if len <= i then ()
-                else (RunCall.storeByte(vec, b, 0wxff); setTrue (i+8) (b+0w1))
+            (* Set the bytes to all zeros or all ones.  Generally this will set
+               more bits than we need but that doesn't matter. *)
+            val initByte = if ini then 0wxff else 0wx00
+            val bytes = (Word.fromInt len + 0w7) >> 0w3
+            (* TODO: This should be set by a built-in. *)
+            fun setBytes b =
+                if b >= bytes then ()
+                else (RunCall.storeByte(vec, b, initByte); setBytes (b+0w1))
+            val () = setBytes 0w0
         in
-            if ini then setTrue 0 0w0 else ();
             Array(len, vec)
         end
     

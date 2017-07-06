@@ -54,6 +54,7 @@ sig
     val maxAllocation: word
     val noOverwriteRef: 'a -> 'a ref
     val emptyVector: word
+    val quotRem: LargeInt.int*LargeInt.int -> LargeInt.int*LargeInt.int
 end
 =
 struct
@@ -214,5 +215,9 @@ struct
     (* Create an empty vector.  This is used wherever we want an empty vector.
        It can't be 'a vector which is what we want because of the value restriction. *)
     val emptyVector: word = RunCall.allocateWordMemory(0w0, 0w0, 0w0)
+    
+    
+    (* We have a special rts call for this.  It's needed in both LargeInt and IntInf *)
+    val quotRem = LargeInt.callQuotRem "PolyQuotRemArbitrary"
 end;
 

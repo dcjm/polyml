@@ -321,7 +321,7 @@ struct
             (* We can't use wordEq here.  If one of the arguments is a constant this will
                reduce down to a bitwise equality but if we then turn it back into an
                indexed case we have to reinstate the tag check. *)
-            val shortEq = CODETREE.rtsFunction POLY_SYS_equal_short_arb
+            val shortEq = wordEq (*CODETREE.rtsFunction POLY_SYS_equal_short_arb*)
             val intEquality =
                 mkInlproc(
                     mkCor( (* Either they're equal... *)

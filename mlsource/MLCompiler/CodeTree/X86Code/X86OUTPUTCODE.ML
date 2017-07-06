@@ -3610,7 +3610,7 @@ SS-relative addressing modes:
             |   0wx8f => (print "pop \t"; printEA(rex, sz32_64))
             |   0wx90 => print "nop"
             
-            |   0wx99 => if rexW then print "cqo" else print "cdq"
+            |   0wx99 => if rexW then print "cqo\n" else print "cdq\n"
             
             |   0wx9e => print "sahf\n"
 
@@ -3621,7 +3621,7 @@ SS-relative addressing modes:
             |   0wxa8 => (print "test\tal,"; print8 ())
 
             |   0wxaa => print "stosb\n"
-            |   0wxab => print "stosl\n"
+            |   0wxab => if rexW then print "stosq\n" else print "stosl\n"
 
             |   0wxb8 => printMovCToR (opByte, sizeFromRexW, rexB)
             |   0wxb9 => printMovCToR (opByte, sizeFromRexW, rexB)

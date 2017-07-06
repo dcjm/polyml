@@ -35,10 +35,19 @@ struct
     open RuntimeCalls;
     type int = LargeInt.int
     
-    val quotRem: int*int->int*int = RunCall.run_call2C2 POLY_SYS_quotrem
+    val quotRem = LibrarySupport.quotRem
 
-    (* This should really be defined in terms of quotRem. *)
-    fun divMod(i, j) = (i div j, i mod j)
+    fun divMod (x, y) =
+    let
+        val (q, r) = quotRem(x, y)
+    in
+        (* If the remainder is zero or the same sign as the
+           divisor then the result is the same as quotRem.
+           Otherwise round down the quotient and round up the remainder. *)
+        if r = 0 orelse (r < 0) = (y < 0)
+        then (q, r)
+        else (q-1, r+y)
+    end
 
     (* Return the position of the highest bit set in the value. *)
     local

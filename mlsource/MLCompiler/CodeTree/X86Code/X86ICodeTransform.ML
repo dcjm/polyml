@@ -1305,6 +1305,23 @@ struct
                     code=AtomicExchangeAndAdd{destAddr=raxAsArg, source=srcReg} :: load @ code, context=context}
             end
 
+        |   codeICode{icode=BoxLargeWord{ dest, source } :: rest, state=NormalState state, code, context} =
+            let
+                (* Allocate a one word cell and store the untagged value into it. *)
+                val destReg = argToPReg dest
+                val srcReg = getUreg(argToUReg source, state)
+                val (pushedState, pushCode) = pushRax state
+                val resultState =
+                    removeAfterTag(clearCC(addRaxToState(pushedState, destReg)) (* Affects CC *), srcReg)
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code=
+                        InitialisationComplete{dest=raxAsArg} ::
+                        MoveArgument{ source=srcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
+                        AllocateMemoryOperation{ size=1, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
+            end
+
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"

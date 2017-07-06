@@ -551,6 +551,8 @@ struct
                 |   LoadByte _ => raise InternalError "LoadWord"
                 
                 |   SetStringLengthWord => genOpcode(opcode_setStringLength, cvec)
+                
+                |   AllocateByteMemory => genOpcode(opcode_allocByteMem, cvec)
                  ;
                 decsp() (* Removes one item from the stack. *)
             end
@@ -583,6 +585,16 @@ struct
             in
                 genOpcode(opcode_storeMLByte, cvec);
                 decsp(); decsp(); decsp()
+            end
+            
+        |   BICBuiltIn3 { oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3 } =>
+            let
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
+            in
+                genOpcode(opcode_allocWordMemory, cvec);
+                decsp(); decsp()
             end
 
         |   BICBuiltIn4 { oper, arg1, arg2, arg3, arg4 } => raise InternalError "intgcode: BICBuiltIn4"
@@ -652,7 +664,7 @@ struct
         let
             (* Create a one word item for the closure.  This is returned for recursive references
                and filled in with the address of the code when we've finished. *)
-            val closure = Address.alloc(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
+            val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
             val newCode : code = codeCreate(#name lam, parameters);
         
             (* The only global references are recursive ones (?) *)
@@ -1040,7 +1052,7 @@ struct
         let
             open Address
             val cvec = codeCreate (entryName, debugArgs)
-            val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+            val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
 
             val entryPointAddr = makeEntryPoint entryName
 

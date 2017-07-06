@@ -132,9 +132,23 @@ struct
 
     |   simpGeneral context (Eval {function, argList, resultType}) =
             SOME(specialToGeneral(simpFunctionCall(function, argList, resultType, context)))
-(*
-    |   simpGeneral context (BuiltIn(function, argList)) =
-            SOME(specialToGeneral(simpBuiltIn(function, argList, context)))*)
+
+        (* BuiltIn0 functions can't be processed specially. *)
+
+    |   simpGeneral context (BuiltIn1{oper, arg1}) =
+            SOME(specialToGeneral(simpBuiltIn1(oper, arg1, context)))
+
+    |   simpGeneral context (BuiltIn2{oper, arg1, arg2}) =
+            SOME(specialToGeneral(simpBuiltIn2(oper, arg1, arg2, context)))
+
+    |   simpGeneral context (BuiltIn3{oper, arg1, arg2, arg3}) =
+            SOME(specialToGeneral(simpBuiltIn3(oper, arg1, arg2, arg3, context)))
+
+    |   simpGeneral context (BuiltIn4{oper, arg1, arg2, arg3, arg4}) =
+            SOME(specialToGeneral(simpBuiltIn4(oper, arg1, arg2, arg3, arg4, context)))
+
+    |   simpGeneral context (BuiltIn5{oper, arg1, arg2, arg3, arg4, arg5}) =
+            SOME(specialToGeneral(simpBuiltIn5(oper, arg1, arg2, arg3, arg4, arg5, context)))
 
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
             SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
@@ -215,142 +229,6 @@ struct
             |   sTest => SOME(TagTest{test=sTest, tag=tag, maxTag=maxTag})
         )
 
-        (* Constant folding for built-ins.  These ought to be type-correct i.e. we should have
-           tagged values in some cases and addresses in others.  However there may be run-time
-           tests that would ensure type-correctness and we can't be sure that they will always
-           be folded at compile-time.  e.g. we may have
-            if isShort c then shortOp c else longOp c
-           If c is a constant then we may try to fold both the shortOp and the longOp and one
-           of these will be type-incorrect although never executed at run-time. *)
-    |   simpGeneral {reprocess, ...} (BuiltIn1{oper=NotBoolean, arg1=Constnt(v, _)}) =
-        (
-            reprocess := true;
-            SOME(if isShort v andalso toShort v = 0w0 then CodeTrue else CodeFalse)
-        )
-
-    |   simpGeneral {reprocess, ...} (BuiltIn1{oper=IsTaggedValue, arg1=Constnt(v, _)}) =
-        (
-            reprocess := true;
-            SOME(if isShort v then CodeTrue else CodeFalse)
-        )
-
-    |   simpGeneral {reprocess, ...} (BuiltIn1{oper=MemoryCellLength, arg1=Constnt(v, _)}) =
-        (
-            reprocess := true;
-            SOME(if isShort v then CodeZero else Constnt(toMachineWord(Address.length(toAddress v)), []))
-        )
-
-    |   simpGeneral {reprocess, ...} (BuiltIn1{oper=MemoryCellFlags, arg1=Constnt(v, _)}) =
-        (
-            reprocess := true;
-            SOME(if isShort v then CodeZero else Constnt(toMachineWord(Address.flags(toAddress v)), []))
-        )
-
-    |   simpGeneral {reprocess, ...} (BuiltIn1{oper=StringLengthWord, arg1=Constnt(v, _)}) =
-        (
-            reprocess := true;
-            SOME(Constnt(toMachineWord(String.size(RunCall.unsafeCast v)), []))
-        )
-
-    |   simpGeneral {reprocess, ...} (BuiltIn2{oper=WordComparison{test, isSigned}, arg1=Constnt(v1, _), arg2=Constnt(v2, _)}) =
-        if (case test of TestEqual => false | TestNotEqual => false | _ => not(isShort v1) orelse not(isShort v2))
-        then NONE
-        else
-        let
-            val () = reprocess := true
-            val testResult =
-                case (test, isSigned) of
-                    (* TestEqual/TestNotEqual can be applied to addresses. *)
-                    (TestEqual, _)              => RunCall.pointerEq(v1, v2)
-                |   (TestNotEqual, _)           => not(RunCall.pointerEq(v1, v2))
-                |   (TestLess, false)           => toShort v1 < toShort v2
-                |   (TestLessEqual, false)      => toShort v1 <= toShort v2
-                |   (TestGreater, false)        => toShort v1 > toShort v2
-                |   (TestGreaterEqual, false)   => toShort v1 >= toShort v2
-                |   (TestLess, true)            => toFix v1 < toFix v2
-                |   (TestLessEqual, true)       => toFix v1 <= toFix v2
-                |   (TestGreater, true)         => toFix v1 > toFix v2
-                |   (TestGreaterEqual, true)    => toFix v1 >= toFix v2
-        in
-            SOME(if testResult then CodeTrue else CodeFalse)
-        end
-
-    |   simpGeneral {reprocess, ...} (BuiltIn2{oper=FixedPrecisionArith arithOp, arg1=Constnt(v1, _), arg2=Constnt(v2, _)}) =
-        if not(isShort v1) orelse not(isShort v2) then NONE
-        else
-        let
-            val () = reprocess := true
-            val v1S = toFix v1
-            and v2S = toFix v2
-            fun asConstnt v = Constnt(toMachineWord v, [])
-            val raiseOverflow = Raise(Constnt(toMachineWord Overflow, []))
-            val raiseDiv = Raise(Constnt(toMachineWord Div, [])) (* ?? There's usually an explicit test. *)
-            val resultCode =
-                case arithOp of
-                    ArithAdd => (asConstnt(v1S+v2S) handle Overflow => raiseOverflow)
-                |   ArithSub => (asConstnt(v1S-v2S) handle Overflow => raiseOverflow)
-                |   ArithMult => (asConstnt(v1S*v2S) handle Overflow => raiseOverflow)
-                |   ArithQuot => (asConstnt(FixedInt.quot(v1S,v2S)) handle Overflow => raiseOverflow | Div => raiseDiv)
-                |   ArithRem => (asConstnt(FixedInt.rem(v1S,v2S)) handle Overflow => raiseOverflow | Div => raiseDiv)
-        in
-            SOME resultCode
-        end
-
-    |   simpGeneral {reprocess, ...} (BuiltIn2{oper=WordArith arithOp, arg1=Constnt(v1, _), arg2=Constnt(v2, _)}) =
-        if not(isShort v1) orelse not(isShort v2) then NONE
-        else
-        let
-            val () = reprocess := true
-            val v1S = toShort v1
-            and v2S = toShort v2
-            fun asConstnt v = Constnt(toMachineWord v, [])
-            val resultCode =
-                case arithOp of
-                    ArithAdd => asConstnt(v1S+v2S)
-                |   ArithSub => asConstnt(v1S-v2S)
-                |   ArithMult => asConstnt(v1S*v2S)
-                |   ArithQuot => asConstnt(v1S div v2S)
-                |   ArithRem => asConstnt(v1S mod v2S)
-        in
-            SOME resultCode
-        end
-
-    |   simpGeneral {reprocess, ...} (BuiltIn2{oper=LoadWord _, arg1=Constnt(v1, _), arg2=Constnt(v2, _)}) =
-        if isShort v1 orelse not (isShort v2) then NONE
-        else
-        let
-            val addr = toAddress v1 and offset = toShort v2
-        in
-            (* Ignore the "isImmutable" flag and look at the immutable status of the memory.
-               Check that this is a word object and that the offset is within range.
-               The code for Vector.sub, for example, raises an exception if the index
-               is out of range but still generates the (unreachable) indexing code. *)
-            if isMutable addr orelse not(isWords addr) orelse offset >= length addr
-            then NONE (* Leave until run-time *)
-            else
-            (
-                reprocess := true;
-                SOME(Constnt(loadWord(addr, offset), []))
-            )
-        end
-
-    |   simpGeneral {reprocess, ...} (BuiltIn2{oper=LoadByte _, arg1=Constnt(v1, _), arg2=Constnt(v2, _)}) =
-        if isShort v1 orelse not (isShort v2) then NONE
-        else
-        let
-            val addr = toAddress v1 and offset = toShort v2
-        in
-            (* Ignore the "isImmutable" flag and look at the immutable status of the memory. *)
-            if isMutable addr orelse not(isBytes addr) orelse offset >= length addr * Word.fromInt wordSize
-            then NONE (* Leave until run-time *)
-            else
-            (
-                reprocess := true;
-                SOME(Constnt(toMachineWord(loadByte(addr, offset)), []))
-            )
-        end
-
-
     |   simpGeneral _ _ = NONE
 
     (* Where we have an Indirect or Eval we want the argument as either a tuple or
@@ -376,8 +254,20 @@ struct
     |   simpSpecial (Eval {function, argList, resultType}, context) =
             simpFunctionCall(function, argList, resultType, context)
 
-(*    |   simpSpecial (BuiltIn (function, argList), context) =
-            simpBuiltIn(function, argList, context)*)
+    |   simpSpecial (BuiltIn1{oper, arg1}, context) =
+            simpBuiltIn1(oper, arg1, context)
+
+    |   simpSpecial (BuiltIn2{oper, arg1, arg2}, context) =
+            simpBuiltIn2(oper, arg1, arg2, context)
+
+    |   simpSpecial (BuiltIn3{oper, arg1, arg2, arg3}, context) =
+            simpBuiltIn3(oper, arg1, arg2, arg3, context)
+
+    |   simpSpecial (BuiltIn4{oper, arg1, arg2, arg3, arg4}, context) =
+            simpBuiltIn4(oper, arg1, arg2, arg3, arg4, context)
+
+    |   simpSpecial (BuiltIn5{oper, arg1, arg2, arg3, arg4, arg5}, context) =
+            simpBuiltIn5(oper, arg1, arg2, arg3, arg4, arg5, context)
 
     |   simpSpecial (Cond(condTest, condThen, condElse), context) =
             simpIfThenElse(condTest, condThen, condElse, context)
@@ -604,7 +494,8 @@ struct
                                         case specEntry of
                                             EnvSpecTuple(size, env) => EnvSpecTuple(size, convertEnv env)
                                         |   EnvSpecInlineFunction(spec, env) => EnvSpecInlineFunction(spec, convertEnv env)
-                                        |   EnvSpecBuiltIn _ => EnvSpecNone (* Don't pass this in *)
+                                        |   EnvSpecBuiltIn1 _ => EnvSpecNone (* Don't pass this in *)
+                                        |   EnvSpecBuiltIn2 _ => EnvSpecNone (* Don't pass this in *)
                                         |   EnvSpecNone => EnvSpecNone
                                 in
                                     (newGeneral, newSpecial)
@@ -778,6 +669,232 @@ struct
             in
                 (evCopiedCode, decsFunct, EnvSpecNone)
             end
+    end
+    
+    (* Special processing for the current builtIn1 operations. *)
+    (* Constant folding for built-ins.  These ought to be type-correct i.e. we should have
+       tagged values in some cases and addresses in others.  However there may be run-time
+       tests that would ensure type-correctness and we can't be sure that they will always
+       be folded at compile-time.  e.g. we may have
+        if isShort c then shortOp c else longOp c
+       If c is a constant then we may try to fold both the shortOp and the longOp and one
+       of these will be type-incorrect although never executed at run-time. *)
+
+    and simpBuiltIn1(oper, arg1, context as { reprocess, ...}) =
+    let
+        val (genArg1, decArg1, specArg1) = simpSpecial(arg1, context)
+    in
+        case (oper, genArg1) of
+            (NotBoolean, Constnt(v, _)) =>
+            (
+                reprocess := true;
+                (if isShort v andalso toShort v = 0w0 then CodeTrue else CodeFalse, decArg1, EnvSpecNone)
+            )
+
+        |   (IsTaggedValue, Constnt(v, _)) =>
+            (
+                reprocess := true;
+                (if isShort v then CodeTrue else CodeFalse, decArg1, EnvSpecNone)
+            )
+
+        |   (MemoryCellLength, Constnt(v, _)) =>
+            (
+                reprocess := true;
+                (if isShort v then CodeZero else Constnt(toMachineWord(Address.length(toAddress v)), []), decArg1, EnvSpecNone)
+            )
+
+        |   (MemoryCellFlags, Constnt(v, _)) =>
+            (
+                reprocess := true;
+                (if isShort v then CodeZero else Constnt(toMachineWord(Address.flags(toAddress v)), []), decArg1, EnvSpecNone)
+            )
+
+        |   (StringLengthWord, Constnt(v, _)) =>
+            (
+                reprocess := true;
+                (Constnt(toMachineWord(String.size(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
+            )
+
+        |   (LongWordToTagged, Constnt(v, _)) =>
+            (
+                reprocess := true;
+                (Constnt(toMachineWord(Word.fromLargeWord(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
+            )
+
+        |   (LongWordToTagged, genArg1) =>
+            (
+                (* If we apply LongWordToTagged to an argument we have created with UnsignedToLongWord
+                   we can return the original argument. *)
+                case specArg1 of
+                    EnvSpecBuiltIn1(UnsignedToLongWord, originalArg) =>
+                    (
+                        reprocess := true;
+                        (originalArg, decArg1, EnvSpecNone)
+                    )
+                 |  _ => (BuiltIn1{oper=LongWordToTagged, arg1=genArg1}, decArg1, EnvSpecNone)
+            )
+
+        |   (SignedToLongWord, Constnt(v, _)) =>
+            (
+                reprocess := true;
+                (Constnt(toMachineWord(Word.toLargeWordX(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
+            )
+
+        |   (UnsignedToLongWord, Constnt(v, _)) =>
+            (
+                reprocess := true;
+                (Constnt(toMachineWord(Word.toLargeWord(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
+            )
+
+        |   (UnsignedToLongWord, genArg1) =>
+                (* Add the operation as the special entry.  It can then be recognised by LongWordToTagged. *)
+                (BuiltIn1{oper=oper, arg1=genArg1}, decArg1, EnvSpecBuiltIn1(UnsignedToLongWord, genArg1))
+
+        |   _ => (BuiltIn1{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
+    end
+
+    and simpBuiltIn2(oper, arg1, arg2, context as {reprocess, ...}) =
+    let
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
+        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
+        val decArgs = decArg1 @ decArg2
+    in
+        case (oper, genArg1, genArg2) of
+            (WordComparison{test, isSigned}, Constnt(v1, _), Constnt(v2, _)) =>
+            if (case test of TestEqual => false | TestNotEqual => false | _ => not(isShort v1) orelse not(isShort v2))
+            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            else
+            let
+                val () = reprocess := true
+                val testResult =
+                    case (test, isSigned) of
+                        (* TestEqual/TestNotEqual can be applied to addresses. *)
+                        (TestEqual, _)              => RunCall.pointerEq(v1, v2)
+                    |   (TestNotEqual, _)           => not(RunCall.pointerEq(v1, v2))
+                    |   (TestLess, false)           => toShort v1 < toShort v2
+                    |   (TestLessEqual, false)      => toShort v1 <= toShort v2
+                    |   (TestGreater, false)        => toShort v1 > toShort v2
+                    |   (TestGreaterEqual, false)   => toShort v1 >= toShort v2
+                    |   (TestLess, true)            => toFix v1 < toFix v2
+                    |   (TestLessEqual, true)       => toFix v1 <= toFix v2
+                    |   (TestGreater, true)         => toFix v1 > toFix v2
+                    |   (TestGreaterEqual, true)    => toFix v1 >= toFix v2
+            in
+                (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
+            end
+
+        |   (FixedPrecisionArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
+            if not(isShort v1) orelse not(isShort v2)
+            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            else
+            let
+                val () = reprocess := true
+                val v1S = toFix v1
+                and v2S = toFix v2
+                fun asConstnt v = Constnt(toMachineWord v, [])
+                val raiseOverflow = Raise(Constnt(toMachineWord Overflow, []))
+                val raiseDiv = Raise(Constnt(toMachineWord Div, [])) (* ?? There's usually an explicit test. *)
+                val resultCode =
+                    case arithOp of
+                        ArithAdd => (asConstnt(v1S+v2S) handle Overflow => raiseOverflow)
+                    |   ArithSub => (asConstnt(v1S-v2S) handle Overflow => raiseOverflow)
+                    |   ArithMult => (asConstnt(v1S*v2S) handle Overflow => raiseOverflow)
+                    |   ArithQuot => (asConstnt(FixedInt.quot(v1S,v2S)) handle Overflow => raiseOverflow | Div => raiseDiv)
+                    |   ArithRem => (asConstnt(FixedInt.rem(v1S,v2S)) handle Overflow => raiseOverflow | Div => raiseDiv)
+            in
+                (resultCode, decArgs, EnvSpecNone)
+            end
+
+        |   (WordArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
+            if not(isShort v1) orelse not(isShort v2)
+            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            else
+            let
+                val () = reprocess := true
+                val v1S = toShort v1
+                and v2S = toShort v2
+                fun asConstnt v = Constnt(toMachineWord v, [])
+                val resultCode =
+                    case arithOp of
+                        ArithAdd => asConstnt(v1S+v2S)
+                    |   ArithSub => asConstnt(v1S-v2S)
+                    |   ArithMult => asConstnt(v1S*v2S)
+                    |   ArithQuot => asConstnt(v1S div v2S)
+                    |   ArithRem => asConstnt(v1S mod v2S)
+            in
+               (resultCode, decArgs, EnvSpecNone)
+            end
+
+        |   (LoadWord _, Constnt(v1, _), Constnt(v2, _)) =>
+            if isShort v1 orelse not (isShort v2)
+            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            else
+            let
+                val addr = toAddress v1 and offset = toShort v2
+            in
+                (* Ignore the "isImmutable" flag and look at the immutable status of the memory.
+                   Check that this is a word object and that the offset is within range.
+                   The code for Vector.sub, for example, raises an exception if the index
+                   is out of range but still generates the (unreachable) indexing code. *)
+                if isMutable addr orelse not(isWords addr) orelse offset >= length addr
+                then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) (* Leave until run-time *)
+                else
+                (
+                    reprocess := true;
+                    (Constnt(loadWord(addr, offset), []), decArgs, EnvSpecNone)
+                )
+            end
+
+        |   (LoadByte _, Constnt(v1, _), Constnt(v2, _)) =>
+            if isShort v1 orelse not (isShort v2)
+            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            else
+            let
+                val addr = toAddress v1 and offset = toShort v2
+            in
+                (* Ignore the "isImmutable" flag and look at the immutable status of the memory. *)
+                if isMutable addr orelse not(isBytes addr) orelse offset >= length addr * Word.fromInt wordSize
+                then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) (* Leave until run-time *)
+                else
+                (
+                    reprocess := true;
+                    (Constnt(toMachineWord(loadByte(addr, offset)), []), decArgs, EnvSpecNone)
+                )
+            end
+            
+        |   _ => (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+    end
+
+    and simpBuiltIn3(oper, arg1, arg2, arg3, context) =
+    let
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
+        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
+        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(arg3, context)
+    in 
+        (BuiltIn3{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3}, decArg1 @ decArg2 @ decArg3, EnvSpecNone)
+    end
+
+    and simpBuiltIn4(oper, arg1, arg2, arg3, arg4, context) =
+    let
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
+        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
+        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(arg3, context)
+        val (genArg4, decArg4, _ (*specArg4*)) = simpSpecial(arg4, context)
+    in 
+        (BuiltIn4{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3, arg4=genArg4},
+         decArg1 @ decArg2 @ decArg3 @ decArg4, EnvSpecNone)
+    end
+
+    and simpBuiltIn5(oper, arg1, arg2, arg3, arg4, arg5, context) =
+    let
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
+        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
+        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(arg3, context)
+        val (genArg4, decArg4, _ (*specArg4*)) = simpSpecial(arg4, context)
+        val (genArg5, decArg5, _ (*specArg5*)) = simpSpecial(arg5, context)
+    in 
+        (BuiltIn5{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3, arg4=genArg4, arg5=genArg5},
+         decArg1 @ decArg2 @ decArg3 @ decArg4 @ decArg5, EnvSpecNone)
     end
 (*
     (* A built-in function.  We can call certain built-ins immediately if

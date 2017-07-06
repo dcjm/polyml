@@ -121,7 +121,6 @@ struct
 
     local
         open LibrarySupport
-        val quotRem: int*int -> int*int = RunCall.run_call2C2 POLY_SYS_quotrem
 
         (* Int.toChars turned out to be a major allocation hot-spot in some Isabelle
            examples.  The old code created a list of the characters and then concatenated

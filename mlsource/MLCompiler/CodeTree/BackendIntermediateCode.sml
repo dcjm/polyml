@@ -61,6 +61,9 @@ struct
         |   AtomicIncrement
         |   AtomicDecrement
         |   AtomicReset
+        |   LongWordToTagged
+        |   SignedToLongWord
+        |   UnsignedToLongWord
 
         and builtIn2Ops =
             WordComparison of { test: testConditions, isSigned: bool }
@@ -95,6 +98,9 @@ struct
         |   builtIn1Repr AtomicIncrement = "AtomicIncrement"
         |   builtIn1Repr AtomicDecrement = "AtomicDecrement"
         |   builtIn1Repr AtomicReset = "AtomicReset"
+        |   builtIn1Repr LongWordToTagged = "LongWordToTagged"
+        |   builtIn1Repr SignedToLongWord = "SignedToLongWord"
+        |   builtIn1Repr UnsignedToLongWord = "UnsignedToLongWord"
 
         and builtIn2Repr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
