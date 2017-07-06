@@ -1088,7 +1088,7 @@ struct
           OGCEval {function, argList, resultType, ...} =>
             genEval (function, argList, resultType, primBoolOps, whereto, tailKind)
             
-        |   OGCBuiltIn0{oper=BuiltIns.Built0PlaceHolder} => raise InternalError "TODO: OGCBuiltIn0"
+        |   OGCBuiltIn0{oper=BuiltIns.CurrentThreadId} => cgAndRes(threadSelf(transtable, whereto))
 
         |   OGCBuiltIn1{oper=BuiltIns.NotBoolean, arg1} =>
                 (* Boolean "not" is coded as xor with "true" *)
@@ -1099,6 +1099,8 @@ struct
         |   OGCBuiltIn1{oper=BuiltIns.MemoryCellLength, arg1} => cgAndRes(vectorLength(genToStack arg1, transtable, whereto))
 
         |   OGCBuiltIn1{oper=BuiltIns.MemoryCellFlags, arg1} => cgAndRes(vectorFlags(genToStack arg1, transtable, whereto))
+
+        |   OGCBuiltIn1{oper=BuiltIns.ClearMutableFlag, arg1} => cgAndRes(lockVector(genToStack arg1, transtable, whereto))
 
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
@@ -1132,7 +1134,11 @@ struct
         |   OGCBuiltIn2{oper=BuiltIns.LoadByte _, arg1, arg2} =>
                 cgAndRes(loadByte(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn3{oper=BuiltIns.Built3PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn3"
+        |   OGCBuiltIn3{oper=BuiltIns.StoreWord, arg1, arg2, arg3} =>
+                cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
+
+        |   OGCBuiltIn3{oper=BuiltIns.StoreByte, arg1, arg2, arg3} =>
+                cgAndRes(storeByte(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
 
         |   OGCBuiltIn4{oper=BuiltIns.Built4PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn4"
 
@@ -2221,7 +2227,7 @@ struct
         |   OGCBuiltIn0{oper} =>
             (
                 case oper of
-                    BuiltIns.Built0PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn0"
+                    BuiltIns.CurrentThreadId => raise InternalError "TODO-genTest: OGCBuiltIn0-CurrentThreadId"
             )
 
         |   OGCBuiltIn1{oper, arg1} =>
@@ -2242,7 +2248,9 @@ struct
                 |   BuiltIns.MemoryCellLength => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellLength"
 
                 |   BuiltIns.MemoryCellFlags => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellFlags"
-            )
+ 
+                |   BuiltIns.ClearMutableFlag => raise InternalError "TODO-genTest: OGCBuiltIn1 - ClearMutableFlag"
+           )
 
         |   OGCBuiltIn2{oper, arg1, arg2} =>
             (
@@ -2293,7 +2301,8 @@ struct
         |   OGCBuiltIn3{oper, ...} =>
             (
                 case oper of
-                    BuiltIns.Built3PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn3"
+                    BuiltIns.StoreWord => raise InternalError "TODO-genTest: OGCBuiltIn3-StoreWord"
+                |   BuiltIns.StoreByte => raise InternalError "TODO-genTest: OGCBuiltIn3-StoreByte"
             )
 
         |   OGCBuiltIn4{oper, ...} =>
@@ -2634,7 +2643,7 @@ struct
                 in
                     fun loadProc (): (stackIndex option * bool * stackIndex list * reg list) =
                       case clos of
-                         SOME(OGCConstnt(w, _)) =>
+                         SOME(c as OGCConstnt(w, _)) =>
                             (* Do we need to load the closure register? *)
                             let
                                 val addr = Address.toAddress w
@@ -2643,28 +2652,20 @@ struct
                                 then (* If it's the address into the IO vector or it's a reference
                                         to code we haven't yet compiled we don't need the closure
                                         register but we can't do the indirection until run time. *)
-                                    (SOME(pushConst(transtable, w)), true, [], [])
+                                    (SOME(loadReg regClosure (genToStack c)), true, [], [regClosure])
                                 else
                                 let
                                     val code : machineWord = Address.loadWord (addr, 0w0)
                                     val codeLocn = pushConst(transtable, code)
-                                    
                                 in
                                     if Address.length addr = 0w1
                                     then (* The closure is just one word - we don't need to
                                             put it in the closure register since the function
                                             won't need it.  Do the indirection now. *)
                                         (SOME codeLocn, false, [], [])
-                                    else (* We need to load the closure register. 
-                                        We have a choice here.  We could either return
-                                        the closure register as the address as we do
-                                        in the general case, in which case we would do
-                                        an indirect call through the closure register,
-                                        or we can do the indirection here and do a
-                                        direct call.  On the i386 the latter is definitely
-                                        better but on the PPC it will generate longer
-                                        code, although possibly no slower if there was
-                                        a pipeline stall. *)
+                                    else
+                                        (* We need to load the closure register but we can jump
+                                           directly to the call. *)
                                         (SOME codeLocn, false,
                                             [loadReg regClosure (pushConst(transtable, w))],
                                             [regClosure])
@@ -2920,9 +2921,6 @@ struct
                             else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
                             then cgAndRes(atomicDecrement(genToStack arg, transtable, whereto))
 
-                            else if wordEq(oper, ioOp POLY_SYS_lockseg)
-                            then cgAndRes(lockVector(genToStack arg, transtable, whereto))
-
                             else if wordEq (oper,ioOp POLY_SYS_Abs_real)
                             then cgAndRes(absoluteReal(genToStack arg, transtable, whereto))
 
@@ -2998,12 +2996,6 @@ struct
                                     SOME(shift, arg) => cgAndRes(upShiftWordConstant(genToStack arg, shift, transtable, whereto))
                                 |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
                             end
-
-                            else if wordEq (oper,ioOp POLY_SYS_plus_word)
-                            then cgAndRes(addWord(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_minus_word)
-                            then cgAndRes(subtractWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_div_word)
                             then
@@ -3123,11 +3115,6 @@ struct
                                 |  _ => callClosure (SOME evalFun, true)
 
                             end
-                            else if wordEq (oper,ioOp POLY_SYS_assign_word)
-                            then cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_assign_byte)
-                            then cgAndRes(storeByte(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
 
                             else callClosure (SOME evalFun, true)
 

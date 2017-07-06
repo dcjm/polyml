@@ -62,7 +62,6 @@ sig
     
     datatype callKinds =
         Recursive
-    |   ConstantClosure of Address.machineWord
     |   ConstantCode of Address.machineWord
     |   FullCall
     |   DirectReg of genReg
@@ -178,7 +177,7 @@ sig
     val createStackClosure: ttab * stackIndex list -> stackIndex * operation list
     val setRecursiveClosureEntry: stackIndex * stackIndex * int * ttab -> operation list
  
-    (*val threadSelf: ttab * regHint -> operation list * mergeResult*)
+    val threadSelf: ttab * regHint -> operation list * mergeResult
 
     val vectorLength: stackIndex * ttab * regHint -> operation list * mergeResult
     and vectorFlags: stackIndex * ttab * regHint -> operation list * mergeResult

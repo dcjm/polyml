@@ -3273,18 +3273,17 @@ struct
     let
         val {ent, ...} = pstackRealEntry(transtable, codeAddr)
         val code =
-        case ent of
-            Literal lit =>
-                jumpToFunction(if isIndirect then ConstantClosure lit else ConstantCode lit)
+        case (ent, isIndirect) of
+            (Literal lit, false) => jumpToFunction(ConstantCode lit)
 
-        |  Register(reg, _) => (* Should only be the closure register and only in
-                           the indirect case. *)
-            if isIndirect andalso reg = GenReg regClosure
-            then jumpToFunction FullCall
-            else raise InternalError "jumpToCode: Not indirection through closure reg"
+        |   (Register(reg, _), true) =>
+                (* Should only be the closure register and only in the indirect case. *)
+                if reg = GenReg regClosure
+                then jumpToFunction FullCall
+                else raise InternalError "jumpToCode: Not indirection through closure reg"
 
-        |  _ => (* Anything else shouldn't happen. *)
-            raise InternalError "jumpToCode: Not a constant or register";
+        |   _ => (* Anything else shouldn't happen. *)
+                raise InternalError "jumpToCode: Not a constant or register";
     in
         incrUseCount (transtable, codeAddr, ~1);
         code
@@ -3295,18 +3294,17 @@ struct
     let
         val {ent, ...} = pstackRealEntry(transtable, codeAddr)
         val code =
-        case ent of
-            Literal lit =>
-                callFunction(if isIndirect then ConstantClosure lit else ConstantCode lit)
+        case (ent, isIndirect) of
+            (Literal lit, false) => callFunction(ConstantCode lit)
 
-        |  Register(reg, _) => (* Should only be the closure register and only in
-                           the indirect case. *)
-            if isIndirect andalso reg = GenReg regClosure
-            then callFunction FullCall
-            else raise InternalError "callCode: Not indirection through closure reg"
+        |   (Register(reg, _), true) =>
+            (* Should only be the closure register and only in the indirect case. *)
+                if reg = GenReg regClosure
+                then callFunction FullCall
+                else raise InternalError "callCode: Not indirection through closure reg"
 
-        |  _ => (* Anything else shouldn't happen. *)
-            raise InternalError "callCode: Not a constant or register";
+        |   _ => (* Anything else shouldn't happen. *)
+                raise InternalError "callCode: Not a constant or register";
 
     in
         incrUseCount (transtable, codeAddr, ~1);
@@ -3828,9 +3826,19 @@ struct
             (opCode, matchResult(transtable, opRes, whereto))
         end
 
-(*        local (* Load the "self" entry from the thread-specific block. *)
+        local (* Load the "self" entry from the thread-specific block. *)
             fun threadSelfI([], SOME(GenReg output)) =
-                [LoadMemR{source=BaseOffset{base=ebp, offset=memRegThreadSelf, index=NoIndex}, output=output}]
+                let
+                    (* This is a duplicate of code in X86FOREIGNCALL and XCodetreeToICode. *)
+                    val memRegArgumentPtr =
+                        case Compat560.polySpecificGeneral (108, 0) of
+                            1 => (*X64Unix*) ~48
+                        |   2 => (*X64Win*) 16
+                        |   _ => (*X86_32*) 8
+                in
+                    [LoadMemR{source=BaseOffset{base=output, offset=argThreadSelf, index=NoIndex}, output=output},
+                     LoadMemR{source=BaseOffset{base=ebp, offset=memRegArgumentPtr, index=NoIndex}, output=output}]
+                end
             |   threadSelfI _ = raise InternalError "threadSelf"
         in
             fun threadSelf(transtable, whereto) =
@@ -3839,7 +3847,7 @@ struct
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
-        end*)
+        end
 
         local (* Load the length word from a memory cell.  We could reuse the base for the
                  result rather than getting a new register here. *)
