@@ -4118,6 +4118,21 @@ struct
         end
         
         local
+            (* Atomic reset is only really required for the interpreted version.  On the X86
+               we simply need to store a tagged 1 in the mutex. *)
+            fun atReset ([InRegister(GenReg rs)], NONE) =
+                [StoreConstToMemory{toStore=tag 1, address=BaseOffset{ base=rs, offset=0, index=NoIndex }}]
+            |   atReset _ = raise InternalError "atReset"
+        in
+            fun atomicReset(arg, transtable, whereto) =
+            let
+                val (opRes, opCode) = noresultNegotiator atReset (transtable, [arg], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+        end
+        
+        local
             fun byteMemMove([InRegister _, sourceOffset, InRegister _, destOffset, InRegister _], _) =
                 let (* Byte move.  The offsets are byte offsets. *)
                     fun getOffset(InRegister(GenReg offsetReg), baseReg) =

@@ -1114,6 +1114,12 @@ struct
 
         |   OGCBuiltIn1{oper=BuiltIns.StringLengthWord, arg1} => cgAndRes(stringLength(genToStack arg1, transtable, whereto))
 
+        |   OGCBuiltIn1{oper=BuiltIns.AtomicIncrement, arg1} => cgAndRes(atomicIncrement(genToStack arg1, transtable, whereto))
+
+        |   OGCBuiltIn1{oper=BuiltIns.AtomicDecrement, arg1} => cgAndRes(atomicDecrement(genToStack arg1, transtable, whereto))
+
+        |   OGCBuiltIn1{oper=BuiltIns.AtomicReset, arg1} => cgAndRes(atomicReset(genToStack arg1, transtable, whereto))
+
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
         |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
@@ -1202,7 +1208,29 @@ struct
         |   OGCBuiltIn2{oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2} =>
                 cgAndRes(xorWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordShift _, arg1, arg2} => raise InternalError "TODO: WordShift"
+        |   OGCBuiltIn2{oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2} =>
+            (
+                case arg2 of
+                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                        cgAndRes(upShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                |   _ => cgAndRes(upShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+            )
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
+            (
+                case arg2 of
+                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                        cgAndRes(downShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                |   _ => cgAndRes(downShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+            )
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
+            (
+                case arg2 of
+                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                        cgAndRes(downShiftWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+            )
 
         |   OGCBuiltIn3{oper=BuiltIns.StoreWord, arg1, arg2, arg3} =>
                 cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
@@ -2322,6 +2350,12 @@ struct
                 |   BuiltIns.ClearMutableFlag => raise InternalError "TODO-genTest: OGCBuiltIn1 - ClearMutableFlag"
  
                 |   BuiltIns.StringLengthWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - StringLengthWord"
+ 
+                |   BuiltIns.AtomicIncrement => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicIncrement"
+ 
+                |   BuiltIns.AtomicDecrement => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicDecrement"
+ 
+                |   BuiltIns.AtomicReset => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicReset"
            )
 
         |   OGCBuiltIn2{oper, arg1, arg2} =>
@@ -2981,12 +3015,6 @@ struct
                             if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
                             then cgAndRes(getFirstLong(genToStack arg, transtable, whereto))
 
-                            else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
-                            then cgAndRes(atomicIncrement(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
-                            then cgAndRes(atomicDecrement(genToStack arg, transtable, whereto))
-
                             else if wordEq (oper,ioOp POLY_SYS_Abs_real)
                             then cgAndRes(absoluteReal(genToStack arg, transtable, whereto))
 
@@ -2999,34 +3027,7 @@ struct
                             else callClosure (SOME evalFun, true)
 
                         |   [arg1, arg2] => (* Binary *)
-                            if wordEq (oper,ioOp POLY_SYS_shift_left_word)
-                            then
-                            (
-                                case arg2 of
-                                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                                        cgAndRes(upShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                                |   _ => cgAndRes(upShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-                            )
-
-                            else if wordEq (oper,ioOp POLY_SYS_shift_right_word)
-                            then
-                            (
-                                case arg2 of
-                                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                                        cgAndRes(downShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                                |   _ => cgAndRes(downShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-                            )
-
-                            else if wordEq (oper,ioOp POLY_SYS_shift_right_arith_word)
-                            then
-                            (
-                                case arg2 of
-                                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                                        cgAndRes(downShiftWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                                |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-                            )
-
-                            else if wordEq (oper,ioOp POLY_SYS_Add_real)
+                            if wordEq (oper,ioOp POLY_SYS_Add_real)
                             then cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_Sub_real)

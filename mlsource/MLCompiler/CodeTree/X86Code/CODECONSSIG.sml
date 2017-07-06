@@ -185,6 +185,7 @@ sig
     and stringLength: stackIndex * ttab * regHint -> operation list * mergeResult
     and atomicIncrement: stackIndex * ttab * regHint -> operation list * mergeResult
     and atomicDecrement: stackIndex * ttab * regHint -> operation list * mergeResult
+    and atomicReset: stackIndex * ttab * regHint -> operation list * mergeResult
     and lockVector: stackIndex * ttab * regHint -> operation list * mergeResult
     and absoluteReal: stackIndex * ttab * regHint -> operation list * mergeResult
     and negativeReal: stackIndex * ttab * regHint -> operation list * mergeResult
