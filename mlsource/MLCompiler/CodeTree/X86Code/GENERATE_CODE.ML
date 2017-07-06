@@ -1125,9 +1125,11 @@ struct
         |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2} =>
                 cgAndRes(multiplyFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith-ArithQuot"
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, arg1, arg2} =>
+                cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith-ArithRem"
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, arg1, arg2} =>
+                cgAndRes(remFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
         |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2} =>
                 cgAndRes(addWord(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -1150,15 +1152,46 @@ struct
                 |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
             end
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith-ArithQuot"
-
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith-ArithRem"
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithQuot, arg1, arg2} =>
+            (
+                (* Use a right shift if it's a power of two. *)
+                case arg2 of
+                    OGCConstnt(lit, _) =>
+                    (
+                        case getPower2(Address.toShort lit) of
+                            SOME shift => cgAndRes(downShiftWordConstant(genToStack arg1, shift, transtable, whereto))
+                        |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                    )
+                |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
+            )
+ 
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithRem, arg1, arg2} =>
+            (
+                (* Use a mask if it's a power of two. *)
+                case arg2 of
+                    OGCConstnt(lit, _) =>
+                    (
+                        case getPower2(Address.toShort lit) of
+                            SOME _ =>
+                            let
+                                (* The divisor is a power of two.  The mask is one less. *)
+                                val mask = Address.toMachineWord(Address.toShort lit - 0w1)
+                            in
+                                cgAndRes(andWord(genToStack arg1, pushConst (transtable, mask), transtable, whereto))
+                            end
+                        |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                    )
+                |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
+            )
 
         |   OGCBuiltIn2{oper=BuiltIns.LoadWord _, arg1, arg2} =>
                 cgAndRes(loadWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
         |   OGCBuiltIn2{oper=BuiltIns.LoadByte _, arg1, arg2} =>
                 cgAndRes(loadByte(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.SetStringLengthWord, arg1, arg2} =>
+                cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
 
         |   OGCBuiltIn3{oper=BuiltIns.StoreWord, arg1, arg2, arg3} =>
                 cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
@@ -1170,7 +1203,7 @@ struct
 
         |   OGCBuiltIn5{oper=BuiltIns.Built5PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn5"
 
-        | OGCExtract ext =>
+        |   OGCExtract ext =>
             let
                 val (loc, locCode) = locaddr ext
                 val () = codeGenerate(locCode, cvec)
@@ -1185,7 +1218,7 @@ struct
                 )
             end
 
-        | OGCField {base, offset} =>
+        |   OGCField {base, offset} =>
             let
                 val baseCode = genToStack (base)
                 val (index, indCode) = indirect (offset, baseCode, transtable)
@@ -1196,7 +1229,7 @@ struct
 
         |   OGCLambda lam => MergeIndex(genProc (lam, fn _ => (), whereto))
 
-        | OGCConstnt(w, _) => MergeIndex(pushConst (transtable, w))
+        |   OGCConstnt(w, _) => MergeIndex(pushConst (transtable, w))
 
         | OGCCond (testPart, thenPart, elsePart) =>
             genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
@@ -2324,6 +2357,8 @@ struct
                 |   BuiltIns.LoadWord _ => genOtherTests() (* TODO - we could use TEST instruction here. *)
 
                 |   BuiltIns.LoadByte _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LoadByte"
+
+                |   BuiltIns.SetStringLengthWord => raise InternalError "TODO-genTest: OGCBuiltIn2-SetStringLengthWord"
             )
 
         |   OGCBuiltIn3{oper, ...} =>
@@ -2917,15 +2952,6 @@ struct
                 let
                     val args = List.map #1 argList
                     val addr = Address.toAddress oper
-                    fun getPower2 n =
-                    let
-                        fun p2 (n, l) =
-                            if n = 0w1 then SOME l
-                            else if Word.andb(n, 0w1) = 0w1 then NONE
-                            else p2(Word.>>(n, 0w1), l+0w1)
-                    in
-                        if n = 0w0 then NONE else p2(n,0w0)
-                    end
                 in
                     if Address.isIoAddress addr
                     then
@@ -2958,16 +2984,7 @@ struct
                             else callClosure (SOME evalFun, true)
 
                         |   [arg1, arg2] => (* Binary *)
-                            if wordEq (oper,ioOp POLY_SYS_set_string_length)
-                            then cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
-(*
-                            else if wordEq (oper,ioOp POLY_SYS_fixed_quot)
-                            then cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_fixed_rem)
-                            then cgAndRes(remFixed(genToStack arg1, genToStack arg2, transtable, whereto))
-*)
-                            else if wordEq (oper,ioOp POLY_SYS_or_word)
+                            if wordEq (oper,ioOp POLY_SYS_or_word)
                             then cgAndRes(orWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_and_word)
@@ -3001,40 +3018,6 @@ struct
                                     OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
                                         cgAndRes(downShiftWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
                                 |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-                            )
-
-                            else if wordEq (oper,ioOp POLY_SYS_div_word)
-                            then
-                            (
-                                (* Use a right shift if it's a power of two. *)
-                                case arg2 of
-                                    OGCConstnt(lit, _) =>
-                                    (
-                                        case getPower2(Address.toShort lit) of
-                                            SOME shift => cgAndRes(downShiftWordConstant(genToStack arg1, shift, transtable, whereto))
-                                        |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
-                                    )
-                                |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
-                            )
-
-                            else if wordEq (oper,ioOp POLY_SYS_mod_word)
-                            then
-                            (
-                                (* Use a mask if it's a power of two. *)
-                                case arg2 of
-                                    OGCConstnt(lit, _) =>
-                                    (
-                                        case getPower2(Address.toShort lit) of
-                                            SOME _ =>
-                                            let
-                                                (* The divisor is a power of two.  The mask is one less. *)
-                                                val mask = Address.toMachineWord(Address.toShort lit - 0w1)
-                                            in
-                                                cgAndRes(andWord(genToStack arg1, pushConst (transtable, mask), transtable, whereto))
-                                            end
-                                        |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
-                                    )
-                                |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
                             )
 
                             else if wordEq (oper,ioOp POLY_SYS_Add_real)

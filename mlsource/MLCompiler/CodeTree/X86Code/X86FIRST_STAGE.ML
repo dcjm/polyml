@@ -5277,11 +5277,11 @@ struct
                 end
             end
 
-            local (* Unsigned word div and mod. *)
+            local (* Signed and unsigned div and mod. *)
                 (* If the dividend is not a power of two we have to use the DIV instruction.
                    This takes the divisor in the EDX/EAX pair and the dividend in a separate
                    register.  We get EDX as a work register and put the divisor in EAX. *)
-                fun genDivMod isDiv ([_, InRegister(GenReg dividend)], _) =
+                fun genDivMod (isDiv, isSigned) ([_, InRegister(GenReg dividend)], _) =
                     let
                         (* The instruction to add back the tag to "dividend" was missing and this caused
                            a rare crash on X86/64.  I've now added it in to fix the bug and I'm assuming
@@ -5299,7 +5299,7 @@ struct
                         [
                             ArithRConst{opc=ADD, source=1, output=dividend},
                             (* Clear the high order of the accumulator and do the division. *)
-                            Group3Ops(dividend, DIV),
+                            Group3Ops(dividend, if isSigned then IDIV else DIV),
                             ArithRR{opc=XOR, source=edx, output=edx},
                             (* Untag, but don't shift, the divisor and dividend.
                                Checking for zero is done in ML code. *)
@@ -5310,11 +5310,11 @@ struct
 
                 |   genDivMod _ _ = raise InternalError "genDivMod"
 
-                fun divModCode isDiv =
+                fun divModCode (kind as (isDiv, _)) =
                     getWorkingRegister(singleton (GenReg edx),
                         fn _ => loadToSpecificRegister(GenReg eax, true, 0,
                             loadToOneOf(generalRegisters, false, 1,
-                                generateInstruction(genDivMod isDiv)
+                                generateInstruction(genDivMod kind)
                             )
                         )
                     ) ([NONE, NONE], SOME(if isDiv then GenReg eax else GenReg edx))
@@ -5322,7 +5322,7 @@ struct
                 fun divideWord(arg1, arg2, transtable, whereto) =
                 let
                     val args = [arg1, arg2]
-                    val (opRes, opCode) = divModCode true (transtable, args, whereto)
+                    val (opRes, opCode) = divModCode (true, false) (transtable, args, whereto)
                 in
                     (opCode, matchResult(transtable, opRes, whereto))
                 end
@@ -5330,7 +5330,23 @@ struct
                 fun modulusWord(arg1, arg2, transtable, whereto) =
                 let
                     val args = [arg1, arg2]
-                    val (opRes, opCode) = divModCode false (transtable, args, whereto)
+                    val (opRes, opCode) = divModCode (false, false) (transtable, args, whereto)
+                in
+                    (opCode, matchResult(transtable, opRes, whereto))
+                end
+
+                fun quotFixed(arg1, arg2, transtable, whereto) =
+                let
+                    val args = [arg1, arg2]
+                    val (opRes, opCode) = divModCode (true, true) (transtable, args, whereto)
+                in
+                    (opCode, matchResult(transtable, opRes, whereto))
+                end
+
+                fun remFixed(arg1, arg2, transtable, whereto) =
+                let
+                    val args = [arg1, arg2]
+                    val (opRes, opCode) = divModCode (false, true) (transtable, args, whereto)
                 in
                     (opCode, matchResult(transtable, opRes, whereto))
                 end
