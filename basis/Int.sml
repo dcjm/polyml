@@ -121,8 +121,6 @@ struct
 
     local
         open LibrarySupport
-        val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg
-        val System_setb: string * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte
         val quotRem: int*int -> int*int = RunCall.run_call2C2 POLY_SYS_quotrem
 
         (* Int.toChars turned out to be a major allocation hot-spot in some Isabelle
@@ -154,7 +152,7 @@ struct
                     let
                         val res = allocString(chars+0w1)
                     in
-                        System_setb(res, wordSize, #"~");
+                        RunCall.storeByte(res, wordSize, #"~");
                         (res, wordSize+0w1)
                     end
                     else (* Positive *) (allocString chars, wordSize)
@@ -164,7 +162,7 @@ struct
                     val (result, pos) = toCharGroup(continuation, chars + pad)
                     fun addZeros n =
                         if n = pad then ()
-                        else (System_setb(result, pos+n, #"0"); addZeros(n+0w1))
+                        else (RunCall.storeByte(result, pos+n, #"0"); addZeros(n+0w1))
                 in
                     addZeros 0w0;
                     (result, pos+pad)
@@ -180,7 +178,7 @@ struct
                     val (result, pos) =
                         toChars(i div base, chars+0w1, continuation, pad-0w1)
                 in
-                    System_setb(result, pos, ch);
+                    RunCall.storeByte(result, pos, ch);
                     (result, pos+0w1)
                 end
 
@@ -205,7 +203,7 @@ struct
             let
                 val (result, _) = toCharGroup(abs i, 0w0)
             in
-                System_lock result;
+                RunCall.clearMutableBit result;
                 result
             end
         end

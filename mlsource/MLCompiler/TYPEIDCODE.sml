@@ -1253,10 +1253,8 @@ struct
                     else mkProc(codePrintDefault, arity, "print-printdefault", [], 0)
             in
                 mkNullDec(
-                    mkBuiltIn(POLY_SYS_assign_word,
-                        [TypeValue.extractPrinter(codeId(identifier, level)),
-                                  CodeZero, printCode]
-                        ))
+                    mkBuiltIn3(BuiltIns.StoreWord,
+                        TypeValue.extractPrinter(codeId(identifier, level)), CodeZero, printCode))
             end
         in
             val printerCode = List.map setPrinter typeDatalist

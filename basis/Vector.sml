@@ -25,8 +25,6 @@ local
     (* It would be simpler to be able to define these as functions
        to or from 'a vector but that gives error messages about free
        type variables. *)
-    val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
     val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
     val System_move_words:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
@@ -45,7 +43,7 @@ local
     
     fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.loadWord (vecAsWord v, intAsWord i)
     and unsafeUpdate(v: 'a vector, i: int, new: 'a): unit =
-        System_setw (vecAsWord v, intAsWord i, RunCall.unsafeCast new);
+        RunCall.storeWord (vecAsWord v, intAsWord i, RunCall.unsafeCast new);
 in
 
 structure Vector: VECTOR =
@@ -93,14 +91,14 @@ struct
         (* Copy the list elements into the vector. *)
         fun init (v, i, a :: l) =
             (
-            System_setw(v, intAsWord i, RunCall.unsafeCast a);
+            RunCall.storeWord(v, intAsWord i, RunCall.unsafeCast a);
             init(v, i + 1, l)
             )
         |  init (_, _, []) = ();
         
     in
         init(vec, 0, l);
-        System_lock vec;
+        RunCall.clearMutableBit vec;
         wordAsVec vec
     end
         
@@ -112,10 +110,10 @@ struct
         (* Initialise it to the function values. *)
         fun init i = 
             if length <= i then ()
-            else (System_setw(vec, intAsWord i, RunCall.unsafeCast(f i)); init(i+1))
+            else (RunCall.storeWord(vec, intAsWord i, RunCall.unsafeCast(f i)); init(i+1))
     in
         init 0;
-        System_lock vec;
+        RunCall.clearMutableBit vec;
         wordAsVec vec
     end
     
@@ -148,7 +146,7 @@ struct
                 end
         in
             copy_list l 0;
-            System_lock new_vec;
+            RunCall.clearMutableBit new_vec;
             wordAsVec new_vec
         end
     end
@@ -170,7 +168,7 @@ struct
                 else (unsafeUpdate(newResult, i, f(unsafeSub(vec, i))); domap(i+1))
         in
             domap 0;
-            System_lock new_vec;
+            RunCall.clearMutableBit new_vec;
             newResult
         end
     end
@@ -191,7 +189,7 @@ struct
                 else (unsafeUpdate(newResult, i, f(i, unsafeSub(vec, i))); domap(i+1))
         in
             domap 0;
-            System_lock new_vec;
+            RunCall.clearMutableBit new_vec;
             newResult
         end
     end
@@ -296,7 +294,7 @@ struct
             val new_vec = alloc length
         in
             System_move_words(vecAsWord vector, start, new_vec, 0, length);
-            System_lock new_vec;
+            RunCall.clearMutableBit new_vec;
             wordAsVec new_vec
         end
 
@@ -333,7 +331,7 @@ struct
                 )
         in
             copy_list l 0;
-            System_lock new_vec;
+            RunCall.clearMutableBit new_vec;
             wordAsVec new_vec
         end
     end
@@ -351,7 +349,7 @@ struct
                 else (unsafeUpdate(newResult, i, f(unsafeSub(vector, i+start))); domap(i+1))
         in
             domap 0;
-            System_lock new_vec;
+            RunCall.clearMutableBit new_vec;
             newResult
         end
 
@@ -368,7 +366,7 @@ struct
                 else (unsafeUpdate(newResult, i, f(i, unsafeSub(vector, i+start))); domap(i+1))
         in
             domap 0;
-            System_lock new_vec;
+            RunCall.clearMutableBit new_vec;
             newResult
         end
 

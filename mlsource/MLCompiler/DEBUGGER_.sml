@@ -85,7 +85,7 @@ struct
            if we hit a break-point and run the interactive debugger with PolyML.Compiler.debug true. *)
         fun wrap (f:'a -> unit) (x: 'a) : unit =
         let
-            val threadId: address = RunCall.run_call0 POLY_SYS_thread_self ()
+            val threadId: address = RunCall.unsafeCast(Thread.Thread.self())
             val stack = loadWord(threadId, 0w5)
             and static = loadWord(threadId, 0w6)
             and dynamic = loadWord(threadId, 0w7)
@@ -246,9 +246,9 @@ struct
     fun updateState (level, mkAddr) (decs, debugEnv: debuggerStatus as {staticEnv, dynEnv, ...}) =
     let
         open ADDRESS RuntimeCalls
-        val threadId = multipleUses(mkBuiltIn(POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
+        val threadId = multipleUses(mkBuiltIn0 BuiltIns.CurrentThreadId, fn () => mkAddr 1, level)
         fun assignItem(offset, value) =
-            mkNullDec(mkBuiltIn(POLY_SYS_assign_word, [#load threadId level, offset, value]))
+            mkNullDec(mkBuiltIn3(BuiltIns.StoreWord, #load threadId level, offset, value))
         val newDecs =
             decs @ #dec threadId @
                 [assignItem(threadIdCurrentStatic, mkConst(toMachineWord staticEnv)),
@@ -380,8 +380,8 @@ struct
     let
         open ADDRESS RuntimeCalls
         val setLocation =
-            mkBuiltIn(POLY_SYS_assign_word,
-                [mkBuiltIn(POLY_SYS_thread_self, []), threadIdCurrentLocation, mkConst(toMachineWord location)])
+            mkBuiltIn3(BuiltIns.StoreWord,
+                mkBuiltIn0 BuiltIns.CurrentThreadId, threadIdCurrentLocation, mkConst(toMachineWord location))
     in
         ([mkNullDec setLocation], {staticEnv=staticEnv, dynEnv=dynEnv, lastLoc=location})
     end
@@ -409,7 +409,7 @@ struct
             (* All the "on" functions take this as an argument. *)
             val onArgs = [mkConst(toMachineWord(functionName, location))]
 
-            val threadId = multipleUses(mkBuiltIn(POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
+            val threadId = multipleUses(mkBuiltIn0 BuiltIns.CurrentThreadId, fn () => mkAddr 1, level)
             fun loadIdEntry offset =
                 multipleUses(mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, #load threadId level, offset), fn () => mkAddr 1, level)
             val currStatic = loadIdEntry threadIdCurrentStatic
@@ -425,10 +425,10 @@ struct
                5.  Call the local onEntry function if it's set *)
             (* Save the previous state. *)
             val assignStack =
-                mkBuiltIn(POLY_SYS_assign_word, [#load threadId level, threadIdStack,
+                mkBuiltIn3(BuiltIns.StoreWord, #load threadId level, threadIdStack,
                     mkDatatype[
                         #load currStatic level, #load currDynamic level,
-                        #load currLocation level, #load currStack level]])
+                        #load currLocation level, #load currStack level])
 
             val prefixCode =
                 #dec threadId @ #dec currStatic @ #dec currDynamic @ #dec currLocation @ #dec currStack @ [mkNullDec assignStack]
@@ -450,14 +450,14 @@ struct
             local
                 val {staticEnv, dynEnv, ...} = bodyDebugEnv
                 val assignStatic =
-                    mkBuiltIn(POLY_SYS_assign_word, [#load threadId level, threadIdCurrentStatic,
-                        mkConst(toMachineWord staticEnv)])
+                    mkBuiltIn3(BuiltIns.StoreWord, #load threadId level, threadIdCurrentStatic,
+                        mkConst(toMachineWord staticEnv))
                 val assignDynamic =
-                    mkBuiltIn(POLY_SYS_assign_word, [#load threadId level, threadIdCurrentDynamic,
-                        dynEnv level])
+                    mkBuiltIn3(BuiltIns.StoreWord, #load threadId level, threadIdCurrentDynamic,
+                        dynEnv level)
                 val assignLocation =
-                    mkBuiltIn(POLY_SYS_assign_word, [#load threadId level, threadIdCurrentLocation,
-                        mkConst(toMachineWord location)])
+                    mkBuiltIn3(BuiltIns.StoreWord, #load threadId level, threadIdCurrentLocation,
+                        mkConst(toMachineWord location))
                 val onEntryFn = multipleUses(onEntryCode, fn () => mkAddr 1, level)
                 val optCallOnEntry =
                     mkIf(mkTagTest(#load onEntryFn level, 0w0, 0w0), CodeZero, mkEval(#load onEntryFn level, onArgs))
@@ -474,7 +474,7 @@ struct
                 (* Set the entry in the thread vector to an entry from the top-of-stack. *)
                 fun restoreEntry(offset, value) =
                     mkNullDec(
-                        mkBuiltIn(POLY_SYS_assign_word, [#load threadId level, offset, value]))
+                        mkBuiltIn3(BuiltIns.StoreWord, #load threadId level, offset, value))
             in
                 val restoreState =
                     [restoreEntry(threadIdCurrentStatic, #load currStatic level),

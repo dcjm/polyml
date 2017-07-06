@@ -43,8 +43,12 @@ struct
 
     open Address
 
+    datatype pregKind =
+        PRegGeneral     (* A general register.  This can contain and address and be pushed to the stack. *)
+    |   PRegUntagged    (* An untagged general register. Just used for short-term storage. Not valid on the stack. *)
+
     datatype argument =
-        PReg of int (* A pseudo-register - an abstract register. *)
+        PReg of int * pregKind (* A pseudo-register - an abstract register. *)
     |   RealRegister of reg (* A real register. *)
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
@@ -71,10 +75,13 @@ struct
 
     |   MoveStackArgToPreg of { offset: int, dest: argument } (* Load an argument or the return address *)
     
-        (* Call or jump to a function.  Currently the closure is loaded into edx/rdx as one of the
-           regArgs. The result is stored in the destination register.  If isTail is true this is tail-recursive
-           and should be a jump. *)
-    |   FunctionCall of { regArgs: (argument * genReg) list, stackArgs: argument list, dest: argument, isTail: bool}
+        (* Call or jump to a function.  If the code address is a constant it is passed here.
+           Otherwise the address is obtained by indirecting through rdx which has been loaded
+           as one of the argument registers.  The result is stored in the destination register.
+           If isTail is true this is tail-recursive and should be a jump. *)
+    |   FunctionCall of
+            { callKind: callKinds, regArgs: (argument * genReg) list,
+              stackArgs: argument list, dest: argument, isTail: bool}
 
         (* Allocate a tuple or a function closure. *)
     |   AllocateMemoryOperation of { size: int, isMutable: bool, dest: argument}
@@ -142,6 +149,12 @@ struct
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
+
+        (* Tag a value by shifting and setting the tag bit. *)
+    |   TagValue of { source: argument, dest: argument }
+
+        (* Shift a value to remove the tag bit. *)
+    |   UntagValue of { source: argument, dest: argument, isSigned: bool }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
@@ -233,6 +246,11 @@ struct
                 codeGenICode(rest,
                     StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
 
+        |   codeGenICode(
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=ByteToByte} :: rest, code) =
+                codeGenICode(rest,
+                    StoreByteRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
+
                 (* Move a short constant to a register *)
         |   codeGenICode(MoveArgument {source=IntegerConstant srcValue, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
                 codeGenICode(rest, MoveConstR{source=srcValue, output=destReg} :: code)
@@ -244,11 +262,11 @@ struct
         |   codeGenICode(MoveArgument _ :: _, _) =
                 raise InternalError "codeGenICode: TODO MoveArgument"
 
-        |   codeGenICode(FunctionCall {isTail=false, ...} :: rest, code) =
-                codeGenICode(rest, CallFunction FullCall :: code)
+        |   codeGenICode(FunctionCall {isTail=false, callKind, ...} :: rest, code) =
+                codeGenICode(rest, CallFunction callKind :: code)
 
-        |   codeGenICode(FunctionCall {isTail=true, ...} :: rest, code) =
-                codeGenICode(rest, JumpToFunction FullCall :: code)
+        |   codeGenICode(FunctionCall {isTail=true, callKind, ...} :: rest, code) =
+                codeGenICode(rest, JumpToFunction callKind :: code)
 
         |   codeGenICode(AllocateMemoryOperation { size, isMutable, dest} :: rest, code) =
             let
@@ -419,6 +437,12 @@ struct
 
         |   codeGenICode(ResetStackPtr {numWords} :: rest, code) =
                 codeGenICode(rest, ResetStack numWords :: code)
+
+        |   codeGenICode(TagValue _ :: _, _) =
+                raise InternalError "codeGenICode: TODO TagValue"
+
+        |   codeGenICode(UntagValue _ :: _, _) =
+                raise InternalError "codeGenICode: TODO UntagValue"
 
         |   codeGenICode(LoadEffectiveAddress { base, offset, index, dest } :: rest, code) =
             let

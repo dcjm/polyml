@@ -263,13 +263,7 @@ RunCall.addOverload it "convReal";
 (* A few useful functions which are in the top-level environment.
    Others are added later. *)
 
-local
-    val System_setw: (* 'a ref*int*'a*) word*int*word ->unit  =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word
-in
-    fun (var: 'a ref) := (v: 'a) : unit =
-            (RunCall.unsafeCast System_setw (var, 0, v); ())
-end;
+fun (var: 'a ref) := (v: 'a) : unit = RunCall.storeWord (var, 0w0, v)
 
 (* The following version of "o" currently gets optimised better. *)
 fun (f o g) = fn x => f (g x); (* functional composition *)

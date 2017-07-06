@@ -35,12 +35,8 @@ local
     open LibrarySupport.Word8Array
 
     val realSize: word = Compat560.realGeneral (28, ())
-    val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_locks: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
 
     local
-        val System_setb: address * word * Word8.word -> unit =
-                RunCall.run_call3 POLY_SYS_assign_byte;
         val System_move_bytes: address*word*address*word*word->unit =
                 RunCall.run_call5 POLY_SYS_move_bytes
 
@@ -51,7 +47,7 @@ local
             if length = 0w0 then ()
             else
             (
-                System_setb(dest, destOff+length-0w1, RunCall.loadByte(src, srcOff));
+                RunCall.storeByte(dest, destOff+length-0w1, RunCall.loadByte(src, srcOff));
                 swapOrder(src, srcOff+0w1, dest, destOff, length-0w1)
             )
     in
@@ -78,7 +74,7 @@ in
             val addr: address = RunCall.unsafeCast r
         in
             doMove(addr, 0w0, stringAsAddress v, wordSize, isBigEndian);
-            System_locks v;
+            RunCall.clearMutableBit v;
             w8vectorFromString v
         end
 
@@ -92,7 +88,7 @@ in
                 val r = allocBytes realSize
             in
                 doMove(w8vectorAsAddress v, wordSize, r, 0w0, isBigEndian);
-                System_lock r;
+                RunCall.clearMutableBit r;
                 (RunCall.unsafeCast r): real
             end
 
@@ -107,7 +103,7 @@ in
                 val r = allocBytes realSize
             in
                 doMove(w8vectorAsAddress v, wordSize + iW, r, 0w0, isBigEndian);
-                System_lock r;
+                RunCall.clearMutableBit r;
                 (RunCall.unsafeCast r): real
             end
         end
@@ -123,7 +119,7 @@ in
                 val r = allocBytes realSize
             in
                 doMove(v, iW, r, 0w0, isBigEndian);
-                System_lock r;
+                RunCall.clearMutableBit r;
                 (RunCall.unsafeCast r): real
             end
         end
@@ -156,7 +152,7 @@ in
             val addr: address = RunCall.unsafeCast r
         in
             doMove(addr, 0w0, stringAsAddress v, wordSize, isBigEndian);
-            System_locks v;
+            RunCall.clearMutableBit v;
             w8vectorFromString v
         end
 
@@ -170,7 +166,7 @@ in
                 val r = allocBytes realSize
             in
                 doMove(w8vectorAsAddress v, wordSize, r, 0w0, isBigEndian);
-                System_lock r;
+                RunCall.clearMutableBit r;
                 (RunCall.unsafeCast r): real
             end
 
@@ -185,7 +181,7 @@ in
                 val r = allocBytes realSize
             in
                 doMove(w8vectorAsAddress v, wordSize+iW, r, 0w0, isBigEndian);
-                System_lock r;
+                RunCall.clearMutableBit r;
                 (RunCall.unsafeCast r): real
             end
         end
@@ -201,7 +197,7 @@ in
                 val r = allocBytes realSize
             in
                 doMove(v, iW, r, 0w0, isBigEndian);
-                System_lock r;
+                RunCall.clearMutableBit r;
                 (RunCall.unsafeCast r): real
             end
         end

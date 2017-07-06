@@ -1425,6 +1425,19 @@ int IntTaskData::SwitchToPoly()
         case INSTR_isTagged:
             *sp = IS_INT(*sp) ? True : False; break;
 
+        case INSTR_cellLength:
+            /* Return the length word. */
+            *sp = TAGGED((*sp).AsObjPtr()->Length());
+            break;
+
+        case INSTR_cellFlags:
+        {
+            PolyObject *p = (*sp).AsObjPtr();
+            POLYUNSIGNED f = (p->LengthWord()) >> OBJ_PRIVATE_FLAGS_SHIFT;
+            *sp = TAGGED(f);
+            break;
+        }
+
         case INSTR_equalWord:
         {
             PolyWord u = *sp++;
@@ -1533,11 +1546,6 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_cellLength:
-            /* Return the length word. */
-            *sp = TAGGED((*sp).AsObjPtr()->Length());
-            break;
-
         case INSTR_loadMLWord:
         {
             // The values on the stack are base, index and offset.
@@ -1547,6 +1555,18 @@ int IntTaskData::SwitchToPoly()
             *sp = p->Get(index);
             break;
         }
+
+        case INSTR_loadMLByte:
+        {
+            // The values on the stack are base, index and offset.
+            // For byte loads the offset and index are both byte counts.
+            POLYUNSIGNED offset = UNTAGGED(*sp++);
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsCodePtr();
+            *sp = TAGGED(p[index + offset]); // Have to tag the result
+            break;
+        }
+
 
         default: Crash("Unknown instruction %x\n", li);
 

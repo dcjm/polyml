@@ -87,7 +87,6 @@ sig
 
     datatype callKinds =
         Recursive
-    |   ConstantClosure of machineWord
     |   ConstantCode of machineWord
     |   FullCall
     |   DirectReg of genReg

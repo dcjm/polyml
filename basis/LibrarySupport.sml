@@ -103,9 +103,6 @@ struct
         val System_alloc: word*word*word->string  =
             RunCall.run_call3 POLY_SYS_alloc_store
 
-        val System_lock: string -> unit =
-            RunCall.run_call1 POLY_SYS_lockseg;
-
         val SetLengthWord: string * word -> unit =
             RunCall.run_call2 POLY_SYS_set_string_length
           
@@ -203,7 +200,7 @@ struct
                     val vec = allocString l
                 in
                     MemMove(s, wordSize+i, vec, wordSize, l);
-                    System_lock vec;
+                    RunCall.clearMutableBit vec;
                     vec
                 end
         end

@@ -29,8 +29,8 @@ struct
     (* tag a short constant *)
     fun tag c = 2 * c + 1
 
-    fun argToPReg(PReg n) = n | argToPReg _ = raise InternalError "argToPReg"
-    
+    fun argToPReg(PReg(n, PRegGeneral)) = n | argToPReg _ = raise InternalError "argToPReg"
+    and argToUReg(PReg(n, PRegUntagged)) = n | argToUReg _ = raise InternalError "argToUReg"
 
     fun loadMemory(reg, base, offset) =
         [MoveArgument{
@@ -43,6 +43,7 @@ struct
             dest=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex}, kind=WordToWord}]
 
     val raxAsArg = RealRegister(GenReg eax) and rbxAsArg = RealRegister(GenReg ebx)
+    and rcxAsArg = RealRegister(GenReg ecx)
 
     (* Generally we have an offset in words and no index register. *)
     fun wordOffsetAddress(offset, baseReg) =
@@ -53,6 +54,50 @@ struct
        This is currently very simple-minded and just uses rax as an accumulator and the
        stack for the rest. *)
 
+    datatype pregLoc = InRax | OnStack of int
+    
+    (* The state of the condition codes. *)
+    datatype ccState = CCIndeterminate | CCState of ccRef * (branchOps->branchOps)
+
+    datatype state = NormalState of normalState | Exited
+    withtype normalState =
+        { valueStack : {preg: int, loc: pregLoc} list, ccState: ccState, untaggedRegs: {ureg: int, reg: reg} list }
+    
+    val initialState:normalState =
+        {valueStack=[], ccState=CCIndeterminate, untaggedRegs=[]} (* Initial and final state. *)
+
+    (* Return the location on the real stack immediately above the top item. *)
+    local
+        fun stackP [] = 0
+        |   stackP ({loc=OnStack sp, ...} :: _) = sp+1
+        |   stackP (_ :: stack) = stackP stack
+    in
+        fun stackPtr({valueStack, ...}: normalState) = stackP valueStack
+    end
+
+    local
+        fun findE (_, []) = raise InternalError "findEntry: not found"
+        |   findE (reg, {preg, loc} :: rest) = if reg = preg then loc else findE(reg, rest)
+    in
+        fun findEntry(reg, {valueStack, ...}) = findE(reg, valueStack)
+    end
+
+    fun loadSource(source, dest, state) =
+        case findEntry (source, state) of
+            InRax =>
+                if dest = eax
+                then []
+                else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest), kind=WordToWord}]
+        |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
+   
+    fun clearCC({valueStack, untaggedRegs, ...}:normalState): normalState =
+        {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=untaggedRegs}
+
+    (* After we use an untagged value remove it from the state.  We only have
+       a few registers and only use at most two untagged values before tagging them. *)
+    fun removeAfterTag({valueStack, untaggedRegs, ccState}, reg) =
+        {valueStack=valueStack, ccState=ccState, untaggedRegs=List.filter(fn {ureg, ...} => ureg <> reg) untaggedRegs}
+
     fun codeICodeFunctionToX86{icode, functionName, maxLabels, maxPRegs= _, argRegsUsed, hasFullClosure, currentStackArgs, debugSwitches} =
     let
         (* We may need to create additional labels. *)
@@ -61,63 +106,30 @@ struct
 
         val maxStack = ref 0 (* High-water mark *)
 
-        datatype pregLoc = InRax | OnStack of int
-        
-        (* The state of the condition codes. *)
-        datatype ccState = CCIndeterminate | CCState of ccRef * (branchOps->branchOps)
-
-        datatype state = NormalState of normalState | Exited
-        withtype normalState = { valueStack : {preg: int, loc: pregLoc} list, ccState: ccState }
-        
-        val initialState:normalState = {valueStack=[], ccState=CCIndeterminate} (* Initial and final state. *)
-
-        (* Return the location on the real stack immediately above the top item. *)
-        local
-            fun stackP [] = 0
-            |   stackP ({loc=OnStack sp, ...} :: _) = sp+1
-            |   stackP (_ :: stack) = stackP stack
-        in
-            fun stackPtr({valueStack, ...}: normalState) = stackP valueStack
-        end
-
-        local
-            fun findE (_, []) = raise InternalError "findEntry: not found"
-            |   findE (reg, {preg, loc} :: rest) = if reg = preg then loc else findE(reg, rest)
-        in
-            fun findEntry(reg, {valueStack, ...}) = findE(reg, valueStack)
-        end
-    
-        fun loadSource(source, dest, state) =
-            case findEntry (source, state) of
-                InRax =>
-                    if dest = eax
-                    then []
-                    else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest), kind=WordToWord}]
-            |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
-
         (* If the top of the stack is in RAX push it otherwise do nothing. *)
-        fun pushRax (state as {valueStack={preg, loc=InRax} :: stack, ccState }) =
+        fun pushRax (state as {valueStack={preg, loc=InRax} :: stack, ccState, untaggedRegs }) =
             let
                 val sp = stackPtr state
                 val () = if sp >= !maxStack then maxStack := sp+1 else ()
             in
                 (* Return the updated state with the value pushed.  Pushing does not affect condition codes. *)
-                ({valueStack={preg=preg, loc=OnStack sp} :: stack, ccState=ccState}, [PushValue{arg=raxAsArg}])
+                ({valueStack={preg=preg, loc=OnStack sp} :: stack, ccState=ccState, untaggedRegs=untaggedRegs},
+                    [PushValue{arg=raxAsArg}])
             end
         |   pushRax stack = (stack, [])
 
         (* Add a pseudo-register containing rax to the top of the stack. *)
-        fun addRaxToState({valueStack, ccState}, destReg) =
-            {valueStack={preg=destReg, loc=InRax} :: valueStack, ccState=ccState}
+        fun addRaxToState({valueStack, ccState, untaggedRegs}, destReg) =
+            {valueStack={preg=destReg, loc=InRax} :: valueStack, ccState=ccState, untaggedRegs=untaggedRegs}
 
         (* Check that the top of the stack is the required pseudo-register and the value is in Rax.
            Returns the state with this item popped. *)
-        fun checkTopInRax({valueStack={preg, loc=InRax } :: resultState, ccState}, checkReg) =
-            if preg = checkReg then {valueStack=resultState, ccState=ccState} else raise InternalError "checkTopInRax"
+        fun checkTopInRax({valueStack={preg, loc=InRax } :: resultState, ccState, untaggedRegs}, checkReg) =
+            if preg = checkReg
+            then {valueStack=resultState, ccState=ccState, untaggedRegs=untaggedRegs}
+            else raise InternalError "checkTopInRax"
         |   checkTopInRax _ = raise InternalError "checkTopInRax"
-        
-        fun clearCC({valueStack, ...}:normalState): normalState = {valueStack=valueStack, ccState=CCIndeterminate}
-
+ 
         (* Reset the stack to value in the original state except that
            the target register should be moved into the result state. *)
         fun resetStack(state, oldState, target) =
@@ -205,7 +217,7 @@ struct
 
                         val composite =
                             {valueStack=List.rev(matchStates(List.rev (#valueStack dropThrough), List.rev (#valueStack labState))),
-                             ccState=CCIndeterminate}
+                             ccState=CCIndeterminate, untaggedRegs= []}
                         (* Currently the only thing we need to adjust is the stack pointer. *)
                         val finalSp = stackPtr composite
                         and labelSp = stackPtr labelState
@@ -300,31 +312,32 @@ struct
             end
 
             (* Word comparison. *)
-        |   codeICode{icode=WordComparison{arg1=PReg testR, arg2=(c as IntegerConstant _), ccRef} :: rest,
+        |   codeICode{icode=WordComparison{arg1=PReg(testR, PRegGeneral), arg2=(c as IntegerConstant _), ccRef} :: rest,
                       state=NormalState state, code, context} =
             let
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
                 val startState = checkTopInRax(state, testR)
                 (* The resulting state contains the condition we want to test. *)
-                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i)}
+                val checkState =
+                    {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                           code=WordComparison{ arg1=raxAsArg, arg2=c, ccRef=ccRef } :: code, context=context}
             end
 
-        |   codeICode{icode=WordComparison{arg1=PReg testR, arg2=(c as AddressConstant _), ccRef} :: rest,
+        |   codeICode{icode=WordComparison{arg1=PReg(testR, PRegGeneral), arg2=(c as AddressConstant _), ccRef} :: rest,
                       state=NormalState state, code, context} =
             let
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
                 val startState = checkTopInRax(state, testR)
-                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i)}
+                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                           code=WordComparison{ arg1=raxAsArg, arg2=c, ccRef=ccRef } :: code,
                           context=context}
             end
 
-        |   codeICode{icode=WordComparison{arg1=PReg testR1, arg2=PReg testR2, ccRef} :: rest,
+        |   codeICode{icode=WordComparison{arg1=PReg(testR1, PRegGeneral), arg2=PReg(testR2, PRegGeneral), ccRef} :: rest,
                       state=NormalState state, code, context=context} =
             let
                 (* The second argument should be on the top of the stack and in rax. *)
@@ -344,7 +357,7 @@ struct
                 |   revCond JG  = JL
                 |   revCond JGE = JLE
                 |   revCond t   = t
-                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, revCond)}
+                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, revCond), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                           code=WordComparison{arg1=raxAsArg, arg2=wordOffsetAddress(stackPtr state - secondArg - 1, esp), ccRef=ccRef} :: code,
@@ -359,7 +372,7 @@ struct
                 val argReg = argToPReg arg
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
                 val startState = checkTopInRax(state, argReg)
-                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i)}
+                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                     (* TestTagBit only sets the condition codes.  It doesn't affect the register. *)
@@ -374,7 +387,8 @@ struct
                 val sp = stackPtr pushedState
                 val thisHandler = (handleStart, pushedState)
                 val startState =
-                    {valueStack={preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: #valueStack pushedState, ccState=CCIndeterminate}
+                    {valueStack={preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: #valueStack pushedState,
+                     ccState=CCIndeterminate, untaggedRegs= []}
                 val newContext = {forwardLabels=forwardLabels, loopArgs=loopArgs, handlers=thisHandler :: handlers}
             in
                 codeICode{icode=rest, state=NormalState startState,
@@ -390,11 +404,12 @@ struct
                 fun popState [] = raise InternalError "codeICode: PopExceptionHandler - not found"
                 |   popState (hState as ({preg, ...} :: tail)) =
                         if preg = handleAddr then hState else popState tail
-                val handlerStartState = {valueStack=popState(#valueStack state), ccState=CCIndeterminate}
+                val handlerStartState = {valueStack=popState(#valueStack state), ccState=CCIndeterminate, untaggedRegs= []}
                 (* Reset to just above the handler. *)
                 val (_, resetCode) = resetStack(state, handlerStartState, resReg)
                 (* The result state is after the handler has been popped. *)
-                val resultState = addRaxToState({valueStack=tl(#valueStack handlerStartState), ccState=CCIndeterminate}, resReg)
+                val resultState =
+                    addRaxToState({valueStack=tl(#valueStack handlerStartState), ccState=CCIndeterminate, untaggedRegs= []}, resReg)
                 val workReg = RealRegister(GenReg ebx) (* Must be different from the return register. *)
             in
                 codeICode{icode=rest, state=NormalState resultState,
@@ -406,7 +421,7 @@ struct
             (* Create a new Preg containing the contents of another Preg.
                We only ever want the top item to be in RAX so we push the top of the stack. *)
         |   codeICode{
-                icode=MoveArgument{source=PReg srcReg, dest=PReg destReg, kind=WordToWord} :: rest, state=NormalState state, code, context} =
+                icode=MoveArgument{source=PReg(srcReg, PRegGeneral), dest=PReg(destReg, PRegGeneral), kind=WordToWord} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 val load = loadSource(srcReg, eax, pushedState)
@@ -417,7 +432,7 @@ struct
             end
 
         |   codeICode{
-                icode=MoveArgument{source=RealRegister(GenReg srcReg), dest=PReg destReg, kind=WordToWord} :: rest,
+                icode=MoveArgument{source=RealRegister(GenReg srcReg), dest=PReg(destReg, PRegGeneral), kind=WordToWord} :: rest,
                 state=NormalState state, code, context} =
             (* Move a specific register to the stack.  If it is anything but RAX we push it immediately. *)
             let
@@ -430,16 +445,17 @@ struct
                 else
                 let
                     val sp = stackPtr pushedState
+                    val {valueStack, ccState, untaggedRegs, ...} = pushedState
                 in
                     codeICode{
                         icode=rest,
-                        state=NormalState({valueStack={preg=destReg, loc=OnStack sp} :: #valueStack pushedState, ccState= #ccState pushedState}),
+                        state=NormalState({valueStack={preg=destReg, loc=OnStack sp} :: valueStack, ccState=ccState, untaggedRegs=untaggedRegs}),
                         code=PushValue{arg=RealRegister(GenReg srcReg)} :: (pushCode @ code), context=context}
                 end
             end
             
             (* Move a constant to a preg.  First push anything in RAX then load the constant into RAX. *)
-        |   codeICode{icode=MoveArgument{source as AddressConstant srcValue, dest=PReg destReg, kind} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=MoveArgument{source as AddressConstant srcValue, dest=PReg(destReg, PRegGeneral), kind} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 (* The constant should be an address. *)
@@ -452,7 +468,7 @@ struct
             end
 
             (* Move a short constant to a preg.  First push anything in RAX then load the constant into RAX. *)
-        |   codeICode{icode=MoveArgument{source as IntegerConstant _, dest=PReg destReg, kind} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=MoveArgument{source as IntegerConstant _, dest=PReg(destReg, PRegGeneral), kind} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
             in
@@ -464,74 +480,184 @@ struct
 
             (* Load a value from a piece of memory, typically the offset in a tuple. *)
         |   codeICode{
-                icode=MoveArgument{ source=MemoryLocation{offset, base, index=NoMemIndex}, dest=PReg destReg, kind} :: rest,
+                icode=MoveArgument{ source=MemoryLocation{offset, base=PReg(bReg, PRegGeneral), index=NoMemIndex}, dest=PReg(destReg, dType), kind} :: rest,
                 state=NormalState state, code, context} =
             let
-                val bReg = argToPReg base
                 (* Currently we always make a new preg for the base and that is
                    on the top of the state.  We can just remove it and replace it
                    with the result. *)
-                val poppedState = checkTopInRax(state, bReg)
+                val startState = checkTopInRax(state, bReg)
+                val (resultState, resultReg) =
+                    case dType of
+                        PRegGeneral => (addRaxToState(startState, destReg), raxAsArg)
+                    |   PRegUntagged =>
+                            ({valueStack= #valueStack startState, ccState= #ccState startState,
+                                untaggedRegs =[{ureg=destReg, reg=GenReg ecx}]}, rcxAsArg)
             in
-                codeICode{icode=rest, state=NormalState(addRaxToState(poppedState, destReg)),
-                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=raxAsArg, kind=kind} :: code, context=context}
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=resultReg, kind=kind} :: code, context=context}
             end
 
         |   codeICode{
-                icode=MoveArgument{ source=MemoryLocation {offset, base, index}, dest=PReg destReg, kind} :: rest,
+                icode=MoveArgument{ source=MemoryLocation{offset, base as RealRegister _, index=NoMemIndex}, dest=PReg(destReg, PRegGeneral), kind} :: rest,
+                state=NormalState state, code, context} =
+            let
+                val (pushedState, pushCode) = pushRax state
+            in
+                (* We also generate loads from offsets in ebp. *)
+                codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
+                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=base, index=NoMemIndex}, dest=raxAsArg, kind=kind} :: pushCode @ code,
+                    context=context}
+            end
+
+        |   codeICode{
+                icode=MoveArgument{ source=MemoryLocation {offset, base, index=MemIndex1(PReg(iReg, PRegUntagged))}, dest=PReg(destReg, dType), kind} :: rest,
+                state=NormalState (state as {untaggedRegs, ...}), code, context} =
+            let
+                (* The index is an untagged value. *)
+                val realIReg =
+                    case List.find (fn {ureg, ...} => ureg = iReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val baseOnStack =
+                    case findEntry (argToPReg base, state) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val (resultState, resultReg) =
+                    case dType of
+                        PRegGeneral => (addRaxToState(state, destReg), raxAsArg)
+                    |   PRegUntagged =>
+                            ({valueStack= #valueStack state, ccState= #ccState state,
+                                untaggedRegs =[{ureg=destReg, reg=GenReg ecx}]}, rcxAsArg)
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code =
+                        MoveArgument{source=MemoryLocation {offset=offset, base=rbxAsArg, index=MemIndex1 realIReg}, dest=resultReg, kind=kind} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rbxAsArg, kind=WordToWord} ::
+                        code,
+                    context=context}
+            end
+
+        |   codeICode{
+                icode=MoveArgument{ source=MemoryLocation {offset, base, index}, dest=PReg(destReg, dType), kind} :: rest,
                 state=NormalState state, code, context} =
             let
                 (* The index value is going to be at the top of the stack. We replace this value with
                    the result.  The base address will be below it but we just leave it on the stack. *)
                 val (iReg, indexed) =
                     case index of
-                        MemIndex1(PReg r) => (r, MemIndex1 raxAsArg)
-                    |   MemIndex2(PReg r) => (r, MemIndex2 raxAsArg)
-                    |   MemIndex4(PReg r) => (r, MemIndex4 raxAsArg)
-                    |   MemIndex8(PReg r) => (r, MemIndex8 raxAsArg)
+                        MemIndex1(PReg(r, PRegGeneral)) => (r, MemIndex1 raxAsArg)
+                    |   MemIndex2(PReg(r, PRegGeneral)) => (r, MemIndex2 raxAsArg)
+                    |   MemIndex4(PReg(r, PRegGeneral)) => (r, MemIndex4 raxAsArg)
+                    |   MemIndex8(PReg(r, PRegGeneral)) => (r, MemIndex8 raxAsArg)
                     |   _ => raise InternalError "codeICode: MemIndex"
                 val startState = checkTopInRax(state, iReg)
                 val baseOnStack =
                     case findEntry (argToPReg base, state) of
                         OnStack s => s
                     |   _ => raise InternalError "codeICode: MoveArgument"
+                val (resultState, resultReg) =
+                    case dType of
+                        PRegGeneral => (addRaxToState(startState, destReg), raxAsArg)
+                    |   PRegUntagged =>
+                            ({valueStack= #valueStack startState, ccState= #ccState startState,
+                                untaggedRegs =[{ureg=destReg, reg=GenReg ecx}]}, rcxAsArg)
             in
-                codeICode{icode=rest, state=NormalState(addRaxToState(startState, destReg)),
+                codeICode{icode=rest, state=NormalState resultState,
                     code =
-                        MoveArgument{source=MemoryLocation {offset=offset, base=rbxAsArg, index=indexed}, dest=raxAsArg, kind=kind} ::
+                        MoveArgument{source=MemoryLocation {offset=offset, base=rbxAsArg, index=indexed}, dest=resultReg, kind=kind} ::
                         MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rbxAsArg, kind=WordToWord} ::
                         code,
                     context=context}
             end
 
             (* Store a pseudo-register in a memory location. *)
-        |   codeICode{icode=MoveArgument{ source=PReg srcReg, dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+        |   codeICode{icode=MoveArgument{ source=PReg(srcReg, PRegGeneral), dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
                       state=NormalState state, code, context} =
             let
-                val bReg = argToPReg base
-                (* We currently generate these so that the top of the state is the allocated
-                   memory and the next item to store is immediately below it. *)
-                val newState =
-                    case #valueStack state of
-                        {preg=tReg, loc=InRax} :: {preg=nReg, loc=OnStack _} :: state =>
-                            if tReg = bReg andalso nReg = srcReg
-                            then {valueStack=state, ccState= CCIndeterminate (* For the moment *)}
-                            else raise InternalError "MoveArgument to MemoryLocation"
-                    |   _ => raise InternalError "MoveArgument to MemoryLocation"
+                val (pushedState, pushCode) = pushRax state
+                val baseOnStack = 
+                    case findEntry (argToPReg base, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val valueOnStack =
+                    case findEntry (srcReg, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val loadValueToEbx = loadStack(ebx, (stackPtr pushedState - valueOnStack -1) * wordSize)
+                val loadBaseToEax = loadStack(eax, (stackPtr pushedState - baseOnStack -1) * wordSize)
                 (* Pop the value to store into ebx and store it in the tuple. *)
                 val store =
-                    MoveArgument{
+                    [MoveArgument{
                         source=RealRegister(GenReg ebx),
-                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind} ::
-                    ResetStackPtr{numWords=1} :: loadMemory(ebx, esp, 0)
+                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind}]
             in
                 codeICode{
-                    (* We currently have the base in eax.  Leave it there because it may be used again. *)
-                    icode=rest, state=NormalState(addRaxToState(newState, bReg)), code=store @ code, context=context}
+                    icode=rest, state=NormalState pushedState,
+                    code=store @ loadBaseToEax @ loadValueToEbx @ pushCode @ code, context=context}
             end
 
-        |   codeICode{icode=MoveArgument{ source=PReg _, dest=MemoryLocation _, kind=_} :: _, ...} =
-                raise InternalError "TODO: codeICode MemoryLocation index destination"
+        |   codeICode{icode=MoveArgument{ source=PReg(valueReg, PRegGeneral), dest=MemoryLocation {offset, base, index}, kind} :: rest,
+                state=NormalState state, code, context} =
+            let
+                (* The top of the stack should be the value to store.  That will be in rax.
+                   We load the base address into rcx and the index into rbx. *)
+                val startState = checkTopInRax(state, valueReg)
+                val (iReg, indexed) =
+                    case index of
+                        MemIndex1(PReg(r, PRegGeneral)) => (r, MemIndex1 rbxAsArg)
+                    |   MemIndex2(PReg(r, PRegGeneral)) => (r, MemIndex2 rbxAsArg)
+                    |   MemIndex4(PReg(r, PRegGeneral)) => (r, MemIndex4 rbxAsArg)
+                    |   MemIndex8(PReg(r, PRegGeneral)) => (r, MemIndex8 rbxAsArg)
+                    |   _ => raise InternalError "codeICode: MemIndex"
+                val indexOnStack =
+                    case findEntry (iReg, state) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val baseOnStack =
+                    case findEntry (argToPReg base, state) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val rcxAsArg = RealRegister(GenReg ecx)
+            in
+                codeICode{icode=rest, state=NormalState startState,
+                    code =
+                        MoveArgument{source=raxAsArg, dest=MemoryLocation {offset=offset, base=rcxAsArg, index=indexed}, kind=kind} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rcxAsArg, kind=WordToWord} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - indexOnStack - 1, esp), dest=rbxAsArg, kind=WordToWord} ::
+                        code,
+                    context=context}
+            end
+
+        |   codeICode{icode=
+                       MoveArgument{ source=PReg(valueReg, PRegUntagged),
+                                     dest=MemoryLocation {offset, base, index=MemIndex1(PReg(iReg, PRegUntagged))}, kind} :: rest,
+                    state=NormalState state, code, context} =
+            let
+                (* This is used for index stores of bytes. *)
+                val ({ valueStack, ccState, untaggedRegs}, pushCode) = pushRax state
+                (* The index is an untagged value. *)
+                val realIReg =
+                    case List.find (fn {ureg, ...} => ureg = iReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val realVReg =
+                    case List.find (fn {ureg, ...} => ureg = valueReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val baseOnStack =
+                    case findEntry (argToPReg base, state) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code =
+                        MoveArgument{source=realVReg, dest=MemoryLocation {offset=offset, base=raxAsArg, index=MemIndex1 realIReg}, kind=kind} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=raxAsArg, kind=WordToWord} ::
+                        pushCode @ code,
+                    context=context}
+            end
 
             (* Other combinations of move aren't used at the moment. *)
         |   codeICode{icode=MoveArgument _ :: _, ...} =
@@ -568,7 +694,8 @@ struct
                 codeICode{icode=rest, state=state, code=instr :: code, context=context}
 
             (* Function call. *)
-        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false, callKind} :: rest,
+                      state=NormalState state, code, context} =
             let
                 val destReg = argToPReg dest
                 val (pushedState, pushCode) = pushRax state
@@ -598,12 +725,13 @@ struct
                 val returnState = List.drop(#valueStack pushedState, numStackArgs)
                 (* We haven't actually checked that the entries we're dropping really
                    are the register args. *)
-                val poppedState = {valueStack=List.drop(returnState, List.length regArgs), ccState= CCIndeterminate}
+                val poppedState = {valueStack=List.drop(returnState, List.length regArgs), ccState= CCIndeterminate, untaggedRegs=[]}
                 (* Add the result value in Rax to the state *)
                 val (finalState, stackReset) =
-                    resetStack(addRaxToState({valueStack=returnState, ccState= CCIndeterminate}, destReg), poppedState, destReg)
+                    resetStack(addRaxToState({valueStack=returnState, ccState= CCIndeterminate, untaggedRegs=[]}, destReg), poppedState, destReg)
                 val functionCode =
-                    stackReset @ [FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg}] @ doLoad @ pushCode @ code
+                    stackReset @ [FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind}] @
+                        doLoad @ pushCode @ code
             in
                 codeICode{icode=rest, state=NormalState finalState, code=functionCode, context=context}
             end
@@ -611,7 +739,7 @@ struct
             (* Jump to a function.  The arguments have to be moved into the space currently used
                by the arguments to this function.  That could result in values being overwritten
                so we have to save them, especially the return address. *)
-        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest= _, isTail=true} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest= _, isTail=true, callKind} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 val currentSp = stackPtr pushedState
@@ -635,7 +763,7 @@ struct
                 val moveArgs = copyArgs(numArgsToMove, stackArgs)
                 val storeReturn = storeMemory(edi, esp, argOffset*wordSize)
                 val functionCode =
-                        FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg} ::
+                        FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
                                       ResetStackPtr {numWords=argOffset} :: (storeReturn @ moveArgs @ loadReturn @ doLoad @ pushCode @ code)
             in
                 codeICode{icode=rest, state=Exited, code=functionCode, context=context}
@@ -655,7 +783,7 @@ struct
                 val newHead = ListPair.mapEq repSourceWithDest (List.rev arguments, headList)
                 val tailList = List.drop(#valueStack pushedState, numArgs)
                 (* The CCstate is indeterminate because we may have looped. *)
-                val bodyState = {valueStack=newHead @ tailList, ccState= CCIndeterminate}
+                val bodyState = {valueStack=newHead @ tailList, ccState= CCIndeterminate, untaggedRegs= []}
                 val newContext = {loopArgs=(bodyState, loopLabel) :: loopArgs, forwardLabels=forwardLabels, handlers=handlers}
             in
                 codeICode{icode=rest, state=NormalState bodyState, code=instr :: pushCode @ code,
@@ -713,7 +841,7 @@ struct
                 codeICode{icode=rest,
                     state=NormalState(
                             {valueStack={loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: #valueStack pushedState,
-                             ccState=CCIndeterminate}),
+                             ccState=CCIndeterminate, untaggedRegs= []}),
                     code=MoveArgument{source=RealRegister(GenReg esp), dest=raxAsArg, kind=WordToWord} :: (pushAll @ pushCode) @ code, context=context}
             end
 
@@ -755,20 +883,21 @@ struct
                 codeICode{icode=rest, state=Exited, code=returnCode @ code, context=context}
             end
 
-        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg oper1Reg, operand2 as IntegerConstant _, ccRef } :: rest,
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg(oper1Reg, PRegGeneral), operand2 as IntegerConstant _, ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
                 val resReg = argToPReg resultReg
                 val topState = checkTopInRax(state, oper1Reg)
                 val resultState = addRaxToState(topState, resReg)
-                val checkState = {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i)}
+                val checkState =
+                    {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= #untaggedRegs resultState}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                     code=ArithmeticFunction { oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=operand2, ccRef=ccRef } :: code,
                     context=context}
             end
 
-        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg oper1Reg, operand2=PReg oper2Reg, ccRef } :: rest,
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg(oper1Reg, PRegGeneral), operand2=PReg(oper2Reg, PRegGeneral), ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
                 (* The top item should be in RAX but that is the second argument.  That's all right for
@@ -781,7 +910,8 @@ struct
                         OnStack s => s
                     |   _ => raise InternalError "codeICode: ArithmeticFunction"
                 val resultState = addRaxToState(topState, resReg)
-                val checkState = {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i)}
+                val checkState =
+                    {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= #untaggedRegs resultState}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                     code= (* N.B. In reverse order *)
@@ -798,7 +928,48 @@ struct
         |   codeICode{icode=ArithmeticFunction _ :: _, ...} =
                 raise InternalError "TODO: CodeTransform ArithmeticFunction"
 
-        |   codeICode{icode=LoadEffectiveAddress { base=NONE, offset, index=MemIndex2(PReg iReg), dest } :: rest,
+        |   codeICode{icode=TagValue { source, dest } :: rest,
+                      state=NormalState (state as {untaggedRegs, ...}), code, context} =
+            let
+                val sReg = argToUReg source and destReg = argToPReg dest
+                val realSReg =
+                    case List.find (fn {ureg, ...} => ureg = sReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: TagValue"
+                val (pushedState, pushCode) = pushRax state
+                val addState = addRaxToState(pushedState, destReg)
+                val resultState = removeAfterTag(addState, sReg)
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=LoadEffectiveAddress { base=NONE, offset=1, index=MemIndex2 realSReg, dest=raxAsArg } :: pushCode @ code,
+                    context=context}
+            end
+
+        |   codeICode{icode=UntagValue { source, dest, isSigned } :: rest, state=NormalState state, code, context} =
+            let
+                val sReg = argToPReg source and dReg = argToUReg dest
+                val (pushedState, pushCode) = pushRax state (* Simplifies things *)
+                (* Find a spare untagged register. *)
+                val {valueStack, untaggedRegs, ...} = pushedState
+                val spareReg =
+                    case untaggedRegs of
+                        [] => ecx
+                    |   [_] => edx
+                    |   _ => raise InternalError "codeICode: UntagValue"
+                val resReg = RealRegister(GenReg spareReg)
+                val loadCode = loadSource(sReg, spareReg, pushedState)
+                val resultState =
+                    {valueStack= valueStack, ccState= CCIndeterminate, untaggedRegs ={ureg=dReg, reg=GenReg spareReg} :: untaggedRegs}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        ShiftOperation{shift=if isSigned then SAR else SHR, resultReg=resReg, operand=resReg,
+                            shiftAmount=IntegerConstant 1, ccRef=CcRef 0 } ::
+                        loadCode @ pushCode @ code,
+                    context=context}
+            end
+
+(*        |   codeICode{icode=LoadEffectiveAddress { base=NONE, offset, index=MemIndex2(PReg iReg), dest } :: rest,
                       state=NormalState state, code, context} =
             (* Currently just used for tagging. *)
             let
@@ -809,18 +980,19 @@ struct
                 codeICode{icode=rest, state=NormalState resultState,
                     code=LoadEffectiveAddress{ base=NONE, offset=offset, index=MemIndex2 raxAsArg, dest=raxAsArg } :: code,
                     context=context}
-            end
+            end*)
 
         |   codeICode{icode=LoadEffectiveAddress _ :: _, ...} =
                 raise InternalError "TODO: CodeTransform LoadEffectiveAddress"
 
-        |   codeICode{icode=ShiftOperation {shift, resultReg, operand=PReg operReg, shiftAmount as IntegerConstant _, ccRef } :: rest,
+        |   codeICode{icode=ShiftOperation {shift, resultReg, operand=PReg(operReg, PRegGeneral), shiftAmount as IntegerConstant _, ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
                 val resReg = argToPReg resultReg
                 val topState = checkTopInRax(state, operReg)
                 val resultState = addRaxToState(topState, resReg)
-                val checkState = {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i)}
+                val checkState =
+                    {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= #untaggedRegs resultState}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                     code=ShiftOperation { shift=shift, resultReg=raxAsArg, operand=raxAsArg, shiftAmount=shiftAmount, ccRef=ccRef } :: code,

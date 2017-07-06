@@ -865,7 +865,7 @@ struct
 
         val getenv = OS.Process.getEnv
 
-        fun environ() = RunCall.run_call2 POLY_SYS_process_env(21, ())
+        fun environ() = Compat560.processEnvGeneral(21, ())
 
         local
             val doCall = Compat560.osSpecificGeneral
@@ -906,8 +906,7 @@ struct
         let
             (* Apart from the child times all these could be obtained
                by calling the Timer functions. *)
-            val doCall: int*unit -> Time.time
-                = RunCall.run_call2 RuntimeCalls.POLY_SYS_timing_dispatch
+            val doCall: int*unit -> Time.time = Compat560.timingGeneral
             fun getUserTime() = doCall(7, ())
             and getSysTime() = doCall(8, ())
             and getRealTime() = doCall(10, ())
@@ -958,14 +957,12 @@ struct
         end
 
         local
-            val doIo: int*file_desc*unit -> int
-             = RunCall.run_call3 POLY_SYS_io_dispatch
+            val doIo: int*file_desc*unit -> int = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun fdToWord (f: file_desc) = SysWord.fromInt(doIo(30, f, ()))
         end
         local
-            val doIo: int*unit*int -> file_desc
-             = RunCall.run_call3 POLY_SYS_io_dispatch
+            val doIo: int*unit*int -> file_desc = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun wordToFD(s: SysWord.word): file_desc =
                 doIo(31, (), SysWord.toInt s)
@@ -1024,7 +1021,7 @@ struct
              |  toBits O_WRONLY = o_wronly
              |  toBits O_RDWR = o_rdwr
 
-            val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+            val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun openf(name, mode, flags) =
             let
@@ -1199,13 +1196,13 @@ struct
         datatype open_mode = datatype FileSys.open_mode
 
         local
-            val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+            val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun close (strm: file_desc): unit = doIo(7, strm, 0)
         end
 
         local
-            val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+            val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun readVec (strm: file_desc, len: int): Word8Vector.vector =
                 doIo(26, strm, len)

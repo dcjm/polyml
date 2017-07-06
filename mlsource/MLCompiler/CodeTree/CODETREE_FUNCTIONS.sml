@@ -107,7 +107,7 @@ struct
         |   codeProps (BuiltIn0{oper}) =
             (
                 case oper of
-                    BuiltIns.Built0PlaceHolder => 0w0
+                    BuiltIns.CurrentThreadId => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             )
 
         |   codeProps (BuiltIn1{oper, arg1}) =
@@ -120,6 +120,7 @@ struct
                     |   MemoryCellLength => applicative
                         (* MemoryCellFlags could return a different result if a mutable cell was locked. *)
                     |   MemoryCellFlags => applicative
+                    |   ClearMutableFlag => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1
             end
@@ -147,7 +148,8 @@ struct
             let
                 val operProps =
                     case oper of
-                        BuiltIns.Built3PlaceHolder => 0w0
+                        BuiltIns.StoreWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
+                    |   BuiltIns.StoreByte => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3
             end

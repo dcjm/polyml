@@ -602,6 +602,10 @@ static byte *entryPointVector[256] =
     &assign_word
 };
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c, PolyWord flags);
+}
+
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
     assemblyInterface.fullRestore = 1; // To force the floating point to 64-bit

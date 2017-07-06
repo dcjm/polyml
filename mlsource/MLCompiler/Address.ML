@@ -131,15 +131,14 @@ struct
       "Byte" functions is in bytes.
   *)
   
-    val loadByte:   (address * Word.word) -> Word8.word = RunCall.loadByte
-    and loadWord:   (address * Word.word) -> machineWord  = RunCall.loadWord
-
-  val assignByte: (address * Word.word * Word8.word) -> unit =
-    RunCall.run_call3 POLY_SYS_assign_byte
-  
-  val assignWord: (address * Word.word * machineWord)  -> unit =
-    RunCall.run_call3 POLY_SYS_assign_word
-
+    val loadByte:   address * Word.word -> Word8.word = RunCall.loadByte
+    and loadWord:   address * Word.word -> machineWord  = RunCall.loadWord
+    and assignByte: address * Word.word * Word8.word -> unit = RunCall.storeByte
+    and assignWord: address * Word.word * machineWord -> unit = RunCall.storeWord
+    and lock:       address -> unit = RunCall.clearMutableBit
+    and wordSize:   int = Word.toInt RunCall.bytesPerWord
+    and length:     address -> Word.word = RunCall.memoryCellLength
+    and flags:      address -> Word8.word  = Word8.fromLargeWord o Word.toLargeWord o RunCall.memoryCellFlags
 
     val maxAllocation: word = Compat560.processEnvGeneral (100, ())
 
@@ -148,15 +147,6 @@ struct
         if len >= maxAllocation
         then raise Size
         else RunCall.run_call3 POLY_SYS_alloc_store(len, flags, initial)
-  
-  val lock:   address -> unit =
-    RunCall.run_call1 POLY_SYS_lockseg
-
-  val wordSize: int = Word.toInt RunCall.bytesPerWord
-
-  val length: address -> Word.word = RunCall.memoryCellLength
-  and flags:  address -> Word8.word  = Word8.fromLargeWord o Word.toLargeWord o RunCall.memoryCellFlags
-
 
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)
@@ -201,7 +191,6 @@ struct
             (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
             (POLY_SYS_teststrgeq,"POLY_SYS_teststrgeq"),
             (POLY_SYS_teststrleq,"POLY_SYS_teststrleq"),
-            (POLY_SYS_lockseg,"POLY_SYS_lockseg"),
             (POLY_SYS_emptystring,"POLY_SYS_emptystring"),
             (POLY_SYS_nullvector,"POLY_SYS_nullvector"),
             (POLY_SYS_eq_longword,"POLY_SYS_eq_longword"),
@@ -212,7 +201,6 @@ struct
             (POLY_SYS_atomic_reset,"POLY_SYS_atomic_reset"),
             (POLY_SYS_atomic_incr,"POLY_SYS_atomic_incr"),
             (POLY_SYS_atomic_decr,"POLY_SYS_atomic_decr"),
-            (POLY_SYS_thread_self,"POLY_SYS_thread_self"),
             (POLY_SYS_plus_longword,"POLY_SYS_plus_longword"),
             (POLY_SYS_minus_longword,"POLY_SYS_minus_longword"),
             (POLY_SYS_mul_longword,"POLY_SYS_mul_longword"),
@@ -282,16 +270,12 @@ struct
             (POLY_SYS_string_length,"POLY_SYS_string_length"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final"),
             (POLY_SYS_mul_word,"POLY_SYS_mul_word"),
-            (POLY_SYS_plus_word,"POLY_SYS_plus_word"),
-            (POLY_SYS_minus_word,"POLY_SYS_minus_word"),
             (POLY_SYS_div_word,"POLY_SYS_div_word"),
             (POLY_SYS_or_word,"POLY_SYS_or_word"),
             (POLY_SYS_and_word,"POLY_SYS_and_word"),
             (POLY_SYS_xor_word,"POLY_SYS_xor_word"),
             (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word"),
-            (POLY_SYS_mod_word,"POLY_SYS_mod_word"),
-            (POLY_SYS_assign_byte,"POLY_SYS_assign_byte"),
-            (POLY_SYS_assign_word,"POLY_SYS_assign_word")
+            (POLY_SYS_mod_word,"POLY_SYS_mod_word")
             ]
 
         val rtsNames =

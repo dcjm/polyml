@@ -299,6 +299,15 @@ struct
                compilers for 32-bit and 64-bit.  N.B. The byte order is not a constant since we
                only have a single pre-built compiler for little-endian and big-endian interpreted code. *)
             val () = enterRunCall ("bytesPerWord", mkConst(toMachineWord wordSize), Word)
+            (* Store a word *)
+            val () = enterRunCall ("storeWord",
+                    makePolymorphic([a, b], mkBuiltIn3Fn StoreWord), mkProductType[a, Word, b] ->> Unit)
+            (* Store a byte *)
+            val () = enterRunCall ("storeByte",
+                    makePolymorphic([a, b], mkBuiltIn3Fn StoreByte), mkProductType[a, Word, b] ->> Unit)
+            (* Lock a mutable cell. *)
+            val () = enterRunCall ("clearMutableBit",
+                    makePolymorphic([a], mkBuiltIn1Fn ClearMutableFlag), a ->> Unit)
         end
 
         local
@@ -706,6 +715,30 @@ struct
             val value = mkGvar (name, typ, entry, declInBasis)
         in
             #enterVal bootstrapEnv (name, value)
+        end
+
+        local
+            val threadEnv = makeStructure(globalEnv, "Thread")
+
+            open TypeValue
+            fun monoTypePrinter _ = PRETTY.PrettyString "?"
+            val code =
+                createTypeValue{
+                    eqCode=equalWordFn,
+                    printCode=mkConst (toMachineWord (ref monoTypePrinter)),
+                    boxedCode=boxedAlways,
+                    sizeCode=singleWord
+                }
+            (* Thread.thread type.  This is an equality type with pointer equality. *)
+            val threadConstr= 
+                makeTypeConstructor (
+                    "thread", makeFreeId(0, Global (genCode(code, [], 0) ()), true, basisDescription "thread"),
+                    [DeclaredAt inBasis])
+            val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
+            val selfFunction = mkGvar ("self", Unit ->> threadType, mkBuiltIn0Fn BuiltIns.CurrentThreadId, declInBasis)
+        in
+            val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
+            val () = #enterVal threadEnv ("self", selfFunction)
         end
 
         local

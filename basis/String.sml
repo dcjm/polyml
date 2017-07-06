@@ -27,12 +27,9 @@ local
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open LibrarySupport
 
-    val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_setb: string * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val MemMove: string*word*string*word*word -> unit = RunCall.run_call5 POLY_SYS_move_bytes
 
     (* Redefine these as functions on the abstract type. *)
-    val System_setbA: address * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val System_move_bytesA:
         address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
 
@@ -89,12 +86,12 @@ local
                 val vec = allocString(a_length + b_length)
             in
                 if a_length = 0w1
-                then System_setb (vec, wordSize, singleCharStringAsChar a)
+                then RunCall.storeByte (vec, wordSize, singleCharStringAsChar a)
                 else bcopy(a, vec, wordSize, wordSize, a_length);
                 if b_length = 0w1
-                then System_setb (vec, wordSize+a_length, singleCharStringAsChar b)
+                then RunCall.storeByte (vec, wordSize+a_length, singleCharStringAsChar b)
                 else bcopy(b, vec, wordSize, wordSize+a_length, b_length);
-                System_lock vec;
+                RunCall.clearMutableBit vec;
                 vec
             end
         end (* op ^ *)
@@ -237,13 +234,13 @@ local
                         in
                         if src_len = 0w1
                         then (* single character strings are ints *)
-                            System_setb (vec, i, singleCharStringAsChar H)
+                            RunCall.storeByte (vec, i, singleCharStringAsChar H)
                         else bcopy(H, vec, wordSize, i, src_len);
                         copy(i+src_len, T)
                         end
                 in
                 copy (wordSize, L);
-                System_lock vec;
+                RunCall.clearMutableBit vec;
                 vec
                 end
             end (* concat *)
@@ -278,12 +275,12 @@ local
                     fun copy (_, []:char list) = ()
                       | copy (i, H :: T) =
                         (
-                        System_setb (dest, i, H);
+                        RunCall.storeByte (dest, i, H);
                         copy (i + 0w1, T)
                         )
                 in
                     copy (wordSize, L);
-                    System_lock dest; (* reset mutable flag *)
+                    RunCall.clearMutableBit dest; (* reset mutable flag *)
                     dest
                 end
             end
@@ -442,10 +439,10 @@ local
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()
-                else (System_setb(vec, i+wordSize, f(wordAsInt i)); init(i+0w1))
+                else (RunCall.storeByte(vec, i+wordSize, f(wordAsInt i)); init(i+0w1))
         in
             init 0w0;
-            System_lock vec;
+            RunCall.clearMutableBit vec;
             vec
         end
 
@@ -477,10 +474,10 @@ local
                     
                 fun domap i =
                     if i >= byte_limit then ()
-                    else (System_setb(new_vec, i, f(RunCall.loadByteFromImmutable(vec, i))); domap(i+0w1))
+                    else (RunCall.storeByte(new_vec, i, f(RunCall.loadByteFromImmutable(vec, i))); domap(i+0w1))
             in
                 domap wordSize;
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 new_vec
             end
         end
@@ -547,14 +544,14 @@ local
                 fun setCh n =
                     if n = extra then ()
                     (* Set the character part of the string. *)
-                    else ( System_setb(str, n+wordSize, c); setCh(n+0w1) )
+                    else ( RunCall.storeByte(str, n+wordSize, c); setCh(n+0w1) )
             in
                 setCh 0w0;
                 (* Copy the character part of the string over. *)
                 if len = 0w1
-                then System_setb(str, extra + wordSize, stringToCh s)
+                then RunCall.storeByte(str, extra + wordSize, stringToCh s)
                 else mem_move(s, wordSize, str, extra + wordSize, len);
-                System_lock str;
+                RunCall.clearMutableBit str;
                 str
             end
         end
@@ -576,14 +573,14 @@ local
                 fun setCh n =
                     if n = iW then ()
                     (* Set the character part of the string. *)
-                    else ( System_setb(str, n+wordSize, c); setCh(n+0w1) )
+                    else ( RunCall.storeByte(str, n+wordSize, c); setCh(n+0w1) )
             in
                 (* Copy the character part of the string over. *)
                 if len = 0w1
-                then System_setb(str, wordSize, stringToCh s)
+                then RunCall.storeByte(str, wordSize, stringToCh s)
                 else mem_move(s, wordSize, str, wordSize, len);
                 setCh len;
-                System_lock str;
+                RunCall.clearMutableBit str;
                 str
             end
         end
@@ -835,12 +832,12 @@ in
                 
                 fun domap j =
                     if j >= len then ()
-                    else (System_setb(new_vec, j+wordSize,
+                    else (RunCall.storeByte(new_vec, j+wordSize,
                             f(wordAsInt(j), RunCall.loadByteFromImmutable(vec, j+wordSize)));
                           domap(j+0w1))
             in
                 domap 0w0;
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 new_vec
             end
         end
@@ -1014,13 +1011,13 @@ in
                             val convSize = sizeAsWord conv
                         in
                             if convSize = 0w1
-                            then System_setb (newVec, j, singleCharStringAsChar conv)
+                            then RunCall.storeByte (newVec, j, singleCharStringAsChar conv)
                             else bcopy(conv, newVec, wordSize, j, convSize);
                             copyToOut (i+0w1) (j+convSize)
                         end
                     in
                         copyToOut 0w0 wordSize;
-                        System_lock newVec;
+                        RunCall.clearMutableBit newVec;
                         newVec
                     end
                 end
@@ -1135,7 +1132,7 @@ in
             val vec = alloc len
             fun init i = 
                 if len <= i then ()
-                else (System_setbA(vec, i, ini); init(i+0w1))
+                else (RunCall.storeByte(vec, i, ini); init(i+0w1))
         in
             init 0w0;
             Array(len, vec)
@@ -1162,7 +1159,7 @@ in
         in
             if iW >= l
             then raise General.Subscript
-            else System_setbA (v, iW, new)
+            else RunCall.storeByte (v, iW, new)
         end;
     
         (* Create an array from a list. *)
@@ -1179,7 +1176,7 @@ in
                 val vec = alloc length
                 
                 (* Copy the list elements into the array. *)
-                fun init (v, i, a :: l) = (System_setbA(v, i, a); init(v, i + 0w1, l))
+                fun init (v, i, a :: l) = (RunCall.storeByte(v, i, a); init(v, i + 0w1, l))
                 |  init (_, _, []) = ()
                 
             in
@@ -1197,7 +1194,7 @@ in
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()
-                else (System_setbA(vec, i, f(wordAsInt i)); init(i+0w1))
+                else (RunCall.storeByte(vec, i, f(wordAsInt i)); init(i+0w1))
         in
             init 0w0;
             Array(len, vec)
@@ -1214,7 +1211,7 @@ in
                 val new_vec = allocString len
             in
                 System_move_bytesA(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 new_vec
             end
     
@@ -1242,7 +1239,7 @@ in
                 else if System_isShort src (* i.e. String.length s = 1 *)
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
-                    System_setbA(d, diW, singleCharStringAsChar src)
+                    RunCall.storeByte(d, diW, singleCharStringAsChar src)
                 else System_move_bytesA(RunCall.unsafeCast src, wordSize, d, diW, len)
             end
             
@@ -1253,7 +1250,7 @@ in
                     type vector = array and elem = elem
                     fun length(Array(len, _)) = len
                     fun unsafeSub(Array(_, v), i) = RunCall.loadByte(v, i)
-                    and unsafeSet(Array(_, v), i, c) = System_setbA(v, i, c)
+                    and unsafeSet(Array(_, v), i, c) = RunCall.storeByte(v, i, c)
                 end);
     
         open ArrayOps;
@@ -1634,7 +1631,7 @@ in
                 struct
                     type vector = array and elem = char
                     fun unsafeVecSub(Array(_, s: LibrarySupport.address), i) = RunCall.loadByte(s, i)
-                    and unsafeVecUpdate(Array(_, s), i, x) = System_setbA (s, i, x)
+                    and unsafeVecUpdate(Array(_, s), i, x) = RunCall.storeByte (s, i, x)
                     and vecLength(Array(l, _)) = l
                 end);
     
@@ -1656,7 +1653,7 @@ in
                     val new_vec = allocString len
                 in
                     System_move_bytesA(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
-                    System_lock new_vec;
+                    RunCall.clearMutableBit new_vec;
                     new_vec
                 end
             end
@@ -1696,7 +1693,7 @@ in
                 else if System_isShort source (* i.e. length s = 1 *)
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
-                    System_setbA(d, diW + offset, singleCharStringAsChar source)
+                    RunCall.storeByte(d, diW + offset, singleCharStringAsChar source)
                     (* The source is represented by a string whose first word is the length. *)
                 else System_move_bytesA(RunCall.unsafeCast source, offset + wordSize, d, diW, len)
             end

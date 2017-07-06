@@ -120,7 +120,7 @@ struct
       fun littleEndian () : bool = not (RunCall.run_call0 (! bigEndian) ())
   end;
 
-  val wordLength = RunCall.bytesPerWord
+  val wordLength = Word.toInt RunCall.bytesPerWord
  
   val MAXINTARGS = (* 31 *) 126;
 

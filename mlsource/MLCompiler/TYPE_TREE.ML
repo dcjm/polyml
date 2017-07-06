@@ -334,7 +334,8 @@ struct
                             ),
                             (* ... they are equal arbitrary precision values.
                                This could use bytewise equality.  That would be correct whether
-                               we are using GMP or the internal byte-based arbitrary precision package. *)
+                               we are using GMP or the internal byte-based arbitrary precision package.
+                               N.B.  Don't forget to check the "negative" bit in the flags. *)
                             mkEval(rtsFunction POLY_SYS_equala, [mkLoadArgument 0, mkLoadArgument 1])
                         )
                     ),

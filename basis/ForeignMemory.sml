@@ -100,7 +100,7 @@ struct
         (* Allocate a single word marked as mutable, byte. *)
         val v = RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store(0w1, 0wx41, 0w0)
         val () = memMove(RunCall.unsafeCast var, 0w0, v, 0w0, wordSize)
-        val () = RunCall.run_call1 RuntimeCalls.POLY_SYS_lockseg v
+        val () = RunCall.clearMutableBit v
     in
         v
     end

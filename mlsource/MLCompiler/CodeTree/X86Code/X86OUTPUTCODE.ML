@@ -1614,7 +1614,6 @@ SS-relative addressing modes:
 
     datatype callKinds =
         Recursive           (* The function calls itself. *)
-    |   ConstantClosure of machineWord (* A pre-compiled or io function. *)
     |   ConstantCode of machineWord (* A function that doesn't need a closure *)
     |   FullCall            (* Full closure call *)
     |   DirectReg of genReg  (* Currently used to call the RTS *)
@@ -1648,24 +1647,6 @@ SS-relative addressing modes:
 			    addConstToVec (WVal w, InlineRelative, cvec)
 		    )
         )
-
-    |   callFunction (ConstantClosure w, cvec) =
-        if isX64
-        then
-        let
-            val (rc, rx) = getReg regClosure
-        in
-            genop  (MOVL_32_64_R rc, SOME {w=true, r=false, b=rx, x=false}, cvec);
-            addConstToVec (WVal w, InlineAbsolute, cvec);
-            genop (Group5, NONE, cvec);
-            genmodrm(Based0, 0w2 (* call *), rc, cvec)
-        end
-        else
-        (
-		    genop (Group5, NONE, cvec);
-		    genmodrm(Based0, 0w2 (* call *), 0w5 (* Immediate address. *), cvec);
-		    addConstToVec (WVal w, InlineAbsolute, cvec)
-	    )
             
     |   callFunction (DirectReg reg, cvec) =
         let
@@ -1715,26 +1696,6 @@ SS-relative addressing modes:
     		    genop (JMP_32, NONE, cvec);
     			addConstToVec (WVal w, InlineRelative, cvec)
             )
-
-        |   ConstantClosure w =>
-		  	(* Indirect jumps are used to call into the RTS. *)
-            if isX64
-            then
-            let
-                val (rc, rx) = getReg regClosure
-            in
-                genop  (MOVL_32_64_R rc, SOME {w=true, r=false, b=rx, x=false}, cvec);
-                addConstToVec (WVal w, InlineAbsolute, cvec);
-            
-                genop (Group5, NONE, cvec);
-                genmodrm(Based0, 0w4 (* jmp *), rc, cvec)
-            end
-            else
-	 	    (
-			    genop (Group5, NONE, cvec);
-			    genmodrm(Based0, 0w4 (* jmp *), 0w5 (* Immediate address. *), cvec);
-			    addConstToVec (WVal w, InlineAbsolute, cvec)
-		    )
             
         |   DirectReg _ => raise InternalError "jumpToFunction-DirectReg"; (* Can't be tail-recursive *)
 
@@ -2003,7 +1964,6 @@ SS-relative addressing modes:
         |   printMemAddress(ConstantAddress addr) = stream(stringOfWord addr)
         
         fun printCallKind Recursive = stream "Recursive"
-        |   printCallKind (ConstantClosure w) = (stream "closure="; stream(stringOfWord w))
         |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
         |   printCallKind FullCall = stream "via ClosureReg"
         |   printCallKind (DirectReg reg) = printGReg reg

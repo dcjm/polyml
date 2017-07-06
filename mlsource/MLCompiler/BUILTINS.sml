@@ -35,13 +35,14 @@ sig
     |   ArithRem
 
     datatype builtIn0Ops =
-        Built0PlaceHolder
+        CurrentThreadId
 
     and builtIn1Ops =
         NotBoolean (* true => false; false => true - XOR *)
     |   IsTaggedValue (* Test the tag bit. *)
     |   MemoryCellLength (* Return the length of a memory cell (heap object) *)
     |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
+    |   ClearMutableFlag (* Remove the mutable flag from the flags byte *)
 
     and builtIn2Ops =
         (* Compare two words and return the result.  This is used for both
@@ -60,7 +61,8 @@ sig
     |   LoadByte of { isImmutable: bool }
 
     and builtIn3Ops =
-        Built3PlaceHolder
+        StoreWord
+    |   StoreByte
 
     and builtIn4Ops =
         Built4PlaceHolder

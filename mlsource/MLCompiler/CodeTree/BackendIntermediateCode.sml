@@ -39,13 +39,14 @@ struct
         |   ArithRem
 
         datatype builtIn0Ops =
-            Built0PlaceHolder
+            CurrentThreadId
 
         and builtIn1Ops =
             NotBoolean
         |   IsTaggedValue
         |   MemoryCellLength
-        |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
+        |   MemoryCellFlags
+        |   ClearMutableFlag
 
         and builtIn2Ops =
             WordComparison of { test: testConditions, isSigned: bool }
@@ -55,7 +56,8 @@ struct
         |   LoadByte of { isImmutable: bool }
 
         and builtIn3Ops =
-            Built3PlaceHolder
+            StoreWord
+        |   StoreByte
 
         and builtIn4Ops =
             Built4PlaceHolder
@@ -63,12 +65,13 @@ struct
         and builtIn5Ops =
             Built5PlaceHolder
         
-        fun builtIn0Repr Built0PlaceHolder = "Built0PlaceHolder"
+        fun builtIn0Repr CurrentThreadId = "CurrentThreadId"
 
         and builtIn1Repr NotBoolean = "NotBoolean"
         |   builtIn1Repr IsTaggedValue = "IsTaggedValue"
         |   builtIn1Repr MemoryCellLength = "MemoryCellLength"
         |   builtIn1Repr MemoryCellFlags = "MemoryCellFlags"
+        |   builtIn1Repr ClearMutableFlag = "ClearMutableFlag"
 
         and builtIn2Repr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
@@ -92,8 +95,9 @@ struct
         |   arithRepr ArithQuot         = "Quot"
         |   arithRepr ArithRem          = "Rem"
 
+        and builtIn3Repr StoreWord = "StoreWord"
+        |   builtIn3Repr StoreByte = "StoreByte"
 
-        and builtIn3Repr Built3PlaceHolder = "Built3PlaceHolder"
         and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"
         and builtIn5Repr Built5PlaceHolder = "Built5PlaceHolder"
     end

@@ -33,8 +33,6 @@ local
     type vector = LibrarySupport.Word8Array.vector
     datatype array = datatype LibrarySupport.Word8Array.array
 
-    val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg
-    val System_setb: address * word * Word8.word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val System_move_bytes:
         address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
     val System_move_str:
@@ -158,7 +156,7 @@ in
             val vec = alloc len
             fun init i = 
                 if len <= i then ()
-                else (System_setb(vec, i, ini); init(i+0w1))
+                else (RunCall.storeByte(vec, i, ini); init(i+0w1))
         in
             init 0w0;
             Array(len, vec)
@@ -171,7 +169,7 @@ in
         fun update (Array (l, v), i: int, new) : unit =
             if i < 0 orelse i >= wordAsInt l
             then raise General.Subscript
-            else System_setb (v, intAsWord i, new);
+            else RunCall.storeByte (v, intAsWord i, new);
     
         (* Create an array from a list. *)
         fun fromList (l : elem list) : array =
@@ -182,7 +180,7 @@ in
             val vec = alloc length;
             
             (* Copy the list elements into the array. *)
-            fun init (v, i, a :: l) = (System_setb(v, i, a); init(v, i + 0w1, l))
+            fun init (v, i, a :: l) = (RunCall.storeByte(v, i, a); init(v, i + 0w1, l))
             |  init (_, _, []) = ();
             
         in
@@ -197,7 +195,7 @@ in
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()
-                else (System_setb(vec, i, f(wordAsInt i)); init(i+0w1))
+                else (RunCall.storeByte(vec, i, f(wordAsInt i)); init(i+0w1))
         in
             init 0w0;
             Array(len, vec)
@@ -215,7 +213,7 @@ in
                 val new_vec = allocString len
             in
                 System_move_bytes(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 w8vectorFromString new_vec
             end
     
@@ -242,7 +240,7 @@ in
                 else if System_isShort src (* i.e. length s = 1 *)
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
-                    System_setb(d, diW, RunCall.unsafeCast src)
+                    RunCall.storeByte(d, diW, RunCall.unsafeCast src)
                 else System_move_str(src, wordSize, d, diW, len)
             end
 
@@ -253,7 +251,7 @@ in
                     type vector = array and elem = elem
                     fun length(Array(len, _)) = len
                     fun unsafeSub(Array(_, v), i) = RunCall.loadByte(v, i)
-                    and unsafeSet(Array(_, v), i, c) = System_setb(v, i, c)
+                    and unsafeSet(Array(_, v), i, c) = RunCall.storeByte(v, i, c)
                 end);
     
         open ArrayOps;
@@ -358,7 +356,7 @@ in
                 struct
                     type vector = array and elem = Word8.word
                     fun unsafeVecSub(Array(_, s), i) = RunCall.loadByte(s, i)
-                    and unsafeVecUpdate(Array(_, s), i, x) = System_setb (s, i, x)
+                    and unsafeVecUpdate(Array(_, s), i, x) = RunCall.storeByte (s, i, x)
                     and vecLength(Array(l, _)) = l
                 end);
     
@@ -385,7 +383,7 @@ in
                     val new_vec = allocString len
                 in
                     System_move_bytes(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
-                    System_lock new_vec;
+                    RunCall.clearMutableBit new_vec;
                     w8vectorFromString new_vec
                 end
             end
@@ -426,7 +424,7 @@ in
                 else if System_isShort source (* i.e. length s = 1 *)
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
-                    System_setb(d, diW + offset, RunCall.unsafeCast source)
+                    RunCall.storeByte(d, diW + offset, RunCall.unsafeCast source)
                     (* The source is represented by a string whose first word is the length. *)
                 else System_move_str(source, offset + wordSize, d, diW, len)
             end
