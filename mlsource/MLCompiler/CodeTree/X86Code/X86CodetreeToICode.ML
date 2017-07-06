@@ -707,6 +707,40 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Or-ing preserves the tag bit. *)
+                    [ArithmeticFunction{oper=OR, resultReg=target, operand1=aReg1, operand2=aReg2, ccRef=newCCRef()}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Since they're both tagged the result will be tagged. *)
+                    [ArithmeticFunction{oper=AND, resultReg=target, operand1=aReg1, operand2=aReg2, ccRef=newCCRef()}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* We need to restore the tag bit after the operation. *)
+                    [ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=aReg1, operand2=aReg2, ccRef=newCCRef()},
+                     ArithmeticFunction{oper=OR, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordShift _, arg1, arg2}, context, _, destination) =
+                raise InternalError "BuiltIns.WordShift"
+
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =
             let
                 val baseReg = newPReg() and valueReg = newPReg()

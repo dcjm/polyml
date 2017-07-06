@@ -34,6 +34,16 @@ sig
     |   ArithQuot
     |   ArithRem
 
+    datatype logicalOperations =
+        LogicalAnd
+    |   LogicalOr
+    |   LogicalXor
+    
+    datatype shiftOperations =
+        ShiftLeft
+    |   ShiftRightLogical   (* Logical shift - zero added bits. *)
+    |   ShiftRightArithmetic (* Arithmetic shift - add the sign bit. *)
+
     datatype builtIn0Ops =
         CurrentThreadId
 
@@ -61,6 +71,8 @@ sig
     |   LoadWord of { isImmutable: bool }
     |   LoadByte of { isImmutable: bool }
     |   SetStringLengthWord (* Untag the second argument and store it at the address in the first. *)
+    |   WordLogical of logicalOperations (* Logical operations on words. *)
+    |   WordShift of shiftOperations (* Shift operations on words. *)
 
     and builtIn3Ops =
         StoreWord

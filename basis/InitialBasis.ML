@@ -164,10 +164,7 @@ struct
     fun op div(_, 0w0) = raise RunCall.Div | op div(x, y) = Word.div(x, y)
     fun op mod(_, 0w0) = raise RunCall.Div | op mod(x, y) = Word.mod(x, y)
 
-    val orb : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_or_word
-    and andb : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_and_word
-    and xorb : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_xor_word
-    and op >> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_word
+    val op >> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_word
     and op << : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_left_word
     and op ~>> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_arith_word
 

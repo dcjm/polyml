@@ -38,6 +38,16 @@ struct
         |   ArithQuot
         |   ArithRem
 
+        datatype logicalOperations =
+            LogicalAnd
+        |   LogicalOr
+        |   LogicalXor
+    
+        datatype shiftOperations =
+            ShiftLeft
+        |   ShiftRightLogical
+        |   ShiftRightArithmetic
+
         datatype builtIn0Ops =
             CurrentThreadId
 
@@ -56,6 +66,8 @@ struct
         |   LoadWord of {isImmutable: bool }
         |   LoadByte of { isImmutable: bool }
         |   SetStringLengthWord
+        |   WordLogical of logicalOperations
+        |   WordShift of shiftOperations
 
         and builtIn3Ops =
             StoreWord
@@ -85,6 +97,8 @@ struct
         |   builtIn2Repr (LoadByte {isImmutable=true}) =  "LoadByteImmutable"
         |   builtIn2Repr (LoadByte {isImmutable=false}) =  "LoadByteMutable"
         |   builtIn2Repr SetStringLengthWord = "SetStringLengthWord"
+        |   builtIn2Repr (WordLogical logOp) =  (logicRepr logOp) ^ "Word"
+        |   builtIn2Repr (WordShift shiftOp) =  (shiftRepr shiftOp) ^ "Word"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestNotEqual       = "NotEqual"
@@ -98,6 +112,14 @@ struct
         |   arithRepr ArithMult         = "Mult"
         |   arithRepr ArithQuot         = "Quot"
         |   arithRepr ArithRem          = "Rem"
+
+        and logicRepr LogicalAnd        = "And"
+        |   logicRepr LogicalOr         = "Or"
+        |   logicRepr LogicalXor        = "Xor"
+        
+        and shiftRepr ShiftLeft         = "Left"
+        |   shiftRepr ShiftRightLogical = "RightLogical"
+        |   shiftRepr ShiftRightArithmetic = "RightArithmetic"
 
         and builtIn3Repr StoreWord = "StoreWord"
         |   builtIn3Repr StoreByte = "StoreByte"

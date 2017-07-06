@@ -1564,6 +1564,24 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_fixedQuot:
+        {
+            // Zero and overflow are checked for in ML.
+            POLYSIGNED u = UNTAGGED(*sp++);
+            PolyWord y = *sp;
+            *sp = TAGGED(UNTAGGED(y) / u);
+            break;
+        }
+
+        case INSTR_fixedRem:
+        {
+            // Zero and overflow are checked for in ML.
+            POLYSIGNED u = UNTAGGED(*sp++);
+            PolyWord y = *sp;
+            *sp = TAGGED(UNTAGGED(y) % u);
+            break;
+        }
+
         case INSTR_wordAdd:
         {
             PolyWord u = *sp++;
@@ -1584,6 +1602,29 @@ int IntTaskData::SwitchToPoly()
             PolyWord u = *sp++;
             *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) * UNTAGGED_UNSIGNED(u));
             break;
+        }
+
+        case INSTR_wordDiv:
+        {
+            POLYUNSIGNED u = UNTAGGED_UNSIGNED(*sp++);
+            // Detection of zero is done in ML
+            *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) / u); break;
+        }
+
+        case INSTR_wordMod:
+        {
+            POLYUNSIGNED u = UNTAGGED_UNSIGNED(*sp++);
+            *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) % u);
+            break;
+        }
+
+        case INSTR_setStringLength:
+        {
+            /* Store the length word of a string. */
+            POLYUNSIGNED len = UNTAGGED(*sp++);
+            ((PolyStringObject*)(*sp).AsObjPtr())->length = len;
+            *sp = Zero;
+            break; 
         }
 
         case INSTR_getThreadId:

@@ -459,7 +459,10 @@ struct
                 raise InternalError "codeGenICode: TODO PushValue"
 
         |   codeGenICode(ResetStackPtr {numWords} :: rest, code) =
+            (
+                numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
                 codeGenICode(rest, ResetStack numWords :: code)
+            )
 
         |   codeGenICode(TagValue _ :: _, _) =
                 raise InternalError "codeGenICode: TODO TagValue"

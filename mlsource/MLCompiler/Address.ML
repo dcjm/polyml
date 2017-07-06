@@ -262,9 +262,6 @@ struct
             (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
             (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final"),
-            (POLY_SYS_or_word,"POLY_SYS_or_word"),
-            (POLY_SYS_and_word,"POLY_SYS_and_word"),
-            (POLY_SYS_xor_word,"POLY_SYS_xor_word"),
             (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word")
             ]
 

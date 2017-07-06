@@ -643,6 +643,8 @@ struct
                 enterBinary(name, WordComparison{test=test, isSigned=false}, compareType)
             and enterBinaryOp(name, oper) =
                 enterBinary(name, WordArith oper, binaryType)
+            and enterBinaryLogical(name, oper) =
+                enterBinary(name, WordLogical oper, binaryType)
         in
             val () = #enterType wordStructEnv ("word", TypeConstrSet(wordConstr, []))
             val () = enterComparison("<",   TestLess)
@@ -654,6 +656,9 @@ struct
             val () = enterBinaryOp("*",     ArithMult)
             val () = enterBinaryOp("div",   ArithQuot) (* Word.div and Word.mod are Quot and Rem. *)
             val () = enterBinaryOp("mod",   ArithRem)
+            val () = enterBinaryLogical("orb",  LogicalOr)
+            val () = enterBinaryLogical("andb", LogicalAnd)
+            val () = enterBinaryLogical("xorb", LogicalXor)
         end
 
         local

@@ -142,6 +142,8 @@ struct
                     |   LoadByte {isImmutable = true } => applicative
                     |   LoadByte {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   SetStringLengthWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
+                    |   WordLogical _ => applicative
+                    |   WordShift _ => applicative
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

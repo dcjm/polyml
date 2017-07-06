@@ -527,15 +527,19 @@ struct
                 |   FixedPrecisionArith ArithAdd => genOpcode(opcode_fixedAdd, cvec)
                 |   FixedPrecisionArith ArithSub => genOpcode(opcode_fixedSub, cvec)
                 |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)
-                |   FixedPrecisionArith _ => raise InternalError "TODO: FixedPrecisionArith"
+                |   FixedPrecisionArith ArithQuot => genOpcode(opcode_fixedQuot, cvec)
+                |   FixedPrecisionArith ArithRem => genOpcode(opcode_fixedRem, cvec)
 
                 |   WordArith ArithAdd => genOpcode(opcode_wordAdd, cvec)
                 |   WordArith ArithSub => genOpcode(opcode_wordSub, cvec)
                 |   WordArith ArithMult => genOpcode(opcode_wordMult, cvec)
-                |   WordArith _ => raise InternalError "TODO: WordArith"
+                |   WordArith ArithQuot => genOpcode(opcode_wordDiv, cvec)
+                |   WordArith ArithRem => genOpcode(opcode_wordMod, cvec)
                 
                 |   LoadWord _ => raise InternalError "LoadWord"
                 |   LoadByte _ => raise InternalError "LoadWord"
+                
+                |   SetStringLengthWord => genOpcode(opcode_setStringLength, cvec)
                 ;
                 decsp() (* Removes one item from the stack. *)
             end

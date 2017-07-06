@@ -164,11 +164,15 @@ struct
             and oldSp = stackPtr oldState
             val newState = addRaxToState(oldState, target)
             val code =
-                if currentSp = oldSp then [] else [ResetStackPtr{numWords=currentSp - oldSp}]
+                if currentSp = oldSp then [] else [resetStackPtr(currentSp - oldSp)]
         in
             (* Currently ResetStackPtr uses arithmetic operations that affect the condition codes. *)
             (clearCC newState, code)
         end
+        
+        and resetStackPtr numWords =
+            if numWords < 0 then raise InternalError "resetStackPtr"
+            else ResetStackPtr{numWords=numWords}
 
         (* Process the code until the end.  The code list is built up in reverse order. *)
         (* If we reach the end we haven't exited or reached a JumpLoop so we just return the
@@ -247,7 +251,7 @@ struct
                                 let
                                     val currentSp = stackPtr cstate and finalSp = stackPtr composite
                                 in
-                                    (composite, if currentSp = finalSp then [] else [ResetStackPtr{numWords=currentSp-finalSp}])
+                                    (composite, if currentSp = finalSp then [] else [resetStackPtr(currentSp-finalSp)])
                                 end
                             |   SOME resReg => resetStack(cstate, composite, argToPReg resReg)
                     in
@@ -835,7 +839,22 @@ struct
 
                 (* Move the stack arguments into the space occupied by this function's args. *)
                 val numArgsToMove = List.length stackArgs
-                val argOffset = currentSp + currentStackArgs - numArgsToMove
+                (* There's a bit of a nasty here.  If we have several constant arguments that we
+                   haven't pushed to the stack we could find that argOffset is negative.  To avoid
+                   that we push some zeros to line everything up. *)
+                val (argOffset, extraPushes, currentState) =
+                    if currentSp + currentStackArgs >= numArgsToMove
+                    then (currentSp + currentStackArgs - numArgsToMove, [], pushedState)
+                    else
+                    let
+                        val needExtras = numArgsToMove - (currentSp + currentStackArgs)
+                        val extras = List.tabulate(needExtras, fn _ => PushValue { arg=IntegerConstant 0 })
+                        and afterPush =
+                            {valueStack= {loc=OnStack(currentSp+needExtras-1), preg=0} :: # valueStack pushedState, ccState=CCIndeterminate, untaggedRegs=[]}
+                    in
+                        (0, extras, afterPush)
+                    end
+
                 fun copyArgs (_, nil) = []
                 |   copyArgs (n, r :: rl) =
                     let
@@ -858,7 +877,7 @@ struct
                                           MoveArgument{source=c, dest=rsiAsArg, kind=WordToWord}]
                                     else [MoveArgument{source=c, dest=dest, kind=WordToWord}]
                            |    r => MoveArgument{source=rsiAsArg, dest=dest, kind=WordToWord} ::
-                                        loadSource(r, esi, pushedState)
+                                        loadSource(r, esi, currentState)
                     in
                         copyArgs(n-1, rl) @ copy
                     end
@@ -867,7 +886,7 @@ struct
                 val storeReturn = storeMemory(edi, esp, argOffset*wordSize)
                 val functionCode =
                         FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
-                                      ResetStackPtr {numWords=argOffset} :: (storeReturn @ moveArgs @ loadReturn @ doLoad @ pushCode @ code)
+                                      resetStackPtr argOffset :: (storeReturn @ moveArgs @ extraPushes @ loadReturn @ doLoad @ pushCode @ code)
             in
                 codeICode{icode=rest, state=Exited, code=functionCode, context=context}
             end
@@ -912,7 +931,7 @@ struct
                 end
                 val storeAll = List.foldl(fn (arg, l) => l @ moveArg arg) [] arguments
                 val instrs =
-                    JumpLoop{arguments=[], loopLabel=loopLabel} :: ResetStackPtr{numWords=stackPtr state - stackPtr startState} :: storeAll
+                    JumpLoop{arguments=[], loopLabel=loopLabel} :: resetStackPtr(stackPtr state - stackPtr startState) :: storeAll
             in
                 codeICode{icode=rest, state=Exited, code=instrs @ code, context=context}
             end

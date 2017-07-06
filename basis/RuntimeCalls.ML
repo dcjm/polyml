@@ -105,9 +105,6 @@ struct
   val POLY_SYS_is_big_endian       = 213  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_shift_right_word    = 216
   val POLY_SYS_touch_final         = 228
-  val POLY_SYS_or_word             = 242
-  val POLY_SYS_and_word            = 243
-  val POLY_SYS_xor_word            = 244
   val POLY_SYS_shift_left_word     = 245
 
   (* val POLY_SYS_vecsize = 256 *)
