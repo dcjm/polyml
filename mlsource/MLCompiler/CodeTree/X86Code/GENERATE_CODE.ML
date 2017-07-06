@@ -781,6 +781,16 @@ struct
     |   chooseMergeRegister(whereto, _) = whereto
 
     fun codeToCgType GeneralType = ArgGeneral | codeToCgType FloatingPtType = ArgFP
+
+    fun getPower2 n =
+    let
+        fun p2 (n, l) =
+            if n = 0w1 then SOME l
+            else if Word.andb(n, 0w1) = 0w1 then NONE
+            else p2(Word.>>(n, 0w1), l+0w1)
+    in
+        if n = 0w0 then NONE else p2(n,0w0)
+    end
     
     fun createProfileObject _ (*functionName*) =
     let
@@ -1112,7 +1122,8 @@ struct
         |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2} =>
                 cgAndRes(subtractFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith-ArithMult"
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2} =>
+                cgAndRes(multiplyFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
         |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO: OGCBuiltIn2-FixedPrecisionArith-ArithQuot"
 
@@ -1124,7 +1135,20 @@ struct
         |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2} =>
                 cgAndRes(subtractWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithMult, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith-ArithMult"
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2} =>
+            let
+                open Address
+                (* If the value is a power of two we use a shift *)
+                val useShift =
+                    case (arg1, arg2) of
+                        (OGCConstnt(lit, _), _) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg2) | NONE => NONE)
+                    |   (_, OGCConstnt(lit, _)) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg1) | NONE => NONE)
+                    |   _ => NONE
+            in
+                case useShift of
+                    SOME(shift, arg) => cgAndRes(upShiftWordConstant(genToStack arg, shift, transtable, whereto))
+                |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
+            end
 
         |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO: OGCBuiltIn2-WordArith-ArithQuot"
 
@@ -2936,9 +2960,6 @@ struct
                         |   [arg1, arg2] => (* Binary *)
                             if wordEq (oper,ioOp POLY_SYS_set_string_length)
                             then cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_fixed_mul)
-                            then cgAndRes(multiplyFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 (*
                             else if wordEq (oper,ioOp POLY_SYS_fixed_quot)
                             then cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -2981,22 +3002,6 @@ struct
                                         cgAndRes(downShiftWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
                                 |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
                             )
-
-                            else if wordEq (oper,ioOp POLY_SYS_mul_word)
-                            then
-                            let
-                                open Address
-                                (* If the value is a power of two we use a shift *)
-                                val useShift =
-                                    case (arg1, arg2) of
-                                        (OGCConstnt(lit, _), _) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg2) | NONE => NONE)
-                                    |   (_, OGCConstnt(lit, _)) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg1) | NONE => NONE)
-                                    |   _ => NONE
-                            in
-                                case useShift of
-                                    SOME(shift, arg) => cgAndRes(upShiftWordConstant(genToStack arg, shift, transtable, whereto))
-                                |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
-                            end
 
                             else if wordEq (oper,ioOp POLY_SYS_div_word)
                             then
