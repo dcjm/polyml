@@ -198,9 +198,6 @@ struct
             (POLY_SYS_leq_longword,"POLY_SYS_leq_longword"),
             (POLY_SYS_gt_longword,"POLY_SYS_gt_longword"),
             (POLY_SYS_lt_longword,"POLY_SYS_lt_longword"),
-            (POLY_SYS_atomic_reset,"POLY_SYS_atomic_reset"),
-            (POLY_SYS_atomic_incr,"POLY_SYS_atomic_incr"),
-            (POLY_SYS_atomic_decr,"POLY_SYS_atomic_decr"),
             (POLY_SYS_plus_longword,"POLY_SYS_plus_longword"),
             (POLY_SYS_minus_longword,"POLY_SYS_minus_longword"),
             (POLY_SYS_mul_longword,"POLY_SYS_mul_longword"),
@@ -256,13 +253,10 @@ struct
             (POLY_SYS_cmem_store_double, "POLY_SYS_cmem_store_double"),
             (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
             (POLY_SYS_move_words,"POLY_SYS_move_words"),
-            (POLY_SYS_shift_right_arith_word,"POLY_SYS_shift_right_arith_word"),
             (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
             (POLY_SYS_stderr,"POLY_SYS_stderr"),
             (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
-            (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
-            (POLY_SYS_touch_final, "POLY_SYS_touch_final"),
-            (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word")
+            (POLY_SYS_touch_final, "POLY_SYS_touch_final")
             ]
 
         val rtsNames =

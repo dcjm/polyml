@@ -536,6 +536,14 @@ struct
                 |   WordArith ArithQuot => genOpcode(opcode_wordDiv, cvec)
                 |   WordArith ArithRem => genOpcode(opcode_wordMod, cvec)
                 
+                |   WordLogical LogicalAnd => genOpcode(opcode_wordAnd, cvec)
+                |   WordLogical LogicalOr => genOpcode(opcode_wordOr, cvec)
+                |   WordLogical LogicalXor => genOpcode(opcode_wordXor, cvec)
+
+                |   WordShift ShiftLeft => genOpcode(opcode_wordShiftLeft, cvec)
+                |   WordShift ShiftRightLogical => genOpcode(opcode_wordShiftRLog, cvec)
+                |   WordShift ShiftRightArithmetic => genOpcode(opcode_wordShiftRArith, cvec)
+                
                 |   LoadWord _ => raise InternalError "LoadWord"
                 |   LoadByte _ => raise InternalError "LoadWord"
                 

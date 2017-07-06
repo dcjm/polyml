@@ -54,6 +54,9 @@ sig
     |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
     |   ClearMutableFlag (* Remove the mutable flag from the flags byte *)
     |   StringLengthWord (* Load the length word from a string.  N.B. Doesn't check for single char strings. *)
+    |   AtomicIncrement
+    |   AtomicDecrement
+    |   AtomicReset (* Set a value to (tagged) zero atomically. *)
 
     and builtIn2Ops =
         (* Compare two words and return the result.  This is used for both

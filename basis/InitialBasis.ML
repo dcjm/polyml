@@ -30,9 +30,7 @@ val not = Bool.not;
 (* Types and values from the initial FixedInt structure.  *)
 structure FixedInt =
 struct
-    open FixedInt
-
-    (*val op * : int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_mul*)
+    open FixedInt (* Inherit built-in functions. *)
     
     fun ~ (x: int): int = 0 - x
     
@@ -43,8 +41,6 @@ struct
     local
         val q: FixedInt.int * FixedInt.int -> FixedInt.int = quot
         val r: FixedInt.int * FixedInt.int -> FixedInt.int = rem
-(*        val q: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_quot
-        val r: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_rem*)
     in
         fun op div(_, 0) = raise RunCall.Div | op div(x,y) = q(x, y)
         fun op mod(_, 0) = raise RunCall.Div | op mod(x,y) = r(x,y)
@@ -157,6 +153,7 @@ and () = RunCall.addOverload LargeInt.mod  "mod";
 structure Word =
 struct
     open Word
+    infix 8 << >> ~>> (* The shift operations are not infixed in the global basis. *)
 
     fun ~ x = 0w0 - x
 
@@ -164,9 +161,21 @@ struct
     fun op div(_, 0w0) = raise RunCall.Div | op div(x, y) = Word.div(x, y)
     fun op mod(_, 0w0) = raise RunCall.Div | op mod(x, y) = Word.mod(x, y)
 
-    val op >> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_word
+(*    val op >> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_word
     and op << : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_left_word
-    and op ~>> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_arith_word
+    and op ~>> : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_shift_right_arith_word*)
+
+    local
+        val maxBits = RunCall.bytesPerWord * 0w8 - 0w1
+    in
+        (* The X86 masks the shift value but ML defines a shift greater than the
+           word length as returning zero except that a negative number with an
+           arithmetic shift returns ~1.  The tests will all be optimised away
+           if the shift is a constant. *)
+        val op << = fn (a, b) => if b >= maxBits then 0w0 else a << b
+        val op >> = fn (a, b) => if b >= maxBits then 0w0 else a >> b
+        val op ~>> = fn (a, b) => a ~>> (if b > maxBits then maxBits else b)
+    end
 
     val toLargeWord: word->LargeWord.word = RunCall.run_call1 RuntimeCalls.POLY_SYS_unsigned_to_longword
     and toLargeWordX: word->LargeWord.word = RunCall.run_call1 RuntimeCalls.POLY_SYS_signed_to_longword

@@ -461,7 +461,10 @@ struct
         |   x rem y = frem (x, y)
         
         (* TODO: We should implement div and mod as built-ins because then they
-           can access the remainder and quotient directly *)
+           can access the remainder and quotient directly.
+           Also, division by a power of two can be implemented as an
+           arithmetic shift because this rounds towards negative infinity
+           which is what we want. *)
         
         (* mod adjusts the result of rem to give the correcly signed result. *)
         fun _ mod 0 = raise Div

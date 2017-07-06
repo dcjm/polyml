@@ -174,6 +174,24 @@ struct
             if numWords < 0 then raise InternalError "resetStackPtr"
             else ResetStackPtr{numWords=numWords}
 
+        (* Find a real register for an untagged pseudo-register value. *)
+        fun getUreg(iReg, {untaggedRegs, ...}: normalState) =
+            case List.find (fn {ureg, ...} => ureg = iReg) untaggedRegs of
+                SOME {reg as GenReg _, ...} => RealRegister reg
+            |   _ => raise InternalError "getUreg"
+
+        (* Get a new untagged register.  We only handle two at the moment. *)
+        fun newUreg (iReg, {valueStack, untaggedRegs, ccState}: normalState) =
+        let
+            val newReg =
+                case untaggedRegs of
+                    [] => edx
+                |   [_] => ecx
+                |   _ => raise InternalError "newUreg"
+        in
+            ({valueStack=valueStack, ccState=ccState, untaggedRegs={ureg=iReg, reg=GenReg newReg}::untaggedRegs}, RealRegister(GenReg newReg))
+        end
+
         (* Process the code until the end.  The code list is built up in reverse order. *)
         (* If we reach the end we haven't exited or reached a JumpLoop so we just return the
            final state. *)
@@ -501,6 +519,17 @@ struct
                     context=context}
             end
 
+            (* Move a short constant to an untagged reg. *)
+        |   codeICode{icode=MoveArgument{source as IntegerConstant _, dest=PReg(destReg, PRegUntagged), kind} :: rest, state=NormalState state, code, context} =
+            let
+                val (resultState, resReg) = newUreg(destReg, state)
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code=MoveArgument{source=source, dest=resReg, kind=kind} :: code,
+                    context=context}
+            end
+
             (* Load a value from a piece of memory, typically the offset in a tuple. *)
         |   codeICode{
                 icode=MoveArgument{ source=MemoryLocation{offset, base as PReg(_, PRegGeneral), index=NoMemIndex}, dest=PReg(destReg, dType), kind} :: rest,
@@ -513,9 +542,7 @@ struct
                 val (resultState, resultReg) =
                     case dType of
                         PRegGeneral => (addRaxToState(pushedState, destReg), raxAsArg)
-                    |   PRegUntagged =>
-                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
-                                untaggedRegs =[{ureg=destReg, reg=GenReg ecx}]}, rcxAsArg)
+                    |   PRegUntagged => newUreg(destReg, pushedState)
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=resultReg, kind=kind} :: 
@@ -1028,8 +1055,8 @@ struct
                 val {valueStack, untaggedRegs, ...} = pushedState
                 val spareReg =
                     case untaggedRegs of
-                        [] => ecx
-                    |   [_] => edx
+                        [] => edx
+                    |   [_] => ecx
                     |   _ => raise InternalError "codeICode: ArithmeticFunction"
                 val resReg = RealRegister(GenReg spareReg)
                 val loadCode = loadSource(operand1, spareReg, pushedState)
@@ -1112,21 +1139,14 @@ struct
             let
                 val dReg = argToUReg dest
                 val (pushedState, pushCode) = pushRax state (* Simplifies things *)
-                (* Find a spare untagged register. *)
-                val {valueStack, untaggedRegs, ...} = pushedState
-                val spareReg =
-                    case untaggedRegs of
-                        [] => ecx
-                    |   [_] => edx
-                    |   _ => raise InternalError "codeICode: UntagValue"
-                val resReg = RealRegister(GenReg spareReg)
-                val loadCode = loadSource(source, spareReg, pushedState)
-                val resultState =
-                    {valueStack= valueStack, ccState= CCIndeterminate, untaggedRegs ={ureg=dReg, reg=GenReg spareReg} :: untaggedRegs}
+                val (resultState, regAsArg) = newUreg(dReg, pushedState)
+                val resReg = case regAsArg of RealRegister(GenReg r) => r | _ => raise Match
+                val loadCode = loadSource(source, resReg, pushedState)
+                val resultState = clearCC resultState
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code=
-                        ShiftOperation{shift=if isSigned then SAR else SHR, resultReg=resReg, operand=resReg,
+                        ShiftOperation{shift=if isSigned then SAR else SHR, resultReg=regAsArg, operand=regAsArg,
                             shiftAmount=IntegerConstant 1, ccRef=CcRef 0 } ::
                         loadCode @ pushCode @ code,
                     context=context}
@@ -1160,6 +1180,28 @@ struct
                 codeICode{icode=rest, state=NormalState checkState,
                     code=ShiftOperation { shift=shift, resultReg=raxAsArg, operand=raxAsArg, shiftAmount=shiftAmount, ccRef=ccRef } :: code,
                     context=context}
+            end
+
+        |   codeICode{icode=ShiftOperation {shift, resultReg, operand=PReg(operReg, PRegUntagged), shiftAmount=PReg(shiftReg, PRegUntagged), ccRef } :: rest,
+                      state=NormalState ({untaggedRegs, valueStack, ...}), code, context} =
+            let
+                (* Shift by a variable.  This should be in rcx which is where we want it. *)
+                val resReg = argToUReg resultReg
+                val realOperReg =
+                    case List.find (fn {ureg, ...} => ureg = operReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: ShiftOperation"
+                val realShiftReg =
+                    case List.find (fn {ureg, ...} => ureg = shiftReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: ShiftOperation"
+                val _ = realShiftReg = GenReg ecx orelse raise InternalError "ShiftOperation: not ecx"
+                val resultState =
+                    {valueStack=valueStack, ccState=CCState(ccRef, fn i=>i), untaggedRegs =[{ureg=resReg, reg=realOperReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=ShiftOperation{ shift=shift, resultReg=RealRegister realOperReg, operand=RealRegister realOperReg,
+                                         shiftAmount=RealRegister realShiftReg, ccRef=ccRef} :: code, context=context}
             end
 
         |   codeICode{icode=ShiftOperation _ :: _, ...} =
@@ -1205,16 +1247,27 @@ struct
                 val resultState =
                     {valueStack=valueStack, ccState=CCIndeterminate,
                         untaggedRegs =[{ureg=argToUReg quotient, reg=GenReg eax}, {ureg=argToUReg remainder, reg=GenReg edx}]}
-                (* The untagging code puts the first value into ecx and the second into edx.  We
-                   have to move them. *)
-                val _ = realDividend = GenReg ecx orelse raise InternalError "codeICode: dividend"
-                val _ = realDivisor = GenReg edx orelse raise InternalError "codeICode: divisor"
+                (* The untagging code puts the first value into edx and the second into ecx.  We
+                   have to move the dividend into edx. *)
+                val _ = realDividend = GenReg edx orelse raise InternalError "codeICode: dividend"
+                val _ = realDivisor = GenReg ecx orelse raise InternalError "codeICode: divisor"
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code=
                         Division{ isSigned=isSigned, dividend=raxAsArg, divisor=rcxAsArg, quotient=raxAsArg, remainder=rdxAsArg} ::
-                        MoveArgument { source=RealRegister realDivisor, dest=rcxAsArg, kind=WordToWord } ::
                         MoveArgument { source=RealRegister realDividend, dest=raxAsArg, kind=WordToWord } :: pushCode @ code, context=context}
+            end
+
+        |   codeICode{icode=AtomicExchangeAndAdd{ destAddr, source } :: rest,
+                      state=NormalState state, code, context} =
+            let
+                (* Load the "destination" address into rax. *)
+                val load = loadSource(destAddr, eax, state)
+                (* The "source" is an untagged register. *)
+                val srcReg = getUreg(argToUReg source, state)
+            in
+                codeICode{icode=rest, state=NormalState state,
+                    code=AtomicExchangeAndAdd{destAddr=raxAsArg, source=srcReg} :: load @ code, context=context}
             end
 
             (* These should not occur here.  They are only added during this phase. *)

@@ -187,6 +187,13 @@ sig
     |   Division of { isSigned: bool, dividend: argument, divisor: argument,
                       quotient: argument, remainder: argument }
 
+        (* Atomic exchange and addition.   This is executed with a lock prefix and is used
+           for atomic increment and decrement for mutexes.
+           Before the operation the source contains an increment.  After the operation
+           the source contains the old value of the destination and the destination
+           has been updated with its old value added to the increment. *)
+    |   AtomicExchangeAndAdd of { destAddr: argument, source: argument }
+
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 

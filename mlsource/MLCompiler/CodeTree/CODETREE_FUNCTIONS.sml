@@ -122,6 +122,9 @@ struct
                     |   MemoryCellFlags => applicative
                     |   ClearMutableFlag => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
                     |   StringLengthWord => applicative
+                    |   AtomicIncrement => PROPWORD_NORAISE
+                    |   AtomicDecrement => PROPWORD_NORAISE
+                    |   AtomicReset => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1
             end

@@ -429,9 +429,11 @@ struct
     struct
         type mutex = Word.word ref
         fun mutex() = nvref 0w1; (* Initially unlocked. *)
-        val atomicIncr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_incr
+        open Thread  (* atomicIncr, atomicDecr and atomicReset are set up by Initialise. *)
+
+(*        val atomicIncr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_incr
         and atomicDecr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_decr
-        and atomicReset: Word.word ref -> unit     = RunCall.run_call1 POLY_SYS_atomic_reset
+        and atomicReset: Word.word ref -> unit     = RunCall.run_call1 POLY_SYS_atomic_reset*)
 
         val doCall: int * mutex -> unit = Compat560.threadGeneral
 

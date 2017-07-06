@@ -44,15 +44,12 @@ struct
     val maxWord = 255
     val maxWordAsWord: word = RunCall.unsafeCast maxWord
     
-    infix 8 << >> ~>> ;
+    infix 8 << >> ~>>
 
     (* Comparison operations, min, max and compare, fmt, toString,
        orb, andb, xorb can be inherited directly from Word.
        Similarly div and mod since the results will always be no
        larger than the arguments. *)
-    (* ... but this can't because the second argument is still Word.word
-       even in this structure. *)
-    val op >> : word*Word.word->word = RunCall.run_call2 POLY_SYS_shift_right_word
 
     (* Not the same as Word.notb because it only affects the bottom 8 bits.  *)
     fun notb x = xorb(maxWordAsWord, x)
@@ -83,12 +80,7 @@ struct
     
     (* TODO: Replace with built-in?  We need to mask the result so
        that it remains in the range 0..255 *)
-    local
-        val wordshift = RunCall.run_call2 POLY_SYS_shift_left_word
-    in
-        fun op << (a: word, b: Word.word): word =
-            andb(wordshift(a,b), maxWordAsWord)
-    end
+    fun op << (a: word, b: Word.word): word = andb(Word.<<(a,b), maxWordAsWord)
 
     (* Conversion to unsigned integer.  This is simpler than for Word
        because all Word8 values correspond to short integers. *)

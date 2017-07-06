@@ -174,6 +174,13 @@ struct
     |   Division of { isSigned: bool, dividend: argument, divisor: argument,
                       quotient: argument, remainder: argument }
 
+        (* Atomic exchange and addition.   This is executed with a lock prefix and is used
+           for atomic increment and decrement for mutexes.
+           Before the operation the source contains an increment.  After the operation
+           the source contains the old value of the destination and the destination
+           has been updated with its old value added to the increment. *)
+    |   AtomicExchangeAndAdd of { destAddr: argument, source: argument }
+
     
     exception InternalError = Misc.InternalError
 
@@ -479,17 +486,24 @@ struct
             end
 
         |   codeGenICode(
-                ShiftOperation{
-                    shift, resultReg=RealRegister(GenReg resReg), operand=RealRegister(GenReg opReg),
-                    shiftAmount=IntegerConstant shiftValue, ...} :: rest, code) =
+                ShiftOperation{ shift, resultReg, operand, shiftAmount=IntegerConstant shiftValue, ...} :: rest, code) =
             let
-                val _ = resReg = opReg orelse raise InternalError "codeGenICode: ArithmeticFunction"
+                val resReg = asGenReg resultReg and opReg = asGenReg operand
+                val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
             in
                 codeGenICode(rest, ShiftConstant{ shiftType=shift, output=resReg, shift=Word8.fromLargeInt shiftValue } :: code)
             end
 
-        |   codeGenICode(ShiftOperation _ :: _, _) =
-                raise InternalError "codeGenICode: TODO ShiftOperation"
+        |   codeGenICode(ShiftOperation { shift, resultReg, operand, shiftAmount, ...} :: rest, code) =
+            let
+                val resReg = asGenReg resultReg and opReg = asGenReg operand
+                val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
+                (* The amount to shift must be in ecx.  The shift is masked to 5 or 6 bits so we have to
+                   check for larger shift values at a higher level. *)
+                val _ = asGenReg shiftAmount = ecx orelse raise InternalError "codeGenICode: ShiftOperation"
+            in
+                codeGenICode(rest, ShiftVariable{ shiftType=shift, output=resReg } :: code)
+            end
 
         |   codeGenICode(Multiplication { resultReg, operand1, operand2, ... } :: rest, code) =
             let
@@ -514,6 +528,13 @@ struct
                     else ArithRR{ opc=XOR, output=edx, source=edx }
             in
                 codeGenICode(rest, Group3Ops (divisorReg, if isSigned then IDIV else DIV) :: setRDX :: code)
+            end
+
+        |   codeGenICode(AtomicExchangeAndAdd{ destAddr, source } :: rest, code) =
+            let
+                val baseReg = asGenReg destAddr and outReg = asGenReg source
+            in
+                codeGenICode(rest, AtomicXAdd{base=baseReg, output=outReg} :: code)
             end
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)
