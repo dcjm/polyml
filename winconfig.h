@@ -4,6 +4,9 @@
 #ifndef CONF_H_INCLUDED
 #define CONF_H_INCLUDED
 
+/* Define if building universal (internal helper macro) */
+#undef AC_APPLE_UNIVERSAL_BUILD
+
 /* Define to 1 if the `closedir' function returns void instead of `int'. */
 #undef CLOSEDIR_VOID
 
@@ -40,6 +43,9 @@
 /* Define to 1 if your system has a working `chown' function. */
 #undef HAVE_CHOWN
 
+/* Define to 1 if you have the `ctermid' function. */
+#undef HAVE_CTERMID
+
 /* Define to 1 if you have the <ctype.h> header file. */
 #undef HAVE_CTYPE_H
 #define HAVE_CTYPE_H 1
@@ -71,6 +77,9 @@
 /* Define to 1 if you have the `dup2' function. */
 #undef HAVE_DUP2
 #define HAVE_DUP2 1
+
+/* Define to 1 if you have <elf_abi.h> and <machine/reloc.h> header files. */
+#undef HAVE_ELF_ABI_H
 
 /* Define to 1 if you have the <elf.h> header file. */
 #undef HAVE_ELF_H
@@ -161,12 +170,6 @@
 #undef HAVE_IO_H
 #define HAVE_IO_H 1
 
-/* Define to 1 if you have the `dl' library (-ldl). */
-#undef HAVE_LIBDL
-
-/* Define to 1 if you have libffi */
-#undef HAVE_LIBFFI
-
 /* Define to 1 if you have the `gcc' library (-lgcc). */
 #undef HAVE_LIBGCC
 
@@ -180,27 +183,15 @@
 /* Define to 1 if you have libgmp */
 #undef HAVE_LIBGMP
 
-/* Define to 1 if you have the `m' library (-lm). */
-#undef HAVE_LIBM
-
-/* Define to 1 if you have the `nsl' library (-lnsl). */
-#undef HAVE_LIBNSL
-
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #undef HAVE_LIBPTHREAD
-
-/* Define to 1 if you have the `rt' library (-lrt). */
-#undef HAVE_LIBRT
-
-/* Define to 1 if you have the `socket' library (-lsocket). */
-#undef HAVE_LIBSOCKET
 
 /* Define to 1 if you have the `stdc++' library (-lstdc++). */
 #undef HAVE_LIBSTDC__
 
-/* Define to 1 if you have the `wsock32' library (-lwsock32). */
-#undef HAVE_LIBWSOCK32
-#define HAVE_LIBWSOCK32 1
+/* Define to 1 if you have the `ws2_32' library (-lws2_32). */
+#undef HAVE_LIBWS2_32
+#define HAVE_LIBWS2_32 1
 
 /* Define to 1 if you have the `X11' library (-lX11). */
 #undef HAVE_LIBX11
@@ -231,6 +222,9 @@
 /* Define to 1 if `lstat' has the bug that it succeeds when given the
    zero-length file name argument. */
 #undef HAVE_LSTAT_EMPTY_STRING_BUG
+
+/* Define to 1 if you have the <machine/reloc.h> header file. */
+#undef HAVE_MACHINE_RELOC_H
 
 /* Define to 1 if you have the <mach-o/reloc.h> header file. */
 #undef HAVE_MACH_O_RELOC_H
@@ -364,6 +358,9 @@
 #undef HAVE_SQRT
 #define HAVE_SQRT 1
 
+/* Define to 1 if the system has the type `ssize_t'. */
+#undef HAVE_SSIZE_T
+
 /* Define to 1 if the system has the type `stack_t'. */
 #undef HAVE_STACK_T
 
@@ -425,6 +422,21 @@
 /* Define to 1 if `sun_len' is a member of `struct sockaddr_un'. */
 #undef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
 
+/* Define to 1 if `st_atim' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_ATIM
+
+/* Define to 1 if `st_atimensec' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_ATIMENSEC
+
+/* Define to 1 if `st_atimespec' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_ATIMESPEC
+
+/* Define to 1 if `st_atime_n' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_ATIME_N
+
+/* Define to 1 if `st_uatime' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_UATIME
+
 /* Define to 1 if `ss' is a member of `struct __darwin_mcontext32'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT32_SS
 
@@ -460,6 +472,9 @@
 
 /* Define to 1 if you have the <sys/elf_386.h> header file. */
 #undef HAVE_SYS_ELF_386_H
+
+/* Define to 1 if you have the <sys/elf_amd64.h> header file. */
+#undef HAVE_SYS_ELF_AMD64_H
 
 /* Define to 1 if you have the <sys/elf_SPARC.h> header file. */
 #undef HAVE_SYS_ELF_SPARC_H
@@ -535,6 +550,9 @@
 
 /* Define to 1 if you have <sys/wait.h> that is POSIX.1 compatible. */
 #undef HAVE_SYS_WAIT_H
+
+/* Define to 1 if you have the `tcdrain' function. */
+#undef HAVE_TCDRAIN
 
 /* Define to 1 if you have the <tchar.h> header file. */
 #undef HAVE_TCHAR_H
@@ -626,6 +644,9 @@
 /* Define if the host is an X86 (64-bit) */
 /*#undef HOSTARCHITECTURE_X86_64*/
 
+/* Define if using the interpreter */
+/*#undef INTERPRETED*/
+
 /* Define to 1 if `lstat' dereferences a symlink specified with a trailing
    slash. */
 #undef LSTAT_FOLLOWS_SLASHED_SYMLINK
@@ -687,15 +708,16 @@
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
    automatically deduced at runtime.
-    STACK_DIRECTION > 0 => grows toward higher addresses
-    STACK_DIRECTION < 0 => grows toward lower addresses
-    STACK_DIRECTION = 0 => direction of growth unknown */
+	STACK_DIRECTION > 0 => grows toward higher addresses
+	STACK_DIRECTION < 0 => grows toward lower addresses
+	STACK_DIRECTION = 0 => direction of growth unknown */
 #undef STACK_DIRECTION
 
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
 
 /* Defined if external symbols are prefixed by underscores */
+#undef SYMBOLS_REQUIRE_UNDERSCORE
 #ifdef _WIN64
 #   undef SYMBOLS_REQUIRE_UNDERSCORE
 #else
@@ -714,12 +736,57 @@
 /* Define if the X-Windows interface should be built */
 #undef WITH_XWINDOWS
 
+/* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
+   significant byte first (like Motorola and SPARC, unlike Intel). */
+#if defined AC_APPLE_UNIVERSAL_BUILD
+# if defined __BIG_ENDIAN__
+#  define WORDS_BIGENDIAN 1
+# endif
+#else
+# ifndef WORDS_BIGENDIAN
+#  undef WORDS_BIGENDIAN
+# endif
+#endif
+
+/* Enable large inode numbers on Mac OS X 10.5.  */
+#ifndef _DARWIN_USE_64_BIT_INODE
+# define _DARWIN_USE_64_BIT_INODE 1
+#endif
+
+/* Number of bits in a file offset, on hosts where this is settable. */
+#undef _FILE_OFFSET_BITS
+
+/* Define for large files, on AIX-style hosts. */
+#undef _LARGE_FILES
+
+/* Define for Solaris 2.5.1 so the uint32_t typedef from <sys/synch.h>,
+   <pthread.h>, or <semaphore.h> is not used. If the typedef were allowed, the
+   #define below would cause a syntax error. */
+#undef _UINT32_T
+
+/* Define for Solaris 2.5.1 so the uint64_t typedef from <sys/synch.h>,
+   <pthread.h>, or <semaphore.h> is not used. If the typedef were allowed, the
+   #define below would cause a syntax error. */
+#undef _UINT64_T
+
 /* Define to empty if `const' does not conform to ANSI C. */
 #undef const
 
 /* Define to `int' if <sys/types.h> doesn't define. */
 #undef gid_t
 #define gid_t int
+
+/* Define to the type of a signed integer type of width exactly 16 bits if
+   such a type exists and the standard includes do not define it. */
+#undef int16_t
+
+/* Define to the type of a signed integer type of width exactly 32 bits if
+   such a type exists and the standard includes do not define it. */
+#undef int32_t
+
+/* Define to the type of a signed integer type of width exactly 64 bits if
+   such a type exists and the standard includes do not define it. */
+#undef int64_t
 
 /* Define to the type of a signed integer type wide enough to hold a pointer,
    if such a type exists, and if the system does not define it. */
@@ -733,6 +800,7 @@
 #undef off_t
 
 /* Define to `int' if <sys/types.h> does not define. */
+#undef pid_t
 #define pid_t int
 
 /* Define to rpl_realloc if the replacement function should be used. */
@@ -751,7 +819,20 @@ typedef SSIZE_T ssize_t;
 #endif
 
 /* Define to `int' if <sys/types.h> doesn't define. */
+#undef uid_t
 #define uid_t int
+
+/* Define to the type of an unsigned integer type of width exactly 16 bits if
+   such a type exists and the standard includes do not define it. */
+#undef uint16_t
+
+/* Define to the type of an unsigned integer type of width exactly 32 bits if
+   such a type exists and the standard includes do not define it. */
+#undef uint32_t
+
+/* Define to the type of an unsigned integer type of width exactly 64 bits if
+   such a type exists and the standard includes do not define it. */
+#undef uint64_t
 
 /* Define to the type of an unsigned integer type wide enough to hold a
    pointer, if such a type exists, and if the system does not define it. */

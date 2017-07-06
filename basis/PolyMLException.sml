@@ -48,16 +48,28 @@ struct
                         SOME { file=file, startLine=startLine, startPosition=startPosition,
                                endLine=endLine, endPosition=endPosition }
 
-            (* Raise an exception using a given location rather than the value in the packet. *)
-            fun raiseWithLocation(ex: exn, {file, startLine, startPosition, endLine, endPosition}: location) =
-            let
-                open RunCall
-                fun getEntry n = RunCall.loadWordFromImmutable(ex, n)
-                val packet =
-                    (getEntry 0w0, getEntry 0w1, getEntry 0w2,
-                        SomeLocation(file, startLine, startPosition, endLine, endPosition))
+            local
+                (* If we use ML "raise" to raise an exception the location will be the
+                   location of the raise.  If we have a handler that reraises an exception
+                   it is often better to preserve the original location.  We need to add
+                   a function that raises an exception without adding its own location. *)
+                open PolyML.CodeTree
+                val functionCode = mkFunction (mkRaise(mkLoadArgument 0), 1, "raiseFn", [], 0)
+                (* N.B. genCode is redefined in FinalPolyML without the options argument. *)
+                val compiledCode = genCode(functionCode, [], 0) ()
+                val raiseFn = case evalue compiledCode of SOME c => c | NONE => raise Bind
             in
-                run_call1 POLY_SYS_raisex packet
+                (* Raise an exception using a given location rather than the value in the packet. *)
+                fun raiseWithLocation(ex: exn, {file, startLine, startPosition, endLine, endPosition}: location) =
+                let
+                    open RunCall
+                    fun getEntry n = RunCall.loadWordFromImmutable(ex, n)
+                    val packet =
+                        (getEntry 0w0, getEntry 0w1, getEntry 0w2,
+                            SomeLocation(file, startLine, startPosition, endLine, endPosition))
+                in
+                    RunCall.unsafeCast raiseFn packet
+                end
             end
 
             (* Re-raise an exception that has been handled preserving the location. *)

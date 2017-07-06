@@ -30,7 +30,7 @@
 signature WEAK =
 sig
     val weak: 'a ref option -> 'a ref option ref
-    val weakArray: int * 'a ref option -> 'a ref option array
+    (*val weakArray: int * 'a ref option -> 'a ref option array*)
     val weakLock: Thread.Mutex.mutex
     and weakSignal: Thread.ConditionVar.conditionVar
     val touch : 'a ref -> unit
@@ -38,26 +38,18 @@ end;
 
 structure Weak: WEAK =
 struct
-    fun weak (v: 'a ref option): 'a ref option ref =
-    let
-        val System_alloc =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store
-    in
-       System_alloc(0w1, 0wx60, v)
-    end
+    fun weak (v: 'a ref option): 'a ref option ref = RunCall.allocateWordMemory(0w1, 0wx60, v)
     
-    fun weakArray(n: int, v: 'a ref option): 'a ref option array =
+(*    fun weakArray(n: int, v: 'a ref option): 'a ref option array =
     let
         (* An array consists of n+1 words with the first containing
            the length. *)
-        val System_alloc =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store
         val () = if n < 0 orelse n >= Array.maxLen then raise Size else ()
-        val arr = System_alloc(n+1, 0wx60, v)
+        val arr = RunCall.allocateWordMemory(Word.fromInt(n+1), 0wx60, v)
     in
        RunCall.storeWord(arr, 0w0, n);
        arr
-    end
+    end*)
 
     val weakLock = Thread.Mutex.mutex()
     and weakSignal = Thread.ConditionVar.conditionVar()

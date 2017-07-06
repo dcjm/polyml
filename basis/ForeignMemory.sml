@@ -85,7 +85,7 @@ struct
            a saved state but there's a problem if it is contained in a parent state.
            Then loading a child state will clear it because we reload all the parents
            when we load a child. *)
-        val v = RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store(0w1, 0wx69, 0w0)
+        val v = RunCall.allocateWordMemory(0w1, 0wx69, 0w0)
         (* Copy the SysWord into it. *)
         val () = memMove(init, 0w0, RunCall.unsafeCast v, 0w0, wordSize)
     in
@@ -98,7 +98,7 @@ struct
     fun getVolatileRef var =
     let
         (* Allocate a single word marked as mutable, byte. *)
-        val v = RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store(0w1, 0wx41, 0w0)
+        val v = RunCall.allocateByteMemory(0w1, 0wx41)
         val () = memMove(RunCall.unsafeCast var, 0w0, v, 0w0, wordSize)
         val () = RunCall.clearMutableBit v
     in

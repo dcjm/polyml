@@ -439,7 +439,7 @@ struct
                 val code = Newenv([RecDecs bindingsForCode], mkTuple extracts)
                 (* Code-generate, "run" the code and extract the results. *)
                 open Address
-                val closure = alloc(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
+                val closure = allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
                 (* Turn this into a lambda to code-generate. *)
                 val lambda:lambdaForm =
                 {

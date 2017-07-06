@@ -1524,7 +1524,7 @@ SS-relative addressing modes:
            this into a piece of memory which is then byte-copied into the
            constant area. *)
         open Address
-        val mem = alloc(0w1, F_bytes orb8 F_mutable, toMachineWord 0w0)
+        val mem = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(F_bytes orb8 F_mutable)))
 
         fun setMem(m, n) = 
         if n = Word.fromInt wordSize then ()

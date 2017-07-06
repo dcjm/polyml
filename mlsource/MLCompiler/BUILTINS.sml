@@ -76,10 +76,19 @@ sig
     |   SetStringLengthWord (* Untag the second argument and store it at the address in the first. *)
     |   WordLogical of logicalOperations (* Logical operations on words. *)
     |   WordShift of shiftOperations (* Shift operations on words. *)
+         (* Allocate a heap cell for byte data.  The first argument is the number of words (not bytes)
+            needed.  The second argument is the "flags" byte which must include F_bytes and F_mutable.
+            The new cell is not initialised. *)
+    |   AllocateByteMemory
 
     and builtIn3Ops =
         StoreWord
     |   StoreByte
+         (* Allocate a heap cell for word data.  The first argument is the number of words needed.
+            The second argument is the "flags" byte which will nearly always include F_mutable.
+            The third argument is the initialiser.  Each word of the cell is initialised with this.
+            There is no check that the size is valid. *)
+    |   AllocateWordMemory
 
     and builtIn4Ops =
         Built4PlaceHolder

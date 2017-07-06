@@ -137,9 +137,7 @@ struct
                     case oper of
                         WordComparison _ => applicative
                     |   FixedPrecisionArith _ => mayRaise
-                    |   WordArith ArithQuot => mayRaise (* Check this: the higher level ops check for zero. *)
-                    |   WordArith ArithRem => mayRaise
-                    |   WordArith _ => applicative
+                    |   WordArith _ => applicative (* Quot and Rem don't raise exceptions - zero checking is done before. *)
                     |   LoadWord {isImmutable = true } => applicative
                     |   LoadWord {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   LoadByte {isImmutable = true } => applicative
@@ -147,16 +145,20 @@ struct
                     |   SetStringLengthWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
                     |   WordLogical _ => applicative
                     |   WordShift _ => applicative
+                    |   AllocateByteMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                            (* Allocation returns a different value on each call. *)
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end
 
         |   codeProps (BuiltIn3{oper, arg1, arg2, arg3}) =
             let
+                open BuiltIns
                 val operProps =
                     case oper of
-                        BuiltIns.StoreWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
-                    |   BuiltIns.StoreByte => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
+                        StoreWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
+                    |   StoreByte => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
+                    |   AllocateWordMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3
             end
@@ -223,7 +225,7 @@ struct
         |   makeVal (Tuple {fields, ...}) =
             let
                 val tupleSize = List.length fields
-                val vec : address = alloc (Word.fromInt tupleSize, F_mutable_words, word0)
+                val vec : address = allocWordData(Word.fromInt tupleSize, F_mutable_words, word0)
                 val fieldCode = map makeVal fields
       
                 fun copyToVec ([], _) = []

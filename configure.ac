@@ -364,6 +364,8 @@ AC_CHECK_SIZEOF(long)
 AC_CHECK_SIZEOF(int)
 AC_CHECK_SIZEOF(long long)
 
+AC_C_BIGENDIAN
+
 # Checks for library functions.
 AC_FUNC_CHOWN
 AC_FUNC_CLOSEDIR_VOID

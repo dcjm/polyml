@@ -5,8 +5,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,8 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R status: BoolVector and BoolArray done.  TODO: Add sliced versions. *)
 local
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open LibrarySupport
@@ -29,34 +26,31 @@ local
     datatype vector = Vector of int * Bootstrap.byteVector (* This has a byte-wise equality. *)
     and array = Array of int * Bootstrap.byteArray (* This has pointer equality. *)
 
-    val wordSize : word = LibrarySupport.wordSize;
+    val wordSize : word = LibrarySupport.wordSize
 
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
 
-    val bitsPerWord = wordAsInt wordSize * 8
+    val bitsPerWord = wordSize * 0w8
 
-    val maxLen = Array.maxLen * bitsPerWord
+    (* Limit the size to Array.maxLen to avoid arithmetic overflow. *)
+    val maxLen = Array.maxLen
 
     local
-        val F_mutable_bytes : int = 65;
+        val F_mutable_bytes = 0wx41
     in
-        (* All the arrays and vectors are initially created containing zeros
-           and then initialised. If the length is zero a one-word object
-           is created.  In the case of vectors this will remain all zeros
-           and will be locked so that two zero-sized vectors will be equal. *)
+        (* Allocate memory for a vector or an array. *)
         fun alloc (bits: int) =
             let
-                val System_alloc  = RunCall.run_call3 POLY_SYS_alloc_store
                 val words : word =
-                    if bits = 0
-                    then 0w1 (* Zero-sized objects are not allowed. *)
-                    else if bits < 0 orelse bits > maxLen
+                    if bits < 0 orelse bits > maxLen
                     then raise General.Size
-                    else Word.fromInt(Int.quot((bits + (bitsPerWord - 1)), bitsPerWord))
+                    else Word.fromInt bits + (bitsPerWord - 0w1) div bitsPerWord
             in
-                System_alloc(words, F_mutable_bytes, 0)
+                (* TODO: It would be better to clear the last word because it
+                   may not be initialised.  *)
+                RunCall.allocateByteMemory(words, F_mutable_bytes)
             end
     end
 

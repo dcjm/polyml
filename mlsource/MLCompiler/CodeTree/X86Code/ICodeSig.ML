@@ -96,8 +96,14 @@ sig
             { callKind: callKinds, regArgs: (argument * genReg) list,
               stackArgs: argument list, dest: argument, isTail: bool}
 
-        (* Allocate a tuple or a function closure. *)
-    |   AllocateMemoryOperation of { size: int, isMutable: bool, dest: argument}
+        (* Allocate a fixed sized piece of memory.  The size is the number of words
+           required.  This sets the length word including the flags bits. *)
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: argument}
+
+        (* Allocate a piece of memory whose size is not known at compile-time.  The size
+           argument is the number of words.  If the initialiser is provided
+           each word of the new memory is set to the value. *)
+    |   AllocateMemoryVariable of { size: argument, flags: argument, dest: argument, initialiser: argument option }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)

@@ -383,5 +383,6 @@ struct
         and timingGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
         and processEnvGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(processEnvGeneralCall(RunCall.unsafeCast(code, arg)))
         and realGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(realGeneralCall(RunCall.unsafeCast(code, arg)))
+        val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
     end
 end;

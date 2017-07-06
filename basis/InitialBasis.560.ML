@@ -368,6 +368,12 @@ struct
     fun clearMutableBit(a: 'a): unit = run_call1 RuntimeCalls.POLY_SYS_lockseg a
 
     fun pointerEq(x: 'a ,y: 'a): bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq (x,y)
+    
+    fun allocateByteMemory(len: word, flags: word): 'a =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store(len, flags, 0w0)
+    
+    fun allocateWordMemory(len: word, flags: word, init: 'a): 'b =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store(len, flags, init)
 end;
 
 (* This is used to provide compatibility between 5.6.0 and 5.6.1. *)
@@ -405,4 +411,6 @@ struct
 
     fun realGeneral(code: int, arg:'a):'b =
         RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_Dispatch (code, arg)
+
+    val isBigEndian: unit -> bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian
 end;

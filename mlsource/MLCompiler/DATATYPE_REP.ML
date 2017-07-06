@@ -86,10 +86,9 @@ struct
 
     val mutableFlags = F_words orb F_mutable;
 
-    (* allocate 1 mutable word, initialise to "v"; do not evaluate "early" *)
-    fun refApplyCode (v: codetree) =
-      mkBuiltIn(POLY_SYS_alloc_store,
-        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v]);
+    (* allocate 1 mutable word, initialise to "v" *)
+    fun refApplyCode v =
+        mkBuiltIn3(BuiltIns.AllocateWordMemory, mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v)
 
     local
         fun mkTag (tag:word) : codetree = mkConst (toMachineWord tag);
@@ -375,8 +374,10 @@ struct
                                              only do it once for this object. *)
                                             fun genConstForm (n :word) : representations =
                                             let
-                                                val vec : address = alloc (0w1, F_words, toMachineWord n);
-                                                val () = lock vec;
+                                                val vec : address = allocWordData (0w1, F_words, toMachineWord n)
+                                                (* The new call does not require locking but the old code still
+                                                   sets the F_mutable bit. *)
+                                                val _ = if isMutable vec then lock vec else ()
                                             in
                                                 ConstForm{value=toMachineWord vec, maxTag=maxTag}
                                             end

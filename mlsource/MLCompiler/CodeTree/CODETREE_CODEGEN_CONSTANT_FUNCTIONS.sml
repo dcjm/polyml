@@ -81,7 +81,7 @@ struct
     let
         open Address
     in
-        alloc(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
+        allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
     end
 
     fun cgFuns ({ lookupAddr, ...}: cgContext) (Extract ext) =

@@ -476,6 +476,9 @@ struct
                 |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
                 |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
                 |   StringLengthWord => genOpcode(opcode_stringLength, cvec)
+                |   AtomicIncrement => genOpcode(opcode_atomicIncr, cvec)
+                |   AtomicDecrement => genOpcode(opcode_atomicDecr, cvec)
+                |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
             end
 
         |   BICBuiltIn2 { oper=BuiltIns.LoadWord _, arg1, arg2 } =>
@@ -548,7 +551,7 @@ struct
                 |   LoadByte _ => raise InternalError "LoadWord"
                 
                 |   SetStringLengthWord => genOpcode(opcode_setStringLength, cvec)
-                ;
+                 ;
                 decsp() (* Removes one item from the stack. *)
             end
 

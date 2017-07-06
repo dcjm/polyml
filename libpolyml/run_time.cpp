@@ -61,6 +61,7 @@
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFullGC(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyIsBigEndian();
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -462,9 +463,23 @@ void IncrementRTSCallCount(unsigned ioFunction)
         rtsCallCounts[ioFunction]++;
 }
 
+// This is used to determine the endian-ness that Poly/ML is running under.
+// It's really only needed for the interpreter.  In particular the pre-built
+// compiler may be running under either byte order and has to check at
+// run-time.
+POLYUNSIGNED PolyIsBigEndian()
+{
+#ifdef WORDS_BIGENDIAN
+    return TAGGED(1).AsUnsigned();
+#else
+    return TAGGED(0).AsUnsigned();
+#endif
+}
+
 static struct _entrypts entryPtTable[] =
 {
     { "PolyFullGC",                     (polyRTSFunction)&PolyFullGC},
+    { "PolyIsBigEndian",                (polyRTSFunction)&PolyIsBigEndian},
 
     { NULL, NULL} // End of list.
 };

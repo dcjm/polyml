@@ -308,6 +308,13 @@ struct
             (* Lock a mutable cell. *)
             val () = enterRunCall ("clearMutableBit",
                     makePolymorphic([a], mkBuiltIn1Fn ClearMutableFlag), a ->> Unit)
+            (* Allocate a byte cell.  The second argument is the flags byte.  It might be better
+               if this were a Word8.word value.  *)
+            val () = enterRunCall ("allocateByteMemory",
+                    makePolymorphic([a], mkBuiltIn2Fn AllocateByteMemory), Word ** Word ->> a)
+            (* Allocate a word cell. *)
+            val () = enterRunCall ("allocateWordMemory",
+                    makePolymorphic([a, b], mkBuiltIn3Fn AllocateWordMemory), mkProductType[Word, Word, a] ->> b)
         end
 
         local

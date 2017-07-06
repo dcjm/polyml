@@ -71,10 +71,12 @@ struct
         |   SetStringLengthWord
         |   WordLogical of logicalOperations
         |   WordShift of shiftOperations
+        |   AllocateByteMemory
 
         and builtIn3Ops =
             StoreWord
         |   StoreByte
+        |   AllocateWordMemory
 
         and builtIn4Ops =
             Built4PlaceHolder
@@ -105,6 +107,7 @@ struct
         |   builtIn2Repr SetStringLengthWord = "SetStringLengthWord"
         |   builtIn2Repr (WordLogical logOp) =  (logicRepr logOp) ^ "Word"
         |   builtIn2Repr (WordShift shiftOp) =  (shiftRepr shiftOp) ^ "Word"
+        |   builtIn2Repr AllocateByteMemory = "AllocateByteMemory"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestNotEqual       = "NotEqual"
@@ -129,6 +132,7 @@ struct
 
         and builtIn3Repr StoreWord = "StoreWord"
         |   builtIn3Repr StoreByte = "StoreByte"
+        |   builtIn3Repr AllocateWordMemory = "AllocateWordMemory"
 
         and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"
         and builtIn5Repr Built5PlaceHolder = "Built5PlaceHolder"

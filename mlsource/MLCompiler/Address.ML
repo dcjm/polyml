@@ -42,7 +42,8 @@ sig
     val assignByte: (address * Word.word * Word8.word) -> unit
     val assignWord: (address * Word.word * machineWord)  -> unit
 
-    val alloc:  (short * Word8.word * machineWord) -> address
+    val allocWordData: (short * Word8.word * machineWord) -> address
+
     val maxAllocation: word
 
     val lock:   address -> unit
@@ -142,11 +143,11 @@ struct
 
     val maxAllocation: word = Compat560.processEnvGeneral (100, ())
 
-    fun alloc(len: word, flags: Word8.word, initial: machineWord): address =
+    fun allocWordData(len: word, flags: Word8.word, initial: machineWord): address =
         (* Check that the size is within the acceptable range. *)
         if len >= maxAllocation
         then raise Size
-        else RunCall.run_call3 POLY_SYS_alloc_store(len, flags, initial)
+        else RunCall.allocateWordMemory(len, Word.fromLargeWord(Word8.toLargeWord flags), initial)
 
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)
@@ -183,16 +184,11 @@ struct
     local
         val rtsTable =
             [
-            (POLY_SYS_alloc_store,"POLY_SYS_alloc_store"),
-            (POLY_SYS_alloc_uninit,"POLY_SYS_alloc_uninit"),
-            (POLY_SYS_raisex,"POLY_SYS_raisex"),
             (POLY_SYS_str_compare,"POLY_SYS_str_compare"),
             (POLY_SYS_teststrgtr,"POLY_SYS_teststrgtr"),
             (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
             (POLY_SYS_teststrgeq,"POLY_SYS_teststrgeq"),
             (POLY_SYS_teststrleq,"POLY_SYS_teststrleq"),
-            (POLY_SYS_emptystring,"POLY_SYS_emptystring"),
-            (POLY_SYS_nullvector,"POLY_SYS_nullvector"),
             (POLY_SYS_eq_longword,"POLY_SYS_eq_longword"),
             (POLY_SYS_geq_longword,"POLY_SYS_geq_longword"),
             (POLY_SYS_leq_longword,"POLY_SYS_leq_longword"),
@@ -235,8 +231,6 @@ struct
             (POLY_SYS_real_to_int,"POLY_SYS_real_to_int"),
             (POLY_SYS_int_to_real,"POLY_SYS_int_to_real"),
             (POLY_SYS_fixed_to_real,"POLY_SYS_fixed_to_real"),
-            (POLY_SYS_stdin,"POLY_SYS_stdin"),
-            (POLY_SYS_stdout,"POLY_SYS_stdout"),
             (POLY_SYS_get_first_long_word,"POLY_SYS_get_first_long_word"),
             (POLY_SYS_bytevec_eq,"POLY_SYS_bytevec_eq"),
             (POLY_SYS_cmem_load_8,"POLY_SYS_cmem_load_8"),
@@ -254,8 +248,6 @@ struct
             (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
             (POLY_SYS_move_words,"POLY_SYS_move_words"),
             (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
-            (POLY_SYS_stderr,"POLY_SYS_stderr"),
-            (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final")
             ]
 

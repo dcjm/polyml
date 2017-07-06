@@ -38,13 +38,10 @@ local
     val System_move_str:
         vector*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
     val System_isShort   : vector -> bool = RunCall.isShort
-    val emptyVec: vector = (* This is represented by a null string not a null vector. *)
-        RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_emptystring;
+    val emptyVec: vector = w8vectorFromString "" (* This is represented by a null string not a null vector. *)
 
     val maxLen = CharVector.maxLen
 
-    val alloc = LibrarySupport.allocBytes
-    
     val wVecLength: vector -> word = LibrarySupport.Word8Array.wVecLength
     val vecLength: vector -> int = Word.toInt o wVecLength
 
@@ -148,12 +145,9 @@ in
         
         fun array (length, ini) =
         let
-            (* The array is allocated containing zeros.  Some versions of
-               the RTS will allow byte vectors to be allocated with other
-               values but other versions don't.  For the moment assume
-               that we have to initialise the array separately. *)
             val len = unsignedShortOrRaiseSize length
-            val vec = alloc len
+            val vec = LibrarySupport.allocBytes len
+            (* LibrarySupport.allocBytes does not initialise anything except the overflow bytes *)
             fun init i = 
                 if len <= i then ()
                 else (RunCall.storeByte(vec, i, ini); init(i+0w1))
@@ -174,10 +168,10 @@ in
         (* Create an array from a list. *)
         fun fromList (l : elem list) : array =
         let
-            val length = unsignedShortOrRaiseSize(List.length l);
+            val length = unsignedShortOrRaiseSize(List.length l)
                 
-            (* Make a array initialised to zero. *)
-            val vec = alloc length;
+            (* Make an unitialised array. *)
+            val vec = LibrarySupport.allocBytes length;
             
             (* Copy the list elements into the array. *)
             fun init (v, i, a :: l) = (RunCall.storeByte(v, i, a); init(v, i + 0w1, l))
@@ -191,7 +185,7 @@ in
         fun tabulate (length: int , f : int->elem): array =
         let
             val len = unsignedShortOrRaiseSize length
-            val vec = alloc len
+            val vec = LibrarySupport.allocBytes len
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()

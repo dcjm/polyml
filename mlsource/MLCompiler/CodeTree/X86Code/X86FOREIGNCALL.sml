@@ -62,7 +62,10 @@ struct
     let
         (* The profile object is a single mutable with the F_bytes bit set. *)
         open Address
-        val profileObject = alloc(0w1, Word8.orb(F_mutable, F_bytes), toMachineWord 0w0)
+        val profileObject = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
+        fun clear 0w0 = ()
+        |   clear i = (assignByte(profileObject, i-0w1, 0w0); clear (i-0w1))
+        val () = clear(Word.fromInt wordSize)
     in
         toMachineWord profileObject
     end
@@ -201,7 +204,7 @@ struct
         val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
         (* Have to create a closure for this *)
         open Address
-        val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
     in
         assignWord(closure, 0w0, toMachineWord createdCode);
         lock closure;
@@ -295,7 +298,7 @@ struct
         val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
         (* Have to create a closure for this *)
         open Address
-        val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
     in
         assignWord(closure, 0w0, toMachineWord createdCode);
         lock closure;
@@ -400,7 +403,7 @@ struct
         val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
         (* Have to create a closure for this *)
         open Address
-        val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
     in
         assignWord(closure, 0w0, toMachineWord createdCode);
         lock closure;

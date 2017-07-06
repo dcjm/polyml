@@ -793,6 +793,16 @@ struct
                   TagValue{source=resRegUntagged, dest=target}], target)
             end
 
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                 [AllocateMemoryVariable{size=aReg1, flags=aReg2, dest=target, initialiser=NONE},
+                 InitialisationComplete{dest=target}], target)
+            end
+
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =
             let
                 val baseReg = newPReg() and valueReg = newPReg()
@@ -837,6 +847,17 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
+        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                 codeToICodeTarget(arg3, context, false, aReg3) @
+                 [AllocateMemoryVariable{size=aReg1, flags=aReg2, dest=target, initialiser=SOME aReg3},
+                  InitialisationComplete{dest=target}], target)
+            end
+
         |   codeToICode(BICBuiltIn4 _, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn4"
 
@@ -846,7 +867,7 @@ struct
         |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, destination) =
             (* Empty closure - create a constant closure for any recursive calls. *)
             let
-                val closure = Address.alloc(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
+                val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
                 val codeAddr = codeFunctionToX86(lambda, debugSwitches, SOME closure)
                 open Address
             in
@@ -1116,7 +1137,7 @@ struct
                    the target when we've finished. *)
                 val memAddr = newPReg()
                 fun loadFields([], n) =
-                        [AllocateMemoryOperation{size=n, isMutable=false, dest=memAddr}]
+                        [AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr}]
                 |   loadFields(f :: rest, n) =
                     let
                         val (code, source) = codeToICode(f, context, false, Allowed allowInMemMove)
@@ -1236,7 +1257,7 @@ struct
                         val sizeClosure = List.length closure + 1
                         fun clear n =
                             if n = sizeClosure
-                            then [AllocateMemoryOperation{size=sizeClosure, isMutable=true, dest=dest}]
+                            then [AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest}]
                             else
                             let
                                 val d = newPReg()

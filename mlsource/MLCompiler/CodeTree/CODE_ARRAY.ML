@@ -75,12 +75,12 @@ struct
 
     val expansionFactor = 0w3 (* Factor by which to increase size of segment *)
 
-    val F_mutable_bytes = Word8.orb (F_mutable, F_bytes)
+    val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
     val wordSize = Word.fromInt Address.wordSize
 
     fun csegMake (size : word) : cseg =
     let
-        val vec : address = alloc (size, F_mutable_bytes, toMachineWord 0)
+        val vec : address = RunCall.allocateByteMemory(size, F_mutable_bytes)
     in
         ref (Bytes, vec)
     end
@@ -162,7 +162,7 @@ struct
                 val newSize    = Word.max(expSize, minSize)
       
                 (* create temporary codeseg (with larger byte-vector) *)
-                val newVec = alloc (newSize, F_mutable_bytes, toMachineWord 0w0)
+                val newVec = RunCall.allocateByteMemory (newSize, F_mutable_bytes)
                 val newSeg = (Bytes, newVec)
             in
                 (* copy the old code into the new codeseg *)

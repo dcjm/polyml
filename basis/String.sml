@@ -80,7 +80,7 @@ local
             else if b_length = 0w0 then a
             else (* Normal case *)
             let
-                val vec = allocString(a_length + b_length)
+                val vec = LibrarySupport.allocString(a_length + b_length)
             in
                 if a_length = 0w1
                 then RunCall.storeByte (vec, wordSize, singleCharStringAsChar a)
@@ -190,11 +190,8 @@ local
         (* A one character string is simply the character itself. *)
         val str: char ->string = charAsString
     
-        val maxSize: int =
-            Compat560.processEnvGeneral (101, ())
-                    
-        val alloc = allocString
-    
+        val maxSize: int = Compat560.processEnvGeneral (101, ())
+
         (* Concatentate a list of strings. *)
         fun concat [] = ""
          |  concat [s] = s (* Handle special case to reduce copying. *)
@@ -223,7 +220,7 @@ local
                 else (* Normal case *)
                 let
                     val chs = unsignedShortOrRaiseSize chars (* Check it's short. *)
-                    val vec = alloc chs
+                    val vec = LibrarySupport.allocString chs
                   
                     fun copy (_, []:string list) = ()
                      | copy (i, H :: T) =
@@ -268,7 +265,7 @@ local
                 if chars = 0w1 then str H
                 else
                 let
-                    val dest = allocString chars
+                    val dest = LibrarySupport.allocString chars
 
                     fun copy (_, []:char list) = ()
                       | copy (i, H :: T) =
@@ -433,7 +430,7 @@ local
          |  tabulate (length: int , f : int->elem): vector =
         let
             val len = unsignedShortOrRaiseSize length (* Raises Size if length < 0 *)
-            val vec = alloc len
+            val vec = LibrarySupport.allocString len
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()
@@ -467,7 +464,7 @@ local
             else (* len > 1 *)
             let
                 (* Allocate a new vector. *)
-                val new_vec = alloc len
+                val new_vec = LibrarySupport.allocString len
                 val byte_limit = len + wordSize
                     
                 fun domap i =
@@ -538,7 +535,7 @@ local
             else 
             let
                 val extra = iW - len
-                val str = allocString iW
+                val str = LibrarySupport.allocString iW
                 fun setCh n =
                     if n = extra then ()
                     (* Set the character part of the string. *)
@@ -567,7 +564,7 @@ local
             then chToString c (* return single character string. *)
             else 
             let
-                val str = allocString iW
+                val str = LibrarySupport.allocString iW
                 fun setCh n =
                     if n = iW then ()
                     (* Set the character part of the string. *)
@@ -826,7 +823,7 @@ in
             else (* len >= 2 *)
             let
                 (* Allocate a new vector. *)
-                val new_vec = allocString len
+                val new_vec = LibrarySupport.allocString len
                 
                 fun domap j =
                     if j >= len then ()
@@ -1000,7 +997,7 @@ in
                     else
                     let
                         (* Second pass: create the output string and copy to it. *)
-                        val newVec = allocString newSize
+                        val newVec = LibrarySupport.allocString newSize
                         fun copyToOut i j =
                         if i = len then ()
                         else
@@ -1116,18 +1113,14 @@ in
         infix 9 sub (* For what it's worth *)
                 
         val maxLen = String.maxSize (* Use the same maximum as string. *)
-        val alloc = LibrarySupport.allocBytes
     
         fun length(Array(l, _)) = wordAsInt l
         
         fun array (length, ini) =
         let
-            (* The array is allocated containing zeros.  Some versions of
-               the RTS will allow byte vectors to be allocated with other
-               values but other versions don't.  For the moment assume
-               that we have to initialise the array separately. *)
+            (* The array is allocated unitialised. *)
             val len = unsignedShortOrRaiseSize length
-            val vec = alloc len
+            val vec = LibrarySupport.allocBytes len
             fun init i = 
                 if len <= i then ()
                 else (RunCall.storeByte(vec, i, ini); init(i+0w1))
@@ -1171,7 +1164,7 @@ in
                 val length = listLength(l, 0w0)
                     
                 (* Make a array initialised to zero. *)
-                val vec = alloc length
+                val vec = LibrarySupport.allocBytes length
                 
                 (* Copy the list elements into the array. *)
                 fun init (v, i, a :: l) = (RunCall.storeByte(v, i, a); init(v, i + 0w1, l))
@@ -1188,7 +1181,7 @@ in
         fun tabulate (length: int , f : int->elem): array =
         let
             val len = unsignedShortOrRaiseSize length
-            val vec = alloc len
+            val vec = LibrarySupport.allocBytes len
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()
@@ -1206,7 +1199,7 @@ in
             else
             let
                 (* Make an array initialised to zero. *)
-                val new_vec = allocString len
+                val new_vec = LibrarySupport.allocString len
             in
                 System_move_bytesA(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
                 RunCall.clearMutableBit new_vec;
@@ -1648,7 +1641,7 @@ in
                 let
                     val len = intAsWord length
                     (* Make an array initialised to zero. *)
-                    val new_vec = allocString len
+                    val new_vec = LibrarySupport.allocString len
                 in
                     System_move_bytesA(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
                     RunCall.clearMutableBit new_vec;

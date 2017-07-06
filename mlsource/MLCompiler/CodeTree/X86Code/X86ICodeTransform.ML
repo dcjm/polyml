@@ -44,7 +44,7 @@ struct
 
     val raxAsArg = RealRegister(GenReg eax) and rbxAsArg = RealRegister(GenReg ebx)
     and rcxAsArg = RealRegister(GenReg ecx) and rsiAsArg = RealRegister(GenReg esi)
-    and rdxAsArg = RealRegister(GenReg edx)
+    and rdxAsArg = RealRegister(GenReg edx) and rdiAsArg = RealRegister(GenReg edi)
 
     (* Generally we have an offset in words and no index register. *)
     fun wordOffsetAddress(offset, baseReg) =
@@ -793,7 +793,7 @@ struct
                     code=load @ pushCode @ code, context=context}
             end
             
-        |   codeICode{icode=AllocateMemoryOperation{ size, isMutable, dest} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=AllocateMemoryOperation{ size, flags, dest} :: rest, state=NormalState state, code, context} =
             let
                 val destReg = argToPReg dest
                 val (pushedState, pushCode) = pushRax state
@@ -801,7 +801,42 @@ struct
             in
                 codeICode{
                     icode=rest, state=NormalState resultState,
-                    code=AllocateMemoryOperation{ size=size, isMutable=isMutable, dest=raxAsArg} :: pushCode @ code, context=context}
+                    code=AllocateMemoryOperation{ size=size, flags=flags, dest=raxAsArg} :: pushCode @ code, context=context}
+            end
+
+        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, initialiser=NONE} :: rest, state=NormalState state, code, context} =
+            let
+                (* Allocate memory without initialisation.  Used for byte segments that don't need to be initialised. *)
+                val fReg = argToPReg flags and destReg = argToPReg dest
+                val startState = checkTopInRax(state, fReg) (* Should be in eax. *)
+                val loadSize = loadSource(size, edx, startState)
+                (* We put the size in rdx, the flags in rax and the result in rdi. *)
+                val allocMem = [AllocateMemoryVariable{size=rdxAsArg, flags=raxAsArg, dest=rdiAsArg, initialiser=NONE}]
+                val moveToRAX = [MoveArgument{source=rdiAsArg, dest=raxAsArg, kind=WordToWord}]
+                val resultState = clearCC(addRaxToState(startState, destReg))
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code= moveToRAX @ allocMem @ loadSize @ code, context=context}
+            end
+
+        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, initialiser=SOME init} :: rest,
+                      state=NormalState state, code, context} =
+            let
+                (* Allocate memory and initialise.  This is needed for word segments.  We want to use
+                   rep stosl/q to initialise the store so that requires the size to be in rcx, the
+                   initialiser to be in rax and rdi to be available as a work register. *)
+                val destReg = argToPReg dest and initReg = argToPReg init
+                val startState = checkTopInRax(state, initReg) (* Should be in eax. *)
+                val loadSize = loadSource(size, ecx, startState)
+                val loadFlags = loadSource(flags, ebx, startState)
+                val allocMem = [AllocateMemoryVariable{size=rcxAsArg, flags=rbxAsArg, dest=rdxAsArg, initialiser=SOME raxAsArg}]
+                val moveToRAX = [MoveArgument{source=rdxAsArg, dest=raxAsArg, kind=WordToWord}]
+                val resultState = clearCC(addRaxToState(startState, destReg))
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code= moveToRAX @ allocMem @ loadFlags @ loadSize @ code, context=context}
             end
 
             (* Marks the end of setting the fields of a tuple.  This is used in the next

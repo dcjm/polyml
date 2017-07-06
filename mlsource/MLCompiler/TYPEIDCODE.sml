@@ -1093,9 +1093,9 @@ struct
                 createTypeValue {
                     eqCode = eqCode, boxedCode = boxedCode, sizeCode = sizeCode,
                     printCode =
-                    mkBuiltIn(POLY_SYS_alloc_store,
-                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         codePrintDefault])
+                    mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                        mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                         codePrintDefault)
                 })
         end
 
@@ -1144,9 +1144,9 @@ struct
                 createTypeValue {
                     eqCode = eqCode, boxedCode = boxedCode,
                     printCode =
-                    mkBuiltIn(POLY_SYS_alloc_store,
-                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         printCode]),
+                    mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                        mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                        printCode),
                     sizeCode = sizeCode
                 })
         end
@@ -1173,9 +1173,8 @@ struct
                 else mkProc(codePrintDefault, arity, "print-helper()", [], 0)
                 
             val printCode =
-                    mkBuiltIn(POLY_SYS_alloc_store,
-                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printFn ]
-                        )
+                    mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                        mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printFn)
         in
             mkEnv(
                 dec,
@@ -1223,10 +1222,9 @@ struct
                     {
                         eqCode=mkLoadLocal eqAddr,
                         printCode=
-                            mkBuiltIn(POLY_SYS_alloc_store,
-                                [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                                 CodeZero (* Temporary - replaced by setPrinter. *)]
-                            ),
+                            mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                                mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                                 CodeZero (* Temporary - replaced by setPrinter. *)),
                         boxedCode = boxedCode,
                         sizeCode = sizeCode
                     }
@@ -1286,8 +1284,8 @@ struct
         open TypeValue
         val alwaysTrue = mkProc(CodeTrue, 2, "codeForUniqueId-equal", [], 0)
         val printCode =
-            mkBuiltIn(POLY_SYS_alloc_store,
-                [ mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), codePrintDefault])
+            mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), codePrintDefault)
     in
         createTypeValue{
             eqCode = alwaysTrue, printCode = printCode,

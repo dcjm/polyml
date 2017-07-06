@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: constants
     Author:     David Matthews
-    Copyright   David Matthews 2015
+    Copyright   David Matthews 2015, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -53,8 +53,8 @@ struct
         and saSlong     = getSizeAndAlign 19
     end
     
-    val bigEndian : bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian ()
-    val wordSize : word = RunCall.bytesPerWord
+    val bigEndian : bool = LibrarySupport.bigEndian
+    and wordSize : word = RunCall.bytesPerWord
     
     (* Minimum argument size. *)
     val ffiMinArgSize: Word.word = Compat560.ffiGeneral (51, 15)

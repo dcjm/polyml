@@ -161,6 +161,11 @@ public:
     PolyObject      *overflowPacket, *dividePacket;
 };
 
+// This lock is used to synchronise all atomic operations.
+// It is not needed in the X86 version because that can use a global
+// memory lock.
+static PLock mutexLock;
+
 // Special value for return address.
 #define SPECIAL_PC_END_THREAD           TAGGED(1)
 
@@ -1445,6 +1450,37 @@ int IntTaskData::SwitchToPoly()
             /* Clear the mutable bit. */
             obj->SetLengthWord(lengthW & ~_OBJ_MUTABLE_BIT);
             *sp = Zero;
+            break;
+        }
+        case INSTR_atomicIncr:
+        {
+            PLocker l(&mutexLock);
+            PolyObject *p = (*sp).AsObjPtr();
+            PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))+1);
+            p->Set(0, newValue);
+            *sp = newValue;
+            break;
+        }
+
+        case INSTR_atomicDecr:
+        {
+            PLocker l(&mutexLock);
+            PolyObject *p = (*sp).AsObjPtr();
+            PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
+            p->Set(0, newValue);
+            *sp = newValue;
+            break;
+        }
+
+        case INSTR_atomicReset:
+        {
+            // This is needed in the interpreted version otherwise there
+            // is a chance that we could set the value to zero while another
+            // thread is between getting the old value and setting it to the new value.
+            PLocker l(&mutexLock);
+            PolyObject *p = (*sp).AsObjPtr();
+            p->Set(0, TAGGED(1)); // Set this to released.
+            *sp = TAGGED(0); // Push the unit result
             break;
         }
 
@@ -2742,10 +2778,6 @@ void Interpreter::InitInterfaceVector(void)
 // unlock an ML mutex in this code we have to use the same, machine-dependent,
 // code to do it.  These are defaults that are used where there is no
 // machine-specific code.
-
-// Increment the value contained in the first word of the mutex.
-// On most platforms this code will be done with a piece of assembly code.
-static PLock mutexLock;
 
 Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
 {

@@ -983,12 +983,9 @@ struct
         and rename = OS.FileSys.rename
         and readlink = OS.FileSys.readLink
 
-        val stdin  : file_desc = 
-            RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_stdin
-        val stdout : file_desc =
-            RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_stdout
-        val stderr : file_desc =
-            RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_stderr
+        val stdin  : file_desc = RunCall.unsafeCast 0
+        and stdout : file_desc = RunCall.unsafeCast 1
+        and stderr : file_desc = RunCall.unsafeCast 2
 
         structure S =
         struct
