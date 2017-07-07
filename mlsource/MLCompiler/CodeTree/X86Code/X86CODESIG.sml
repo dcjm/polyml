@@ -79,7 +79,6 @@ sig
     and      repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
-    and      group3Ops = NOT | NEG | MUL | IMUL | DIV | IDIV
 
     datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
 
@@ -159,7 +158,8 @@ sig
     |   FreeRegisters of RegSet.regSet
     |   MakeSafe of genReg
     |   RepeatOperation of repOps
-    |   Group3Ops of genReg * group3Ops
+    |   DivideAccR of {arg: genReg, isSigned: bool }
+    |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
     |   FPLoadFromGenReg of genReg
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
@@ -173,7 +173,8 @@ sig
     |   FPStatusToEAX
     |   FPLoadIntAndPop
     |   FPFree of fpReg
-    |   SignedMultiply of { source: genReg, output: genReg }
+    |   MultiplyRR of { source: genReg, output: genReg }
+    |   MultiplyRM of { base: genReg, offset: int,output: genReg }
     |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
     |   SignExtendForDivide

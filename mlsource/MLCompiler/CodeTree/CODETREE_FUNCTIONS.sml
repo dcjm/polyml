@@ -150,6 +150,11 @@ struct
                     |   WordShift _ => applicative
                     |   AllocateByteMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                             (* Allocation returns a different value on each call. *)
+                    |   LargeWordComparison _ => applicative
+                    |   LargeWordArith _ => applicative (* Quot and Rem don't raise exceptions - zero checking is done before. *)
+                    |   LargeWordLogical _ => applicative
+                    |   LargeWordShift _ => applicative
+
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end
@@ -177,9 +182,11 @@ struct
 
         |   codeProps (BuiltIn5{oper, arg1, arg2, arg3, arg4, arg5}) =
             let
+                open BuiltIns
                 val operProps =
                     case oper of
-                        BuiltIns.Built5PlaceHolder => 0w0
+                        ByteVecEqual => applicative
+                    |   ByteVecCompare => applicative
             in
                 operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3 andb codeProps arg4 andb codeProps arg5
             end

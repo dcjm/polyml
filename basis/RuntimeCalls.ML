@@ -24,27 +24,6 @@
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
-  val POLY_SYS_str_compare         = 23 (* DCJM 21/3/06 *)
-  val POLY_SYS_teststrgtr          = 26
-  val POLY_SYS_teststrlss          = 27
-  val POLY_SYS_teststrgeq          = 28
-  val POLY_SYS_teststrleq          = 29
-  val POLY_SYS_eq_longword         = 53
-  val POLY_SYS_geq_longword        = 55
-  val POLY_SYS_leq_longword        = 56
-  val POLY_SYS_gt_longword         = 57
-  val POLY_SYS_lt_longword         = 58
-  val POLY_SYS_plus_longword       = 74
-  val POLY_SYS_minus_longword      = 75
-  val POLY_SYS_mul_longword        = 76
-  val POLY_SYS_div_longword        = 77
-  val POLY_SYS_mod_longword        = 78
-  val POLY_SYS_andb_longword       = 79
-  val POLY_SYS_orb_longword        = 80
-  val POLY_SYS_xorb_longword       = 81
-  val POLY_SYS_shift_left_longword         = 85
-  val POLY_SYS_shift_right_longword        = 86
-  val POLY_SYS_shift_right_arith_longword  = 87
   val POLY_SYS_xora                = 112 (* DCJM 21/6/00 *)
   val POLY_SYS_equala              = 113
   val POLY_SYS_ora                 = 114 (* DCJM 21/6/00 *)
@@ -66,8 +45,6 @@ struct
   val POLY_SYS_real_to_int         = 134
   val POLY_SYS_int_to_real         = 135
   val POLY_SYS_fixed_to_real       = 142
-  val POLY_SYS_get_first_long_word = 152  (* DCJM 28/2/01 *)
-  val POLY_SYS_bytevec_eq          = 154  (* DCJM 13/1/10 *)
   val POLY_SYS_cmem_load_8         = 160
   val POLY_SYS_cmem_load_16        = 161
   val POLY_SYS_cmem_load_32        = 162
@@ -85,7 +62,6 @@ struct
   val POLY_SYS_move_words          = 195  (* DCJM 9/10/99 *)
   val POLY_SYS_move_bytes          = 198  (* DCJM 9/10/99 *)
   val POLY_SYS_move_bytes_overlap  = 199
-  val POLY_SYS_touch_final         = 228
 
   (* val POLY_SYS_vecsize = 256 *)
 

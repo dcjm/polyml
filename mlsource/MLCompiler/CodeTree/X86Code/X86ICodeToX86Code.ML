@@ -193,6 +193,12 @@ struct
            then unboxed and remove unnecessary allocation. *)
     |   BoxLargeWord of { source: argument, dest: argument }
 
+        (* Compare two vectors of bytes and set the condition code on the result.
+           In general vec1Addr and vec2Addr will be pointers inside memory cells
+           so have to be untagged registers. *)
+    |   CompareByteVectors of
+            { vec1Addr: argument, vec2Addr: argument, length: argument, ccRef: ccRef }
+
     
     exception InternalError = Misc.InternalError
 
@@ -517,6 +523,16 @@ struct
                 codeGenICode(rest, ArithRR { opc=oper, output=resReg, source=op2Reg } :: code)
             end
 
+        |   codeGenICode(
+                ArithmeticFunction{
+                    oper, resultReg=RealRegister(GenReg resReg), operand1=RealRegister(GenReg op1Reg),
+                    operand2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, ...} :: rest, code) =
+            let
+                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
+            in
+                codeGenICode(rest, ArithRMem { opc=oper, output=resReg, offset=offset, base=baseReg } :: code)
+            end
+
         |   codeGenICode(ArithmeticFunction _ :: _, _) =
                 raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
 
@@ -572,12 +588,20 @@ struct
                 codeGenICode(rest, ShiftVariable{ shiftType=shift, output=resReg } :: code)
             end
 
+        |   codeGenICode(Multiplication { resultReg, operand1, operand2=MemoryLocation{offset, base, index=NoMemIndex}, ... } :: rest, code) =
+            let
+                val resReg = asGenReg resultReg and op1Reg = asGenReg operand1 and baseReg = asGenReg base
+                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
+            in
+                codeGenICode(rest, MultiplyRM { base=baseReg, offset=offset, output=resReg } :: code)
+            end
+
         |   codeGenICode(Multiplication { resultReg, operand1, operand2, ... } :: rest, code) =
             let
                 val resReg = asGenReg resultReg and op1Reg = asGenReg operand1 and op2Reg = asGenReg operand2
-                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
+                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
             in
-                codeGenICode(rest, SignedMultiply { source=op2Reg, output=resReg } :: code)
+                codeGenICode(rest, MultiplyRR { source=op2Reg, output=resReg } :: code)
             end
 
         |   codeGenICode(Division { isSigned, dividend, divisor, quotient, remainder } :: rest, code) =
@@ -594,7 +618,7 @@ struct
                     if isSigned then SignExtendForDivide
                     else ArithRR{ opc=XOR, output=edx, source=edx }
             in
-                codeGenICode(rest, Group3Ops (divisorReg, if isSigned then IDIV else DIV) :: setRDX :: code)
+                codeGenICode(rest, DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX :: code)
             end
 
         |   codeGenICode(AtomicExchangeAndAdd{ destAddr, source } :: rest, code) =
@@ -602,6 +626,16 @@ struct
                 val baseReg = asGenReg destAddr and outReg = asGenReg source
             in
                 codeGenICode(rest, AtomicXAdd{base=baseReg, output=outReg} :: code)
+            end
+
+        |   codeGenICode(CompareByteVectors { vec1Addr, vec2Addr, length, ... } :: rest, code) =
+            let
+                (* The arguments must be in specific registers. *)
+                val _ = asGenReg vec1Addr = esi orelse raise InternalError "CompareByteVectors: esi"
+                val _ = asGenReg vec2Addr = edi orelse raise InternalError "CompareByteVectors: edi"
+                val _ = asGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
+            in
+                codeGenICode(rest, RepeatOperation CMPSB :: code)
             end
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)

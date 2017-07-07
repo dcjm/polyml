@@ -428,6 +428,11 @@ struct
         mkInlproc(
             mkBuiltIn3(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0)),
             1, BuiltIns.builtIn3Repr oper ^ "()", [], 0)
+    and mkBuiltIn5Fn oper =
+        mkInlproc(
+            mkBuiltIn5(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0),
+                mkInd(3, mkLoadArgument 0), mkInd(4, mkLoadArgument 0)), 
+            1, BuiltIns.builtIn5Repr oper ^ "()", [], 0)
 
     local
         open BuiltIns

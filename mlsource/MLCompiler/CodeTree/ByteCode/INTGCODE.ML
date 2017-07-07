@@ -479,6 +479,9 @@ struct
                 |   AtomicIncrement => genOpcode(opcode_atomicIncr, cvec)
                 |   AtomicDecrement => genOpcode(opcode_atomicDecr, cvec)
                 |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
+                |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
+                |   SignedToLongWord => genOpcode(opcode_signedToLongW, cvec)
+                |   UnsignedToLongWord => genOpcode(opcode_unsignedToLongW, cvec)
             end
 
         |   BICBuiltIn2 { oper=BuiltIns.LoadWord _, arg1, arg2 } =>
@@ -587,6 +590,24 @@ struct
                 decsp(); decsp(); decsp()
             end
             
+        |   BICBuiltIn3 {
+                oper=BuiltIns.AllocateWordMemory, arg1 as BICConstnt(length, _), arg2 as BICConstnt(flags, _), arg3 } =>
+            if isShort length andalso toShort length = 0w1 andalso isShort flags andalso toShort flags = 0wx40
+            then (* This is a very common case. *)
+            (
+                gencde (arg3, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_alloc_ref, cvec)
+            )
+            else
+            let
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
+            in
+                genOpcode(opcode_allocWordMemory, cvec);
+                decsp(); decsp()
+            end
+
         |   BICBuiltIn3 { oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3 } =>
             let
                 val () = gencde (arg1, ToStack, NotEnd, loopAddr)
@@ -682,79 +703,77 @@ struct
             if mutualDecs then doNext () else ()
         end
 
-    |   genProc (lam, mutualDecs: bool, doNext: unit -> unit) : unit =
-      
+    |   genProc (lam, mutualDecs, doNext) =
         let (* Full closure required. *)
-    (* If there is a closure we must fetch all non-local references
-       from it. *)
+            (* If there is a closure we must fetch all non-local references from it. *)
 
-    (* Loads the value from the closure. *)
-    fun loadSl (addr : int, level : int) : slValue =
-      if addr = 0
-      then (* recursive - return address of closure. *)
-        Address (~1, level - 1)
-      else (* Return an entry in the closure. *)
-        Address (addr, level);
+            (* Loads the value from the closure. *)
+            fun loadSl (0, level) = Address (~1, level - 1) (* recursive - return address of closure. *)
+            |   loadSl (addr, level) = Address (addr, level) (* Return an entry in the closure. *)
 
-        val newCode : code = codeCreate (#name lam, parameters);
+            val newCode = codeCreate (#name lam, parameters);
 
-        (* Code-gen function. *)
-        val res : address =
-          codegen (#body lam, newCode, loadSl, List.length (#argTypes lam), parameters);
+            (* Code-gen function. *)
+            val res = codegen (#body lam, newCode, loadSl, List.length (#argTypes lam), parameters);
 
-        val sizeOfClosure = List.length (#closure lam) + 1;
-      in
-         if mutualDecs
-         then let (* Have to make the closure now and fill it in later. *)
-           val () = genGetStore (sizeOfClosure, cvec);
-           val () = incsp ();
+            val sizeOfClosure = List.length (#closure lam) + 1;
+        in
+            if mutualDecs
+            then
+            let (* Have to make the closure now and fill it in later. *)
+                (* This previously used genGetStore which at one time was widely used. *)
+                val () = pushConst(toMachineWord sizeOfClosure, cvec) (* Length *)
+                val () = pushConst(toMachineWord F_mutable, cvec) (* Flags *)
+                val () = pushConst(toMachineWord 0, cvec) (* Initialise to zero. *)
+                val () = genOpcode(opcode_allocWordMemory, cvec) (* Allocate the memory. *)
+                val () = incsp ()
            
-           (* Put code address into closure *)
-           val () = pushConst(toMachineWord res, cvec); 
-           val () = genMoveToVec(0, cvec);
+                (* Put code address into closure *)
+                val () = pushConst(toMachineWord res, cvec) 
+                val () = genMoveToVec(0, cvec)
            
-           val entryAddr : int = !realstackptr;
+                val entryAddr : int = !realstackptr
 
-           val () = doNext (); (* Any mutually recursive functions. *)
+                val () = doNext () (* Any mutually recursive functions. *)
 
-           (* Push the address of the vector - If we have processed other
-              closures the vector will no longer be on the top of the stack. *)
-           val () = pushStackValue (~ entryAddr, 0);
+                (* Push the address of the vector - If we have processed other
+                   closures the vector will no longer be on the top of the stack. *)
+                val () = pushStackValue (~ entryAddr, 0)
 
-           (* Load items for the closure. *)
-           fun loadItems ([], _) = ()
-             | loadItems (v :: vs, addr : int) =
-             let
-               (* Generate an item and move it into the vector *)
-               val () = gencde (BICExtract v, ToStack, NotEnd, NONE);
-               val () = genMoveToVec(addr, cvec);
-               val () = decsp ();
-             in
-               loadItems (vs, addr + 1)
-             end;
+                (* Load items for the closure. *)
+                fun loadItems ([], _) = ()
+                |   loadItems (v :: vs, addr : int) =
+                let
+                    (* Generate an item and move it into the vector *)
+                    val () = gencde (BICExtract v, ToStack, NotEnd, NONE)
+                    val () = genMoveToVec(addr, cvec)
+                    val () = decsp ()
+                in
+                    loadItems (vs, addr + 1)
+                end
              
-           val () = loadItems (#closure lam, 1);
-           val () = genLock cvec; (* Lock it. *)
+                val () = loadItems (#closure lam, 1)
+                val () = genLock cvec (* Lock it. *)
            
-           (* Remove the extra reference. *)
-           val () = resetStack (1, false, cvec);
-         in
-           realstackptr := !realstackptr - 1
-         end
+                (* Remove the extra reference. *)
+                val () = resetStack (1, false, cvec)
+            in
+                realstackptr := !realstackptr - 1
+            end
          
-         else let
-           (* Put it on the stack. *)
-           val () = pushConst (toMachineWord res, cvec);
-           val () = incsp ();
+            else
+            let
+                (* Put it on the stack. *)
+                val () = pushConst (toMachineWord res, cvec)
+                val () = incsp ()
            
-           val () =
-             apply (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) (#closure lam);
+                val () = apply (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) (#closure lam)
                 
-           val () = genTuple (sizeOfClosure, cvec);
-         in
-           realstackptr := !realstackptr - (sizeOfClosure - 1)
-         end
-      end
+                val () = genTuple (sizeOfClosure, cvec)
+            in
+                realstackptr := !realstackptr - (sizeOfClosure - 1)
+            end
+        end
 
    and genCond (first: backendIC,
                 second: backendIC,
@@ -763,8 +782,8 @@ struct
                 tailKind: tail,
                 loopAddr) : unit =
    let
-     val () = gencde (first, ToStack, NotEnd, loopAddr);
-     val toElse : labels = putBranchInstruction(jumpFalse, cvec);
+     val () = gencde (first, ToStack, NotEnd, loopAddr)
+     val toElse : labels = putBranchInstruction(jumpFalse, cvec)
      val () = decsp();
    in
         let

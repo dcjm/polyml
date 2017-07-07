@@ -107,6 +107,7 @@ sig
     val opcode_realDiv: opcode
     val opcode_getThreadId: opcode
     val opcode_allocWordMemory: opcode
+    val opcode_alloc_ref: opcode
     val opcode_loadMLWord: opcode
     val opcode_loadMLByte: opcode
     val opcode_loadC8: opcode
@@ -154,7 +155,6 @@ sig
    val genPushHandler : code -> unit
       
    val genReturn      : int * code -> unit
-   val genGetStore    : int * code -> unit
    val genLocal       : int * code -> unit
    val genIndirect    : int * code -> unit
    val genMoveToVec   : int * code -> unit

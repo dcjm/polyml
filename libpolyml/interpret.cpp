@@ -1363,6 +1363,11 @@ int IntTaskData::SwitchToPoly()
             *sp = Zero;
             break;
         }
+
+        case INSTR_stringLength:
+            *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
+            break;
+
         case INSTR_atomicIncr:
         {
             PLocker l(&mutexLock);
@@ -1395,9 +1400,52 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_stringLength:
-            *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
+        case INSTR_longWToTagged:
+        {
+            // Extract the first word and return it as a tagged value.  This loses the top-bit
+            POLYUNSIGNED wx = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            *sp = TAGGED(wx);
             break;
+        }
+
+        case INSTR_signedToLongW:
+        {
+            // Shift the tagged value to remove the tag and put it into the first word.
+            // The original sign bit is copied in the shift.
+            POLYSIGNED wx = (*sp).UnTagged();
+            // Allocate box for the result.
+            storeWords = 2;
+            this->allocPointer -= storeWords;
+            if (this->allocPointer < this->allocLimit)
+            {
+                this->allocPointer += storeWords;
+                goto RESTART;
+            }
+            PolyObject *t = (PolyObject*)(this->allocPointer+1);
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromSigned(wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_unsignedToLongW:
+        {
+            // As with the above except the value is treated as an unsigned
+            // value and the top bit is zero.
+            POLYUNSIGNED wx = (*sp).UnTaggedUnsigned();
+            storeWords = 2;
+            this->allocPointer -= storeWords;
+            if (this->allocPointer < this->allocLimit)
+            {
+                this->allocPointer += storeWords;
+                goto RESTART;
+            }
+            PolyObject *t = (PolyObject*)(this->allocPointer+1);
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wx));
+            *sp = t;
+            break;
+        }
 
         case INSTR_equalWord:
         {
@@ -1651,7 +1699,7 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_allocWordMemory:
         {
-            // Allocate byte segment.  This does not need to be initialised.
+            // Allocate word segment.  This must be initialised.
             PolyWord initialiser = *sp;
             POLYUNSIGNED flags = UNTAGGED_UNSIGNED(sp[1]);
             POLYUNSIGNED length = UNTAGGED_UNSIGNED(sp[2]);
@@ -1669,6 +1717,25 @@ int IntTaskData::SwitchToPoly()
             // Have to initialise the data.
             for (; length > 0; ) t->Set(--length, initialiser);
             break;
+        }
+
+        case INSTR_alloc_ref:
+        {
+            // Allocate a single word mutable cell.  This is more common than allocWordMemory on its own.
+            PolyWord initialiser = *sp;
+            storeWords = 2;  // +1 for length word
+            this->allocPointer -= storeWords;
+            if (this->allocPointer < this->allocLimit)
+            {
+                this->allocPointer += storeWords;
+                goto RESTART;
+            }
+            PolyObject *t = (PolyObject*)(this->allocPointer+1);
+            t->SetLengthWord(1, F_MUTABLE_BIT);
+            t->Set(0, initialiser);
+            *sp = t;
+            break;
+
         }
 
         case INSTR_loadMLWord:

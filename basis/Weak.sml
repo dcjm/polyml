@@ -1,7 +1,7 @@
 (*
     Title:      Weak references
     Author:     David Matthews
-    Copyright   David Matthews 2008, 2015
+    Copyright   David Matthews 2008, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -30,7 +30,7 @@
 signature WEAK =
 sig
     val weak: 'a ref option -> 'a ref option ref
-    (*val weakArray: int * 'a ref option -> 'a ref option array*)
+    val weakArray: int * 'a ref option -> 'a ref option array
     val weakLock: Thread.Mutex.mutex
     and weakSignal: Thread.ConditionVar.conditionVar
     val touch : 'a ref -> unit
@@ -40,16 +40,13 @@ structure Weak: WEAK =
 struct
     fun weak (v: 'a ref option): 'a ref option ref = RunCall.allocateWordMemory(0w1, 0wx60, v)
     
-(*    fun weakArray(n: int, v: 'a ref option): 'a ref option array =
+    fun weakArray(n: int, v: 'a ref option): 'a ref option array =
     let
-        (* An array consists of n+1 words with the first containing
-           the length. *)
         val () = if n < 0 orelse n >= Array.maxLen then raise Size else ()
-        val arr = RunCall.allocateWordMemory(Word.fromInt(n+1), 0wx60, v)
+        val arr = RunCall.allocateWordMemory(Word.fromInt n, 0wx60, v)
     in
-       RunCall.storeWord(arr, 0w0, n);
-       arr
-    end*)
+        arr
+    end
 
     val weakLock = Thread.Mutex.mutex()
     and weakSignal = Thread.ConditionVar.conditionVar()
@@ -60,5 +57,5 @@ struct
        reference becoming set to NONE.  It's primarily there for long-term
        security in the event that the compiler is sufficiently clever to
        work out that something is no longer referenced. *)
-    fun touch v = RunCall.run_call1 RuntimeCalls.POLY_SYS_touch_final v
+    fun touch v = v := !v
 end;

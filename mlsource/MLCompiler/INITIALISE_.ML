@@ -315,6 +315,11 @@ struct
             (* Allocate a word cell. *)
             val () = enterRunCall ("allocateWordMemory",
                     makePolymorphic([a, b], mkBuiltIn3Fn AllocateWordMemory), mkProductType[Word, Word, a] ->> b)
+            (* Byte vector operations. *)
+            val () = enterRunCall ("byteVectorEqual",
+                    makePolymorphic([a], mkBuiltIn5Fn ByteVecEqual), mkProductType[a, a, Word, Word, Word] ->> Bool)
+            val () = enterRunCall ("byteVectorCompare",
+                    makePolymorphic([a], mkBuiltIn5Fn ByteVecCompare), mkProductType[a, a, Word, Word, Word] ->> Int)
         end
 
         local
@@ -634,15 +639,19 @@ struct
         end
 
         local
+            open BuiltIns
             val largeWordEnv = makeStructure(globalEnv, "LargeWord")
             fun monoTypePrinter _ = PRETTY.PrettyString "?"
 
             val idCode =
                 let
                     open TypeValue
+                    val equalLongWordFn =
+                        mkInlproc(
+                            mkBuiltIn2(LargeWordComparison TestEqual, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualLargeWord()", [], 0)
                     val code =
                         createTypeValue{
-                            eqCode=CODETREE.rtsFunction POLY_SYS_eq_longword,
+                            eqCode=equalLongWordFn,
                             printCode=mkConst (toMachineWord (ref monoTypePrinter)),
                             boxedCode = boxedNever,
                             sizeCode = singleWord
@@ -653,9 +662,46 @@ struct
             val largeWordType =
                 makeTypeConstructor("word",
                     makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
+
+            val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
+
+            fun enterBinary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
+            in
+                #enterVal largeWordEnv (name, value)
+            end
+            
+            val compareType = LargeWord ** LargeWord ->> Bool
+            and binaryType  = LargeWord ** LargeWord ->> LargeWord
+            and shiftType   = LargeWord ** Word ->> LargeWord (* The shift amount is a Word. *)
+
+            fun enterComparison(name, test) =
+                enterBinary(name, LargeWordComparison test, compareType)
+            and enterBinaryOp(name, oper) =
+                enterBinary(name, LargeWordArith oper, binaryType)
+            and enterBinaryLogical(name, oper) =
+                enterBinary(name, LargeWordLogical oper, binaryType)
+            and enterBinaryShift(name, oper) =
+                enterBinary(name, LargeWordShift oper, shiftType)
         in
             val () = #enterType largeWordEnv ("word", TypeConstrSet(largeWordType, []))
-            val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
+            val () = enterComparison("<",   TestLess)
+            val () = enterComparison("<=",  TestLessEqual)
+            val () = enterComparison(">",   TestGreater)
+            val () = enterComparison(">=",  TestGreaterEqual)
+            val () = enterBinaryOp("+",     ArithAdd)
+            val () = enterBinaryOp("-",     ArithSub)
+            val () = enterBinaryOp("*",     ArithMult)
+            val () = enterBinaryOp("div",   ArithQuot) (* Word.div and Word.mod are Quot and Rem. *)
+            val () = enterBinaryOp("mod",   ArithRem)
+            val () = enterBinaryLogical("orb",  LogicalOr)
+            val () = enterBinaryLogical("andb", LogicalAnd)
+            val () = enterBinaryLogical("xorb", LogicalXor)
+            val () = enterBinaryShift("<<", ShiftLeft)
+            val () = enterBinaryShift(">>", ShiftRightLogical)
+            val () = enterBinaryShift("~>>", ShiftRightArithmetic)
+            val LargeWord = LargeWord
         end
 
         local
@@ -927,14 +973,14 @@ struct
                             mkEqualWord(mkLoadLocal 0, mkLoadLocal 1),
                             (* Equal - test the contents. *)
                             mkEnv([
-                                (* POLY_SYS_bytevec_eq takes a byte length so we have to multiply by
+                                (* ByteVecEqual takes a byte length so we have to multiply by
                                    the number of bytes per word. *)
                                 mkDec(2,
                                     mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
                                         mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0))
                                 ],
-                                mkBuiltIn(POLY_SYS_bytevec_eq,
-                                    [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero, mkLoadLocal 2])),
+                                mkBuiltIn5(BuiltIns.ByteVecEqual,
+                                    mkLoadArgument 0, mkLoadArgument 1, CodeZero, CodeZero, mkLoadLocal 2)),
                             CodeFalse (* Not same length- result false *)
                         )
                     ),

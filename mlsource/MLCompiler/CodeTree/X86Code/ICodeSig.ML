@@ -206,6 +206,12 @@ sig
            then unboxed and remove unnecessary allocation. *)
     |   BoxLargeWord of { source: argument, dest: argument }
 
+        (* Compare two vectors of bytes and set the condition code on the result.
+           In general vec1Addr and vec2Addr will be pointers inside memory cells
+           so have to be untagged registers. *)
+    |   CompareByteVectors of
+            { vec1Addr: argument, vec2Addr: argument, length: argument, ccRef: ccRef }
+
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 

@@ -284,23 +284,30 @@ struct
         (* wordEq is used both for tagged words and for pointer equality *)
         val wordEq = equalWordFn
         (* Strings can be either tagged single characters or vectors whose first word is
-           the length. *)
+           the length.  This version no longer assumes that single character strings will
+           always be tagged and that they could also be held in a vector. *)
         local
             val stringEquality =
                 mkInlproc(
-                    mkCor( (* Either they're equal... *)
-                        mkEqualWord(mkLoadArgument 0, mkLoadArgument 1),
-                        (* ... or they're both long and ...*)
-                        mkCand(
-                            mkCand(
-                                mkNot(mkIsShort(mkLoadArgument 0)),
-                                mkNot(mkIsShort(mkLoadArgument 1))
+                    mkIf(
+                        mkIsShort(mkLoadArgument 0), (* Is the first argument short? *)
+                        mkIf(
+                            mkIsShort(mkLoadArgument 1), (* And the second? *)
+                            mkEqualWord(mkLoadArgument 0, mkLoadArgument 1), (* Then they must be the same value. *)
+                                (* Otherwise the length of the second argument must be one and the first character of the
+                                   string must match. *)
+                            mkCand(mkEqualWord(mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 1), mkConst(toMachineWord 1)),
+                                mkEqualWord(mkLoadArgument 0, mkBuiltIn2(BuiltIns.LoadByte{isImmutable=true}, mkLoadArgument 1, mkConst(toMachineWord wordSize))))
                             ),
-                            (* ... their contents are equal.  Because the first word contains the
+                        (* First argument is long. *)
+                        mkIf(
+                            mkIsShort(mkLoadArgument 1), (* Is the second arg short? *)
+                            mkCand(mkEqualWord(mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 0), mkConst(toMachineWord 1)),
+                                mkEqualWord(mkBuiltIn2(BuiltIns.LoadByte{isImmutable=true}, mkLoadArgument 0, mkConst(toMachineWord wordSize)), mkLoadArgument 1)),
+                            (* Both long.  Because the first word contains the
                                length if we include this in the test we will have tested the length
-                               as well and will stop immediately if the lengths are different. *)
-                            mkBuiltIn(POLY_SYS_bytevec_eq,
-                                [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero,
+                               as well and will stop immediately if the lengths are different.*)
+                            mkBuiltIn5(BuiltIns.ByteVecEqual, mkLoadArgument 0, mkLoadArgument 1, CodeZero, CodeZero,
                                     mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithAdd,
                                         mkConst(toMachineWord wordSize),
                                         (* Use argument 1 here rather than 0.  We could use either but this works
@@ -308,10 +315,10 @@ struct
                                            gets the length of the constant string.  It also works better
                                            for the, to me, more natural ordering of variable=constant. *)
                                         mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 1)
-                                        )
-                                ])
+                            )
+                          )
                         )
-                    ),
+                     ),
                     2, "stringEquality", [], 0)
         in
             val stringEquality = stringEquality

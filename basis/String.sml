@@ -96,11 +96,10 @@ local
     (* String comparison function used in isPrefix and isSuffix.
        N.B.  The caller must make sure that neither string is a single character. *)
     local
-        val byteVecEq: string * word * string * word * word -> bool =
-            RunCall.run_call5 POLY_SYS_bytevec_eq
+        val byteVecEq: string * string * word * word * word -> bool = RunCall.byteVectorEqual
     in
         fun byteMatch s1 s2 i j l =
-            byteVecEq(s1, i+wordSize, s2, j+wordSize, l)
+            byteVecEq(s1, s2, i+wordSize, j+wordSize, l)
     end
 
     (* We use stringExplode in String and Substring. *)
@@ -141,7 +140,7 @@ local
         
         fun succ c = if ord c = maxOrd then raise Chr else chr(ord c + 1)
         and pred c = if ord c = 0 then raise Chr else chr(ord c - 1)
-    
+
         fun isUpper c = #"A" <= c andalso c <= #"Z" 
         fun isLower c = #"a" <= c andalso c <= #"z" 
         fun isDigit c = #"0" <= c andalso c <= #"9" 
@@ -285,9 +284,6 @@ local
            define it separately for efficiency. *)
         val op ^ : string * string -> string = op ^
 
-        (* This replaces the string_sub function in the RTS.  It's probably
-           worthwhile because that function indexes from 1 so we need a
-           wrap-around anyway. *)
         fun sub (s: string, i: int): char =
             if i < 0 orelse i >= size s
             then raise General.Subscript
@@ -476,33 +472,58 @@ local
                 new_vec
             end
         end
-        
-        (* Finally the comparison operations since defining these removes
-           the overloading. *)
-        val op < : (string * string) -> bool = op <
-        val op <= : (string * string) -> bool = op <=
-        val op > : (string * string) -> bool = op >
-        val op >= : (string * string) -> bool = op >=
-    
+            
         local
-        (* The previous version of compare involved two tests.  This
-           uses a single string comparison and then tests the result. *)
-            val strCompare: string*string->int =
-                RunCall.run_call2 POLY_SYS_str_compare
+            (* String comparison.  This is complicated because of the special case for
+               single character strings. *)
+            fun compareString(s1, s2) =
+            let
+                val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                val test = 
+                    if isShortString s1
+                    then
+                    (
+                        (* The first string is a single-character. If the second is also a single
+                           character we can subtract them to produce an ordering. *)
+                        if isShortString s2
+                        then Char.ord(singleCharStringAsChar s1) - Char.ord(singleCharStringAsChar s2)
+                        else if s2l = 0w0 then 1 (* It's always greater than the empty string. *)
+                        else (* Subtract the first character of the string. *)
+                            Char.ord(singleCharStringAsChar s1) - RunCall.loadByteFromImmutable(s2, wordSize)
+                    )
+                    else if isShortString s2
+                    then
+                    (
+                        (* The second string is a single-character but the first is not. *)
+                        if s1l = 0w0 then ~1 (* The empty string is less than this. *)
+                        else RunCall.loadByteFromImmutable(s1, wordSize) - Char.ord(singleCharStringAsChar s2)
+                    )
+                    else RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+            in
+                if test = 0 (* If the strings are the same up to the shorter length ... *)
+                then RunCall.unsafeCast(s1l - s2l) (* The result depends on the lengths. *)
+                else test
+            end
         in
             fun compare (s1, s2) =
             let
-                val c = strCompare(s1, s2)
+                val c = compareString(s1, s2)
             in
                 if c = 0
                 then General.EQUAL
-                else if c = 1
+                else if c > 0
                 then General.GREATER
                 else General.LESS
             end
+
+            val op >= : string*string->bool = (fn i => i >= 0) o compareString
+            and op <= : string*string->bool = (fn i => i <= 0) o compareString
+            and op >  : string*string->bool = (fn i => i > 0) o compareString
+            and op <  : string*string->bool = (fn i => i < 0) o compareString
         end
-                    
-        end (* String *)
+
+                   
+    end (* String *)
 
 
     structure StringCvt =
@@ -643,7 +664,6 @@ local
 
     local
         open Char
-
     in
         (* Convert the first i digits as a hex number.  Check the result is
            in the range before returning it. *)
@@ -1703,6 +1723,16 @@ in
     
     structure StringCvt : STRING_CVT = StringCvt
 end;
+
+val () = RunCall.addOverload Char.>= ">="
+and () = RunCall.addOverload Char.<= "<="
+and () = RunCall.addOverload Char.>  ">"
+and () = RunCall.addOverload Char.<  "<";
+
+val () = RunCall.addOverload String.>= ">="
+and () = RunCall.addOverload String.<= "<="
+and () = RunCall.addOverload String.>  ">"
+and () = RunCall.addOverload String.<  "<";
 
 (* Values available unqualified at the top level. *)
 val ord : char -> int = Char.ord 

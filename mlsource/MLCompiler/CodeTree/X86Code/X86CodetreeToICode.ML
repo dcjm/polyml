@@ -40,7 +40,7 @@ struct
   
     (* shift a short constant, but don't set tag bit *)
     fun semitag c = 2 * c
-
+ 
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
         val pregCounter = ref 0
@@ -124,6 +124,13 @@ struct
         (* Generally we have an offset in words and no index register. *)
         fun wordOffsetAddress(offset, baseReg) =
             MemoryLocation{offset=offset*wordSize, base=baseReg, index=NoMemIndex}
+   
+        (* The large-word operations all work on the value within the box pointed at
+           by the register.  We generate all large-word operations using this even
+           where the X86 instruction requires a register.  This allows the next level
+           to optimise cases of cascaded instructions and avoid creating boxes for
+           intermediate values. *)
+        fun wordAt reg = wordOffsetAddress(0, reg)
 
         (* This controls what codeAsArgument returns.  Different instructions have different
            requirements.  If an option is set to false the value is instead loaded into a
@@ -838,6 +845,114 @@ struct
                  InitialisationComplete{dest=target}], target)
             end
 
+        |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination) =
+                codeAsConditional(instr, context, isTail, destination)
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    [ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                     BoxLargeWord{source=aReg3, dest=target}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
+                       since we don't need to check for overflow. *)
+                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                     BoxLargeWord{source=aReg3, dest=target}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and resValue = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    [Multiplication{resultReg=resValue, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                     BoxLargeWord{source=resValue, dest=target}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val quotient = newUReg() and remainder = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* We don't test for zero here - that's done explicitly. *)
+                    [Division { isSigned = false, dividend=wordAt aReg1, divisor=wordAt aReg2,
+                                quotient=quotient, remainder=remainder },
+                     BoxLargeWord{source=quotient, dest=target}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val quotient = newUReg() and remainder = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* We don't test for zero here - that's done explicitly. *)
+                    [Division { isSigned = false, dividend=wordAt aReg1, divisor=wordAt aReg2,
+                                quotient=quotient, remainder=remainder },
+                     BoxLargeWord{source=remainder, dest=target}], target)
+            end
+
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    [ArithmeticFunction{oper=OR, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                     BoxLargeWord{source=aReg3, dest=target}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    [ArithmeticFunction{oper=AND, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                     BoxLargeWord{source=aReg3, dest=target}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    [ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                     BoxLargeWord{source=aReg3, dest=target}], target)
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordShift shift, arg1, arg2}, context, _, destination) =
+                (* The shift is always a Word.word value i.e. tagged.  There is a check at the higher level
+                   that the shift does not exceed 32/64 bits. *)
+            let
+                open BuiltIns
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val aReg2Untagged = newUReg() and aReg3 = newUReg()
+                val shiftOp = case shift of ShiftLeft => SHL | ShiftRightLogical => SHR | ShiftRightArithmetic => SAR
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                 [UntagValue{source=aReg2, dest=aReg2Untagged, isSigned=false},
+                  ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=wordAt aReg1, shiftAmount=aReg2Untagged, ccRef=newCCRef() },
+                  BoxLargeWord{source=aReg3, dest=target}], target)
+            end
+
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =
             let
                 val baseReg = newPReg() and valueReg = newPReg()
@@ -925,8 +1040,43 @@ struct
         |   codeToICode(BICBuiltIn4 _, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn4"
 
-        |   codeToICode(BICBuiltIn5 _, _, _, _) =
-                raise InternalError "TODO: BICBuiltIn5"
+        |   codeToICode(instr as BICBuiltIn5{oper=BuiltIns.ByteVecEqual, ...}, context, isTail, destination) =
+                codeAsConditional(instr, context, isTail, destination)
+
+        |   codeToICode(BICBuiltIn5{oper=BuiltIns.ByteVecCompare, arg1, arg2, arg3, arg4, arg5}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val arg1Reg = newPReg() and arg2Reg = newPReg() and arg3Reg = newPReg()
+                and arg4Reg = newPReg() and arg5Reg = newPReg()
+                val untag3Reg = newUReg() and untag4Reg = newUReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val ccRef = newCCRef()
+                val labLess = newLabel() and labGreater = newLabel()
+                and exitLab1 = newLabel() and exitLab2 = newLabel()
+            in
+                (codeToICodeTarget(arg1, context, false, arg1Reg) @
+                codeToICodeTarget(arg2, context, false, arg2Reg) @
+                codeToICodeTarget(arg3, context, false, arg3Reg) @
+                codeToICodeTarget(arg4, context, false, arg4Reg) @
+                codeToICodeTarget(arg5, context, false, arg5Reg) @
+                [UntagValue{source=arg3Reg, dest=untag3Reg, isSigned=false},
+                 LoadEffectiveAddress{base=SOME arg1Reg, offset=0, index=MemIndex1 untag3Reg, dest=vec1Reg},
+                 UntagValue{source=arg4Reg, dest=untag4Reg, isSigned=false},
+                 LoadEffectiveAddress{base=SOME arg2Reg, offset=0, index=MemIndex1 untag4Reg, dest=vec2Reg},
+                 UntagValue{source=arg5Reg, dest=lenReg, isSigned=false},
+                 CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
+                 ConditionalForwardJump{ ccRef=ccRef, condition=JL, label=labLess },
+                 ConditionalForwardJump{ ccRef=ccRef, condition=JG, label=labGreater },
+                 MoveArgument{ source=IntegerConstant(tag 0), dest=target, kind=WordToWord },
+                 UnconditionalForwardJump{ label=exitLab1 },
+                 ForwardJumpLabel{ label=labLess, result=NONE },
+                 MoveArgument{ source=IntegerConstant(tag ~1), dest=target, kind=WordToWord },
+                 UnconditionalForwardJump{ label=exitLab2 },
+                 ForwardJumpLabel{ label=labGreater, result=NONE },
+                 MoveArgument{ source=IntegerConstant(tag 1), dest=target, kind=WordToWord },
+                 ForwardJumpLabel{ label=exitLab1, result=SOME target },
+                 ForwardJumpLabel{ label=exitLab2, result=SOME target }], target)
+            end
 
         |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, destination) =
             (* Empty closure - create a constant closure for any recursive calls. *)
@@ -1454,6 +1604,44 @@ struct
                     [WordComparison{arg1=arg1Reg, arg2=arg2Reg, ccRef=ccRef},
                      ConditionalForwardJump{ccRef=ccRef,
                            condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
+            end
+
+        |   codeCondition(BICBuiltIn2{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg() and ccRef = newCCRef()
+                val testCode =
+                    codeToICodeTarget(arg1, context, false, arg1Reg) @
+                    codeToICodeTarget(arg2, context, false, arg2Reg)
+            in
+                testCode @
+                    [WordComparison{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef},
+                     ConditionalForwardJump{ccRef=ccRef,
+                           condition=testAsBranch(test, false, jumpOn), label=jumpLabel}]
+            end
+
+        |   codeCondition(BICBuiltIn5{oper=BuiltIns.ByteVecEqual, arg1, arg2, arg3, arg4, arg5},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg() and arg3Reg = newPReg()
+                and arg4Reg = newPReg() and arg5Reg = newPReg()
+                val untag3Reg = newUReg() and untag4Reg = newUReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val ccRef = newCCRef()
+            in
+                codeToICodeTarget(arg1, context, false, arg1Reg) @
+                codeToICodeTarget(arg2, context, false, arg2Reg) @
+                codeToICodeTarget(arg3, context, false, arg3Reg) @
+                codeToICodeTarget(arg4, context, false, arg4Reg) @
+                codeToICodeTarget(arg5, context, false, arg5Reg) @
+                [UntagValue{source=arg3Reg, dest=untag3Reg, isSigned=false},
+                 LoadEffectiveAddress{base=SOME arg1Reg, offset=0, index=MemIndex1 untag3Reg, dest=vec1Reg},
+                 UntagValue{source=arg4Reg, dest=untag4Reg, isSigned=false},
+                 LoadEffectiveAddress{base=SOME arg2Reg, offset=0, index=MemIndex1 untag4Reg, dest=vec2Reg},
+                 UntagValue{source=arg5Reg, dest=lenReg, isSigned=false},
+                 CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
+                 ConditionalForwardJump{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, label=jumpLabel}]
             end
 
         |   codeCondition(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel) =

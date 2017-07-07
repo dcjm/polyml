@@ -101,6 +101,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg);
 }
 
 // Number of bits in a Poly word.  N.B.  This is not necessarily the same as SIZEOF_VOIDP.
@@ -1919,6 +1920,48 @@ POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
+// Extract the low order part of an arbitrary precision value as a boxed LargeWord.word
+// value.  If the value is negative it is treated as a twos complement value.
+// This is used Word.fromLargeInt and LargeWord.fromLargeInt with long-form
+// arbitrary precision values.
+POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    POLYSIGNED p = 0;
+
+    if (arg.IsTagged())
+        p = arg.UnTagged();
+    else
+    {
+        bool negative = OBJ_IS_NEGATIVE(GetLengthWord(arg)) ? true : false;
+#ifdef USE_GMP
+        unsigned length = numLimbs(arg);
+        mp_limb_t c = *(mp_limb_t*)arg.AsCodePtr();
+#else
+        POLYUNSIGNED length = get_length(arg);
+        if (length > sizeof(PolyWord)) length = sizeof(PolyWord);
+        byte *ptr = arg.AsCodePtr();
+        while (length--)
+        {
+            p = (p << 8) | ptr[length];
+        }
+#endif
+        if (negative) p = -p;
+    }
+
+    Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+    result->WordP()->Set(0, PolyWord::FromUnsigned(p));
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    return result->Word().AsUnsigned();
+
+
+}
+
 static struct _entrypts entryPtTable[] =
 {
     { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
@@ -1930,6 +1973,7 @@ static struct _entrypts entryPtTable[] =
     { "PolyCompareArbitrary",           (polyRTSFunction)&PolyCompareArbitrary},
     { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
     { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
+    { "PolyGetLowOrderAsLargeWord",     (polyRTSFunction)&PolyGetLowOrderAsLargeWord},
 
     { NULL, NULL} // End of list.
 };

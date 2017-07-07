@@ -16,6 +16,9 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+(* Temporary definition for Char.scan. *)
+structure StringCvt = struct type  ('a, 'b) reader = 'b -> ('a * 'b) option end;
+
 signature CHAR =
 sig
     eqtype  char

@@ -114,6 +114,7 @@ sig
     and mkBuiltIn1Fn: BuiltIns.builtIn1Ops -> codetree
     and mkBuiltIn2Fn: BuiltIns.builtIn2Ops -> codetree
     and mkBuiltIn3Fn: BuiltIns.builtIn3Ops -> codetree
+    and mkBuiltIn5Fn: BuiltIns.builtIn5Ops -> codetree
 
     structure Foreign: FOREIGNCALLSIG
     structure Sharing:

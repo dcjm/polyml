@@ -7,8 +7,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -27,8 +26,9 @@
 #define INSTR_jump_false    0x03
 #define INSTR_container     0x04
 #define INSTR_del_handler   0x05
+#define INSTR_alloc_ref     0x06
 #define INSTR_jump_i_false  0x07
-#define INSTR_set_container 0x08    /* Added DCJM 5/10/05. */
+#define INSTR_set_container 0x08
 #define INSTR_del_handler_i 0x09
 #define INSTR_case          0x0a
 #define INSTR_call_closure  0x0c

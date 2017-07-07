@@ -668,22 +668,6 @@ struct
     |   shiftTypeRepr SHR = "Shift Right Logical"
     |   shiftTypeRepr SAR = "Shift Right Arithemetic"
 
-    datatype group3Ops = NOT | NEG | MUL | IMUL | DIV | IDIV
-    
-    fun group3OpsToWord NOT  = 0w2: Word8.word
-    |   group3OpsToWord NEG  = 0w3
-    |   group3OpsToWord MUL  = 0w4
-    |   group3OpsToWord IMUL = 0w5
-    |   group3OpsToWord DIV  = 0w6
-    |   group3OpsToWord IDIV = 0w7
-
-    fun group3OpsRepr NOT  = "NOT"
-    |   group3OpsRepr NEG  = "NEG"
-    |   group3OpsRepr MUL  = "MUL"
-    |   group3OpsRepr IMUL = "IMUL"
-    |   group3OpsRepr DIV  = "DIV"
-    |   group3OpsRepr IDIV = "IDIV"
-
     datatype repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
     
     fun repOpsToWord CMPSB = 0wxa6: Word8.word
@@ -779,7 +763,7 @@ struct
     |   CALL_32
     |   MOVL_A_R
     |   MOVL_R_A
-    |   MOVB_R_A
+    |   MOVB_R_A of {forceRex: bool}
     |   PUSH_R of Word8.word
     |   POP_R  of Word8.word
     |   Group5
@@ -805,7 +789,7 @@ struct
     |   FPESC of Word8.word
     |   REP (* Rep prefix *)
     |   MOVZX (* Needs escape code. *)
-    |   IMULRR (* Needs escape code. *)
+    |   IMUL (* Needs escape code. *)
     |   SSE2Load (* movsd with register destination - needs escape sequence. *)
     |   SSE2Store (* movsd with memory destination - needs escape sequence. *)
     |   CQO_CDQ (* Sign extend before divide.. *)
@@ -819,7 +803,7 @@ struct
     |   opToInt CALL_32       =  0wxe8
     |   opToInt MOVL_A_R      =  0wx8b
     |   opToInt MOVL_R_A      =  0wx89
-    |   opToInt MOVB_R_A      =  0wx88
+    |   opToInt (MOVB_R_A _)  =  0wx88
     |   opToInt (PUSH_R reg)  =  0wx50 + reg
     |   opToInt (POP_R  reg)  =  0wx58 + reg
     |   opToInt Group5        =  0wxff
@@ -845,61 +829,10 @@ struct
     |   opToInt (FPESC n)     = 0wxD8 orb8 n
     |   opToInt REP           = 0wxf3
     |   opToInt MOVZX         = 0wxb6 (* Needs escape code. *)
-    |   opToInt IMULRR        = 0wxaf (* Needs escape code. *)
+    |   opToInt IMUL          = 0wxaf (* Needs escape code. *)
     |   opToInt SSE2Load      = 0wx10 (* Needs F2 0F escape. *)
     |   opToInt SSE2Store     = 0wx11 (* Needs F2 0F escape. *)
     |   opToInt CQO_CDQ       = 0wx99
-
-(* ...
-
-    val eax = Reg  0;  
-    val ecx = Reg  1;  
-    val edx = Reg  2;
-    val ebx = Reg  3;  
-    val esp = Reg  4;  (* also used for "SIB used" and "no index" *)
-    val ebp = Reg  5;  (* also used for "absolute" *)
-    val esi = Reg  6;  
-    val edi = Reg  7;
-
-  type basereg  = reg; {0,1,2,3,6,7 only}
-  type indexreg = reg; {0,1,2,3,5,6,7 only}
-  
-The i386 family has a horrendous collection of not-quite-orthogonal addressing modes.
-
-Register mode:
-  (1)  reg                   mod = 3; r/m = getReg reg
-
-DS-relative addressing modes:
-  (2)  DS:[basereg]          mod = 0; r/m = getReg basereg  
-  (3)  DS:[basereg + disp8]  mod = 1; r/m = getReg basereg
-  (4)  DS:[basereg + disp32] mod = 2; r/m = getReg basereg
-
-  (2a) DS:[basereg]          mod = 0; r/m = 4; s = ?; i = 4; b = getReg basereg  
-  (3a) DS:[basereg + disp8]  mod = 1; r/m = 4; s = ?; i = 4; b = getReg basereg
-  (4a) DS:[basereg + disp32] mod = 2; r/m = 4; s = ?; i = 4; b = getReg basereg
-  
-  (5)  DS:[basereg + (scale * indexreg)]          mod = 0; r/m = 4; s = scale; i = getReg indexreg; b = getReg basereg  
-  (6)  DS:[basereg + (scale * indexreg) + disp8]  mod = 1; r/m = 4; s = scale; i = getReg indexreg; b = getReg basereg
-  (7)  DS:[basereg + (scale * indexreg) + disp32] mod = 2; r/m = 4; s = scale; i = getReg indexreg; b = getReg basereg
-
-  (8)  DS:disp32             mod = 0; r/m = 5
-  (8a) DS:[disp32]           mod = 0; r/m = 4; s = ?; i = 4; b = 5
-  
-  (9)  DS:[disp32 + (scale * indexreg)]           mod = 0; r/m = 4; s = scale; i = getReg indexreg; b = 5 
-  
-SS-relative addressing modes:
-  (10) SS:[ebp + disp8]      mod = 1; r/m = 5
-  (11) SS:[ebp + disp32]     mod = 2; r/m = 5
-
-  (12) SS:[ebp + (scale * indexreg) + disp8]  mod = 1; r/m = 4; s = scale; i = getReg indexreg; b = 5  
-  (13) SS:[ebp + (scale * indexreg) + disp32] mod = 2; r/m = 4; s = scale; i = getReg indexreg; b = 5
-  
-  (14) SS:[esp + (scale * indexreg)]          mod = 0; r/m = 4; s = scale; i = getReg indexreg; b = 4
-  (15) SS:[esp + (scale * indexreg) + disp8]  mod = 1; r/m = 4; s = scale; i = getReg indexreg; b = 4  
-  (16) SS:[esp + (scale * indexreg) + disp32] mod = 2; r/m = 4; s = scale; i = getReg indexreg; b = 4
-
-... *)
-
 
     datatype mode =
         Based0    (* mod = 0 *)
@@ -1237,7 +1170,7 @@ SS-relative addressing modes:
     (* A few instructions require an escape. *)
     fun genEscape(MOVZX, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(IMULRR, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(IMUL, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(SSE2Load, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Store, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape _ = ()
@@ -1368,13 +1301,22 @@ SS-relative addressing modes:
             |   MOVZX => isX64 (* Needed to ensure the result is 64-bits *)
             |   MOVL_32_64_R _ => isX64 (* Needed *)
             |   MOVL_32_A => isX64 (* Needed *)
-            |   IMULRR => isX64 (* Needed to ensure the result is 64-bits *)
+            |   IMUL => isX64 (* Needed to ensure the result is 64-bits *)
             |   LOCK_XADD => isX64 (* Needed to ensure the result is 64-bits *)
             |   CQO_CDQ => isX64 (* It's only CQO if there's a Rex prefix. *)
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
+        (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
+           That's only possible in 64-bit mode. *)
+        val forceRex =
+            case opb of
+                MOVB_R_A {forceRex} =>
+                    if isX64
+                    then forceRex
+                    else raise InternalError "genRex: MOVB_R_A accessing low order byte of ESI/EDI"
+            |   _ => false
     in
-        if need64bit orelse rrX orelse rbX orelse riX
+        if need64bit orelse rrX orelse rbX orelse riX orelse forceRex
         then gen8u(rex{w=need64bit, r=rrX, b=rbX, x = riX}, code)
         else ()
     end
@@ -1927,7 +1869,8 @@ SS-relative addressing modes:
     |   FreeRegisters of regSet
     |   MakeSafe of genReg
     |   RepeatOperation of repOps
-    |   Group3Ops of genReg * group3Ops
+    |   DivideAccR of {arg: genReg, isSigned: bool }
+    |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
     |   FPLoadFromGenReg of genReg
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
@@ -1941,7 +1884,8 @@ SS-relative addressing modes:
     |   FPStatusToEAX
     |   FPLoadIntAndPop
     |   FPFree of fpReg
-    |   SignedMultiply of { source: genReg, output: genReg }
+    |   MultiplyRR of { source: genReg, output: genReg }
+    |   MultiplyRM of { base: genReg, offset: int,output: genReg }
     |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
     |   SignExtendForDivide
@@ -2143,7 +2087,8 @@ SS-relative addressing modes:
         |   FreeRegisters regs => (stream "FreeRegister "; stream(regSetRepr regs))
         |   MakeSafe reg => ( stream "MakeSafe "; printGReg reg)
         |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
-        |   Group3Ops(reg, ops) => ( stream(group3OpsRepr ops); stream " "; printGReg reg)
+        |   DivideAccR{arg, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printGReg arg)
+        |   DivideAccM{base, offset, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printBaseOffset(base, NoIndex, offset))
         |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printGReg base; stream ") <=> "; printGReg output)
         |   FPLoadFromGenReg reg => (stream "FPLoad "; printGReg reg)
         |   FPLoadFromFPReg {source, lastRef} =>
@@ -2163,7 +2108,8 @@ SS-relative addressing modes:
         |   FPStatusToEAX => (stream "FPStatus "; printGReg eax)
         |   FPLoadIntAndPop => (stream "FPLoadIntAndPop (%ESP)")
         |   FPFree reg => (stream "FPFree "; printFPReg reg)
-        |   SignedMultiply {source, output } => (stream "SignedMultiply"; stream " "; printGReg source; stream " *=>"; printGReg output)
+        |   MultiplyRR {source, output } => (stream "MultiplyRR"; stream " "; printGReg source; stream " *=>"; printGReg output)
+        |   MultiplyRM {base, offset, output } => (stream "MultiplyRM"; stream " "; printBaseOffset(base, NoIndex, offset); stream " *=>"; printGReg output)
         |   XMMLoadFromMemory { base, offset, output } =>
             (
                 stream "MoveMR "; printBaseOffset(base, NoIndex, offset); stream " => "; printXMMReg output
@@ -2601,6 +2547,7 @@ SS-relative addressing modes:
 
         |   cgOp(RepeatOperation repOp :: remainder) =
             (
+                (* We don't explicitly clear the direction flag.  Should that be done? *)
                 checkSources[edi, ecx]; addDests[edi, ecx];
                 case repOp of
                     STOSB => checkSources[eax]
@@ -2615,17 +2562,17 @@ SS-relative addressing modes:
                 cgOp remainder
             )
 
-        |   cgOp(Group3Ops(reg, ops) :: remainder) =
+        |   cgOp(DivideAccR{arg, isSigned} :: remainder) =
             (
-                checkSources[reg];
-                case ops of
-                    NOT => addDests[reg]
-                |   NEG => addDests[reg]
-                |   MUL => (checkSources[eax]; addDests[eax, edx])
-                |   IMUL => (checkSources[eax]; addDests[eax, edx])
-                |   DIV => (checkSources[eax, edx]; addDests[eax, edx])
-                |   IDIV => (checkSources[eax, edx]; addDests[eax, edx]);
-                genOpRegPlus2(Group3_A, reg, group3OpsToWord ops, code);
+                checkSources[arg, eax, edx]; addDests[eax, edx];
+                genOpRegPlus2(Group3_A, arg, if isSigned then 0w7 else 0w6, code);
+                cgOp remainder
+            )
+
+        |   cgOp(DivideAccM{base, offset, isSigned} :: remainder) =
+            (
+                checkSources[base, eax, edx]; addDests[eax, edx];
+                genOpPlus2(Group3_A, LargeInt.fromInt offset, base, if isSigned then 0w7 else 0w6, code);
                 cgOp remainder
             )
 
@@ -2750,29 +2697,37 @@ SS-relative addressing modes:
             )
 
         |   cgOp(StoreByteRegToMemory{ toStore, address } :: remainder) =
-            (
+            let
+                val (rrC, _) = getReg toStore
+                (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
+                   must use a REX prefix.  This isn't possible in 32-bit mode. *)
+                val opcode = MOVB_R_A{forceRex= rrC >= 0w4} 
+            in
                 checkSources[toStore];
+                case toStore of
+                    GeneralReg (r, false) => if r >= 0w4 then raise InternalError "High byte register" else ()
+                |   _ => ();
                 case address of
                     BaseOffset{offset, base, index=NoIndex} =>
                     (
                         checkSources[base];
-                        genOpEA(MOVB_R_A, LargeInt.fromInt offset, base, toStore, code) 
+                        genOpEA(opcode, LargeInt.fromInt offset, base, toStore, code) 
                     )
                 |   BaseOffset{offset, base, index} =>
                     (
                         checkSources[base];
                         checkIndexSource index;
-                        genOpIndexed(MOVB_R_A, LargeInt.fromInt offset, SOME base, index, toStore, code)
+                        genOpIndexed(opcode, LargeInt.fromInt offset, SOME base, index, toStore, code)
                     )
                 |   ConstantAddress address =>
                     (
                         if isX64 then raise InternalError "StoreByteRegToMemory: ConstantAddress" else ();
-                        genop (MOVB_R_A, NONE, code);
+                        genop (opcode, NONE, code);
                         genmodrm(Based0, #1 (getReg toStore), 0w5 (* constant address *), code);
                         addConstToVec(WVal address, InlineAbsolute, code)
                     );
                 cgOp remainder
-            )
+            end
 
         |   cgOp(StoreByteConstToMemory{ toStore=toStore, address } :: remainder) =
             (
@@ -3120,10 +3075,25 @@ SS-relative addressing modes:
                 cgOp(ResetStack 1 :: remainder) (* Pop the stack. *)
             )
 
-        |   cgOp (SignedMultiply {source, output} :: remainder) =
+        |   cgOp (MultiplyRR {source, output} :: remainder) =
             (
+                (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
+                   because the former allows us to specify the destination register.
+                   The Group3 forms produce double length results in RAX:RDX/EAX:EDX
+                   but we only ever want the low-order half. *)
                 checkSources[source, output]; addDests[output];
-                genOpReg(IMULRR (* 2 byte opcode *), output, source, code);
+                genOpReg(IMUL (* 2 byte opcode *), output, source, code);
+                cgOp remainder
+            )
+
+        |   cgOp (MultiplyRM {base, offset, output} :: remainder) =
+            (
+                (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
+                   because the former allows us to specify the destination register.
+                   The Group3 forms produce double length results in RAX:RDX/EAX:EDX
+                   but we only ever want the low-order half. *)
+                checkSources[base, output]; addDests[output];
+                genOpEA(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, output, code);
                 cgOp remainder
             )
 

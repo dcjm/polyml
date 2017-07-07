@@ -172,10 +172,11 @@ struct
     (* Opcode 1 reserved for Interpreter's internal use *)
     val opcode_jump              = Opcode 2;
     val opcode_jumpFalse         = Opcode 3;
-    val opcode_containerW        = Opcode 4; (* Added DCJM 5/10/05. *)
+    val opcode_containerW        = Opcode 4;
     val opcode_delHandler        = Opcode 5;
+    val opcode_alloc_ref         = Opcode 0x06
     val opcode_jumpIFalse        = Opcode 7;
-    (*val opcode_set_containerW    = Opcode 8;*) (* Added DCJM 5/10/05. *)
+    (*val opcode_set_containerW    = Opcode 8;*)
     val opcode_delHandlerI       = Opcode 9;
     val opcode_caseSwitch        = Opcode 10;
     val opcode_callClosure       = Opcode 12;
@@ -399,6 +400,7 @@ struct
       val () = repUpdate(opcode_jump,         "jump");
       val () = repUpdate(opcode_jumpFalse,    "jumpFalse");
       val () = repUpdate(opcode_delHandler,   "delHandler");
+      val () = repUpdate(opcode_alloc_ref,    "alloc_ref");
       val () = repUpdate(opcode_jumpI,        "jumpI");
       val () = repUpdate(opcode_jumpIFalse,   "jumpIFalse");
       val () = repUpdate(opcode_delHandlerI,  "delHandlerI");
@@ -1159,13 +1161,7 @@ struct
     gen1 (opcode_returnW,
       opcode_returnB,
       opcode_return_0,
-      0, 3, arg1, cvec);
-
-  fun genGetStore (arg1 : int, cvec : code) : unit =
-    gen1 (opcode_getStoreW,
-      opcode_getStoreB,
-      opcode_getStore_2,
-      2, 4, arg1, cvec);
+      0, 3, arg1, cvec)
 
   fun genLocal (arg1 : int, cvec : code) : unit =
     gen1 (opcode_localW, 

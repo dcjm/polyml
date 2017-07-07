@@ -34,11 +34,6 @@ val () = Bootstrap.use "basis/MONO_VECTOR.sml";
 val () = Bootstrap.use "basis/MONO_VECTOR_SLICE.sml";
 val () = Bootstrap.use "basis/MONO_ARRAY.sml";
 val () = Bootstrap.use "basis/MONO_ARRAY_SLICE.sml";
-
-structure Char = struct type char = char end; (* We need this for "scan". *)
-structure String = struct type string = string end; (* Needed for toString, fromString etc. *)
-structure StringCvt = struct type  ('a, 'b) reader = 'b -> ('a * 'b) option end;
-
 val () = Bootstrap.use "basis/StringSignatures.sml";
 val () = Bootstrap.use "basis/String.sml";
 

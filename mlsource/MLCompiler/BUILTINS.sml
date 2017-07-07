@@ -83,6 +83,11 @@ sig
             needed.  The second argument is the "flags" byte which must include F_bytes and F_mutable.
             The new cell is not initialised. *)
     |   AllocateByteMemory
+        (* Operations on LargeWords.  These are 32/64 bit values that are "boxed". *)
+    |   LargeWordComparison of testConditions
+    |   LargeWordArith of arithmeticOperations
+    |   LargeWordLogical of logicalOperations
+    |   LargeWordShift of shiftOperations
 
     and builtIn3Ops =
         StoreWord
@@ -97,7 +102,13 @@ sig
         Built4PlaceHolder
 
     and builtIn5Ops =
-        Built5PlaceHolder
+        ByteVecEqual
+        (* Compare two byte vectors for equality and return a boolean depending on the test.
+           The arguments are (vec1Addr, vec2Addr, vec1Offset, vec2Offset, length). *)
+    |   ByteVecCompare
+        (* This is almost the same as ByteVecComparison except it returns an integer
+           that is zero if the vec1=vec2, negative if vec1<vec2 and positive if
+           vec1>vec2. *)
         
     val builtIn0Repr: builtIn0Ops -> string
     and builtIn1Repr: builtIn1Ops -> string
