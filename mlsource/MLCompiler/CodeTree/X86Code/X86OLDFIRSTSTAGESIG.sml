@@ -181,7 +181,6 @@ sig
 
     val vectorLength: stackIndex * ttab * regHint -> operation list * mergeResult
     and vectorFlags: stackIndex * ttab * regHint -> operation list * mergeResult
-    and getFirstLong: stackIndex * ttab * regHint -> operation list * mergeResult
     and stringLength: stackIndex * ttab * regHint -> operation list * mergeResult
     and atomicIncrement: stackIndex * ttab * regHint -> operation list * mergeResult
     and atomicDecrement: stackIndex * ttab * regHint -> operation list * mergeResult
@@ -217,6 +216,20 @@ sig
     and subtractReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and multiplyReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and divideReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and addLargeWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and subtractLargeWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and andLargeWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and orLargeWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and xorLargeWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and multiplyLargeWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and divideLargeWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and modulusLargeWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and upShiftLargeWordConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)
+    and upShiftLargeWordVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and downShiftLargeWordConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)
+    and downShiftLargeWordVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and downShiftLargeWordArithmeticConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)
+    and downShiftLargeWordArithmeticVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
 
     val allocateStoreSmallFixedSize: int * Word8.word * stackIndex * ttab * regHint -> operation list * mergeResult
     and allocStoreAndInitialise: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
@@ -226,6 +239,7 @@ sig
 
     val moveBytes: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and moveWords: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and byteVecComparison: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     
     val wordToLargeWord: bool * stackIndex * ttab * regHint -> operation list * mergeResult
  
@@ -245,6 +259,12 @@ sig
     and greaterThanReal: stackIndex * stackIndex * ttab -> labels * operation list
     and lessOrEqualReal: stackIndex * stackIndex * ttab -> labels * operation list
     and lessThanReal: stackIndex * stackIndex * ttab -> labels * operation list
+    and notEqualLargeWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and equalLargeWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterOrEqualLargeWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterThanLargeWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessOrEqualLargeWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessThanLargeWord: stackIndex * stackIndex * ttab -> labels * operation list
  
     val testShortInt: stackIndex * ttab -> labels * operation list
     and testNotShortInt: stackIndex * ttab -> labels * operation list

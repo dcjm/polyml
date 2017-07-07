@@ -1245,6 +1245,59 @@ struct
         |   OGCBuiltIn2{oper=BuiltIns.AllocateByteMemory, arg1, arg2} =>
                 cgAndRes(allocStoreUninitialised(genToStack arg1, genToStack arg2, transtable, whereto))
 
+        |   instr as OGCBuiltIn2{oper=BuiltIns.LargeWordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2} =>
+                cgAndRes(addLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2} =>
+                cgAndRes(subtractLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2} =>
+                (* TODO: We could use a shift as with Word but N.B. the constants are addresses. *)
+                cgAndRes(multiplyLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, arg1, arg2} =>
+                (* TODO: Use shifts. *)
+                cgAndRes(divideLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+ 
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, arg1, arg2} =>
+                (* TODO: Use shifts. *)
+                cgAndRes(modulusLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
+                cgAndRes(andLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2} =>
+                cgAndRes(orLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2} =>
+                cgAndRes(xorLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordShift BuiltIns.ShiftLeft, arg1, arg2} =>
+            (
+                case arg2 of
+                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                        cgAndRes(upShiftLargeWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                |   _ => cgAndRes(upShiftLargeWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+            )
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
+            (
+                case arg2 of
+                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                        cgAndRes(downShiftLargeWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                |   _ => cgAndRes(downShiftLargeWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+            )
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
+            (
+                case arg2 of
+                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                        cgAndRes(downShiftLargeWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                |   _ => cgAndRes(downShiftLargeWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+            )
+
         |   OGCBuiltIn3{oper=BuiltIns.StoreWord, arg1, arg2, arg3} =>
                 cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
 
@@ -1295,7 +1348,12 @@ struct
 
         |   OGCBuiltIn4{oper=BuiltIns.Built4PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn4"
 
-        |   OGCBuiltIn5{oper=BuiltIns.Built5PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn5"
+        |   instr as OGCBuiltIn5{oper=BuiltIns.ByteVecEqual, ...} => codeAsConditional(instr, whereto, tailKind)
+
+        |   OGCBuiltIn5{oper=BuiltIns.ByteVecCompare, arg1, arg2, arg3, arg4, arg5} =>
+                cgAndRes(
+                    byteVecComparison(genToStack arg1, genToStack arg2, genToStack arg3, 
+                                      genToStack arg4, genToStack arg5, transtable, whereto))
 
         |   OGCExtract ext =>
             let
@@ -2447,11 +2505,36 @@ struct
                         label
                     end
 
+                |   BuiltIns.LargeWordComparison test =>
+                    let
+                        open BuiltIns
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            case (test, jumpOn) of
+                                (TestEqual, true) => equalLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestEqual, false) => notEqualLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestNotEqual, true) => notEqualLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestNotEqual, false) => equalLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestLess, true) => lessThanLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestLess, false) => greaterOrEqualLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreater, true) => greaterThanLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreater, false) => lessOrEqualLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestLessEqual, true) => lessOrEqualLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestLessEqual, false) => greaterThanLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreaterEqual, true) => greaterOrEqualLargeWord(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreaterEqual, false) => lessThanLargeWord(arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
                 |   BuiltIns.FixedPrecisionArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-FixedPrecisionArith"
 
                 |   BuiltIns.WordArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordArith"
 
-                |   BuiltIns.LoadWord _ => genOtherTests() (* TODO - we could use TEST instruction here. *)
+                |   BuiltIns.LoadWord _ =>
+                         (* TODO - This is "if !b then ...". We could use TEST instruction here. *)
+                        genOtherTests()
 
                 |   BuiltIns.LoadByte _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LoadByte"
 
@@ -2462,6 +2545,12 @@ struct
                 |   BuiltIns.WordShift _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordShift"
 
                 |   BuiltIns.AllocateByteMemory => raise InternalError "TODO-genTest: OGCBuiltIn2-AllocateByteMemory"
+
+                |   BuiltIns.LargeWordArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LargeWordArith"
+
+                |   BuiltIns.LargeWordLogical _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LargeWordLogical"
+
+                |   BuiltIns.LargeWordShift _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LargeWordShift"
             )
 
         |   OGCBuiltIn3{oper, ...} =>
@@ -2478,10 +2567,22 @@ struct
                     BuiltIns.Built4PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn4"
             )
 
-        |   OGCBuiltIn5{oper, ...} =>
+        |   OGCBuiltIn5{oper, arg1, arg2, arg3, arg4, arg5} =>
             (
                 case oper of
-                    BuiltIns.Built5PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn5"
+                    BuiltIns.ByteVecEqual =>
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2 and arg3Locn = genToStack arg3
+                        and arg4Locn = genToStack arg4 and arg5Locn = genToStack arg5
+                        val (label, testCode) =
+                            (if jumpOn then testByteVecEq else testByteVecNe)
+                                (arg1Locn, arg2Locn, arg3Locn, arg4Locn, arg5Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                |   BuiltIns.ByteVecCompare => raise InternalError "TODO-genTest: OGCBuiltIn5-ByteVecCompare"
             )
 
         |   OGCEval {function = OGCConstnt(oper, _), argList = args, ...} =>
@@ -2563,20 +2664,6 @@ struct
                     end
 
                     else genOtherTests () (* Non-special binary function. *)
-
-                |   [(arg1, _), (arg2, _), (arg3, _), (arg4, _), (arg5, _)] =>
-                    if wordEq (oper,ioOp POLY_SYS_bytevec_eq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2 and arg3Locn = genToStack arg3
-                        and arg4Locn = genToStack arg4 and arg5Locn = genToStack arg5
-                        val (label, testCode) =
-                            (if jumpOn then testByteVecEq else testByteVecNe) (arg1Locn, arg2Locn, arg3Locn, arg4Locn, arg5Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-                    else genOtherTests () (* Non-special function. *)
 
                 | _ => (* Functions with more than 2 arguments. *)
                     genOtherTests ()
@@ -3062,10 +3149,7 @@ struct
                     (
                         case args of
                             [arg] => (* Unary *)
-                            if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
-                            then cgAndRes(getFirstLong(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_Abs_real)
+                            if wordEq (oper,ioOp POLY_SYS_Abs_real)
                             then cgAndRes(absoluteReal(genToStack arg, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_Neg_real)
@@ -3113,12 +3197,6 @@ struct
 
                             else if wordEq (oper,ioOp POLY_SYS_move_words)
                             then cgAndRes(moveWords(genToStack arg1, genToStack arg2, genToStack arg3, genToStack arg4, genToStack arg5, transtable, whereto))
-
-                            else if primBoolOps andalso wordEq (oper,ioOp POLY_SYS_bytevec_eq)
-                            then (* Convert this into "if byteVecEq... then true else false" *)
-                                genCond
-                                    (OGCEval {function = evalFun, argList = argList, resultType=resultType},
-                                    constntTrue, constntFalse, whereto, tailKind, NONE)
 
                             else callClosure (SOME evalFun, true)
 
