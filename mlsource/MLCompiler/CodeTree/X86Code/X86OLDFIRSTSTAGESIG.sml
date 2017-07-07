@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature CODECONSSIG =
+signature X86OLDFIRSTSTAGESIG =
 sig
     type code
     eqtype reg
@@ -226,6 +226,8 @@ sig
 
     val moveBytes: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and moveWords: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    
+    val wordToLargeWord: bool * stackIndex * ttab * regHint -> operation list * mergeResult
  
     val notEqualWord: stackIndex * stackIndex * ttab -> labels * operation list
     and equalWord: stackIndex * stackIndex * ttab -> labels * operation list

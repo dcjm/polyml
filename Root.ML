@@ -63,7 +63,7 @@ use "mlsource/MLCompiler/CodeTree/X86Code/X86OUTPUTCODE.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86OPTIMISE.ML";
 use "mlsource/MLCompiler/Debug.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86FOREIGNCALL.sml";
-use "mlsource/MLCompiler/CodeTree/X86Code/CODECONSSIG.sml";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86OLDFIRSTSTAGESIG.sml";
 use "mlsource/MLCompiler/CodeTree/X86Code/GENERATE_CODE.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86FIRST_STAGE.ML";
 use "mlsource/MLCompiler/CodeTree/BackendIntermediateCode.sml";

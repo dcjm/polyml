@@ -120,7 +120,6 @@
 	<source name="mlsource\MLCompiler\CodeTree\GCode.x86_64.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\GENCODESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\ml_bind.ML" />
-	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODECONSSIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODEGEN_TABLESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\GENERATE_CODE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ICodeSig.ML" />
@@ -132,6 +131,7 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeToX86Code.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeTransform.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODETRANSFORMSIG.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OLDFIRSTSTAGESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OPTIMISE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OUTPUTCODE.ML" />
 	<source name="mlsource\MLCompiler\CODETREESIG.ML" />

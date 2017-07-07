@@ -53,7 +53,7 @@ functor X86FIRST_STAGE (
 
 	sharing X86CODE.Sharing = X86OPTIMISE.Sharing
 
-) : CODECONSSIG =
+) : X86OLDFIRSTSTAGESIG =
 
 struct
 
@@ -525,7 +525,6 @@ struct
          FPLoadFromFPReg{source=source, lastRef=false}]
             @ allocStore{size=8 div wordSize, flags=F_bytes, output=output,
                 saveRegs=saveRegs}
-    
  
     fun pushRegisterToStack v = [PushR v]
     and pushMemoryToStack(reg, offset) = [PushMem{base=reg, offset=offset}]
@@ -4755,20 +4754,12 @@ struct
                 compareAndBranch ([arg1, arg2], fpTests JB, transtable)
         end
 
-        local (* Get the length of a string. *)
+        local (* Get the length word from a string.  Also used to load a large word value. *)
             fun genStringLength([InRegister(GenReg rs)], SOME(GenReg rd)) =
-                let
-                    val (condBr, lab1) = condBranch(JE, PredictTaken(*More likely long*))
-                    and (uncondBr, lab2) = uncondBranch()
-                in
-                    forwardJumpLabel lab2 @
-                    [
-                        tagValue{source=rd, output=rd},
-                        LoadMemR{source=BaseOffset{base=rs, offset=0, index=NoIndex}, output=rd} (* It's an address. *)
-                    ] @ forwardJumpLabel lab1 @ uncondBr @
-                    [MoveConstR{source=tag 1, output=rd}] @ (* It's a byte: result is 1 *) condBr @
-                    [TestTagR rs (* Is it a single byte? *)]
-                end
+                [
+                    tagValue{source=rd, output=rd},
+                    LoadMemR{source=BaseOffset{base=rs, offset=0, index=NoIndex}, output=rd}
+                ]
             |   genStringLength _ = raise InternalError "genStringLength"
 
             (* We could use the same register for the result and the argument.  For the
@@ -5530,6 +5521,33 @@ struct
                              getResultRegister(generalRegisters,
                                     generateInstruction(genAllocUnInit transtable))))
                                         ([NONE, NONE], NONE) (transtable, args, whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+        end
+        
+        local
+            (* Box a short word or int as a large word. *)
+            fun storeLargeWord (isSigned, transtable) ([InRegister(GenReg srcReg)], SOME(GenReg output)) =
+                let
+                    val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) (setToList(findActiveRegisters transtable))
+                in
+                    [
+                        StoreInitialised,
+                        StoreRegToMemory { toStore=srcReg, address=BaseOffset{base=output, offset=0, index=NoIndex}},
+                        (* Shift the source to remove the tag. *)
+                        ShiftConstant { shiftType=if isSigned then SAR else SHR, output=srcReg, shift=0w1 }
+                    ] @ allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
+                end
+            |   storeLargeWord _ _ = raise InternalError "storeLargeWord"
+        in
+            fun wordToLargeWord(isSigned, srcArg, transtable, whereto) =
+            let
+                val (opRes, opCode) = (* Get a result reg and put the initial value in a reg. *)
+                    loadToOneOf(generalRegisters, true, 0,
+                        getResultRegister(generalRegisters,
+                            generateInstruction(storeLargeWord(isSigned, transtable))))
+                                ([NONE], NONE) (transtable, [srcArg], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end

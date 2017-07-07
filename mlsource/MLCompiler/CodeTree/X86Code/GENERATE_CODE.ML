@@ -25,7 +25,7 @@
 (* This is the original code generator. *)
 
 functor GENERATE_CODE (
-    structure CODECONS : CODECONSSIG
+    structure CODECONS : X86OLDFIRSTSTAGESIG
     structure BACKENDTREE: BackendIntermediateCodeSig
     structure DEBUG: DEBUGSIG
     structure X86FOREIGN: FOREIGNCALLSIG
@@ -1119,6 +1119,16 @@ struct
         |   OGCBuiltIn1{oper=BuiltIns.AtomicDecrement, arg1} => cgAndRes(atomicDecrement(genToStack arg1, transtable, whereto))
 
         |   OGCBuiltIn1{oper=BuiltIns.AtomicReset, arg1} => cgAndRes(atomicReset(genToStack arg1, transtable, whereto))
+
+        |   OGCBuiltIn1{oper=BuiltIns.LongWordToTagged, arg1} =>
+                (* We can use the same operation as loading the length word of a string. *)
+                cgAndRes(stringLength(genToStack arg1, transtable, whereto))
+
+        |   OGCBuiltIn1{oper=BuiltIns.SignedToLongWord, arg1} =>
+                cgAndRes(wordToLargeWord(true, genToStack arg1, transtable, whereto))
+
+        |   OGCBuiltIn1{oper=BuiltIns.UnsignedToLongWord, arg1} =>
+                cgAndRes(wordToLargeWord(false, genToStack arg1, transtable, whereto))
 
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
@@ -2389,18 +2399,15 @@ struct
                     end
 
                 |   BuiltIns.MemoryCellLength => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellLength"
-
                 |   BuiltIns.MemoryCellFlags => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellFlags"
- 
                 |   BuiltIns.ClearMutableFlag => raise InternalError "TODO-genTest: OGCBuiltIn1 - ClearMutableFlag"
- 
                 |   BuiltIns.StringLengthWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - StringLengthWord"
- 
                 |   BuiltIns.AtomicIncrement => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicIncrement"
- 
                 |   BuiltIns.AtomicDecrement => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicDecrement"
- 
                 |   BuiltIns.AtomicReset => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicReset"
+                |   BuiltIns.LongWordToTagged => raise InternalError "TODO-genTest: OGCBuiltIn1 - LongWordToTagged"
+                |   BuiltIns.SignedToLongWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - SignedToLongWord"
+                |   BuiltIns.UnsignedToLongWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - UnsignedToLongWord"
            )
 
         |   OGCBuiltIn2{oper, arg1, arg2} =>
@@ -3088,8 +3095,7 @@ struct
                                (the "jumping" boolean code generator) here, but we would like to
                                avoid that. *)
                             else if primBoolOps andalso
-                            (wordEq (oper,ioOp POLY_SYS_equal_short_arb) orelse
-                             wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
+                            (wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_geq) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_leq) orelse
