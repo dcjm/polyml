@@ -4080,55 +4080,56 @@ struct
         end
         
         local
-            fun byteMemMove([InRegister _, InRegister _, sourceOffset, destOffset, InRegister _], _) =
+            fun byteMemMove (bOffsetS, bOffsetD) ([InRegister _, InRegister _, sourceOffset, destOffset, InRegister _], _) =
                 let (* Byte move.  The offsets are byte offsets. *)
-                    fun getOffset(InRegister(GenReg offsetReg), baseReg) =
+                    fun getOffset(InRegister(GenReg offsetReg), baseReg, bOffset) =
                         [
                             (* If it's in a register untag it, add it and then retag. *)
                             tagValue{ source=offsetReg, output=offsetReg},
-                            ArithRR{ opc=ADD, output=baseReg, source=offsetReg },
+                            LoadAddress{output=baseReg, offset=bOffset, base=SOME baseReg, index=Index1 offsetReg },
                             ShiftConstant{ shiftType=SHR, output=offsetReg, shift=0w1}
                         ]
-                        |   getOffset(LiteralSource lit, baseReg) =
+                        |   getOffset(LiteralSource lit, baseReg, bOffset) =
                             let
-                                val shortLit = toShort lit
+                                val fullOffset = Word.toLargeInt(toShort lit) + LargeInt.fromInt bOffset
                             in
-                                if shortLit = 0w0 then [] else
-                                [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit}]
+                                if fullOffset = 0 then [] else
+                                [ArithRConst{opc=ADD, output=baseReg, source=fullOffset}]
                             end
                         |   getOffset _ = raise InternalError "getOffset"
                 in
                     [MakeSafe ecx, MakeSafe esi, MakeSafe edi, RepeatOperation MOVSB] @
-                    getOffset(destOffset, edi) @ getOffset(sourceOffset, esi) @
+                    getOffset(destOffset, edi, bOffsetD) @ getOffset(sourceOffset, esi, bOffsetS) @
                     (* Untag the length. *)
                     [ShiftConstant{ shiftType=SHR, output=ecx, shift=0w1}]
                 end
 
-            |   byteMemMove _ = raise InternalError "byteMemMove"
+            |   byteMemMove _ _ = raise InternalError "byteMemMove"
             
-            and wordMemMove([InRegister _, InRegister _, sourceOffset, destOffset, InRegister _], _) =
+            and wordMemMove (bOffsetS, bOffsetD) ([InRegister _, InRegister _, sourceOffset, destOffset, InRegister _], _) =
                 let
                     (* Word move.  The offsets and the count are the number of words.
                        We can compute the offset by using the LEAL instruction. *)
-                    fun getOffset(InRegister(GenReg offsetReg), baseReg) =
+                    fun getOffset(InRegister(GenReg offsetReg), baseReg, bOffset) =
                         if wordSize = 4
-                        then [LoadAddress{output=baseReg, offset= ~2, base=SOME baseReg, index=Index2 offsetReg }]
-                        else [LoadAddress{output=baseReg, offset= ~4, base=SOME baseReg, index=Index4 offsetReg }]
-                    |   getOffset(LiteralSource lit, baseReg) =
+                        then [LoadAddress{output=baseReg, offset=bOffset-2, base=SOME baseReg, index=Index2 offsetReg }]
+                        else [LoadAddress{output=baseReg, offset=bOffset-4, base=SOME baseReg, index=Index4 offsetReg }]
+                    |   getOffset(LiteralSource lit, baseReg, bOffset) =
                         let
-                            val shortLit = toShort lit
+                            val fullOffset =
+                                Word.toLargeInt(toShort lit) * LargeInt.fromInt wordSize + LargeInt.fromInt bOffset
                         in
-                            if shortLit = 0w0 then [] else
-                            [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit * LargeInt.fromInt wordSize}]
+                            if fullOffset = 0 then [] else
+                            [ArithRConst{opc=ADD, output=baseReg, source=fullOffset}]
                         end
                     |   getOffset _ = raise InternalError "getOffset"
                 in
                     [MakeSafe ecx, MakeSafe esi, MakeSafe edi, RepeatOperation MOVSL] @
-                    getOffset(destOffset, edi) @ getOffset(sourceOffset, esi) @
+                    getOffset(destOffset, edi, bOffsetD) @ getOffset(sourceOffset, esi, bOffsetS) @
                     (* Untag the length. *)
                     [ShiftConstant{ shiftType=SHR, output=ecx, shift=0w1}]
                 end
-            |   wordMemMove _ = raise InternalError "wordMemMove"
+            |   wordMemMove _ _ = raise InternalError "wordMemMove"
 
             fun genMemMove memMove =
                 (* Memory moves: The source must be in esi, the destination in edi and the count in ecx.
@@ -4140,18 +4141,20 @@ struct
                             allInRegsOrLiterals(generalRegisters, generateInstruction memMove)
                             ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
         in
-            fun moveBytes(arg1, arg2, arg3, arg4, arg5, transtable, whereto) =
+            fun moveBytes{src={base=baseS, index=indexS, byteOffset=bOffsetS},
+                          dst={base=baseD, index=indexD, byteOffset=bOffsetD}, length, transtable, whereto} =
             let
-                val args = [arg1, arg2, arg3, arg4, arg5]
-                val (opRes, opCode) = genMemMove byteMemMove (transtable, args, whereto)
+                val args = [baseS, baseD, indexS, indexD, length]
+                val (opRes, opCode) = genMemMove(byteMemMove(Word.toInt bOffsetS, Word.toInt bOffsetD)) (transtable, args, whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
 
-            and moveWords(arg1, arg2, arg3, arg4, arg5, transtable, whereto) =
+            and moveWords{src={base=baseS, index=indexS, byteOffset=bOffsetS},
+                          dst={base=baseD, index=indexD, byteOffset=bOffsetD}, length, transtable, whereto} =
             let
-                val args = [arg1, arg2, arg3, arg4, arg5]
-                val (opRes, opCode) = genMemMove wordMemMove (transtable, args, whereto)
+                val args = [baseS, baseD, indexS, indexD, length]
+                val (opRes, opCode) = genMemMove(wordMemMove (Word.toInt bOffsetS, Word.toInt bOffsetD)) (transtable, args, whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
@@ -4382,23 +4385,24 @@ struct
         end
 
         local
-            fun generateByteVec doTest ([InRegister(GenReg addr1), InRegister(GenReg addr2), offset1, offset2, InRegister(GenReg len)]) =
+            fun generateByteVec(doTest, bOffsetL, bOffsetR) ([InRegister(GenReg addr1), InRegister(GenReg addr2),
+                                offset1, offset2, InRegister(GenReg len)]) =
             let
                 val () = if addr1 = esi andalso addr2 = edi andalso len = ecx then ()
                          else raise InternalError "Incorrect registers"
-                fun getOffset(InRegister(GenReg offsetReg), baseReg) =
+                fun getOffset(InRegister(GenReg offsetReg), baseReg, cOffset) =
                     [
                         (* If it's in a register untag it, add it and then retag. *)
                         tagValue{ source=offsetReg, output=offsetReg },
-                        ArithRR{opc=ADD, output=baseReg, source=offsetReg},
+                        LoadAddress{ output=baseReg, offset=cOffset, base=SOME baseReg, index=Index1 offsetReg },
                         ShiftConstant{shiftType=SHR, output=offsetReg, shift=0w1}
                     ]
-                |   getOffset(LiteralSource lit, baseReg) =
+                |   getOffset(LiteralSource lit, baseReg, cOffset) =
                     let
-                        val shortLit = toShort lit
+                        val fullOffset = Word.toLargeInt(toShort lit) + LargeInt.fromInt cOffset
                     in
-                        if shortLit = 0w0 then []
-                        else [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit}]
+                        if fullOffset = 0 then []
+                        else [ArithRConst{opc=ADD, output=baseReg, source=fullOffset}]
                     end
                 |   getOffset _ = raise InternalError "getOffset"
             in
@@ -4410,12 +4414,12 @@ struct
                     RepeatOperation CMPSB, (* Compare the bytes. *)
                     ArithRR{opc=CMP, output=ecx, source=ecx}, (* Set the Z flag before we start. *)
                     ShiftConstant{shiftType=SHR, output=ecx, shift=0w1} (* Untag the length. *)
-                ] @ getOffset(offset2, edi) @ getOffset(offset1, esi)
+                ] @ getOffset(offset2, edi, bOffsetR) @ getOffset(offset1, esi, bOffsetL)
             end
 
             |   generateByteVec _ _ = raise InternalError "generateByteVec"
  
-            fun genByteVec test () =
+            fun genByteVec (test, bOffsetL, bOffsetR) () =
             let
                 val destLabel as Labels{uses, ...} = mkLabel()
                 fun doTest () =
@@ -4426,7 +4430,7 @@ struct
                 end
                 
                 fun generateCode (operands, _) =
-                    actionDone{ outReg=NONE, operation=generateByteVec doTest (List.map valOf operands) }
+                    actionDone{ outReg=NONE, operation=generateByteVec(doTest, bOffsetL, bOffsetR) (List.map valOf operands) }
                 val testActions =
                     (* The vectors to compare are in esi and edi and the count in ecx.  Since it doesn't
                        matter which is in esi and which in edi it would be nice if we could leave that open
@@ -4446,7 +4450,7 @@ struct
             
             (* This is almost the same as genByteVec but that generates a test for equality and this
                generates a result value or -1, 0, +1 depending on the order. *)
-            fun genByteVecCompare (args, SOME(GenReg resultReg)) =
+            fun genByteVecCompare (bOffsetL, bOffsetR) (args, SOME(GenReg resultReg)) =
                 let
                     val labLess as Labels{uses=useLess, ...} = mkLabel()
                     and labGtr as Labels{uses=useGtr, ...} = mkLabel()
@@ -4472,29 +4476,38 @@ struct
                         ]
                     end
                 in
-                    generateByteVec doTest args
+                    generateByteVec (doTest, bOffsetL, bOffsetR) args
                 end
-            |   genByteVecCompare _ = raise InternalError "genByteVecCompare"
+            |   genByteVecCompare _ _ = raise InternalError "genByteVecCompare"
 
-            fun byteVecCompare(transtable, args, whereto) =
+            fun byteVecCompare(transtable, args, bOffsetL, bOffsetR, whereto) =
                 loadToSpecificRegister(GenReg esi, true, 0,
                     loadToSpecificRegister(GenReg edi, true, 1,
                         loadToSpecificRegister(GenReg ecx, true, 4,
                             loadToRegOrLiteral(generalRegisters, false, 2,
                                 loadToRegOrLiteral(generalRegisters, false, 3,
                                     getResultRegister(generalRegisters,
-                                        generateInstruction genByteVecCompare))))))
+                                        generateInstruction(genByteVecCompare(bOffsetL, bOffsetR))))))))
                                     ([NONE, NONE, NONE, NONE, NONE], NONE) (transtable, args, whereto)
         in
-            fun testByteVecEq(arg1, arg2, arg3, arg4, arg5, transtable) =
-                compareAndBranch ([arg1, arg2, arg3, arg4, arg5], genByteVec JE, transtable)
-            and testByteVecNe(arg1, arg2, arg3, arg4, arg5, transtable) =
-                compareAndBranch ([arg1, arg2, arg3, arg4, arg5], genByteVec JNE, transtable)
+            fun testByteVecEq{left={base=baseL, index=indexL, byteOffset=bOffsetL},
+                              right={base=baseR, index=indexR, byteOffset=bOffsetR},
+                              length, transtable} =
+                compareAndBranch ([baseL, baseR, indexL, indexR, length],
+                        genByteVec(JE, Word.toInt bOffsetL, Word.toInt bOffsetR), transtable)
+            and testByteVecNe{left={base=baseL, index=indexL, byteOffset=bOffsetL},
+                              right={base=baseR, index=indexR, byteOffset=bOffsetR},
+                              length, transtable} =
+                compareAndBranch ([baseL, baseR, indexL, indexR, length],
+                        genByteVec(JNE, Word.toInt bOffsetL, Word.toInt bOffsetR), transtable)
             
-            fun byteVecComparison(arg1, arg2, arg3, arg4, arg5, transtable, whereto) =
+            fun byteVecComparison{left={base=baseL, index=indexL, byteOffset=bOffsetL},
+                                  right={base=baseR, index=indexR, byteOffset=bOffsetR},
+                                  length, transtable, whereto} =
             let
                 val (opRes, opCode) =
-                    byteVecCompare (transtable, [arg1, arg2, arg3, arg4, arg5], whereto)
+                    byteVecCompare (transtable, [baseL, baseR, indexL, indexR, length],
+                                    Word.toInt bOffsetL, Word.toInt bOffsetR, whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end

@@ -242,9 +242,18 @@ sig
     and allocStoreAndInitialise: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and allocStoreUninitialised: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
 
-    val moveBytes: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
-    and moveWords: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
-    and byteVecComparison: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    val moveBytes:
+        {src: {base:stackIndex, index: stackIndex, byteOffset: word},
+         dst: {base:stackIndex, index: stackIndex, byteOffset: word},
+         length: stackIndex, transtable: ttab, whereto: regHint} -> operation list * mergeResult
+    and moveWords:
+        {src: {base:stackIndex, index: stackIndex, byteOffset: word},
+         dst: {base:stackIndex, index: stackIndex, byteOffset: word},
+         length: stackIndex, transtable: ttab, whereto: regHint} -> operation list * mergeResult
+    and byteVecComparison:
+        {left: {base:stackIndex, index: stackIndex, byteOffset: word},
+         right: {base:stackIndex, index: stackIndex, byteOffset: word},
+         length: stackIndex, transtable: ttab, whereto: regHint} -> operation list * mergeResult
     
     val wordToLargeWord: bool * stackIndex * ttab * regHint -> operation list * mergeResult
  
@@ -274,8 +283,14 @@ sig
     val testShortInt: stackIndex * ttab -> labels * operation list
     and testNotShortInt: stackIndex * ttab -> labels * operation list
     
-    val testByteVecEq: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab -> labels * operation list
-    and testByteVecNe: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab -> labels * operation list
+    val testByteVecEq:
+        {left: {base:stackIndex, index: stackIndex, byteOffset: word},
+         right: {base:stackIndex, index: stackIndex, byteOffset: word},
+         length: stackIndex, transtable: ttab} -> labels * operation list
+    and testByteVecNe:
+        {left: {base:stackIndex, index: stackIndex, byteOffset: word},
+         right: {base:stackIndex, index: stackIndex, byteOffset: word},
+         length: stackIndex, transtable: ttab} -> labels * operation list
 
     structure Sharing:
     sig

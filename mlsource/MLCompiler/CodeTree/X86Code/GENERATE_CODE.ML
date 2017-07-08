@@ -71,8 +71,6 @@ struct
     |   OGCBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: oldGenCodeIC}
     |   OGCBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC}
     |   OGCBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC, arg3: oldGenCodeIC}
-    |   OGCBuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC, arg3: oldGenCodeIC, arg4: oldGenCodeIC}
-    |   OGCBuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC, arg3: oldGenCodeIC, arg4: oldGenCodeIC, arg5: oldGenCodeIC}
 
     |   OGCLambda of oldGenCodeLambdaForm (* Lambda expressions. *)
 
@@ -191,8 +189,6 @@ struct
         | sideEffectFree (BICBuiltIn1 _) = false
         | sideEffectFree (BICBuiltIn2 _) = false
         | sideEffectFree (BICBuiltIn3 _) = false
-        | sideEffectFree (BICBuiltIn4 _) = false
-        | sideEffectFree (BICBuiltIn5 _) = false
 
         | sideEffectFree(BICContainer _) = true
             (* But since SetContainer has a side-effect we'll always create the
@@ -387,10 +383,6 @@ struct
                 |   insert(BICBuiltIn2 {oper, arg1, arg2}) = OGCBuiltIn2{oper=oper, arg2=insert arg2, arg1=insert arg1}
                 |   insert(BICBuiltIn3 {oper, arg1, arg2, arg3}) =
                         OGCBuiltIn3{oper=oper, arg3=insert arg3, arg2=insert arg2, arg1=insert arg1}
-                |   insert(BICBuiltIn4 {oper, arg1, arg2, arg3, arg4}) =
-                        OGCBuiltIn4{oper=oper, arg4=insert arg4, arg3=insert arg3, arg2=insert arg2, arg1=insert arg1}
-                |   insert(BICBuiltIn5 {oper, arg1, arg2, arg3, arg4, arg5}) =
-                        OGCBuiltIn5{oper=oper, arg5=insert arg5, arg4=insert arg4, arg3=insert arg3, arg2=insert arg2, arg1=insert arg1}
 
                 |   insert(BICExtract ext) = locaddr ext
 
@@ -1363,21 +1355,6 @@ struct
 
             end
 
-        |   OGCBuiltIn4{oper=BuiltIns.Built4PlaceHolder, ...} => raise InternalError "TODO: OGCBuiltIn4"
-
-        |   instr as OGCBuiltIn5{oper=BuiltIns.ByteVecEqual, ...} => codeAsConditional(instr, whereto, tailKind)
-
-        |   OGCBuiltIn5{oper=BuiltIns.ByteVecCompare, arg1, arg2, arg3, arg4, arg5} =>
-                cgAndRes(
-                    byteVecComparison(genToStack arg1, genToStack arg2, genToStack arg3, 
-                                      genToStack arg4, genToStack arg5, transtable, whereto))
-
-        |   OGCBuiltIn5{oper=BuiltIns.BlockMove {isByteMove=true}, arg1, arg2, arg3, arg4, arg5} =>
-                cgAndRes(moveBytes(genToStack arg1, genToStack arg2, genToStack arg3, genToStack arg4, genToStack arg5, transtable, whereto))
-        
-        |   OGCBuiltIn5{oper=BuiltIns.BlockMove {isByteMove=false}, arg1, arg2, arg3, arg4, arg5} =>
-                cgAndRes(moveWords(genToStack arg1, genToStack arg2, genToStack arg3, genToStack arg4, genToStack arg5, transtable, whereto))
-
         |   OGCLoadOperation{ kind=LoadStoreMLWord _, address={base, index, offset} } =>
                 cgAndRes(
                     loadWord{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
@@ -1397,8 +1374,34 @@ struct
                 cgAndRes(
                     storeByte{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
                               byteOffset=offset, transtable=transtable, whereto=whereto})
-        
-        |   OGCBlockOperation _ => raise InternalError "TODO: OGCBlockOperation"
+
+        |   OGCBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
+                               destRight={base=bRight, index=iRight, offset=oRight}, length } =>
+            let
+                val bLeftLocn = genToStack bLeft and iLeftLocn = genToStack(getOpt(iLeft, consntZero))
+                and bRightLocn = genToStack bRight and iRightLocn = genToStack(getOpt(iRight, consntZero))
+                and lenLocn = genToStack length
+            in
+                cgAndRes((if isByteMove then moveBytes else moveWords)
+                    {src={base=bLeftLocn, index=iLeftLocn, byteOffset=oLeft},
+                     dst={base=bRightLocn, index=iRightLocn, byteOffset=oRight},
+                     length=lenLocn, transtable=transtable, whereto=whereto})
+            end
+
+        |   instr as OGCBlockOperation{ kind=BlockOpEqualByte, ... } => codeAsConditional(instr, whereto, tailKind)
+
+        |   OGCBlockOperation{ kind=BlockOpCompareByte, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
+                               destRight={base=bRight, index=iRight, offset=oRight}, length } =>
+            let
+                val bLeftLocn = genToStack bLeft and iLeftLocn = genToStack(getOpt(iLeft, consntZero))
+                and bRightLocn = genToStack bRight and iRightLocn = genToStack(getOpt(iRight, consntZero))
+                and lenLocn = genToStack length
+            in
+                cgAndRes(byteVecComparison
+                    {left={base=bLeftLocn, index=iLeftLocn, byteOffset=oLeft},
+                     right={base=bRightLocn, index=iRightLocn, byteOffset=oRight},
+                     length=lenLocn, transtable=transtable, whereto=whereto})
+            end
 
         |   OGCExtract ext =>
             let
@@ -2579,35 +2582,25 @@ struct
                     BuiltIns.AllocateWordMemory => raise InternalError "TODO-genTest: OGCBuiltIn3-AllocateWordMemory"
             )
 
-        |   OGCBuiltIn4{oper, ...} =>
-            (
-                case oper of
-                    BuiltIns.Built4PlaceHolder => raise InternalError "TODO-genTest: OGCBuiltIn4"
-            )
-
-        |   OGCBuiltIn5{oper, arg1, arg2, arg3, arg4, arg5} =>
-            (
-                case oper of
-                    BuiltIns.ByteVecEqual =>
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2 and arg3Locn = genToStack arg3
-                        and arg4Locn = genToStack arg4 and arg5Locn = genToStack arg5
-                        val (label, testCode) =
-                            (if jumpOn then testByteVecEq else testByteVecNe)
-                                (arg1Locn, arg2Locn, arg3Locn, arg4Locn, arg5Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                |   BuiltIns.ByteVecCompare => raise InternalError "TODO-genTest: OGCBuiltIn5-ByteVecCompare"
-
-                |   BuiltIns.BlockMove _ => raise InternalError "TODO-genTest: OGCBuiltIn5-BlockMove"
-            )
-
         |   OGCLoadOperation { kind=LoadStoreMLWord _, ... } =>
                  (* TODO - This is "if !b then ...". We could use TEST instruction here. *)
                 genOtherTests()
+
+        |   OGCBlockOperation{ kind=BlockOpEqualByte, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
+                               destRight={base=bRight, index=iRight, offset=oRight}, length } =>
+            let
+                val bLeftLocn = genToStack bLeft and iLeftLocn = genToStack(getOpt(iLeft, consntZero))
+                and bRightLocn = genToStack bRight and iRightLocn = genToStack(getOpt(iRight, consntZero))
+                and lenLocn = genToStack length
+                val (label, testCode) =
+                    (if jumpOn then testByteVecEq else testByteVecNe)
+                        {left={base=bLeftLocn, index=iLeftLocn, byteOffset=oLeft},
+                         right={base=bRightLocn, index=iRightLocn, byteOffset=oRight},
+                         length=lenLocn, transtable=transtable}
+                val () = codeGenerate(testCode, cvec)
+            in
+                label
+            end
 
         |   OGCEval {function = OGCConstnt(oper, _), argList = args, ...} =>
             (* May be an interface operation which can be put in line. *)
