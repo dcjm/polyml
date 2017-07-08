@@ -115,6 +115,13 @@ struct
         }
 
     |   OGCTagTest of { test: oldGenCodeIC, tag: word, maxTag: word }
+    
+    |   OGCLoadOperation of { kind: loadStoreKind, address: oldGenCodeAddress }
+    
+    |   OGCStoreOperation of { kind: loadStoreKind, address: oldGenCodeAddress, value: oldGenCodeIC }
+    
+    |   OGCBlockOperation of
+            { kind: blockOpKind, sourceLeft: oldGenCodeAddress, destRight: oldGenCodeAddress, length: oldGenCodeIC }
 
     and oldGenCodeBinding =
         OGCDeclar  of oldGenCodeSimpleBinding (* Make a local declaration or push an argument *)
@@ -146,6 +153,13 @@ struct
         heapClosure   : bool,
         argLifetimes  : int list
     }
+
+    and oldGenCodeAddress =
+        (* Address form used in loads, store and block operations.  The base is an ML
+           address if this is to/from ML memory or a (boxed) SysWord.word if it is
+           to/from C memory.  The index is a value in units of the size of the item
+           being loaded/stored and the offset is always in bytes. *)
+        {base: oldGenCodeIC, index: oldGenCodeIC option, offset: word}
 
     local
         open BACKENDTREE
@@ -655,7 +669,16 @@ struct
                              default=addKillSet(insDefault, hd kills)}
                     end
 
-                and copyLambda({body=lambdaBody, argTypes,
+                |   insert(BICLoadOperation{kind, address}) = OGCLoadOperation{address=copyAddress address, kind=kind}
+
+                |   insert(BICStoreOperation{kind, address, value}) =
+                        OGCStoreOperation{value=insert value, address=copyAddress address, kind=kind}
+
+                |   insert(BICBlockOperation{kind, sourceLeft, destRight, length}) =
+                        OGCBlockOperation{length=insert length, destRight=copyAddress destRight,
+                            sourceLeft=copyAddress sourceLeft, kind=kind}
+
+               and copyLambda({body=lambdaBody, argTypes,
                                  name=lambdaName, resultType, localCount, closure, heapClosure, ...}: bicLambdaForm) = 
                 let
                     val numArgs = List.length argTypes
@@ -737,6 +760,11 @@ struct
                 in
                     OGCCond (insFirst, addKillSet(insThen, killElseOnly), addKillSet(insElse, killThenOnly))
                 end
+                
+            and copyAddress {base, index, offset} =
+                (* Address - process index before the base. *)
+                {index=Option.map insert index, base=insert base, offset=offset}
+
             in     
                 insert pt
             end (* copyCode *)
@@ -768,6 +796,7 @@ struct
 
     val constntTrue  = OGCConstnt(True, [])
     val constntFalse = OGCConstnt(False, [])
+    val consntZero   = OGCConstnt(word0, [])
 
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
@@ -1200,12 +1229,6 @@ struct
                 |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   OGCBuiltIn2{oper=BuiltIns.LoadWord _, arg1, arg2} =>
-                cgAndRes(loadWord(genToStack arg1, genToStack arg2, transtable, whereto))
-
-        |   OGCBuiltIn2{oper=BuiltIns.LoadByte _, arg1, arg2} =>
-                cgAndRes(loadByte(genToStack arg1, genToStack arg2, transtable, whereto))
-
         |   OGCBuiltIn2{oper=BuiltIns.SetStringLengthWord, arg1, arg2} =>
                 cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
 
@@ -1360,6 +1383,20 @@ struct
         
         |   OGCBuiltIn5{oper=BuiltIns.BlockMove {isByteMove=false}, arg1, arg2, arg3, arg4, arg5} =>
                 cgAndRes(moveWords(genToStack arg1, genToStack arg2, genToStack arg3, genToStack arg4, genToStack arg5, transtable, whereto))
+
+        |   OGCLoadOperation{ kind=LoadStoreMLWord _, address={base, index, offset} } =>
+                cgAndRes(
+                    loadWord{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
+
+        |   OGCLoadOperation{ kind=LoadStoreMLByte _, address={base, index, offset} } =>
+                cgAndRes(
+                    loadByte{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
+
+        |   OGCStoreOperation _ => raise InternalError "TODO: OGCStoreOperation"
+        
+        |   OGCBlockOperation _ => raise InternalError "TODO: OGCBlockOperation"
 
         |   OGCExtract ext =>
             let
@@ -2391,25 +2428,6 @@ struct
                 end
             end
 
-            (* Simple Cases generate better jumping code like this,
-               rather than creating a boolean return value, then testing it
-               and jumping on the result. We could be less special-case here,
-               but this particular case is exceptionally important for
-               handling inlined selector functions. SPF 24/2/1998
-            *)
-            (* Previously Cases were generated from almost all simple comparisons.
-               Now that they are only generated if there are sufficient numbers of
-               branches this can probably be removed. *)
-        |   OGCCase {cases = [(result, tag)], test, default, ...} =>
-            let
-                val equalFun  : oldGenCodeIC = OGCConstnt (ioOp POLY_SYS_equala, [])
-                val arguments = [(test, GeneralType), (OGCConstnt (Address.toMachineWord tag, []), GeneralType)]
-                val eqTest    : oldGenCodeIC = 
-                    OGCEval {function = equalFun, argList = arguments, resultType=GeneralType};
-            in
-                genTest (OGCCond (eqTest, result, default), jumpOn) 
-            end
-
             (* Constants - primarily for andalso/orelse. *)
         |   OGCConstnt(w, _) =>
             (* If true and we jump on true or false and jump on false *)
@@ -2538,12 +2556,6 @@ struct
 
                 |   BuiltIns.WordArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordArith"
 
-                |   BuiltIns.LoadWord _ =>
-                         (* TODO - This is "if !b then ...". We could use TEST instruction here. *)
-                        genOtherTests()
-
-                |   BuiltIns.LoadByte _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LoadByte"
-
                 |   BuiltIns.SetStringLengthWord => raise InternalError "TODO-genTest: OGCBuiltIn2-SetStringLengthWord"
 
                 |   BuiltIns.WordLogical _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordLogical"
@@ -2592,6 +2604,10 @@ struct
 
                 |   BuiltIns.BlockMove _ => raise InternalError "TODO-genTest: OGCBuiltIn5-BlockMove"
             )
+
+        |   OGCLoadOperation { kind=LoadStoreMLWord _, ... } =>
+                 (* TODO - This is "if !b then ...". We could use TEST instruction here. *)
+                genOtherTests()
 
         |   OGCEval {function = OGCConstnt(oper, _), argList = args, ...} =>
             (* May be an interface operation which can be put in line. *)

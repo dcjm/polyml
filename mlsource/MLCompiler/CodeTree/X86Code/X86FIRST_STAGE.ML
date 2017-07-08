@@ -3629,24 +3629,16 @@ struct
                     else loadToOneOf(regSet, modifiable, argNo, whenDone) opAndResults tArgs
             |   _ => loadToOneOf(regSet, modifiable, argNo, whenDone) opAndResults tArgs
 
-        (* Load a base address for a load or store operation. We can use a constant source but
-           only if the index is zero.  The base address is the first argument and the index is the
-           second.  We can't use a constant base address in 64-bit mode because inline addresses
-           aren't possible (the equivalent code means PC-relative). *)
+        (* Load a base address for a load or store operation.
+           This is possibly no longer required as a special case.  Previously it
+           handled the case of a constant base address on the X86/32 but only if the
+           index was zero. *)
         fun loadBaseAddress whenDone (opAndResults as (ops, resReg)) (tArgs as (table, args, pref)) =
         let
             val mappedArgs = map (argAsSource table) args
         in
             case mappedArgs of
-                ActLiteralSource base :: ActLiteralSource index :: _ =>
-                    if isShort index andalso toShort index = 0w0 andalso not isX64
-                    then whenDone (replaceOperand(0, LiteralSource base) opAndResults) tArgs
-                    else actionLoadArg{argNo=0, regSet=generalRegisters,
-                                willOverwrite=
-                                    case (pref, resReg) of (NoResult, _) => false | (_, SOME _) => false | _ => true,
-                                next=loadBaseAddress whenDone opAndResults} tArgs
-
-            |   ActInRegisterSet{modifiable, readable} :: _ =>
+                ActInRegisterSet{modifiable, readable} :: _ =>
                 if modifiable ** generalRegisters <> noRegisters
                 then
                 let
@@ -3673,7 +3665,7 @@ struct
                                 next=loadBaseAddress whenDone opAndResults } tArgs
 
             |   _ =>
-                (* It's not a literal or in a register - load it. *)
+                (* It's not in a register - load it. *)
                 actionLoadArg{argNo=0, regSet=generalRegisters,
                              willOverwrite=
                                 case (pref, resReg) of (NoResult, _) => false | (_, SOME _) => false | _ => true,
@@ -3750,10 +3742,6 @@ struct
                             else (*8*) BaseOffset{offset= ~4, base=address, index=Index4 indexR}
                     |   (InRegister(GenReg address), LiteralSource offset) =>
                             BaseOffset{offset=Word.toInt(toShort offset)*wordSize, base=address, index=NoIndex}
-                    |   (LiteralSource address, LiteralSource index) =>
-                            if isShort index andalso toShort index = 0w0 andalso not isX64
-                            then ConstantAddress address
-                            else raise InternalError "genStoreWord"
                     |   _ => raise InternalError "genStoreWord"
             in
                 case value of
@@ -3920,29 +3908,18 @@ struct
                         actionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
                                         next=loadIndex (isWord, whenDone) opAndResults } tArgs
 
-            fun genLoadInstr true (* Word *) ([LiteralSource base, LiteralSource offset], SOME(GenReg destReg)) =
-                    if isShort offset andalso toShort offset = 0w0 andalso not isX64
-                    then [LoadMemR {source=ConstantAddress base, output=destReg}]
-                    else raise InternalError "genLoadWord: not zero"
-            
-            |   genLoadInstr false (* Byte*) ([LiteralSource base, LiteralSource offset], SOME(GenReg destReg)) =
-                    if isShort offset andalso toShort offset = 0w0 andalso not isX64
-                    then [tagValue{source=destReg, output=destReg},
-                          LoadByteR{source=ConstantAddress base, output=destReg}]
-                    else raise InternalError "genLoadWord: not zero"
-
-            |   genLoadInstr true (*Word*) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
+            fun genLoadInstr (true (*Word*), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
                     [LoadMemR{
-                            source=BaseOffset{base=base, offset=Word.toInt(toShort offset)*wordSize, index=NoIndex},
+                            source=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset)*wordSize, index=NoIndex},
                             output=destReg}]
 
-            |   genLoadInstr false (*Byte*) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
+            |   genLoadInstr (false (*Byte*), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
                     (* Byte values need to be tagged.  The offset is a byte offset. *)
                     [tagValue{source=destReg, output=destReg},
-                     LoadByteR{source=BaseOffset{base=base, offset=Word.toInt(toShort offset), index=NoIndex},
+                     LoadByteR{source=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset), index=NoIndex},
                                output=destReg}]
 
-            |   genLoadInstr true (*Word*) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
+            |   genLoadInstr (true (*Word*), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
                 let
                     val (offset, scale) =
                     (* The index is tagged: Multiply by the wordSize/2 and subtract the scaled tag. *)
@@ -3950,10 +3927,10 @@ struct
                         then (~2, Index2 indexR)
                         else (~4, Index4 indexR)
                 in
-                    [LoadMemR{source=BaseOffset{base=base, offset=offset, index=scale}, output=destReg}]
+                    [LoadMemR{source=BaseOffset{base=base, offset=byteOffset+offset, index=scale}, output=destReg}]
                 end
 
-            |   genLoadInstr false (*Byte*) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
+            |   genLoadInstr (false (*Byte*), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
                     (* The index needs to be made safe unless it's actually the result. *)
                 let
                     val safeIndex =
@@ -3961,30 +3938,30 @@ struct
                 in
                     safeIndex @
                         [tagValue{source=destReg, output=destReg},
-                         LoadByteR{source=BaseOffset{base=base, offset=0, index=Index1 indexR}, output=destReg},
+                         LoadByteR{source=BaseOffset{base=base, offset=byteOffset, index=Index1 indexR}, output=destReg},
                          ShiftConstant{shiftType=SHR, output=indexR, shift=0w1} (* Untag. *)]
                 end
 
             |   genLoadInstr _ _ = raise InternalError "genLoadInstr"
 
-            fun genLoadWord isWord =
+            fun genLoadWord (isWord, byteOffset) =
                 loadIndex(isWord,
                     loadBaseAddress(
                         getResultRegister(generalRegisters,
-                            generateInstruction(genLoadInstr isWord))
+                            generateInstruction(genLoadInstr (isWord, byteOffset)))
                         )
                     ) ([NONE, NONE], NONE)
         in
-            fun loadWord(arg1, arg2, transtable, whereto) =
+            fun loadWord{base, index, byteOffset, transtable, whereto} =
             let
-                val (opRes, opCode) = genLoadWord true (transtable, [arg1, arg2], whereto)
+                val (opRes, opCode) = genLoadWord (true, Word.toInt byteOffset) (transtable, [base, index], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
 
-            and loadByte(arg1, arg2, transtable, whereto) =
+            and loadByte{base, index, byteOffset, transtable, whereto} =
             let
-                val (opRes, opCode) = genLoadWord false (transtable, [arg1, arg2], whereto)
+                val (opRes, opCode) = genLoadWord (false, Word.toInt byteOffset) (transtable, [base, index], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
@@ -4021,10 +3998,6 @@ struct
                                 BaseOffset{offset=0, base=address, index=Index1 index}
                         |   (InRegister(GenReg address), LiteralSource offset) =>
                                 BaseOffset{offset=Word.toInt(toShort offset), base=address, index=NoIndex }
-                        |   (LiteralSource address, LiteralSource offset) =>
-                                if isShort offset andalso toShort offset = 0w0 andalso not isX64
-                                then ConstantAddress address
-                                else raise InternalError "genStoreByte"
                         |   _ => raise InternalError "genStoreByte"
                 in
                     case toStore of

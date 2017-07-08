@@ -210,8 +210,6 @@ sig
     and multiplyWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and divideWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and modulusWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and loadByte: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and loadWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and addReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and subtractReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and multiplyReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
@@ -230,6 +228,11 @@ sig
     and downShiftLargeWordVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and downShiftLargeWordArithmeticConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)
     and downShiftLargeWordArithmeticVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    
+    val loadByte: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and loadWord: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
 
     val allocateStoreSmallFixedSize: int * Word8.word * stackIndex * ttab * regHint -> operation list * mergeResult
     and allocStoreAndInitialise: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
