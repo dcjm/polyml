@@ -3732,16 +3732,16 @@ struct
         |   sharedSingleArgNegotiator _ _ = raise InternalError "sharedSingleArgNegotiator: not a single argument"
 
         local
-            fun genStoreWord([base, index, value], NONE) =
+            fun genStoreWord byteOffset ([base, index, value], NONE) =
             let
                 val address =
                     case (base, index) of
                         (InRegister(GenReg address), InRegister(GenReg indexR)) =>
                             if wordSize = 4
-                            then BaseOffset{offset= ~2, base=address, index=Index2 indexR} (* Index is tagged so double *)
-                            else (*8*) BaseOffset{offset= ~4, base=address, index=Index4 indexR}
+                            then BaseOffset{offset= byteOffset-2, base=address, index=Index2 indexR} (* Index is tagged so double *)
+                            else (*8*) BaseOffset{offset= byteOffset-4, base=address, index=Index4 indexR}
                     |   (InRegister(GenReg address), LiteralSource offset) =>
-                            BaseOffset{offset=Word.toInt(toShort offset)*wordSize, base=address, index=NoIndex}
+                            BaseOffset{offset=byteOffset+Word.toInt(toShort offset)*wordSize, base=address, index=NoIndex}
                     |   _ => raise InternalError "genStoreWord"
             in
                 case value of
@@ -3753,22 +3753,22 @@ struct
                         else [StoreLongConstToMemory{ toStore=storeConst, address=address}]
                 |   _ => raise InternalError "genStoreWord"
             end
-            | genStoreWord _ = raise InternalError "genStoreWord"
+            | genStoreWord _ _ = raise InternalError "genStoreWord"
 
-            val storeWordNegotiator =
+            fun storeWordNegotiator byteOffset =
                 (* The first argument, the address needs to be in a register even if
                    it's a constant.  The others may be literals. *)
                 loadBaseAddress(
                     loadToRegOrLiteral(generalRegisters, false, 1,
                         loadToRegOrLiteral(generalRegisters, false, 2,
-                            generateInstruction genStoreWord
+                            generateInstruction (genStoreWord(Word.toInt byteOffset))
                             ))) ([NONE, NONE, NONE], NONE)
         in
-            fun storeWord(arg1, arg2, arg3, transtable, whereto) =
+            fun storeWord{base, index, byteOffset, toStore, transtable, whereto} =
             let
                 (* We don't want to reserve a register for a result but we may need to push a
                    value to represent the unit result. *)
-                val (_, opCode) = storeWordNegotiator (transtable, [arg1, arg2, arg3], NoResult)
+                val (_, opCode) = storeWordNegotiator byteOffset (transtable, [base, index, toStore], NoResult)
                 val result =
                     case whereto of
                         NoResult => NoMerge
@@ -3787,7 +3787,7 @@ struct
                 (* Turn this into an assignment operation. *)
                 val arguments = [vecEntry, pushConst(table, toMachineWord offset), valueEntry]
             in
-                #2(storeWordNegotiator (table, arguments, NoResult)) @ freeCode1
+                #2(storeWordNegotiator 0w0 (table, arguments, NoResult)) @ freeCode1
             end
         end
 
@@ -3984,7 +3984,7 @@ struct
         local
             (* If the source or the index are in registers they have to be untagged first and
                then retagged afterwards. *)
-            fun genStoreByte([base, index, toStore], NONE) =
+            fun genStoreByte byteOffset ([base, index, toStore], NONE) =
                 let
                     val (untagIndex, retagIndex) =
                         case index of
@@ -3995,9 +3995,9 @@ struct
                     val address =
                         case (base, index) of
                             (InRegister(GenReg address), InRegister(GenReg index)) =>
-                                BaseOffset{offset=0, base=address, index=Index1 index}
+                                BaseOffset{offset=byteOffset, base=address, index=Index1 index}
                         |   (InRegister(GenReg address), LiteralSource offset) =>
-                                BaseOffset{offset=Word.toInt(toShort offset), base=address, index=NoIndex }
+                                BaseOffset{offset=byteOffset+Word.toInt(toShort offset), base=address, index=NoIndex }
                         |   _ => raise InternalError "genStoreByte"
                 in
                     case toStore of
@@ -4015,10 +4015,10 @@ struct
                     |   _ => raise InternalError "genStoreByte"
                             
                 end
-            |   genStoreByte _ = raise InternalError "genStoreByte"
+            |   genStoreByte _ _ = raise InternalError "genStoreByte"
 
         in
-            fun storeByte(arg1, arg2, arg3, transtable, whereto) =
+            fun storeByte{base, index, byteOffset, toStore, transtable, whereto} =
             let
                 (* We store from the low order byte of a register so we want the value in one of
                    the registers that has a low-byte form i.e. AL. BL, CL, DL. *)
@@ -4028,7 +4028,8 @@ struct
                    loadToRegOrLiteral(listToSet[GenReg eax, GenReg ebx, GenReg ecx, GenReg edx], true, 2,
                         loadBaseAddress(
                             loadToRegOrLiteral(generalRegisters, false, 1,
-                                generateInstruction genStoreByte))) ([NONE, NONE, NONE], NONE) (transtable, [arg1, arg2, arg3], NoResult)
+                                generateInstruction(genStoreByte(Word.toInt byteOffset))))) ([NONE, NONE, NONE], NONE)
+                                    (transtable, [base, index, toStore], NoResult)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)

@@ -233,12 +233,14 @@ sig
             (operation list * mergeResult)
     and loadWord: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
             (operation list * mergeResult)
+    and storeByte: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and storeWord: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
 
     val allocateStoreSmallFixedSize: int * Word8.word * stackIndex * ttab * regHint -> operation list * mergeResult
     and allocStoreAndInitialise: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and allocStoreUninitialised: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
-    and storeWord: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
-    and storeByte: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
 
     val moveBytes: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and moveWords: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult

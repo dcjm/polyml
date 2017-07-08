@@ -1321,12 +1321,6 @@ struct
                 |   _ => cgAndRes(downShiftLargeWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   OGCBuiltIn3{oper=BuiltIns.StoreWord, arg1, arg2, arg3} =>
-                cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
-
-        |   OGCBuiltIn3{oper=BuiltIns.StoreByte, arg1, arg2, arg3} =>
-                cgAndRes(storeByte(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
-
         |   OGCBuiltIn3{oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3} =>
             let
                 (* This is used to allocate all memory apart from tuples and
@@ -1394,7 +1388,15 @@ struct
                     loadByte{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCStoreOperation _ => raise InternalError "TODO: OGCStoreOperation"
+        |   OGCStoreOperation{ kind=LoadStoreMLWord _, address={base, index, offset}, value} =>
+                cgAndRes(
+                    storeWord{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
+
+        |   OGCStoreOperation{ kind=LoadStoreMLByte _, address={base, index, offset}, value } =>
+                cgAndRes(
+                    storeByte{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
         
         |   OGCBlockOperation _ => raise InternalError "TODO: OGCBlockOperation"
 
@@ -2574,9 +2576,7 @@ struct
         |   OGCBuiltIn3{oper, ...} =>
             (
                 case oper of
-                    BuiltIns.StoreWord => raise InternalError "TODO-genTest: OGCBuiltIn3-StoreWord"
-                |   BuiltIns.StoreByte => raise InternalError "TODO-genTest: OGCBuiltIn3-StoreByte"
-                |   BuiltIns.AllocateWordMemory => raise InternalError "TODO-genTest: OGCBuiltIn3-AllocateWordMemory"
+                    BuiltIns.AllocateWordMemory => raise InternalError "TODO-genTest: OGCBuiltIn3-AllocateWordMemory"
             )
 
         |   OGCBuiltIn4{oper, ...} =>
