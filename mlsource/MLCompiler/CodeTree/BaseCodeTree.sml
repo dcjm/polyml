@@ -26,6 +26,8 @@ struct
     open Address
 
     datatype argumentType = datatype BackendIntermediateCode.argumentType
+    datatype loadStoreKind = datatype BackendIntermediateCode.loadStoreKind
+    datatype blockOpKind = datatype BackendIntermediateCode.blockOpKind
     
     structure BuiltIns = BackendIntermediateCode.BuiltIns
 
@@ -93,6 +95,13 @@ struct
 
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
+    |   LoadOperation of { kind: loadStoreKind, address: codeAddress }
+    
+    |   StoreOperation of { kind: loadStoreKind, address: codeAddress, value: codetree }
+    
+    |   BlockOperation of
+            { kind: blockOpKind, sourceLeft: codeAddress, destRight: codeAddress, length: codetree }
+
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
@@ -151,6 +160,8 @@ struct
         localCount    : int,
         recUse        : codeUse list
     }
+
+    and codeAddress = {base: codetree, index: codetree option, offset: word}
 
     structure CodeTags =
     struct
@@ -214,6 +225,20 @@ struct
                         )
                     ]
                 )
+
+        fun prettyAddress({base, index, offset}: codeAddress): pretty =
+        let
+        in
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString "[", PrettyBreak (0, 3),
+                    pretty base,
+                    PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0), 
+                    case index of NONE => PrettyString "-" | SOME i => pretty i,
+                    PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0),
+                    PrettyString(Word.toString offset), PrettyBreak (0, 0), PrettyString "]"
+                ])
+        end
     in
         case pt of
             Eval {function, argList, ...} =>
@@ -444,6 +469,42 @@ struct
                 ]
             )
 
+        |   LoadOperation{ kind, address } =>
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString("Load" ^ BackendIntermediateCode.loadStoreKindRepr kind),
+                    PrettyBreak (1, 0),
+                    prettyAddress address
+                ]
+            )
+
+        |   StoreOperation{ kind, address, value } =>
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString("Store" ^ BackendIntermediateCode.loadStoreKindRepr kind),
+                    PrettyBreak (1, 0),
+                    prettyAddress address,
+                    PrettyBreak (1, 0),
+                    PrettyString "<=",
+                    PrettyBreak (1, 0),
+                    pretty value
+                ]
+            )
+
+        |   BlockOperation{ kind, sourceLeft, destRight, length } =>
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString(BackendIntermediateCode.blockOpKindRepr kind ^ "("),
+                    PrettyBreak (1, 0),
+                    prettyAddress sourceLeft,
+                    PrettyBreak (1, 0), PrettyString ",",
+                    prettyAddress destRight,
+                    PrettyBreak (1, 0), PrettyString ",",
+                    pretty length,
+                    PrettyBreak (1, 0), PrettyString ")"
+                ]
+            )
+
         (* That list should be exhaustive! *)
     end (* pretty *)
 
@@ -603,6 +664,15 @@ struct
                 SetContainer{
                     container = mapCodetree f container, tuple = mapCodetree f tuple, filter = filter }
         |   mapt (TagTest{test, tag, maxTag}) = TagTest{test = mapCodetree f test, tag = tag, maxTag = maxTag }
+        |   mapt (LoadOperation{kind, address}) = LoadOperation{kind = kind, address = maptAddress address }
+        |   mapt (StoreOperation{kind, address, value}) =
+                    StoreOperation{kind = kind, address = maptAddress address, value=mapCodetree f value }
+        |   mapt (BlockOperation{kind, sourceLeft, destRight, length}) =
+                    BlockOperation{kind = kind, sourceLeft = maptAddress sourceLeft,
+                                   destRight = maptAddress destRight, length=mapCodetree f length }
+        
+        and maptAddress({base, index, offset}: codeAddress): codeAddress =
+            {base=mapCodetree f base, index=case index of NONE => NONE | SOME i => SOME(mapCodetree f i), offset=offset}
     in
         (* Apply f to node.  If it returns SOME c use that otherwise
            traverse the tree. *)
@@ -655,6 +725,13 @@ struct
         |   ftree (Tuple { fields, ...}, v) = foldl (fn (c, w) => foldtree f w c) v fields
         |   ftree (SetContainer { container, tuple, ...}, v) = foldtree f (foldtree f v container) tuple
         |   ftree (TagTest{test, ...}, v) = foldtree f v test
+        |   ftree (LoadOperation{address, ...}, v) = fAddress address v
+        |   ftree (StoreOperation{address, value, ...}, v) = foldtree f (fAddress address v) value
+        |   ftree (BlockOperation{sourceLeft, destRight, length, ...}, v) =
+                    foldtree f (fAddress sourceLeft (fAddress destRight v)) length
+        
+        and fAddress {base, index=NONE, ...} v = foldtree f v base
+        |   fAddress {base, index=SOME index, ...} v = foldtree f (foldtree f v base) index
     in
         case f (code, input) of
             (v, FOLD_DONT_DESCEND) => v
@@ -668,6 +745,8 @@ struct
         and  pretty = pretty
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType
+        and  loadStoreKind = loadStoreKind
+        and  blockOpKind = blockOpKind
         and  codeBinding = codeBinding
         and  simpleBinding = simpleBinding
         and  loadForm = loadForm

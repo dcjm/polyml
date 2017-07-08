@@ -74,8 +74,6 @@ sig
         (* Load a word at a specific offset in a heap object.  If this is immutable and the
            arguments are constants it can be folded at compile time since the result will
            never change. *)
-    |   LoadWord of { isImmutable: bool }
-    |   LoadByte of { isImmutable: bool }
     |   SetStringLengthWord (* Untag the second argument and store it at the address in the first. *)
     |   WordLogical of logicalOperations (* Logical operations on words. *)
     |   WordShift of shiftOperations (* Shift operations on words. *)

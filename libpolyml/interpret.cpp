@@ -140,17 +140,33 @@ public:
 
     bool interrupt_requested;
 
+    // Allocate memory on the heap.  Returns with the address of the cell. Does not set the
+    // length word or any of the data.
+    PolyObject *allocateMemory(POLYUNSIGNED words)
+    {
+        words++; // Add the size of the length word.
+        // N.B. The allocation area may be empty so that both of these are zero.
+        if (this->allocPointer >= this->allocLimit + words)
+        {
+            this->allocPointer -= words;
+            return (PolyObject *)(this->allocPointer+1);
+        }
+        // Insufficient space.
+        // Find some space to allocate in. Returns a pointer to the newly allocated space.
+        // N.B. This may return zero if the heap is exhausted and it has set this
+        // up for an exception.  Generally it allocates by decrementing allocPointer
+        // but if the required memory is large it may allocate in a separate area.
+        PolyWord *space = processes->FindAllocationSpace(this, words, true);
+        if (space == 0) return 0;
+        return (PolyObject *)(space+1);
+    }
+
     POLYCODEPTR     pc; /* Program counter. */
     PolyWord        *sp; /* Stack pointer. */
     PolyWord        *hr;
     PolyWord        exception_arg;
     unsigned        lastInstr; /* Last instruction. */
     PolyWord        *sl; /* Stack limit register. */
-    POLYUNSIGNED    tailCount;
-    PolyWord        *tailPtr;
-    POLYUNSIGNED    returnCount;
-    POLYUNSIGNED    storeWords;
-    int instrBytes;
 
     PolyObject      *overflowPacket, *dividePacket;
 };
@@ -240,36 +256,25 @@ void IntTaskData::SetException(poly_exn *exc)
 int IntTaskData::SwitchToPoly()
 /* (Re)-enter the Poly code from C. */
 {
+    // These are temporary values used where one instruction jumps to
+    // common code.
+    POLYUNSIGNED    tailCount;
+    PolyWord        *tailPtr;
+    POLYUNSIGNED    returnCount;
+    POLYUNSIGNED    storeWords;
+    int             instrBytes;
 
     RESTART: /* Load or reload the registers and run the code. */
 
-    if (this->allocPointer <= this->allocLimit + storeWords)
-    {
-        if (this->allocPointer < this->allocLimit)
-            Crash ("Bad length in heap overflow trap");
-
-        // Find some space to allocate in.  Updates this->allocPointer and
-        // returns a pointer to the newly allocated space (if allocWords != 0)
-        PolyWord *space =
-            processes->FindAllocationSpace(this, storeWords, true);
-        if (space != 0) // Undo the allocation just now.  We'll redo it now we have the store.
-            this->allocPointer += storeWords;
-    }
-    storeWords = 0;
-    sp = this->sp; /* Reload these. */
-    pc = this->pc;
     sl = (PolyWord*)this->stack->stack()+OVERFLOW_STACK_SIZE;
 
     if (lastInstr != 256) goto RETRY; /* Re-execute instruction if necessary. */
 
     for(;;){ /* Each instruction */
 
-//        char buff[100];
         lastInstr = *pc++; /* Get next instruction. */
 
         RETRY:
-//      sprintf(buff, "PC=%x, i=%x\n", pc, lastInstr);
-//      OutputDebugString(buff);
 
         // Check for stack overflow and interrupts. These can be done less
         // frequently than every instruction.
@@ -282,6 +287,7 @@ int IntTaskData::SwitchToPoly()
             POLYUNSIGNED min_size = this->stack->top - this->sp + OVERFLOW_STACK_SIZE;
             CheckAndGrowStack(this, min_size);
             this->saveVec.reset(marker);
+            sl = (PolyWord*)this->stack->stack()+OVERFLOW_STACK_SIZE;
             goto RESTART;
         }
 
@@ -894,62 +900,48 @@ int IntTaskData::SwitchToPoly()
                     sp++;
                 this->hr = t; /* Restore old handler */
                 sp++; /* Remove that entry. */
-                this->sp = sp;
-                this->lastInstr = 256; /* Get the next instruction. */
-                goto RESTART; /* Restart in case pc is persistent (??? Still relevant????). */
+                break;
             }
 
         case INSTR_get_store_w:
-            // Get_store is now only used for mutually recursive closures.  It allocates mutable store
-            // initialised to zero.
-            {
-                storeWords = arg1+1;
-                instrBytes = 2; // Number of bytes of arg of instruction
+        // Get_store is now only used for mutually recursive closures.  It allocates mutable store
+        // initialised to zero.
+        case INSTR_legacy_container: /* Create a container. */
+                /* This is supposed to be on the stack but that causes problems in gencde
+                   so we create a mutable segment on the heap. */
+        {
+            storeWords = arg1;
+            pc += 2;
+            GET_STORE:
+            PolyObject *p = this->allocateMemory(storeWords);
+            if (p == 0) goto RESTART;
+            p->SetLengthWord(storeWords, F_MUTABLE_BIT);
+            for(; storeWords > 0; ) p->Set(--storeWords, TAGGED(0)); /* Must initialise store! */
+            *(--sp) = p;
+            break;
+        }
 
-                GET_STORE: /* Common code for allocation. */
-                this->allocPointer -= storeWords;
-                if (this->allocPointer < this->allocLimit)
-                {
-                    this->allocPointer += storeWords;
-                    goto RESTART;
-                }
-                pc += instrBytes;
-                storeWords--; // Remove the length word from the count
-                *this->allocPointer = PolyWord::FromUnsigned(storeWords | _OBJ_MUTABLE_BIT); /* Allocation must be mutable! */
-                PolyWord *t = this->allocPointer+1;
-                for(; storeWords > 0; ) t[--storeWords] = TAGGED(0); /* Must initialise store! */
-                *(--sp) = PolyWord::FromStackAddr(t);
-                break;
-            }
-
-        case INSTR_get_store_2: storeWords = 2+1; instrBytes = 0; goto GET_STORE;
-        case INSTR_get_store_3: storeWords = 3+1; instrBytes = 0; goto GET_STORE;
-        case INSTR_get_store_4: storeWords = 4+1; instrBytes = 0; goto GET_STORE;
-        case INSTR_get_store_b: storeWords = *pc+1; instrBytes = 1; goto GET_STORE;
+        case INSTR_get_store_2: storeWords = 2; instrBytes = 0; goto GET_STORE;
+        case INSTR_get_store_3: storeWords = 3; instrBytes = 0; goto GET_STORE;
+        case INSTR_get_store_4: storeWords = 4; instrBytes = 0; goto GET_STORE;
+        case INSTR_get_store_b: storeWords = *pc; pc++; goto GET_STORE;
 
         case INSTR_tuple_w:
-            {
-                storeWords = arg1+1; instrBytes = 2;
+        {
+            storeWords = arg1; pc += 2;
+        TUPLE: /* Common code for tupling. */
+            PolyObject *p = this->allocateMemory(storeWords);
+            if (p == 0) goto RESTART; // Exception
+            p->SetLengthWord(storeWords, 0);
+            for(; storeWords > 0; ) p->Set(--storeWords, *sp++);
+            *(--sp) = p;
+            break;
+        }
 
-                TUPLE: /* Common code for tupling. */
-                this->allocPointer -= storeWords;
-                if (this->allocPointer < this->allocLimit) {
-                    this->allocPointer += storeWords;
-                    goto RESTART;
-                }
-                pc += instrBytes;
-                storeWords--; // Remove the length word from the count
-                *this->allocPointer = PolyWord::FromUnsigned(storeWords);
-                PolyWord *t = this->allocPointer+1;
-                for(; storeWords > 0; ) t[--storeWords] = *sp++;
-                *(--sp) = (PolyObject*)t;
-                break;
-            }
-
-        case INSTR_tuple_2: storeWords = 2+1; instrBytes = 0; goto TUPLE;
-        case INSTR_tuple_3: storeWords = 3+1; instrBytes = 0; goto TUPLE;
-        case INSTR_tuple_4: storeWords = 4+1; instrBytes = 0; goto TUPLE;
-        case INSTR_tuple_b: storeWords = *pc+1; instrBytes = 1; goto TUPLE;
+        case INSTR_tuple_2: storeWords = 2; instrBytes = 0; goto TUPLE;
+        case INSTR_tuple_3: storeWords = 3; instrBytes = 0; goto TUPLE;
+        case INSTR_tuple_4: storeWords = 4; instrBytes = 0; goto TUPLE;
+        case INSTR_tuple_b: storeWords = *pc; pc++; goto TUPLE;
 
         case INSTR_non_local:
             {
@@ -1132,26 +1124,6 @@ int IntTaskData::SwitchToPoly()
                 pc += 1; break;
             }
 
-
-        case INSTR_container: /* Create a container. */
-            {
-                /* This is supposed to be on the stack but that causes problems in gencde
-                   so we create a mutable segment on the heap. */
-                storeWords = arg1+1;
-                this->allocPointer -= storeWords;
-                if (this->allocPointer < this->allocLimit) {
-                    this->allocPointer += storeWords;
-                    goto RESTART;
-                }
-                storeWords--;
-                PolyObject *t = (PolyObject*)(this->allocPointer+1);
-                t->SetLengthWord(storeWords, F_MUTABLE_BIT);
-                for(; storeWords > 0; ) t->Set(--storeWords, Zero);
-                *(--sp) = t; /* Push the address of the container. */
-                pc += 2;
-                break;
-            }
-
         case INSTR_set_container: /* Copy a tuple into a container. */
             {
                 PolyWord u = *sp++; /* Pop the source tuple address. */
@@ -1165,16 +1137,20 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
+        case INSTR_stack_container:
+        {
+            POLYUNSIGNED words = arg1; pc += 2;
+            while (words-- > 0) *(--sp) = Zero;
+            sp--;
+            *sp = PolyWord::FromStackAddr(sp+1);
+            break;
+        }
+
         case INSTR_tuple_container: /* Create a tuple from a container. */
             {
-                storeWords = arg1+1;
-                this->allocPointer -= storeWords;
-                if (this->allocPointer < this->allocLimit) {
-                    this->allocPointer += storeWords;
-                    goto RESTART;
-                }
-                storeWords--;
-                PolyObject *t = (PolyObject *)(this->allocPointer+1);
+                storeWords = arg1;
+                PolyObject *t = this->allocateMemory(storeWords);
+                if (t == 0) goto RESTART;
                 t->SetLengthWord(storeWords, 0);
                 for(; storeWords > 0; )
                 {
@@ -1413,15 +1389,8 @@ int IntTaskData::SwitchToPoly()
             // Shift the tagged value to remove the tag and put it into the first word.
             // The original sign bit is copied in the shift.
             POLYSIGNED wx = (*sp).UnTagged();
-            // Allocate box for the result.
-            storeWords = 2;
-            this->allocPointer -= storeWords;
-            if (this->allocPointer < this->allocLimit)
-            {
-                this->allocPointer += storeWords;
-                goto RESTART;
-            }
-            PolyObject *t = (PolyObject*)(this->allocPointer+1);
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
             t->SetLengthWord(1, F_BYTE_OBJ);
             t->Set(0, PolyWord::FromSigned(wx));
             *sp = t;
@@ -1433,14 +1402,8 @@ int IntTaskData::SwitchToPoly()
             // As with the above except the value is treated as an unsigned
             // value and the top bit is zero.
             POLYUNSIGNED wx = (*sp).UnTaggedUnsigned();
-            storeWords = 2;
-            this->allocPointer -= storeWords;
-            if (this->allocPointer < this->allocLimit)
-            {
-                this->allocPointer += storeWords;
-                goto RESTART;
-            }
-            PolyObject *t = (PolyObject*)(this->allocPointer+1);
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
             t->SetLengthWord(1, F_BYTE_OBJ);
             t->Set(0, PolyWord::FromUnsigned(wx));
             *sp = t;
@@ -1677,18 +1640,194 @@ int IntTaskData::SwitchToPoly()
         case INSTR_allocByteMem:
         {
             // Allocate byte segment.  This does not need to be initialised.
-            POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp);
-            POLYUNSIGNED length = UNTAGGED_UNSIGNED(sp[1]);
-            storeWords = length+1;  // +1 for length word
-            this->allocPointer -= storeWords;
-            if (this->allocPointer < this->allocLimit)
-            {
-                this->allocPointer += storeWords;
-                goto RESTART;
-            }
-            sp++; // Can now pop the flags
-            PolyObject *t = (PolyObject*)(this->allocPointer+1);
+            POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp);
+            PolyObject *t = this->allocateMemory(length);
+            if (t == 0) goto RESTART; // Exception
             t->SetLengthWord(length, (byte)flags);
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordEqual:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            *sp = wx == wy ? True : False;
+            break;
+        }
+
+        case INSTR_lgWordNotequal:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            *sp = wx != wy ? True : False;
+            break;
+        }
+
+        case INSTR_lgWordLess:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            *sp = (wy < wx) ? True : False;
+            break;
+        }
+
+        case INSTR_lgWordLessEq:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            *sp = (wy <= wx) ? True : False;
+            break;
+        }
+
+        case INSTR_lgWordGreater:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            *sp = (wy > wx) ? True : False;
+            break;
+        }
+
+        case INSTR_lgWordGreaterEq:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            *sp = (wy >= wx) ? True : False;
+            break;
+        }
+
+        case INSTR_lgWordAdd:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy+wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordSub:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy-wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordMult:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy*wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordDiv:
+         {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy/wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordMod:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy%wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordAnd:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy&wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordOr:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy|wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordXor:
+        {
+            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy^wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordShiftLeft:
+        {
+            // The shift amount is a tagged word not a boxed large word
+            POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy << wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordShiftRLog:
+        {
+            // The shift amount is a tagged word not a boxed large word
+            POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(wy >> wx));
+            *sp = t;
+            break;
+        }
+
+        case INSTR_lgWordShiftRArith:
+        {
+            // The shift amount is a tagged word not a boxed large word
+            POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
+            POLYSIGNED wy = (*sp).AsObjPtr()->Get(0).AsSigned();
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromSigned(wy >> wx));
             *sp = t;
             break;
         }
@@ -1700,18 +1839,11 @@ int IntTaskData::SwitchToPoly()
         case INSTR_allocWordMemory:
         {
             // Allocate word segment.  This must be initialised.
-            PolyWord initialiser = *sp;
-            POLYUNSIGNED flags = UNTAGGED_UNSIGNED(sp[1]);
-            POLYUNSIGNED length = UNTAGGED_UNSIGNED(sp[2]);
-            storeWords = length+1;  // +1 for length word
-            this->allocPointer -= storeWords;
-            if (this->allocPointer < this->allocLimit)
-            {
-                this->allocPointer += storeWords;
-                goto RESTART;
-            }
-            sp += 2; // Can now pop the initialiser and flags
-            PolyObject *t = (PolyObject*)(this->allocPointer+1);
+            PolyWord initialiser = *sp++;
+            POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp);
+            PolyObject *t = this->allocateMemory(length);
+            if (t == 0) goto RESTART;
             t->SetLengthWord(length, (byte)flags);
             *sp = t;
             // Have to initialise the data.
@@ -1723,14 +1855,8 @@ int IntTaskData::SwitchToPoly()
         {
             // Allocate a single word mutable cell.  This is more common than allocWordMemory on its own.
             PolyWord initialiser = *sp;
-            storeWords = 2;  // +1 for length word
-            this->allocPointer -= storeWords;
-            if (this->allocPointer < this->allocLimit)
-            {
-                this->allocPointer += storeWords;
-                goto RESTART;
-            }
-            PolyObject *t = (PolyObject*)(this->allocPointer+1);
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RESTART;
             t->SetLengthWord(1, F_MUTABLE_BIT);
             t->Set(0, initialiser);
             *sp = t;
@@ -1779,6 +1905,53 @@ int IntTaskData::SwitchToPoly()
             p[index+offset] = (byte)toStore;
             *sp = Zero;
             break; 
+        }
+
+        case INSTR_blockMoveWord:
+        {
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED destOffset = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED srcOffset = UNTAGGED_UNSIGNED(*sp++);
+            PolyObject *dest = (*sp++).AsObjPtr();
+            PolyObject *src = (*sp).AsObjPtr();
+            for (POLYUNSIGNED u = 0; u < length; u++) dest->Set(destOffset+u, src->Get(srcOffset+u));
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_blockMoveByte:
+        {
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED destOffset = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED srcOffset = UNTAGGED_UNSIGNED(*sp++);
+            POLYCODEPTR dest = (*sp++).AsCodePtr();
+            POLYCODEPTR src = (*sp).AsCodePtr();
+            memcpy(dest+destOffset, src+srcOffset, length);
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_blockEqualByte:
+        {
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED arg2Offset = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED arg1Offset = UNTAGGED_UNSIGNED(*sp++);
+            POLYCODEPTR arg2Ptr = (*sp++).AsCodePtr();
+            POLYCODEPTR arg1Ptr = (*sp).AsCodePtr();
+            *sp = memcmp(arg1Ptr+arg1Offset, arg2Ptr+arg2Offset, length) == 0 ? True : False;
+            break;
+        }
+
+        case INSTR_blockCompareByte:
+        {
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED arg2Offset = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED arg1Offset = UNTAGGED_UNSIGNED(*sp++);
+            POLYCODEPTR arg2Ptr = (*sp++).AsCodePtr();
+            POLYCODEPTR arg1Ptr = (*sp).AsCodePtr();
+            int result = memcmp(arg1Ptr+arg1Offset, arg2Ptr+arg2Offset, length);
+            *sp = result == 0 ? TAGGED(0) : result < 0 ? TAGGED(-1) : TAGGED(1);
+            break;
         }
 
         default: Crash("Unknown instruction %x\n", lastInstr);

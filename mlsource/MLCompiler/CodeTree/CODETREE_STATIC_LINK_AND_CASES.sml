@@ -426,6 +426,15 @@ struct
 
             |   insert(TagTest{test, tag, maxTag}) = BICTagTest{test=insert test, tag=tag, maxTag=maxTag}
 
+            |   insert(LoadOperation{kind, address}) = BICLoadOperation{kind=kind, address=insertAddress address}
+
+            |   insert(StoreOperation{kind, address, value}) =
+                    BICStoreOperation{kind=kind, address=insertAddress address, value=insert value}
+
+            |   insert(BlockOperation{kind, sourceLeft, destRight, length}) =
+                    BICBlockOperation{
+                        kind=kind, sourceLeft=insertAddress sourceLeft,
+                        destRight=insertAddress destRight, length=insert length}
 
             and insertLambda (lam, needsClosure) =
             let
@@ -433,6 +442,9 @@ struct
             in
                 copyProcClosure (copiedLambda, newClosure, needsClosure)
             end
+
+            and insertAddress{base, index, offset} =
+                {base=insert base, index=Option.map insert index, offset=offset}
 
           and copyCond (condTest, condThen, condElse) =
             let

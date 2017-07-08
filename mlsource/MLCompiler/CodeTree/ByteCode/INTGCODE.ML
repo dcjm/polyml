@@ -218,7 +218,17 @@ struct
                                 genMutualDecs (otherDecs)
                             ))
 
-                fun codeDecls(BICRecDecs dl) = genMutualDecs (dl)
+                fun codeDecls(BICRecDecs dl) = genMutualDecs dl
+
+                |   codeDecls(BICDeclar{value=BICContainer size, addr, ...}) =
+                    (
+                        (* If this is a container we have to process it here otherwise it
+                           will be removed in the stack adjustment code. *)
+                        genContainer(size, cvec); (* Push the address of this container. *)
+                        realstackptr := !realstackptr + size + 1; (* Pushes N words plus the address. *)
+                        STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
+                    )
+
                 |   codeDecls(BICDeclar{value, addr, ...}) =
                     (
                         gencde (value, ToStack, NotEnd, loopAddr);
@@ -379,18 +389,7 @@ struct
            realstackptr := !realstackptr - (size - 1)
          end
 
-            (* Containers are supposed to be implemented on the stack for efficiency.
-               Unfortunately they cause problems in this code because we assume
-               that if we generate a value to the stack it only occupies a single
-               word.  Rather than change this code and risk breaking something I'm
-               simply generating them as mutable tuples on the heap. *)
-        |   BICContainer size =>
-            (* Reserve a number of words on the stack for use as a tuple on the
-               stack.  The result is the address of this space. *)
-            (
-            genContainer(size, cvec); (* Push the address of this container. *)
-            incsp() (* Pushes a single word. *)
-            )
+        |   BICContainer size => raise InternalError "BICContainer" (* This must be processed in codeDecls. *)
 
         |   BICSetContainer{container, tuple, filter} =>
             (* Copy the contents of a tuple into a container.  If the tuple is a
@@ -554,8 +553,25 @@ struct
                 |   LoadByte _ => raise InternalError "LoadWord"
                 
                 |   SetStringLengthWord => genOpcode(opcode_setStringLength, cvec)
-                
                 |   AllocateByteMemory => genOpcode(opcode_allocByteMem, cvec)
+                
+                |   LargeWordComparison TestEqual => genOpcode(opcode_lgWordEqual, cvec)
+                |   LargeWordComparison TestLess => genOpcode(opcode_lgWordLess, cvec)
+                |   LargeWordComparison TestLessEqual => genOpcode(opcode_lgWordLessEq, cvec)
+                |   LargeWordComparison TestGreater => genOpcode(opcode_lgWordGreater, cvec)
+                |   LargeWordComparison TestGreaterEqual => genOpcode(opcode_lgWordGreaterEq, cvec)
+                |   LargeWordComparison BuiltIns.TestNotEqual => raise InternalError "TODO: LargeWordComparison - TestNotEqual"
+                |   LargeWordArith ArithAdd => genOpcode(opcode_lgWordAdd, cvec)
+                |   LargeWordArith ArithSub => genOpcode(opcode_lgWordSub, cvec)
+                |   LargeWordArith ArithMult => genOpcode(opcode_lgWordMult, cvec)
+                |   LargeWordArith ArithQuot => genOpcode(opcode_lgWordDiv, cvec)
+                |   LargeWordArith ArithRem => genOpcode(opcode_lgWordMod, cvec)
+                |   LargeWordLogical LogicalAnd => genOpcode(opcode_lgWordAnd, cvec)
+                |   LargeWordLogical LogicalOr => genOpcode(opcode_lgWordOr, cvec)
+                |   LargeWordLogical LogicalXor => genOpcode(opcode_lgWordXor, cvec)
+                |   LargeWordShift ShiftLeft => genOpcode(opcode_lgWordShiftLeft, cvec)
+                |   LargeWordShift ShiftRightLogical => genOpcode(opcode_lgWordShiftRLog, cvec)
+                |   LargeWordShift ShiftRightArithmetic => genOpcode(opcode_lgWordShiftRArith, cvec)
                  ;
                 decsp() (* Removes one item from the stack. *)
             end
@@ -620,7 +636,22 @@ struct
 
         |   BICBuiltIn4 { oper, arg1, arg2, arg3, arg4 } => raise InternalError "intgcode: BICBuiltIn4"
 
-        |   BICBuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 } => raise InternalError "intgcode: BICBuiltIn5"
+        |   BICBuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 } =>
+            let
+                open BuiltIns
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg4, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg5, ToStack, NotEnd, loopAddr)
+            in
+                case oper of
+                    ByteVecEqual => genOpcode(opcode_blockEqualByte, cvec)
+                |   ByteVecCompare => genOpcode(opcode_blockCompareByte, cvec)
+                |   BlockMove{isByteMove=true} => genOpcode(opcode_blockMoveByte, cvec)
+                |   BlockMove{isByteMove=false} => genOpcode(opcode_blockMoveWord, cvec);
+                decsp(); decsp(); decsp(); decsp()
+            end
 
     in (* body of gencde *) 
 

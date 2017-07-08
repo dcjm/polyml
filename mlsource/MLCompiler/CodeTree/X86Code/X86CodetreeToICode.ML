@@ -715,64 +715,6 @@ struct
                      TagValue { source=remainder, dest=target }], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
-            let
-                val target = asTarget destination
-                (* Constant offset.  This is very common since it's used for refs. *)
-                (* TODO: We could also handle the case where the case where the base address is a constant
-                   as a special case. *)
-                val baseReg = newPReg()
-                (* The offset should always be positive.  Loading the length word is a separate function. *)
-                val offset = Word.toInt(toShort value)
-            in
-                (codeToICodeTarget(arg1, context, false, baseReg) @
-                    [MoveArgument {source=wordOffsetAddress(offset, baseReg), dest=target, kind=WordToWord}], target)
-            end
-
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
-                   index factor and offset.  *)
-                val baseReg = newPReg() and indexReg = newPReg()
-                val source =
-                    if isX64
-                    then MemoryLocation{base=baseReg, offset= ~4, index= MemIndex4 indexReg}
-                    else MemoryLocation{base=baseReg, offset= ~2, index= MemIndex2 indexReg}
-            in
-                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
-                     [MoveArgument {source=source, dest=target, kind=WordToWord}], target)
-            end
-
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadByte _, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
-            let
-                val target = asTarget destination
-                (* Constant offset - this is much less common than for LoadWord. *)
-                val baseReg = newPReg() and untaggedResReg = newUReg()
-                (* The offset should always be positive. *)
-                val offset = Word.toInt(toShort value)
-            in
-                (codeToICodeTarget(arg1, context, false, baseReg) @
-                    [MoveArgument {
-                        source=MemoryLocation{offset= offset, base=baseReg, index=NoMemIndex},
-                        dest=untaggedResReg, kind=ByteToWordZeroExtend},
-                     TagValue {source=untaggedResReg, dest=target}], target)
-            end
-
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadByte _, arg1, arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                (* Variable offset.  Because the index is directly added to the address we have to
-                   untag it.  *)
-                val baseReg = newPReg() and indexReg = newPReg() and untaggedIndex = newUReg()
-                val untaggedResReg = newUReg()
-            in
-                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
-                    [UntagValue{source=indexReg, dest=untaggedIndex, isSigned=false},
-                     MoveArgument {source=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 untaggedIndex}, dest=untaggedResReg, kind=ByteToWordZeroExtend},
-                     TagValue {source=untaggedResReg, dest=target}], target)
-            end
-
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.SetStringLengthWord, arg1, arg2}, context, _, destination) =
             let
                 val addrReg = newPReg() and lengthReg = newPReg()
@@ -1458,6 +1400,70 @@ struct
         |   codeToICode(instr as BICTagTest _, context, isTail, destination) =
                 (* Better handled as a conditional *)
                 codeAsConditional(instr, context, isTail, destination)
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreMLWord _, address={base=arg1, index=NONE, offset}}, context, _, destination) =
+            let
+                val target = asTarget destination
+                (* Constant offset.  This is very common since it's used for refs. *)
+                (* TODO: We could also handle the case where the case where the base address is a constant
+                   as a special case. *)
+                val baseReg = newPReg()
+                (* The offset should always be positive.  Loading the length word is a separate function. *)
+                val offset = Word.toInt offset
+            in
+                (codeToICodeTarget(arg1, context, false, baseReg) @
+                    [MoveArgument {source=MemoryLocation{offset=offset, base=baseReg, index=NoMemIndex}, dest=target, kind=WordToWord}], target)
+            end
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreMLWord _, address={base=arg1, index=SOME arg2, offset}}, context, _, destination) =
+            let
+                val target = asTarget destination
+                (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
+                   index factor and offset.  *)
+                val baseReg = newPReg() and indexReg = newPReg()
+                val source =
+                    if isX64
+                    then MemoryLocation{base=baseReg, offset= Word.toInt offset - 4, index= MemIndex4 indexReg}
+                    else MemoryLocation{base=baseReg, offset= Word.toInt offset - 2, index= MemIndex2 indexReg}
+            in
+                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
+                     [MoveArgument {source=source, dest=target, kind=WordToWord}], target)
+            end
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreMLByte _, address={base=arg1, index=NONE, offset}}, context, _, destination) =
+            let
+                val target = asTarget destination
+                (* Constant offset - this is much less common than for LoadWord. *)
+                val baseReg = newPReg() and untaggedResReg = newUReg()
+                (* The offset should always be positive. *)
+                val offset = Word.toInt offset
+            in
+                (codeToICodeTarget(arg1, context, false, baseReg) @
+                    [MoveArgument {
+                        source=MemoryLocation{offset= offset, base=baseReg, index=NoMemIndex},
+                        dest=untaggedResReg, kind=ByteToWordZeroExtend},
+                     TagValue {source=untaggedResReg, dest=target}], target)
+            end
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreMLByte _, address={base=arg1, index=SOME arg2, offset}}, context, _, destination) =
+            let
+                val target = asTarget destination
+                (* Variable offset.  Because the index is directly added to the address we have to
+                   untag it.  *)
+                val baseReg = newPReg() and indexReg = newPReg() and untaggedIndex = newUReg()
+                val untaggedResReg = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
+                    [UntagValue{source=indexReg, dest=untaggedIndex, isSigned=false},
+                     MoveArgument {source=MemoryLocation{base=baseReg, offset=Word.toInt offset, index=MemIndex1 untaggedIndex}, dest=untaggedResReg, kind=ByteToWordZeroExtend},
+                     TagValue {source=untaggedResReg, dest=target}], target)
+            end
+
+        |   codeToICode(BICStoreOperation _, context, _, destination) =
+                raise InternalError "codeToICode: BICStoreOperation TODO"
+
+        |   codeToICode(BICBlockOperation _, context, _, destination) =
+                raise InternalError "codeToICode: BICBlockOperation TODO"
 
         (* Process a list of bindings. *)
         and codeBindingsToICode(bindings, context) =

@@ -30,6 +30,16 @@ sig
     datatype argumentType =
         GeneralType
     |   FloatingPtType
+
+    datatype loadStoreKind =
+        LoadStoreMLWord of {isImmutable: bool}     (* Load/Store an ML word in an ML word cell. *)
+    |   LoadStoreMLByte of {isImmutable: bool}     (* Load/Store a byte, tagging and untagging as appropriate, in an ML byte cell. *)
+
+    datatype blockOpKind =
+        BlockOpMoveWord
+    |   BlockOpMoveByte
+    |   BlockOpEqualByte
+    |   BlockOpCompareByte
     
     structure BuiltIns: BUILTINS
 
@@ -89,6 +99,13 @@ sig
 
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
+    |   LoadOperation of { kind: loadStoreKind, address: codeAddress }
+    
+    |   StoreOperation of { kind: loadStoreKind, address: codeAddress, value: codetree }
+    
+    |   BlockOperation of
+            { kind: blockOpKind, sourceLeft: codeAddress, destRight: codeAddress, length: codetree }
+
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
@@ -136,6 +153,8 @@ sig
         recUse        : codeUse list        (* Recursive use of the function *)
     }
 
+    and codeAddress = {base: codetree, index: codetree option, offset: word}
+
     type pretty
     val pretty : codetree -> pretty
 
@@ -159,6 +178,8 @@ sig
         and  pretty = pretty
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType
+        and  loadStoreKind = loadStoreKind
+        and  blockOpKind = blockOpKind
         and  codeBinding = codeBinding
         and  simpleBinding = simpleBinding
         and  loadForm = loadForm

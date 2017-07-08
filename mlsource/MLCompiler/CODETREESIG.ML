@@ -27,7 +27,17 @@ sig
     datatype argumentType =
         GeneralType
     |   FloatingPtType
-    
+
+    and loadStoreKind =
+        LoadStoreMLWord of {isImmutable: bool}
+    |   LoadStoreMLByte of {isImmutable: bool}
+
+    and blockOpKind =
+        BlockOpMoveWord
+    |   BlockOpMoveByte
+    |   BlockOpEqualByte
+    |   BlockOpCompareByte
+
     structure BuiltIns: BUILTINS
  
     val CodeTrue:           codetree (* code for "true"  *)
@@ -115,6 +125,12 @@ sig
     and mkBuiltIn2Fn: BuiltIns.builtIn2Ops -> codetree
     and mkBuiltIn3Fn: BuiltIns.builtIn3Ops -> codetree
     and mkBuiltIn5Fn: BuiltIns.builtIn5Ops -> codetree
+
+    (* Load operations.  At this level the first operand is the base address and
+       the second is an index. *)
+    val mkLoadOperation: loadStoreKind * codetree * codetree -> codetree
+    val mkLoadOperationFn: loadStoreKind -> codetree
+
 
     structure Foreign: FOREIGNCALLSIG
     structure Sharing:

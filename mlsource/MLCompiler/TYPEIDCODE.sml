@@ -186,7 +186,7 @@ struct
                     val printFn = (* Create a function to load the printer ref and apply to the args. *)
                         mkProc(
                             mkEval(
-                                mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, printerRefAddress, CodeZero),
+                                mkLoadOperation(LoadStoreMLWord{isImmutable=false}, printerRefAddress, CodeZero),
                                 [arg1]),
                             1, "print-" ^ tcName typConstr, [], 0)
                 in
@@ -513,7 +513,7 @@ struct
                                          the reference and apply it the pair of the value and the depth. *)
                                     mkProc(
                                         mkEval(
-                                            mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, printerRefAddress, CodeZero),
+                                            mkLoadOperation(LoadStoreMLWord{isImmutable=false}, printerRefAddress, CodeZero),
                                             [arg1]),
                                         1, "print-"^name, getClosure nLevel, 0)
                             |   _ =>  (* Construct a function, that when called, will extract the
@@ -522,7 +522,7 @@ struct
                                     mkProc(
                                         mkEval(
                                             mkEval(
-                                                mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, printerRefAddress, CodeZero),
+                                                mkLoadOperation(LoadStoreMLWord{isImmutable=false}, printerRefAddress, CodeZero),
                                                 argList),
                                             [arg1]),
                                         1, "print-"^name, getClosure nLevel, 0)
@@ -1168,7 +1168,7 @@ struct
 
             val printFn =
                 if isDatatype
-                then mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, extractPrinter loadLocal, CodeZero)
+                then mkLoadOperation(LoadStoreMLWord{isImmutable=false}, extractPrinter loadLocal, CodeZero)
                 else if arity = 0 then codePrintDefault
                 else mkProc(codePrintDefault, arity, "print-helper()", [], 0)
                 

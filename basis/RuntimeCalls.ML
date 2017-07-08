@@ -23,11 +23,6 @@
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
-  val POLY_SYS_xora                = 112 (* DCJM 21/6/00 *)
-  val POLY_SYS_equala              = 113
-  val POLY_SYS_ora                 = 114 (* DCJM 21/6/00 *)
-  val POLY_SYS_anda                = 115 (* DCJM 21/6/00 *)
-  val POLY_SYS_Real_str            = 117 (* DCJM 6/4/00 *)
   val POLY_SYS_Real_geq            = 118 (* DCJM 28/3/00 *)
   val POLY_SYS_Real_leq            = 119 (* DCJM 28/3/00 *)
   val POLY_SYS_Real_gtr            = 120 (* DCJM 28/3/00 *)
@@ -40,8 +35,6 @@ struct
   val POLY_SYS_Div_real            = 128
   val POLY_SYS_Abs_real            = 129
   val POLY_SYS_Neg_real            = 130
-  val POLY_SYS_conv_real           = 133
-  val POLY_SYS_real_to_int         = 134
   val POLY_SYS_int_to_real         = 135
   val POLY_SYS_fixed_to_real       = 142
   val POLY_SYS_cmem_load_8         = 160

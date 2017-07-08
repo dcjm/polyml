@@ -447,6 +447,14 @@ struct
             mkInlproc(mkBuiltIn2(eqWord, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualWord()", [], 0)
     end
 
+    fun mkLoadOperation(oper, base, index) =
+        LoadOperation{kind=oper, address={base=base, index=SOME index, offset=0w0}}
+
+    fun mkLoadOperationFn oper =
+        mkInlproc(mkLoadOperation(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)), 1,
+            "loadOperation()", [], 0)
+
+
     fun identityFunction (name : string) : codetree = 
         mkInlproc (mkLoadArgument 0, 1, name, [], 0) (* Returns its argument. *);
   

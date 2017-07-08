@@ -193,9 +193,21 @@ struct
                 checkUse isMain (container, checkUse isMain (tuple, cl -- (BoolVector.length filter), false), false)
 
         |   checkUse isMain (TagTest{test, ...}, cl, _) = checkUse isMain (test, cl -- 1, false)
+
+        |   checkUse isMain (LoadOperation{address, ...}, cl, _) = checkUseAddress isMain (address, cl -- 1)
+
+        |   checkUse isMain (StoreOperation{address, value, ...}, cl, _) =
+                checkUse isMain (value, checkUseAddress isMain (address, cl -- 1), false)
+
+        |   checkUse isMain (BlockOperation{sourceLeft, destRight, length, ...}, cl, _) =
+                checkUse isMain (length,
+                    checkUseAddress isMain (destRight, checkUseAddress isMain (sourceLeft, cl -- 1)), false)
         
         and checkUseList isMain (elems, cl) =
             List.foldl(fn (e, n) => checkUse isMain (e, n, false)) cl elems
+
+        and checkUseAddress isMain ({base, index=NONE, ...}, cl) = checkUse isMain (base, cl, false)
+        |   checkUseAddress isMain ({base, index=SOME index, ...}, cl) = checkUseList isMain ([base, index], cl)
         
         val costLeft = checkUse true (function, maxInlineSize, true)
     in

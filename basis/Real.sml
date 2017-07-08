@@ -20,6 +20,21 @@
 structure Real: REAL =
 struct
     open RuntimeCalls IEEEReal
+
+    val fromLargeInt: LargeInt.int -> real = RunCall.run_call1 POLY_SYS_int_to_real
+    
+    val fromInt: int -> real =
+        (* We have to select the appropriate conversion.  This will be
+           reduced down to the appropriate function but has to be
+           type-correct whether int is arbitrary precision or fixed
+           precision.  Hence the "o Large/FixedInt.fromInt". *)
+        if Bootstrap.intIsArbitraryPrecision
+        then fromLargeInt o LargeInt.fromInt
+        else RunCall.run_call1 POLY_SYS_fixed_to_real o FixedInt.fromInt
+
+    (* These are needed because we don't yet have conversion from string
+       to real.  They are filtered out by the signature. *)
+    val zero = fromInt 0 and one = fromInt 1 and four = fromInt 4
     
     (* This is used for newly added functions in the Standard Basis. *)
     (* We want to get the io function once for each function, not once
@@ -76,8 +91,8 @@ struct
         val pow = callRealReal 4
 
         (* Derived values. *)
-        val e = exp 1.0
-        val pi = 4.0 * atan 1.0
+        val e = exp one
+        val pi = four * atan one
     
     end;
 
@@ -87,13 +102,13 @@ struct
     val op == : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_eq;
     val op != : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_neq;
 
-    val radix : int = callRealToInt 11 0.0
-    val precision : int = callRealToInt 12 0.0
-    val maxFinite : real = callReal 13 0.0
-    val minNormalPos : real = callReal 14 0.0
+    val radix : int = callRealToInt 11 zero
+    val precision : int = callRealToInt 12 zero
+    val maxFinite : real = callReal 13 zero
+    val minNormalPos : real = callReal 14 zero
 
-    val posInf : real = 1.0/0.0;
-    val negInf : real = ~1.0/0.0;
+    val posInf : real = one/zero;
+    val negInf : real = ~one/zero;
     
     (* We only implement this sort of real. *)
     fun toLarge (x: real) : (*LargeReal.*)real =x
@@ -102,7 +117,7 @@ struct
     (* NAN values fail any test including equality with themselves. *)
     fun isNan x = x != x
     (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
-    fun isFinite x = x * 0.0 == 0.0
+    fun isFinite x = x * zero == zero
     
     val signBit : real -> bool = callRealToBool 17
     val copySign : (real * real) -> real = callRealReal 18
@@ -113,7 +128,7 @@ struct
     fun isNormal x = isFinite x andalso abs x >= minNormalPos
     
     fun class x =
-        if isFinite x then if x == 0.0 then ZERO
+        if isFinite x then if x == zero then ZERO
            else if abs x >= minNormalPos then NORMAL
            else SUBNORMAL
         else if isNan x then NAN
@@ -121,7 +136,7 @@ struct
     
     fun sign x = 
         if isNan x then raise General.Domain
-        else if x == 0.0 then 0 else if x < 0.0 then ~1 else 1
+        else if x == zero then 0 else if x < zero then ~1 else 1
         
     fun sameSign (x, y) = signBit x = signBit y
     
@@ -136,9 +151,6 @@ struct
     fun checkFloat x =
         if isFinite x then x
         else if isNan x then raise General.Div else raise General.Overflow
-
-    val fromLargeInt: LargeInt.int -> real = RunCall.run_call1 POLY_SYS_int_to_real
-    val fromInt: int  -> real = RunCall.run_call1 POLY_SYS_fixed_to_real
 
     val radixAsReal (* Not exported *) = fromInt radix
     val epsilon (* Not exported *) = Math.pow(radixAsReal, fromInt (Int.-(1, precision)))
@@ -155,14 +167,14 @@ struct
         fun fromManAndExp (ri: real*int): real = doReal(23, ri)
     in
         fun toManExp r = 
-            if not (isFinite r) orelse r == 0.0
+            if not (isFinite r) orelse r == zero
             (* Nan, infinities and +/-0 all return r in the mantissa.
                We include 0 to preserve its sign. *)
             then {man=r, exp=0}
             else {man=toMantissa r, exp=toExponent r}
 
         fun fromManExp {man, exp} = 
-            if not (isFinite man) orelse man == 0.0
+            if not (isFinite man) orelse man == zero
             (* Nan, infinities and +/-0 in the mantissa all return
                their argument. *)
             then man
@@ -225,13 +237,13 @@ struct
     local
         val realConv: string->real = RunCall.rtsCallFull1 "PolyRealBoxedFromString"
 
-        val posNan = abs(0.0 / 0.0)
+        val posNan = abs(zero / zero)
         val negNan = ~posNan
     in
         fun fromDecimal { class = INF, sign=true, ...} = SOME negInf
           | fromDecimal { class = INF, sign=false, ...} = SOME posInf
-          | fromDecimal { class = ZERO, sign=true, ...} = SOME ~0.0
-          | fromDecimal { class = ZERO, sign=false, ...} = SOME 0.0
+          | fromDecimal { class = ZERO, sign=true, ...} = SOME (~ zero)
+          | fromDecimal { class = ZERO, sign=false, ...} = SOME zero
              (* Generate signed Nans ignoring the digits and mantissa.  There
                 was code here to set the mantissa but there's no reference to
                 that in the current version of the Basis library.  *)
@@ -266,7 +278,7 @@ struct
         fun fixFmt ndigs r =
         if isNan r then "nan"
         else if not (isFinite r)
-        then if r < 0.0 then "~inf" else "inf"
+        then if r < zero then "~inf" else "inf"
         else
         let
             (* Try to get ndigs past the decimal point. *)
@@ -302,7 +314,7 @@ struct
         fun sciFmt ndigs r =
         if isNan r then "nan"
         else if not (isFinite r)
-        then if r < 0.0 then "~inf" else "inf"
+        then if r < zero then "~inf" else "inf"
         else
         let
             (* Try to get ndigs+1 digits.  1 before the decimal point and ndigs after. *)
@@ -326,7 +338,7 @@ struct
         fun genFmt ndigs r =
         if isNan r then "nan"
         else if not (isFinite r)
-        then if r < 0.0 then "~inf" else "inf"
+        then if r < zero then "~inf" else "inf"
         else
         let
             (* Try to get ndigs digits. *)
@@ -519,26 +531,15 @@ struct
     (* Converter to real values. This replaces the basic conversion
        function for reals installed in the bootstrap process.
        For more information see convInt in Int. *)
-    (* Don't use it for the moment because it doesn't really provide any
-       advantage over the existing function. *)
-    (*
     local
-        structure Conversion =
-          RunCall.Run_exception1
-            (
-              type ex_type = string;
-              val ex_iden  = EXC_conversion
-            );
-        exception Conversion = Conversion.ex;
         fun convReal s =
             case StringCvt.scanString scan s of
-                NONE => raise Conversion "Invalid real constant"
+                NONE => raise RunCall.Conversion "Invalid real constant"
               | SOME res => res
     in
         (* Install this as a conversion function for real literals. *)
         val (): unit = RunCall.addOverload convReal "convReal"
     end
-    *)
 
     val op + : (real * real) -> real = RunCall.run_call2 POLY_SYS_Add_real;
     val op - : (real * real) -> real = RunCall.run_call2 POLY_SYS_Sub_real;
@@ -591,8 +592,8 @@ struct
         { whole = whole,
           frac =
             if not (isFinite r)
-            then if isNan r then r else (* Infinity *) if r < 0.0 then ~0.0 else 0.0
-            else if frac == 0.0 then if signBit r then ~0.0 else 0.0
+            then if isNan r then r else (* Infinity *) if r < zero then ~zero else zero
+            else if frac == zero then if signBit r then ~zero else zero
             else frac }
     end
 

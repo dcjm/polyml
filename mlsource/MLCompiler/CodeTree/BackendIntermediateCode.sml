@@ -69,8 +69,6 @@ struct
             WordComparison of { test: testConditions, isSigned: bool }
         |   FixedPrecisionArith of arithmeticOperations
         |   WordArith of arithmeticOperations
-        |   LoadWord of {isImmutable: bool }
-        |   LoadByte of { isImmutable: bool }
         |   SetStringLengthWord
         |   WordLogical of logicalOperations
         |   WordShift of shiftOperations
@@ -112,10 +110,6 @@ struct
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
         |   builtIn2Repr (FixedPrecisionArith arithOp) = (arithRepr arithOp) ^ "Fixed"
         |   builtIn2Repr (WordArith arithOp) =  (arithRepr arithOp) ^ "Word"
-        |   builtIn2Repr (LoadWord {isImmutable=true}) =  "LoadWordImmutable"
-        |   builtIn2Repr (LoadWord {isImmutable=false}) =  "LoadWordMutable"
-        |   builtIn2Repr (LoadByte {isImmutable=true}) =  "LoadByteImmutable"
-        |   builtIn2Repr (LoadByte {isImmutable=false}) =  "LoadByteMutable"
         |   builtIn2Repr SetStringLengthWord = "SetStringLengthWord"
         |   builtIn2Repr (WordLogical logOp) =  (logicRepr logOp) ^ "Word"
         |   builtIn2Repr (WordShift shiftOp) =  (shiftRepr shiftOp) ^ "Word"
@@ -161,7 +155,7 @@ struct
     datatype argumentType =
         GeneralType
     |   FloatingPtType
-    
+
     datatype backendIC =
         BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
 
@@ -223,6 +217,13 @@ struct
         }
 
     |   BICTagTest of { test: backendIC, tag: word, maxTag: word }
+    
+    |   BICLoadOperation of { kind: loadStoreKind, address: bicAddress }
+    
+    |   BICStoreOperation of { kind: loadStoreKind, address: bicAddress, value: backendIC }
+    
+    |   BICBlockOperation of
+            { kind: blockOpKind, sourceLeft: bicAddress, destRight: bicAddress, length: backendIC }
 
     and bicCodeBinding =
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
@@ -240,6 +241,16 @@ struct
     |   BICLoadClosure of int (* Closure - 0 is first closure item etc *)
     |   BICLoadRecursive (* Recursive call *)
 
+    and loadStoreKind =
+        LoadStoreMLWord of {isImmutable: bool} (* Load/Store an ML word in an ML word cell. *)
+    |   LoadStoreMLByte of {isImmutable: bool} (* Load/Store a byte, tagging and untagging as appropriate, in an ML byte cell. *)
+
+    and blockOpKind =
+        BlockOpMoveWord
+    |   BlockOpMoveByte
+    |   BlockOpEqualByte
+    |   BlockOpCompareByte
+
     withtype bicSimpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      backendIC,
@@ -256,6 +267,13 @@ struct
         localCount    : int,
         heapClosure   : bool
     }
+
+    and bicAddress =
+        (* Address form used in loads, store and block operations.  The base is an ML
+           address if this is to/from ML memory or a (boxed) SysWord.word if it is
+           to/from C memory.  The index is a value in units of the size of the item
+           being loaded/stored and the offset is always in bytes. *)
+        {base: backendIC, index: backendIC option, offset: word}
 
     structure CodeTags =
     struct
@@ -284,6 +302,16 @@ struct
                 |   _ => m @ n
             )
     end
+    
+    fun loadStoreKindRepr(LoadStoreMLWord {isImmutable=true}) = "MLWordImmutable"
+    |   loadStoreKindRepr(LoadStoreMLWord {isImmutable=false}) = "MLWord"
+    |   loadStoreKindRepr(LoadStoreMLByte {isImmutable=true}) = "MLByteImmutable"
+    |   loadStoreKindRepr(LoadStoreMLByte {isImmutable=false}) = "MLByte"
+
+    fun blockOpKindRepr BlockOpMoveWord = "MoveWord"
+    |   blockOpKindRepr BlockOpMoveByte = "MoveByte"
+    |   blockOpKindRepr BlockOpEqualByte = "EqualByte"
+    |   blockOpKindRepr BlockOpCompareByte = "CompareByte"
 
     open Pretty
 
@@ -322,6 +350,20 @@ struct
                 pList(lst, sep, prettyArg) @
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
+
+        fun prettyAddress({base, index, offset}: bicAddress): pretty =
+        let
+        in
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString "[", PrettyBreak (0, 3),
+                    pretty base,
+                    PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0), 
+                    case index of NONE => PrettyString "-" | SOME i => pretty i,
+                    PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0),
+                    PrettyString(Word.toString offset), PrettyBreak (0, 0), PrettyString "]"
+                ])
+        end
 
     in
         case pt of
@@ -578,6 +620,42 @@ struct
                 ]
             )
 
+        |   BICLoadOperation{ kind, address } =>
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString("Load" ^ loadStoreKindRepr kind),
+                    PrettyBreak (1, 0),
+                    prettyAddress address
+                ]
+            )
+
+        |   BICStoreOperation{ kind, address, value } =>
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString("Store" ^ loadStoreKindRepr kind),
+                    PrettyBreak (1, 0),
+                    prettyAddress address,
+                    PrettyBreak (1, 0),
+                    PrettyString "<=",
+                    PrettyBreak (1, 0),
+                    pretty value
+                ]
+            )
+
+        |   BICBlockOperation{ kind, sourceLeft, destRight, length } =>
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString(blockOpKindRepr kind ^ "("),
+                    PrettyBreak (1, 0),
+                    prettyAddress sourceLeft,
+                    PrettyBreak (1, 0), PrettyString ",",
+                    prettyAddress destRight,
+                    PrettyBreak (1, 0), PrettyString ",",
+                    pretty length,
+                    PrettyBreak (1, 0), PrettyString ")"
+                ]
+            )
+
         (* That list should be exhaustive! *)
     end (* pretty *)
 
@@ -620,6 +698,8 @@ struct
         and  argumentType = argumentType
         and  bicCodeBinding = bicCodeBinding
         and  bicSimpleBinding = bicSimpleBinding
+        and  loadStoreKind = loadStoreKind
+        and  blockOpKind = blockOpKind
         and  builtIn0Ops = BuiltIns.builtIn0Ops
         and  builtIn1Ops = BuiltIns.builtIn1Ops
         and  builtIn2Ops = BuiltIns.builtIn2Ops

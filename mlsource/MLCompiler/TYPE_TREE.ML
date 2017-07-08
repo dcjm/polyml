@@ -297,13 +297,13 @@ struct
                                 (* Otherwise the length of the second argument must be one and the first character of the
                                    string must match. *)
                             mkCand(mkEqualWord(mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 1), mkConst(toMachineWord 1)),
-                                mkEqualWord(mkLoadArgument 0, mkBuiltIn2(BuiltIns.LoadByte{isImmutable=true}, mkLoadArgument 1, mkConst(toMachineWord wordSize))))
+                                mkEqualWord(mkLoadArgument 0, mkLoadOperation(LoadStoreMLByte{isImmutable=true}, mkLoadArgument 1, mkConst(toMachineWord wordSize))))
                             ),
                         (* First argument is long. *)
                         mkIf(
                             mkIsShort(mkLoadArgument 1), (* Is the second arg short? *)
                             mkCand(mkEqualWord(mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 0), mkConst(toMachineWord 1)),
-                                mkEqualWord(mkBuiltIn2(BuiltIns.LoadByte{isImmutable=true}, mkLoadArgument 0, mkConst(toMachineWord wordSize)), mkLoadArgument 1)),
+                                mkEqualWord(mkLoadOperation(LoadStoreMLByte{isImmutable=true}, mkLoadArgument 0, mkConst(toMachineWord wordSize)), mkLoadArgument 1)),
                             (* Both long.  Because the first word contains the
                                length if we include this in the test we will have tested the length
                                as well and will stop immediately if the lengths are different.*)
@@ -325,30 +325,65 @@ struct
         end
 
         local
-            (* We can't use wordEq here.  If one of the arguments is a constant this will
-               reduce down to a bitwise equality but if we then turn it back into an
-               indexed case we have to reinstate the tag check. *)
-            val shortEq = wordEq (*CODETREE.rtsFunction POLY_SYS_equal_short_arb*)
+            (* Arbitrary precision values are normalised so if a value can be represented
+               as a tagged fixed precision value it will be.
+               Unlike strings it is much more likely that the value will be short so we
+               generate equality as a test that handles the short case as inline code and
+               the long case as a function call.  If either argument is a short constant
+               this will be optimised away so the test will reduce to a test on whether
+               the value equals the constant. *)
             val intEquality =
+                mkEnv(
+                    [mkDec(0,
+                        (* Long-form equality - should not be inlined. *)
+                        mkProc(
+                            (* Equal if  signs are the same ... *)
+                            mkCand(
+                                mkEqualWord(
+                                    mkBuiltIn1(BuiltIns.MemoryCellFlags, mkLoadArgument 0),
+                                    mkBuiltIn1(BuiltIns.MemoryCellFlags, mkLoadArgument 1)
+                                ),
+                                mkEnv(
+                                    [mkDec(0, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 1))],
+                                    mkCand(
+                                        (* ... and the lengths are equal ... *)
+                                        mkEqualWord(
+                                            mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 0),
+                                            mkLoadLocal 0
+                                        ),
+                                        (* ... and they're byte-wise equal .*)
+                                        mkBuiltIn5(BuiltIns.ByteVecEqual, mkLoadArgument 0, mkLoadArgument 1, CodeZero, CodeZero,
+                                            mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
+                                                mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0))
+                                    )
+                                )
+                            ),
+                            2, "arbitraryPrecisionEquality", [], 1)
+                        )
+                    ],
                 mkInlproc(
                     mkCor( (* Either they're equal... *)
-                        mkEval(shortEq, [mkLoadArgument 0, mkLoadArgument 1]),
-                        (* ... or they're both long and ...*)
+                        mkEval(wordEq, [mkLoadArgument 0, mkLoadArgument 1]),
+                        (* .. or if either is short the result is false ... *)
                         mkCand(
                             mkCand(
                                 mkNot(mkIsShort(mkLoadArgument 0)),
                                 mkNot(mkIsShort(mkLoadArgument 1))
                             ),
-                            (* ... they are equal arbitrary precision values.
-                               This could use bytewise equality.  That would be correct whether
-                               we are using GMP or the internal byte-based arbitrary precision package.
-                               N.B.  Don't forget to check the "negative" bit in the flags. *)
-                            mkEval(rtsFunction POLY_SYS_equala, [mkLoadArgument 0, mkLoadArgument 1])
+                            (* ... otherwise we have to test the vectors. *)
+                            mkEval(mkLoadClosure 0, [mkLoadArgument 0, mkLoadArgument 1])
                         )
-                    ),
-                    2, "intEquality", [], 0)
+                     ),
+                     2, "intEquality", [mkLoadLocal 0], 0)
+                )
         in
-            val intEquality = intEquality
+            fun breakHere () = ()
+            val _ = breakHere()
+            (* Code-generate the function and return the inline part. 
+               We need to set the maximum inline size here to ensure the long form
+               code is not inlined.  It would be better to have a way of turning off
+               inlining for specific functions. *)
+            val intEquality = genCode(intEquality, [Universal.tagInject DEBUG.maxInlineSizeTag 5], 1) ()
         end
     in
         val fixedIntConstr = makeConstr("int",  "FixedInt.int", wordEq, boxedNever) (* Fixed precision is always short *)

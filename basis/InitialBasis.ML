@@ -259,11 +259,9 @@ and () = RunCall.addOverload Real.~ "~"
 and () = RunCall.addOverload Real.abs "abs"
 and () = RunCall.addOverload Real./ "/";
 
-(* Conversion functions.  At this stage we have installed a simple
- conversion function for strings and ints. *)
-val it: string->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_conv_real;
-RunCall.addOverload it "convReal";
-
+(* This needs to be defined for StringSignatures but must not be defined in
+   that file because that conflicts with building the IntAsIntInf module. *)
+structure StringCvt = struct type  ('a, 'b) reader = 'b -> ('a * 'b) option end;
 
     (* We need to use the same identifier for this that we used when
        compiling the compiler, particularly "make". *)

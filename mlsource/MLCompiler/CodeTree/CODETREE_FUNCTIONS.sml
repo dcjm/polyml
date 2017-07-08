@@ -141,10 +141,6 @@ struct
                         WordComparison _ => applicative
                     |   FixedPrecisionArith _ => mayRaise
                     |   WordArith _ => applicative (* Quot and Rem don't raise exceptions - zero checking is done before. *)
-                    |   LoadWord {isImmutable = true } => applicative
-                    |   LoadWord {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
-                    |   LoadByte {isImmutable = true } => applicative
-                    |   LoadByte {isImmutable = false } => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   SetStringLengthWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
                     |   WordLogical _ => applicative
                     |   WordShift _ => applicative
@@ -205,12 +201,42 @@ struct
 
         |   codeProps (SetContainer _) = 0w0
 
+        |   codeProps (LoadOperation {address, kind}) =
+            let
+                val operProps =
+                    case kind of
+                        LoadStoreMLWord {isImmutable=true} => applicative
+                    |   LoadStoreMLWord {isImmutable=false} => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   LoadStoreMLByte {isImmutable=true} => applicative
+                    |   LoadStoreMLByte {isImmutable=false} => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+            in
+                operProps andb addressProps address
+            end
+
+        |   codeProps (StoreOperation {address, value, ...}) =
+                Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE) andb addressProps address andb codeProps value
+        
+        |   codeProps (BlockOperation {kind, sourceLeft, destRight, length}) =
+            let
+                val operProps =
+                    case kind of
+                    BlockOpMoveWord => PROPWORD_NORAISE
+                |   BlockOpMoveByte => PROPWORD_NORAISE
+                |   BlockOpEqualByte => applicative
+                |   BlockOpCompareByte => applicative
+            in
+                operProps andb addressProps sourceLeft andb addressProps destRight andb codeProps length
+            end
+
         and testList t = List.foldl(fn (c, r) => codeProps c andb r) applicative t
     
         and bindingProps(Declar{value, ...}) = codeProps value
         |   bindingProps(RecDecs _) = applicative (* These should all be lambdas *)
         |   bindingProps(NullBinding c) = codeProps c
         |   bindingProps(Container{setter, ...}) = codeProps setter
+        
+        and addressProps{base, index=NONE, ...} = codeProps base
+        |   addressProps{base, index=SOME index, ...} = codeProps base andb codeProps index
 
         (* sideEffectFree - does not raise an exception or make an assignment. *)
         fun sideEffectFree c = (codeProps c andb noSideEffect) = noSideEffect

@@ -88,9 +88,9 @@ struct
     end
 
     (* These are implemented in the RTS. *)
-    val orb : int * int -> int = RunCall.run_call2 POLY_SYS_ora
-    val xorb : int * int -> int = RunCall.run_call2 POLY_SYS_xora
-    val andb : int * int -> int = RunCall.run_call2 POLY_SYS_anda
+    val orb  : int * int -> int = RunCall.rtsCallFull2 "PolyOrArbitrary"
+    and xorb : int * int -> int = RunCall.rtsCallFull2 "PolyXorArbitrary"
+    and andb : int * int -> int = RunCall.rtsCallFull2 "PolyAndArbitrary"
 
     (* notb is defined as ~ (i+1) and there doesn't seem to be much advantage
        in implementing it any other way. *)

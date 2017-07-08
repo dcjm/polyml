@@ -1310,9 +1310,9 @@ struct
            That's only possible in 64-bit mode. *)
         val forceRex =
             case opb of
-                MOVB_R_A {forceRex} =>
+                MOVB_R_A {forceRex=true} => (* This is allowed in X86/64 but not in X86/32. *)
                     if isX64
-                    then forceRex
+                    then true
                     else raise InternalError "genRex: MOVB_R_A accessing low order byte of ESI/EDI"
             |   _ => false
     in

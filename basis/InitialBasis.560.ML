@@ -354,6 +354,8 @@ struct
     type char = char
 end;
 
+structure StringCvt = struct type  ('a, 'b) reader = 'b -> ('a * 'b) option end;
+
 (* Extend RunCall for compatibility with 5.6.1 *)
 structure RunCall =
 struct

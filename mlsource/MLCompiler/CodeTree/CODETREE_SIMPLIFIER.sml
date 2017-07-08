@@ -229,6 +229,15 @@ struct
             |   sTest => SOME(TagTest{test=sTest, tag=tag, maxTag=maxTag})
         )
 
+    |   simpGeneral context (LoadOperation{kind, address}) =
+            SOME(specialToGeneral(simpLoadOperation(kind, address, context)))
+
+    |   simpGeneral context (StoreOperation{kind, address, value}) =
+            SOME(specialToGeneral(simpStoreOperation(kind, address, value, context)))
+
+    |   simpGeneral context (BlockOperation{kind, sourceLeft, destRight, length}) =
+            SOME(specialToGeneral(simpBlockOperation(kind, sourceLeft, destRight, length, context)))
+
     |   simpGeneral _ _ = NONE
 
     (* Where we have an Indirect or Eval we want the argument as either a tuple or
@@ -275,6 +284,15 @@ struct
     |   simpSpecial (Tuple { fields, isVariant }, context) = simpTuple(fields, isVariant, context)
 
     |   simpSpecial (Indirect{ base, offset, isVariant }, context) = simpFieldSelect(base, offset, isVariant, context)
+
+    |   simpSpecial (LoadOperation{kind, address}, context) =
+            simpLoadOperation(kind, address, context)
+
+    |   simpSpecial (StoreOperation{kind, address, value}, context) =
+            simpStoreOperation(kind, address, value, context)
+
+    |   simpSpecial (BlockOperation{kind, sourceLeft, destRight, length}, context) =
+            simpBlockOperation(kind, sourceLeft, destRight, length, context)
 
     |   simpSpecial (c: codetree, s: simpContext): codetree * codeBinding list * envSpecial =
         let
@@ -825,7 +843,7 @@ struct
                (resultCode, decArgs, EnvSpecNone)
             end
 
-        |   (LoadWord _, Constnt(v1, _), Constnt(v2, _)) =>
+(*        |   (LoadWord _, Constnt(v1, _), Constnt(v2, _)) =>
             if isShort v1 orelse not (isShort v2)
             then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             else
@@ -859,9 +877,7 @@ struct
                 (
                     reprocess := true;
                     (Constnt(toMachineWord(loadByte(addr, offset)), []), decArgs, EnvSpecNone)
-                )
-            end
-            
+*)
         |   _ => (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
     end
 
@@ -896,6 +912,78 @@ struct
         (BuiltIn5{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3, arg4=genArg4, arg5=genArg5},
          decArg1 @ decArg2 @ decArg3 @ decArg4 @ decArg5, EnvSpecNone)
     end
+
+    and simpLoadOperation(kind, address, context) =
+    let
+        val multiplier =
+            case kind of
+                LoadStoreMLWord _ => RunCall.bytesPerWord
+            |   LoadStoreMLByte _ => 0w1
+        val (genAddress, decAddress) = simpAddress(address, multiplier, context)
+        (* TODO: If the base address and index are constant and this is an immutable
+           load we can do this at compile time. *)
+    in 
+        (LoadOperation{kind=kind, address=genAddress}, decAddress, EnvSpecNone)
+    end
+
+    and simpStoreOperation(kind, address, value, context) =
+    let
+        val multiplier =
+            case kind of
+                LoadStoreMLWord _ => RunCall.bytesPerWord
+            |   LoadStoreMLByte _ => 0w1
+        val (genAddress, decAddress) = simpAddress(address, multiplier, context)
+        val (genValue, decValue, _) = simpSpecial(value, context)
+    in 
+        (StoreOperation{kind=kind, address=genAddress, value=genValue}, decAddress @ decValue, EnvSpecNone)
+    end
+
+    and simpBlockOperation(kind, sourceLeft, destRight, length, context) =
+    let
+        val multiplier =
+            case kind of
+                BlockOpMoveWord => RunCall.bytesPerWord
+            |   BlockOpMoveByte => 0w1
+            |   BlockOpEqualByte => 0w1
+            |   BlockOpCompareByte => 0w1
+        val (genSrcAddress, decSrcAddress) = simpAddress(sourceLeft, multiplier, context)
+        val (genDstAddress, decDstAddress) = simpAddress(destRight, multiplier, context)
+        val (genLength, decLength, _) = simpSpecial(length, context)
+    in 
+        (BlockOperation{kind=kind, sourceLeft=genSrcAddress, destRight=genDstAddress, length=genLength},
+            decSrcAddress @ decDstAddress @ decLength, EnvSpecNone)
+    end
+
+    (* Loads, stores and block operations use address values.  The index value is initially
+       an arbitrary code tree but we can recognise common cases of constant index values
+       or where a constant has been added to the index.
+       TODO: If these are C memory moves we can also look at the base address.
+       The base address for C memory operations is a LargeWord.word value i.e.
+       the address is contained in a box.  The base addresses for ML memory
+       moves is an ML address i.e. unboxed. *)
+    and simpAddress({base, index=NONE, offset}, _, context) =
+        let
+            val (genBase, decBase, _ (*specBase*)) = simpSpecial(base, context)
+        in
+            ({base=genBase, index=NONE, offset=offset}, decBase)
+        end
+
+    |   simpAddress({base, index=SOME index, offset}, multiplier, context) =
+        let
+            val (genBase, decBase, _) = simpSpecial(base, context)
+            val (genIndex, decIndex, _ (* specIndex *)) = simpSpecial(index, context)
+            val (newIndex, newOffset) =
+                case genIndex of
+                    Constnt(indexOffset, _) =>
+                        if isShort indexOffset
+                        then (NONE, offset + toShort indexOffset * multiplier)
+                        else (SOME genIndex, offset)
+                |   _ => (SOME genIndex, offset)
+        in
+            ({base=genBase, index=newIndex, offset=newOffset}, decBase @ decIndex)
+        end
+
+
 (*
     (* A built-in function.  We can call certain built-ins immediately if
        the arguments are constants.  *)

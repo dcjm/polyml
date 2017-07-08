@@ -280,17 +280,17 @@ struct
                     makePolymorphic([a], mkBuiltIn2Fn(WordComparison{test=TestEqual, isSigned=false})), a ** a ->> Bool)
             (* load a word. The index is in words and is always zero or positive. *)
             val () = enterRunCall ("loadWord",
-                    makePolymorphic([a, b], mkBuiltIn2Fn(LoadWord{isImmutable=false})), a ** Word ->> b)
+                    makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLWord{isImmutable=false})), a ** Word ->> b)
             (* Load a word from an immutable.  *)
             val () = enterRunCall ("loadWordFromImmutable",
-                    makePolymorphic([a, b], mkBuiltIn2Fn(LoadWord{isImmutable=true})), a ** Word ->> b)
+                    makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLWord{isImmutable=true})), a ** Word ->> b)
             (* load a byte. The index is in bytes and is always zero or positive.  Probably the
                result should be a Word8.word value or a char. *)
             val () = enterRunCall ("loadByte",
-                    makePolymorphic([a, b], mkBuiltIn2Fn(LoadByte{isImmutable=false})), a ** Word ->> b)
+                    makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLByte{isImmutable=false})), a ** Word ->> b)
             (* Load a byte from an immutable.  *)
             val () = enterRunCall ("loadByteFromImmutable",
-                    makePolymorphic([a, b], mkBuiltIn2Fn(LoadByte{isImmutable=true})), a ** Word ->> b)
+                    makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLByte{isImmutable=true})), a ** Word ->> b)
             (* Get the length of a heap cell. *)
             val () = enterRunCall ("memoryCellLength", makePolymorphic([a], mkBuiltIn1Fn MemoryCellLength), a ->> Word)
             (* Return the flags.  Perhaps this could return a Word8.word value instead of a word. *)
@@ -913,9 +913,9 @@ struct
                                             mkEval(
                                                 TypeValue.extractEquality(mkLoadClosure 2), (* Base equality fn *)
                                                 [
-                                                    mkBuiltIn2(BuiltIns.LoadWord{isImmutable=true},
+                                                    mkLoadOperation(LoadStoreMLWord{isImmutable=true},
                                                         mkLoadClosure 3, mkLoadArgument 0),
-                                                    mkBuiltIn2(BuiltIns.LoadWord{isImmutable=true},
+                                                    mkLoadOperation(LoadStoreMLWord{isImmutable=true},
                                                         mkLoadClosure 4, mkLoadArgument 0)
                                                 ]),
                                             mkEval(mkLoadClosure 1, (* Recursive call with index+1. *)

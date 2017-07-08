@@ -102,6 +102,9 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAndArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
 }
 
 // Number of bits in a Poly word.  N.B.  This is not necessarily the same as SIZEOF_VOIDP.
@@ -1962,6 +1965,72 @@ POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
 
 }
 
+POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        // Could raise an exception if out of memory.
+        result = or_longc(taskData, pushedArg2, pushedArg1);
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyAndArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        // Could raise an exception if out of memory.
+        result = and_longc(taskData, pushedArg2, pushedArg1);
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        // Could raise an exception if out of memory.
+        result = xor_longc(taskData, pushedArg2, pushedArg1);
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 static struct _entrypts entryPtTable[] =
 {
     { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
@@ -1974,6 +2043,9 @@ static struct _entrypts entryPtTable[] =
     { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
     { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
     { "PolyGetLowOrderAsLargeWord",     (polyRTSFunction)&PolyGetLowOrderAsLargeWord},
+    { "PolyOrArbitrary",                (polyRTSFunction)&PolyOrArbitrary},
+    { "PolyAndArbitrary",               (polyRTSFunction)&PolyAndArbitrary},
+    { "PolyXorArbitrary",               (polyRTSFunction)&PolyXorArbitrary},
 
     { NULL, NULL} // End of list.
 };

@@ -88,6 +88,13 @@ sig
 
     |   BICTagTest of { test: backendIC, tag: word, maxTag: word }
 
+    |   BICLoadOperation of { kind: loadStoreKind, address: bicAddress }
+    
+    |   BICStoreOperation of { kind: loadStoreKind, address: bicAddress, value: backendIC }
+    
+    |   BICBlockOperation of
+            { kind: blockOpKind, sourceLeft: bicAddress, destRight: bicAddress, length: backendIC }
+
     and bicCodeBinding =
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
     |   BICRecDecs of { addr: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
@@ -103,6 +110,16 @@ sig
     |   BICLoadArgument of int (* Argument - 0 is first arg etc.*)
     |   BICLoadClosure of int (* Closure - 0 is first closure item etc *)
     |   BICLoadRecursive (* Recursive call *)
+
+    and loadStoreKind =
+        LoadStoreMLWord of {isImmutable: bool}     (* Load/Store an ML word in an ML word cell. *)
+    |   LoadStoreMLByte of {isImmutable: bool}     (* Load/Store a byte, tagging and untagging as appropriate, in an ML byte cell. *)
+
+    and blockOpKind =
+        BlockOpMoveWord
+    |   BlockOpMoveByte
+    |   BlockOpEqualByte
+    |   BlockOpCompareByte
 
     withtype bicSimpleBinding = 
     { (* Declare a value or push an argument. *)
@@ -121,8 +138,18 @@ sig
         heapClosure   : bool
     }
 
+    and bicAddress =
+        (* Address form used in loads, store and block operations.  The base is an ML
+           address if this is to/from ML memory or a (boxed) SysWord.word if it is
+           to/from C memory.  The index is a value in units of the size of the item
+           being loaded/stored and the offset is always in bytes. *)
+        {base: backendIC, index: backendIC option, offset: word}
+
     type pretty
     val pretty : backendIC -> pretty
+    
+    val loadStoreKindRepr: loadStoreKind -> string
+    and blockOpKindRepr: blockOpKind -> string
 
     structure CodeTags:
     sig
@@ -140,6 +167,8 @@ sig
         and  argumentType = argumentType
         and  bicCodeBinding = bicCodeBinding
         and  bicSimpleBinding = bicSimpleBinding
+        and  loadStoreKind = loadStoreKind
+        and  blockOpKind = blockOpKind
         and  builtIn0Ops = BuiltIns.builtIn0Ops
         and  builtIn1Ops = BuiltIns.builtIn1Ops
         and  builtIn2Ops = BuiltIns.builtIn2Ops

@@ -165,7 +165,7 @@ struct
                     [arg])
 
             (* Use loadWord not indirect because the optimiser reorders indirections. *)
-            fun refDestructCode v = mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, v, CodeZero)
+            fun refDestructCode v = mkLoadOperation(LoadStoreMLWord{isImmutable=false}, v, CodeZero)
         in
             case test of
                 UnboxedForm 0         => value (* Function - never detupled. *)

@@ -24,13 +24,14 @@
 
 #define INSTR_jump          0x02
 #define INSTR_jump_false    0x03
-#define INSTR_container     0x04
+#define INSTR_legacy_container     0x04
 #define INSTR_del_handler   0x05
 #define INSTR_alloc_ref     0x06
 #define INSTR_jump_i_false  0x07
 #define INSTR_set_container 0x08
 #define INSTR_del_handler_i 0x09
 #define INSTR_case          0x0a
+#define INSTR_stack_container 0x0b
 #define INSTR_call_closure  0x0c
 #define INSTR_return_w      0x0d
 #define INSTR_pad           0x0e
@@ -228,6 +229,6 @@
 #define INSTR_storeCFloat       0xe9
 #define INSTR_storeCDouble      0xea
 #define INSTR_blockMoveWord     0xeb
-#define INSTR_blockMoveByte     0xed
+#define INSTR_blockMoveByte     0xec
 #define INSTR_blockEqualByte    0xed
 #define INSTR_blockCompareByte  0xee
