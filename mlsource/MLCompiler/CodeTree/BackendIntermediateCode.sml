@@ -80,14 +80,6 @@ struct
 
         and builtIn3Ops =
             AllocateWordMemory
-
-        and builtIn4Ops =
-            Built4PlaceHolder
-
-        and builtIn5Ops =
-            ByteVecEqual
-        |   ByteVecCompare
-        |   BlockMove of { isByteMove: bool }
         
         fun builtIn0Repr CurrentThreadId = "CurrentThreadId"
 
@@ -139,13 +131,6 @@ struct
         |   shiftRepr ShiftRightArithmetic = "RightArithmetic"
 
         and builtIn3Repr AllocateWordMemory = "AllocateWordMemory"
-
-        and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"
-
-        and builtIn5Repr ByteVecEqual = "ByteVecEqual"
-        |   builtIn5Repr ByteVecCompare = "ByteVecCompare"
-        |   builtIn5Repr (BlockMove {isByteMove=true}) = "ByteMove"
-        |   builtIn5Repr (BlockMove {isByteMove=false}) = "WordMove"
     end
 
     datatype argumentType =
@@ -174,9 +159,6 @@ struct
     |   BICBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: backendIC}
     |   BICBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: backendIC, arg2: backendIC}
     |   BICBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC}
-    |   BICBuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC, arg4: backendIC}
-    |   BICBuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC, arg4: backendIC, arg5: backendIC}
-
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
@@ -242,8 +224,7 @@ struct
     |   LoadStoreMLByte of {isImmutable: bool} (* Load/Store a byte, tagging and untagging as appropriate, in an ML byte cell. *)
 
     and blockOpKind =
-        BlockOpMoveWord
-    |   BlockOpMoveByte
+        BlockOpMove of {isByteMove: bool}
     |   BlockOpEqualByte
     |   BlockOpCompareByte
 
@@ -304,8 +285,8 @@ struct
     |   loadStoreKindRepr(LoadStoreMLByte {isImmutable=true}) = "MLByteImmutable"
     |   loadStoreKindRepr(LoadStoreMLByte {isImmutable=false}) = "MLByte"
 
-    fun blockOpKindRepr BlockOpMoveWord = "MoveWord"
-    |   blockOpKindRepr BlockOpMoveByte = "MoveByte"
+    fun blockOpKindRepr (BlockOpMove{isByteMove=false}) = "MoveWord"
+    |   blockOpKindRepr (BlockOpMove{isByteMove=true}) = "MoveByte"
     |   blockOpKindRepr BlockOpEqualByte = "EqualByte"
     |   blockOpKindRepr BlockOpCompareByte = "CompareByte"
 
@@ -395,16 +376,6 @@ struct
         |   BICBuiltIn3 { oper, arg1, arg2, arg3 } =>
                 PrettyBlock (3, false, [],
                     [ PrettyString(BuiltIns.builtIn3Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2, arg3], ",") ]
-                )
-
-        |   BICBuiltIn4 { oper, arg1, arg2, arg3, arg4 } =>
-                PrettyBlock (3, false, [],
-                    [ PrettyString(BuiltIns.builtIn4Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2, arg3, arg4], ",") ]
-                )
-
-        |   BICBuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 } =>
-                PrettyBlock (3, false, [],
-                    [ PrettyString(BuiltIns.builtIn5Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2, arg3, arg4, arg5], ",") ]
                 )
 
         |   BICExtract (BICLoadLocal addr) =>
@@ -700,8 +671,6 @@ struct
         and  builtIn1Ops = BuiltIns.builtIn1Ops
         and  builtIn2Ops = BuiltIns.builtIn2Ops
         and  builtIn3Ops = BuiltIns.builtIn3Ops
-        and  builtIn4Ops = BuiltIns.builtIn4Ops
-        and  builtIn5Ops = BuiltIns.builtIn5Ops
     end
 
 end;

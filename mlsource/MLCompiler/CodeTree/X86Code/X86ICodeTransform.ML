@@ -1263,6 +1263,46 @@ struct
                     context=context}
             end
 
+        |   codeICode{
+                icode=LoadEffectiveAddress { base=SOME baseSource, offset, index=NoMemIndex, dest=PReg(dReg, PRegUntagged)} :: rest,
+                state=NormalState state, code, context} =
+            let
+                (* Used to compute the base address for block operations.  The result is always an untagged register
+                   because it points into a block of ML memory. *)
+                val (pushedState, pushCode) = pushRax state (* Simplifies things *)
+                val loadCode = loadSource(baseSource, eax, pushedState)
+                val (resultState, iReg) = newUreg(dReg, pushedState)
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        LoadEffectiveAddress {base=SOME raxAsArg, offset=offset, index=NoMemIndex, dest=iReg} ::
+                        loadCode @ pushCode@code,
+                    context=context}
+            end
+
+        |   codeICode{
+                icode=LoadEffectiveAddress { base=SOME baseSource, offset, index, dest=PReg(dReg, PRegUntagged)} :: rest,
+                state=NormalState state, code, context} =
+            let
+                (* Used to compute the base address for block word moves.  Unlike the MemIndex1 case the index
+                   register is not an untagged register. *)
+                val (pushedState, pushCode) = pushRax state (* Simplifies things *)
+                val (iReg, indexed) =
+                    case index of
+                        MemIndex2 src => (src, MemIndex2 raxAsArg)
+                    |   MemIndex4 src => (src, MemIndex4 raxAsArg)
+                    |   MemIndex8 src => (src, MemIndex8 raxAsArg)
+                    |   _ => raise InternalError "codeICode: MemIndex"
+                val loadCode = loadSource(baseSource, ebx, pushedState) @ loadSource(iReg, eax, pushedState)
+                val (resultState, realDReg) = newUreg(dReg, pushedState)
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        LoadEffectiveAddress {base=SOME rbxAsArg, offset=offset, index=indexed, dest=realDReg} ::
+                        loadCode @ pushCode @ code,
+                    context=context}
+            end
+
 (*        |   codeICode{icode=LoadEffectiveAddress { base=NONE, offset, index=MemIndex2(PReg iReg), dest } :: rest,
                       state=NormalState state, code, context} =
             (* Currently just used for tagging. *)

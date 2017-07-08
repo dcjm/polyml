@@ -93,26 +93,9 @@ sig
             The third argument is the initialiser.  Each word of the cell is initialised with this.
             There is no check that the size is valid. *)
         AllocateWordMemory
-
-    and builtIn4Ops =
-        Built4PlaceHolder
-
-    and builtIn5Ops =
-        ByteVecEqual
-        (* Compare two byte vectors for equality and return a boolean depending on the test.
-           The arguments are (vec1Addr, vec2Addr, vec1Offset, vec2Offset, length). *)
-    |   ByteVecCompare
-        (* This is almost the same as ByteVecComparison except it returns an integer
-           that is zero if the vec1=vec2, negative if vec1<vec2 and positive if
-           vec1>vec2. *)
-    |   BlockMove of { isByteMove: bool }
-        (* Move a set of bytes or words.  The arguments are (sourceAddr, destAddr, srcOffset, destOffset, length).
-           This uses an incrementing move. *)
         
     val builtIn0Repr: builtIn0Ops -> string
     and builtIn1Repr: builtIn1Ops -> string
     and builtIn2Repr: builtIn2Ops -> string
     and builtIn3Repr: builtIn3Ops -> string
-    and builtIn4Repr: builtIn4Ops -> string
-    and builtIn5Repr: builtIn5Ops -> string
 end;

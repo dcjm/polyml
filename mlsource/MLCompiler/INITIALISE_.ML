@@ -317,14 +317,14 @@ struct
                     makePolymorphic([a, b], mkBuiltIn3Fn AllocateWordMemory), mkProductType[Word, Word, a] ->> b)
             (* Byte vector operations. *)
             val () = enterRunCall ("byteVectorEqual",
-                    makePolymorphic([a], mkBuiltIn5Fn ByteVecEqual), mkProductType[a, a, Word, Word, Word] ->> Bool)
+                    makePolymorphic([a], mkBlockOperationFn BlockOpEqualByte), mkProductType[a, a, Word, Word, Word] ->> Bool)
             val () = enterRunCall ("byteVectorCompare",
-                    makePolymorphic([a], mkBuiltIn5Fn ByteVecCompare), mkProductType[a, a, Word, Word, Word] ->> Int)
+                    makePolymorphic([a], mkBlockOperationFn BlockOpCompareByte), mkProductType[a, a, Word, Word, Word] ->> Int)
             (* Block moves. *)
             val () = enterRunCall ("moveBytes",
-                    makePolymorphic([a], mkBuiltIn5Fn (BlockMove{isByteMove=true})), mkProductType[a, a, Word, Word, Word] ->> Unit)
+                    makePolymorphic([a], mkBlockOperationFn (BlockOpMove{isByteMove=true})), mkProductType[a, a, Word, Word, Word] ->> Unit)
             val () = enterRunCall ("moveWords",
-                    makePolymorphic([a], mkBuiltIn5Fn (BlockMove{isByteMove=false})), mkProductType[a, a, Word, Word, Word] ->> Unit)
+                    makePolymorphic([a], mkBlockOperationFn (BlockOpMove{isByteMove=false})), mkProductType[a, a, Word, Word, Word] ->> Unit)
         end
 
         local
@@ -984,8 +984,9 @@ struct
                                     mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
                                         mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0))
                                 ],
-                                mkBuiltIn5(BuiltIns.ByteVecEqual,
-                                    mkLoadArgument 0, mkLoadArgument 1, CodeZero, CodeZero, mkLoadLocal 2)),
+                                mkBlockOperation{kind=BlockOpEqualByte,
+                                    leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1, leftIndex=CodeZero,
+                                    rightIndex=CodeZero, length=mkLoadLocal 2}),
                             CodeFalse (* Not same length- result false *)
                         )
                     ),

@@ -66,8 +66,6 @@ struct
     |   BuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: codetree}
     |   BuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: codetree, arg2: codetree}
     |   BuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: codetree, arg2: codetree, arg3: codetree}
-    |   BuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: codetree, arg2: codetree, arg3: codetree, arg4: codetree}
-    |   BuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: codetree, arg2: codetree, arg3: codetree, arg4: codetree, arg5: codetree}
 
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
@@ -280,12 +278,6 @@ struct
 
         |   BuiltIn3 { oper, arg1, arg2, arg3 } =>
                 prettyBuiltin(BuiltIns.builtIn3Repr oper, [arg1, arg2, arg3])
-
-        |   BuiltIn4 { oper, arg1, arg2, arg3, arg4 } =>
-                prettyBuiltin(BuiltIns.builtIn4Repr oper, [arg1, arg2, arg3, arg4])
-
-        |   BuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 } =>
-                prettyBuiltin(BuiltIns.builtIn5Repr oper, [arg1, arg2, arg3, arg4, arg5])
 
         |   Extract(LoadArgument addr) => string ("Arg" ^ Int.toString addr)
         |   Extract(LoadLocal addr) => string ("Local" ^ Int.toString addr)
@@ -635,12 +627,6 @@ struct
                 BuiltIn2 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2 }
         |   mapt(BuiltIn3 { oper, arg1, arg2, arg3 }) =
                 BuiltIn3 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2, arg3 = mapCodetree f arg3 }
-        |   mapt(BuiltIn4 { oper, arg1, arg2, arg3, arg4 }) =
-                BuiltIn4 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2,
-                           arg3 = mapCodetree f arg3, arg4 = mapCodetree f arg4 }
-        |   mapt(BuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 }) =
-                BuiltIn5 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2,
-                           arg3 = mapCodetree f arg3, arg4 = mapCodetree f arg4, arg5 = mapCodetree f arg5 }
         |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
                 Lambda {
                     body = mapCodetree f body, isInline = isInline, name = name,
@@ -709,10 +695,6 @@ struct
         |   ftree (BuiltIn1 {arg1, ...}, v) = foldtree f v arg1
         |   ftree (BuiltIn2 {arg1, arg2, ...}, v) = foldtree f (foldtree f v arg1) arg2
         |   ftree (BuiltIn3 {arg1, arg2, arg3, ...}, v) = foldtree f (foldtree f (foldtree f v arg1) arg2) arg3
-        |   ftree (BuiltIn4 {arg1, arg2, arg3, arg4, ...}, v) =
-                foldtree f (foldtree f (foldtree f (foldtree f v arg1) arg2) arg3) arg4
-        |   ftree (BuiltIn5 {arg1, arg2, arg3, arg4, arg5, ...}, v) =
-                foldtree f (foldtree f (foldtree f (foldtree f (foldtree f v arg1) arg2) arg3) arg4) arg5
         |   ftree (Lambda { body, closure, ...}, v) =
                 foldtree f (foldl (fn (c, w) => foldtree f w (Extract c)) v closure) body
         |   ftree (Cond(i, t, e), v) = foldtree f (foldtree f (foldtree f v i) t) e
@@ -758,8 +740,6 @@ struct
         and  builtIn1Ops = BuiltIns.builtIn1Ops
         and  builtIn2Ops = BuiltIns.builtIn2Ops
         and  builtIn3Ops = BuiltIns.builtIn3Ops
-        and  builtIn4Ops = BuiltIns.builtIn4Ops
-        and  builtIn5Ops = BuiltIns.builtIn5Ops
     end
 
 end;

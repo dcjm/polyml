@@ -49,8 +49,6 @@ sig
     |   BICBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: backendIC}
     |   BICBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: backendIC, arg2: backendIC}
     |   BICBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC}
-    |   BICBuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC, arg4: backendIC}
-    |   BICBuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC, arg4: backendIC, arg5: backendIC}
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
@@ -116,8 +114,7 @@ sig
     |   LoadStoreMLByte of {isImmutable: bool}     (* Load/Store a byte, tagging and untagging as appropriate, in an ML byte cell. *)
 
     and blockOpKind =
-        BlockOpMoveWord
-    |   BlockOpMoveByte
+        BlockOpMove of {isByteMove: bool}
     |   BlockOpEqualByte
     |   BlockOpCompareByte
 
@@ -173,8 +170,6 @@ sig
         and  builtIn1Ops = BuiltIns.builtIn1Ops
         and  builtIn2Ops = BuiltIns.builtIn2Ops
         and  builtIn3Ops = BuiltIns.builtIn3Ops
-        and  builtIn4Ops = BuiltIns.builtIn4Ops
-        and  builtIn5Ops = BuiltIns.builtIn5Ops
     end
 
 end;

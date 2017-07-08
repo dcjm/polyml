@@ -36,8 +36,7 @@ sig
     |   LoadStoreMLByte of {isImmutable: bool}     (* Load/Store a byte, tagging and untagging as appropriate, in an ML byte cell. *)
 
     datatype blockOpKind =
-        BlockOpMoveWord
-    |   BlockOpMoveByte
+        BlockOpMove of {isByteMove: bool}
     |   BlockOpEqualByte
     |   BlockOpCompareByte
     
@@ -74,8 +73,6 @@ sig
     |   BuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: codetree}
     |   BuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: codetree, arg2: codetree}
     |   BuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: codetree, arg2: codetree, arg3: codetree}
-    |   BuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: codetree, arg2: codetree, arg3: codetree, arg4: codetree}
-    |   BuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: codetree, arg2: codetree, arg3: codetree, arg4: codetree, arg5: codetree}
 
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
@@ -191,8 +188,6 @@ sig
         and  builtIn1Ops = BuiltIns.builtIn1Ops
         and  builtIn2Ops = BuiltIns.builtIn2Ops
         and  builtIn3Ops = BuiltIns.builtIn3Ops
-        and  builtIn4Ops = BuiltIns.builtIn4Ops
-        and  builtIn5Ops = BuiltIns.builtIn5Ops
     end
 
 end;

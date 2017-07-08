@@ -185,12 +185,6 @@ struct
             |   insert(BuiltIn3 { oper, arg1, arg2, arg3 }) =
                     BICBuiltIn3 { oper = oper, arg1 = insert arg1, arg2 = insert arg2, arg3 = insert arg3 }
 
-            |   insert(BuiltIn4 { oper, arg1, arg2, arg3, arg4 }) =
-                    BICBuiltIn4 { oper = oper, arg1 = insert arg1, arg2 = insert arg2, arg3 = insert arg3, arg4 = insert arg4 }
-
-            |   insert(BuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 }) =
-                    BICBuiltIn5 { oper = oper, arg1 = insert arg1, arg2 = insert arg2, arg3 = insert arg3, arg4 = insert arg4, arg5 = insert arg5 }
-
             |   insert(Extract ext) =
                     (* Load the value bound to an identifier. The closure flag is
                        set to true since the only cases where a closure is not needed,

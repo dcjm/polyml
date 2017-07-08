@@ -33,8 +33,7 @@ sig
     |   LoadStoreMLByte of {isImmutable: bool}
 
     and blockOpKind =
-        BlockOpMoveWord
-    |   BlockOpMoveByte
+        BlockOpMove of {isByteMove: bool}
     |   BlockOpEqualByte
     |   BlockOpCompareByte
 
@@ -117,14 +116,11 @@ sig
     and mkBuiltIn1: BuiltIns.builtIn1Ops * codetree -> codetree
     and mkBuiltIn2: BuiltIns.builtIn2Ops * codetree * codetree -> codetree
     and mkBuiltIn3: BuiltIns.builtIn3Ops * codetree * codetree * codetree -> codetree
-    and mkBuiltIn4: BuiltIns.builtIn4Ops * codetree * codetree * codetree * codetree -> codetree
-    and mkBuiltIn5: BuiltIns.builtIn5Ops * codetree * codetree * codetree * codetree * codetree -> codetree
 
     val mkBuiltIn0Fn: BuiltIns.builtIn0Ops -> codetree
     and mkBuiltIn1Fn: BuiltIns.builtIn1Ops -> codetree
     and mkBuiltIn2Fn: BuiltIns.builtIn2Ops -> codetree
     and mkBuiltIn3Fn: BuiltIns.builtIn3Ops -> codetree
-    and mkBuiltIn5Fn: BuiltIns.builtIn5Ops -> codetree
 
     (* Load and store operations.  At this level the first operand is the base address and
        the second is an index. *)
@@ -132,7 +128,10 @@ sig
     val mkLoadOperationFn: loadStoreKind -> codetree
     val mkStoreOperation: loadStoreKind * codetree * codetree * codetree -> codetree
     val mkStoreOperationFn: loadStoreKind -> codetree
-
+    val mkBlockOperation:
+        {kind:blockOpKind, leftBase: codetree, rightBase: codetree, leftIndex: codetree,
+         rightIndex: codetree, length: codetree} -> codetree
+    val mkBlockOperationFn: blockOpKind -> codetree
 
     structure Foreign: FOREIGNCALLSIG
     structure Sharing:

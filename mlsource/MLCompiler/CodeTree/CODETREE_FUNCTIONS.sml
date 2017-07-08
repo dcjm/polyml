@@ -165,27 +165,6 @@ struct
                 operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3
             end
 
-        |   codeProps (BuiltIn4{oper, arg1, arg2, arg3, arg4}) =
-            let
-                val operProps =
-                    case oper of
-                        BuiltIns.Built4PlaceHolder => 0w0
-            in
-                operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3 andb codeProps arg4
-            end
-
-        |   codeProps (BuiltIn5{oper, arg1, arg2, arg3, arg4, arg5}) =
-            let
-                open BuiltIns
-                val operProps =
-                    case oper of
-                        ByteVecEqual => applicative
-                    |   ByteVecCompare => applicative
-                    |   BlockMove _ => PROPWORD_NORAISE
-            in
-                operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3 andb codeProps arg4 andb codeProps arg5
-            end
-
         |   codeProps (Eval _) = 0w0
 
         |   codeProps(Raise exp) = codeProps exp andb (Word.notb PROPWORD_NORAISE)
@@ -218,8 +197,7 @@ struct
             let
                 val operProps =
                     case kind of
-                    BlockOpMoveWord => PROPWORD_NORAISE
-                |   BlockOpMoveByte => PROPWORD_NORAISE
+                    BlockOpMove _ => PROPWORD_NORAISE
                 |   BlockOpEqualByte => applicative
                 |   BlockOpCompareByte => applicative
             in

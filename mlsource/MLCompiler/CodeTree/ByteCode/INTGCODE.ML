@@ -497,33 +497,6 @@ struct
                  ;
                 decsp() (* Removes one item from the stack. *)
             end
-
-        |   BICBuiltIn3 { oper=BuiltIns.StoreWord, arg1, arg2, arg3 } =>
-            let
-                (* This is temporary.  The store instructions take four arguments:
-                   base address, index, offset and value to store.  This does not currently use the
-                   offset. *)
-                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord 0, cvec)
-                val () = incsp()
-                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
-            in
-                genOpcode(opcode_storeMLWord, cvec);
-                decsp(); decsp(); decsp()
-            end
-
-        |   BICBuiltIn3 { oper=BuiltIns.StoreByte, arg1, arg2, arg3 } =>
-            let
-                (* This is temporary.  The store instructions take three arguments:
-                   base address, index and value to store. *)
-                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
-            in
-                genOpcode(opcode_storeMLByte, cvec);
-                decsp(); decsp()
-            end
             
         |   BICBuiltIn3 {
                 oper=BuiltIns.AllocateWordMemory, arg1 as BICConstnt(length, _), arg2 as BICConstnt(flags, _), arg3 } =>
@@ -613,7 +586,56 @@ struct
                 decsp()
             end
 
-       |    BICStoreOperation { kind, address, value } => raise InternalError "intgcode: BICStoreOperation"
+       |    BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}, value } =>
+            let
+                (* No index.  We could almost use move_to_vec here except that it leaves
+                   the destination address on the stack instead of replacing it with "unit". *)
+                val () = gencde (base, ToStack, NotEnd, loopAddr)
+                val () = pushConst (toMachineWord 0, cvec)
+                val () = incsp()
+                val () = pushConst (toMachineWord offset, cvec)
+                val () = incsp()
+                val () = gencde (value, ToStack, NotEnd, loopAddr)
+            in
+                genOpcode(opcode_storeMLWord, cvec);
+                decsp(); decsp(); decsp()
+            end
+
+       |    BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}, value } =>
+            let
+                (* Variable index *)
+                val () = gencde (base, ToStack, NotEnd, loopAddr)
+                val () = gencde (indexVal, ToStack, NotEnd, loopAddr)
+                val () = pushConst (toMachineWord offset, cvec)
+                val () = incsp()
+                val () = gencde (value, ToStack, NotEnd, loopAddr)
+            in
+                genOpcode(opcode_storeMLWord, cvec);
+                decsp(); decsp(); decsp()
+            end
+
+       |    BICStoreOperation { kind=LoadStoreMLByte _, address={base, index, offset}, value } =>
+            let
+                (* This is temporary.  The store instructions take three arguments:
+                   base address, index and value to store. *)
+                val () = gencde (base, ToStack, NotEnd, loopAddr)
+                (* Because the index and offset are both byte counts we can just add
+                   them if we need both. *)
+                val () =
+                    case (index, offset) of
+                        (NONE, offset) => (pushConst (toMachineWord offset, cvec); incsp())
+                    |   (SOME indexVal, 0w0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
+                    |   (SOME indexVal, offset) =>
+                        (
+                            gencde (indexVal, ToStack, NotEnd, loopAddr);
+                            pushConst (toMachineWord offset, cvec);
+                            genOpcode(opcode_wordAdd, cvec)
+                        )
+                val () = gencde (value, ToStack, NotEnd, loopAddr)
+            in
+                genOpcode(opcode_storeMLByte, cvec);
+                decsp(); decsp()
+            end
 
        |    BICBlockOperation { kind, sourceLeft, destRight, length } => raise InternalError "intgcode: BICBlockOperation"
 

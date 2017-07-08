@@ -307,16 +307,17 @@ struct
                             (* Both long.  Because the first word contains the
                                length if we include this in the test we will have tested the length
                                as well and will stop immediately if the lengths are different.*)
-                            mkBuiltIn5(BuiltIns.ByteVecEqual, mkLoadArgument 0, mkLoadArgument 1, CodeZero, CodeZero,
-                                    mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithAdd,
+                            mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
+                                    leftIndex=CodeZero, rightIndex=CodeZero,
+                                    length=mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithAdd,
                                         mkConst(toMachineWord wordSize),
                                         (* Use argument 1 here rather than 0.  We could use either but this works
                                            better when we're using equality for pattern matching since it
                                            gets the length of the constant string.  It also works better
                                            for the, to me, more natural ordering of variable=constant. *)
                                         mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 1)
-                            )
-                          )
+                                   )
+                            }
                         )
                      ),
                     2, "stringEquality", [], 0)
@@ -352,9 +353,10 @@ struct
                                             mkLoadLocal 0
                                         ),
                                         (* ... and they're byte-wise equal .*)
-                                        mkBuiltIn5(BuiltIns.ByteVecEqual, mkLoadArgument 0, mkLoadArgument 1, CodeZero, CodeZero,
-                                            mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
-                                                mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0))
+                                        mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
+                                            leftIndex=CodeZero, rightIndex=CodeZero,
+                                            length=mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
+                                                mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0)}
                                     )
                                 )
                             ),

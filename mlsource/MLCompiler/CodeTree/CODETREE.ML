@@ -412,10 +412,6 @@ struct
         BuiltIn2 { oper = oper, arg1 = arg1, arg2 = arg2 }
     and mkBuiltIn3 (oper, arg1, arg2, arg3) =
         BuiltIn3 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3 }
-    and mkBuiltIn4 (oper, arg1, arg2, arg3, arg4) =
-        BuiltIn4 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3, arg4 = arg4 }
-    and mkBuiltIn5 (oper, arg1, arg2, arg3, arg4, arg5) =
-        BuiltIn5 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3, arg4 = arg4, arg5 = arg5 }
 
     (* Builtins wrapped as functions.  N.B.  These all take a single argument which may be a tuple. *)
     fun mkBuiltIn0Fn oper =
@@ -428,11 +424,6 @@ struct
         mkInlproc(
             mkBuiltIn3(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0)),
             1, BuiltIns.builtIn3Repr oper ^ "()", [], 0)
-    and mkBuiltIn5Fn oper =
-        mkInlproc(
-            mkBuiltIn5(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0),
-                mkInd(3, mkLoadArgument 0), mkInd(4, mkLoadArgument 0)), 
-            1, BuiltIns.builtIn5Repr oper ^ "()", [], 0)
 
     local
         open BuiltIns
@@ -460,6 +451,18 @@ struct
     fun mkStoreOperationFn oper =
         mkInlproc(mkStoreOperation(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0)), 1,
             "storeOperation()", [], 0)
+
+    fun mkBlockOperation {kind, leftBase, leftIndex, rightBase, rightIndex, length } =
+        BlockOperation { kind = kind,
+            sourceLeft={base=leftBase, index=SOME leftIndex, offset=0w0},
+            destRight={base=rightBase, index=SOME rightIndex, offset=0w0}, length=length}
+
+    (* Construct a function that takes five arguments.  The order is left-base, right-base, left-index, right-index, length. *)
+    fun mkBlockOperationFn kind =
+        mkInlproc(
+            mkBlockOperation{kind=kind, leftBase=mkInd(0, mkLoadArgument 0), rightBase=mkInd(1, mkLoadArgument 0),
+                  leftIndex=mkInd(2, mkLoadArgument 0), rightIndex=mkInd(3, mkLoadArgument 0), length=mkInd(4, mkLoadArgument 0)}, 1,
+            "blockOperation()", [], 0)
 
     fun identityFunction (name : string) : codetree = 
         mkInlproc (mkLoadArgument 0, 1, name, [], 0) (* Returns its argument. *);

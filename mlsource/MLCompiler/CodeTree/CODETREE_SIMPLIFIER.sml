@@ -144,12 +144,6 @@ struct
     |   simpGeneral context (BuiltIn3{oper, arg1, arg2, arg3}) =
             SOME(specialToGeneral(simpBuiltIn3(oper, arg1, arg2, arg3, context)))
 
-    |   simpGeneral context (BuiltIn4{oper, arg1, arg2, arg3, arg4}) =
-            SOME(specialToGeneral(simpBuiltIn4(oper, arg1, arg2, arg3, arg4, context)))
-
-    |   simpGeneral context (BuiltIn5{oper, arg1, arg2, arg3, arg4, arg5}) =
-            SOME(specialToGeneral(simpBuiltIn5(oper, arg1, arg2, arg3, arg4, arg5, context)))
-
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
             SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
 
@@ -292,8 +286,8 @@ struct
         let
             val multiplier =
                 case kind of
-                    BlockOpMoveWord => RunCall.bytesPerWord
-                |   BlockOpMoveByte => 0w1
+                    BlockOpMove{isByteMove=false} => RunCall.bytesPerWord
+                |   BlockOpMove{isByteMove=true} => 0w1
                 |   BlockOpEqualByte => 0w1
                 |   BlockOpCompareByte => 0w1
             val (genSrcAddress, decSrcAddress) = simpAddress(sourceLeft, multiplier, context)
@@ -337,12 +331,6 @@ struct
 
     |   simpSpecial (BuiltIn3{oper, arg1, arg2, arg3}, context) =
             simpBuiltIn3(oper, arg1, arg2, arg3, context)
-
-    |   simpSpecial (BuiltIn4{oper, arg1, arg2, arg3, arg4}, context) =
-            simpBuiltIn4(oper, arg1, arg2, arg3, arg4, context)
-
-    |   simpSpecial (BuiltIn5{oper, arg1, arg2, arg3, arg4, arg5}, context) =
-            simpBuiltIn5(oper, arg1, arg2, arg3, arg4, arg5, context)
 
     |   simpSpecial (Cond(condTest, condThen, condElse), context) =
             simpIfThenElse(condTest, condThen, condElse, context)
@@ -910,29 +898,6 @@ struct
         val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(arg3, context)
     in 
         (BuiltIn3{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3}, decArg1 @ decArg2 @ decArg3, EnvSpecNone)
-    end
-
-    and simpBuiltIn4(oper, arg1, arg2, arg3, arg4, context) =
-    let
-        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
-        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
-        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(arg3, context)
-        val (genArg4, decArg4, _ (*specArg4*)) = simpSpecial(arg4, context)
-    in 
-        (BuiltIn4{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3, arg4=genArg4},
-         decArg1 @ decArg2 @ decArg3 @ decArg4, EnvSpecNone)
-    end
-
-    and simpBuiltIn5(oper, arg1, arg2, arg3, arg4, arg5, context) =
-    let
-        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
-        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
-        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(arg3, context)
-        val (genArg4, decArg4, _ (*specArg4*)) = simpSpecial(arg4, context)
-        val (genArg5, decArg5, _ (*specArg5*)) = simpSpecial(arg5, context)
-    in 
-        (BuiltIn5{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3, arg4=genArg4, arg5=genArg5},
-         decArg1 @ decArg2 @ decArg3 @ decArg4 @ decArg5, EnvSpecNone)
     end
 
     (* Loads, stores and block operations use address values.  The index value is initially

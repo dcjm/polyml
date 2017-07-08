@@ -935,69 +935,6 @@ struct
                   InitialisationComplete{dest=target}], target)
             end
 
-        |   codeToICode(BICBuiltIn4 _, _, _, _) =
-                raise InternalError "TODO: BICBuiltIn4"
-
-        |   codeToICode(instr as BICBuiltIn5{oper=BuiltIns.ByteVecEqual, ...}, context, isTail, destination) =
-                codeAsConditional(instr, context, isTail, destination)
-
-        |   codeToICode(BICBuiltIn5{oper=BuiltIns.ByteVecCompare, arg1, arg2, arg3, arg4, arg5}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val arg1Reg = newPReg() and arg2Reg = newPReg() and arg3Reg = newPReg()
-                and arg4Reg = newPReg() and arg5Reg = newPReg()
-                val untag3Reg = newUReg() and untag4Reg = newUReg()
-                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
-                val ccRef = newCCRef()
-                val labLess = newLabel() and labGreater = newLabel()
-                and exitLab1 = newLabel() and exitLab2 = newLabel()
-            in
-                (codeToICodeTarget(arg1, context, false, arg1Reg) @
-                codeToICodeTarget(arg2, context, false, arg2Reg) @
-                codeToICodeTarget(arg3, context, false, arg3Reg) @
-                codeToICodeTarget(arg4, context, false, arg4Reg) @
-                codeToICodeTarget(arg5, context, false, arg5Reg) @
-                [UntagValue{source=arg3Reg, dest=untag3Reg, isSigned=false},
-                 LoadEffectiveAddress{base=SOME arg1Reg, offset=0, index=MemIndex1 untag3Reg, dest=vec1Reg},
-                 UntagValue{source=arg4Reg, dest=untag4Reg, isSigned=false},
-                 LoadEffectiveAddress{base=SOME arg2Reg, offset=0, index=MemIndex1 untag4Reg, dest=vec2Reg},
-                 UntagValue{source=arg5Reg, dest=lenReg, isSigned=false},
-                 CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
-                 ConditionalForwardJump{ ccRef=ccRef, condition=JL, label=labLess },
-                 ConditionalForwardJump{ ccRef=ccRef, condition=JG, label=labGreater },
-                 MoveArgument{ source=IntegerConstant(tag 0), dest=target, kind=WordToWord },
-                 UnconditionalForwardJump{ label=exitLab1 },
-                 ForwardJumpLabel{ label=labLess, result=NONE },
-                 MoveArgument{ source=IntegerConstant(tag ~1), dest=target, kind=WordToWord },
-                 UnconditionalForwardJump{ label=exitLab2 },
-                 ForwardJumpLabel{ label=labGreater, result=NONE },
-                 MoveArgument{ source=IntegerConstant(tag 1), dest=target, kind=WordToWord },
-                 ForwardJumpLabel{ label=exitLab1, result=SOME target },
-                 ForwardJumpLabel{ label=exitLab2, result=SOME target }], target)
-            end
-
-        |   codeToICode(BICBuiltIn5{oper=BuiltIns.BlockMove{isByteMove}, arg1, arg2, arg3, arg4, arg5}, context, _, destination) =
-            let
-                val arg1Reg = newPReg() and arg2Reg = newPReg() and arg3Reg = newPReg()
-                and arg4Reg = newPReg() and arg5Reg = newPReg()
-                val untag3Reg = newUReg() and untag4Reg = newUReg()
-                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
-                val code =
-                    codeToICodeTarget(arg1, context, false, arg1Reg) @
-                    codeToICodeTarget(arg2, context, false, arg2Reg) @
-                    codeToICodeTarget(arg3, context, false, arg3Reg) @
-                    codeToICodeTarget(arg4, context, false, arg4Reg) @
-                    codeToICodeTarget(arg5, context, false, arg5Reg) @
-                    [UntagValue{source=arg3Reg, dest=untag3Reg, isSigned=false},
-                     LoadEffectiveAddress{base=SOME arg1Reg, offset=0, index=MemIndex1 untag3Reg, dest=vec1Reg},
-                     UntagValue{source=arg4Reg, dest=untag4Reg, isSigned=false},
-                     LoadEffectiveAddress{base=SOME arg2Reg, offset=0, index=MemIndex1 untag4Reg, dest=vec2Reg},
-                     UntagValue{source=arg5Reg, dest=lenReg, isSigned=false},
-                     BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove }]
-            in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
-
         |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, destination) =
             (* Empty closure - create a constant closure for any recursive calls. *)
             let
@@ -1357,123 +1294,105 @@ struct
                 (* Better handled as a conditional *)
                 codeAsConditional(instr, context, isTail, destination)
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreMLWord _, address={base=arg1, index=NONE, offset}}, context, _, destination) =
+        |   codeToICode(BICLoadOperation {kind=LoadStoreMLWord _, address}, context, _, destination) =
             let
                 val target = asTarget destination
-                (* Constant offset.  This is very common since it's used for refs. *)
-                (* TODO: We could also handle the case where the case where the base address is a constant
-                   as a special case. *)
-                val baseReg = newPReg()
-                (* The offset should always be positive.  Loading the length word is a separate function. *)
-                val offset = Word.toInt offset
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
             in
-                (codeToICodeTarget(arg1, context, false, baseReg) @
-                    [MoveArgument {source=MemoryLocation{offset=offset, base=baseReg, index=NoMemIndex}, dest=target, kind=WordToWord}], target)
+                (codeBaseIndex @ codeUntag @
+                    [MoveArgument {source=MemoryLocation memLoc, dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreMLWord _, address={base=arg1, index=SOME arg2, offset}}, context, _, destination) =
+        |   codeToICode(BICLoadOperation {kind=LoadStoreMLByte _, address}, context, _, destination) =
             let
                 val target = asTarget destination
-                (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
-                   index factor and offset.  *)
-                val baseReg = newPReg() and indexReg = newPReg()
-                val source =
-                    if isX64
-                    then MemoryLocation{base=baseReg, offset= Word.toInt offset - 4, index= MemIndex4 indexReg}
-                    else MemoryLocation{base=baseReg, offset= Word.toInt offset - 2, index= MemIndex2 indexReg}
-            in
-                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
-                     [MoveArgument {source=source, dest=target, kind=WordToWord}], target)
-            end
-
-        |   codeToICode(BICLoadOperation {kind=LoadStoreMLByte _, address={base=arg1, index=NONE, offset}}, context, _, destination) =
-            let
-                val target = asTarget destination
-                (* Constant offset - this is much less common than for LoadWord. *)
-                val baseReg = newPReg() and untaggedResReg = newUReg()
-                (* The offset should always be positive. *)
-                val offset = Word.toInt offset
-            in
-                (codeToICodeTarget(arg1, context, false, baseReg) @
-                    [MoveArgument {
-                        source=MemoryLocation{offset= offset, base=baseReg, index=NoMemIndex},
-                        dest=untaggedResReg, kind=ByteToWordZeroExtend},
-                     TagValue {source=untaggedResReg, dest=target}], target)
-            end
-
-        |   codeToICode(BICLoadOperation {kind=LoadStoreMLByte _, address={base=arg1, index=SOME arg2, offset}}, context, _, destination) =
-            let
-                val target = asTarget destination
-                (* Variable offset.  Because the index is directly added to the address we have to
-                   untag it.  *)
-                val baseReg = newPReg() and indexReg = newPReg() and untaggedIndex = newUReg()
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, true, context)
                 val untaggedResReg = newUReg()
             in
-                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
-                    [UntagValue{source=indexReg, dest=untaggedIndex, isSigned=false},
-                     MoveArgument {source=MemoryLocation{base=baseReg, offset=Word.toInt offset, index=MemIndex1 untaggedIndex}, dest=untaggedResReg, kind=ByteToWordZeroExtend},
+                (codeBaseIndex @ codeUntag @
+                    [MoveArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=ByteToWordZeroExtend},
                      TagValue {source=untaggedResReg, dest=target}], target)
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address={base=arg1, index=NONE, offset}, value=arg3}, context, _, destination) =
+        |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address, value}, context, _, destination) =
             let
-                val baseReg = newPReg() and valueReg = newPReg()
-                (* Fixed offset.  *)
-                val offset = Word.toInt offset
+                val valueReg = newPReg()
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
                 val code =
-                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg3, context, false, valueReg) @
-                        [MoveArgument {source=valueReg, dest=MemoryLocation{offset=offset, base=baseReg, index=NoMemIndex}, kind=WordToWord}]
+                    codeBaseIndex @ codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
+                        [MoveArgument {source=valueReg, dest=MemoryLocation memLoc, kind=WordToWord}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address={base=arg1, index=SOME arg2, offset}, value=arg3}, context, _, destination) =
-            let
-                val baseReg = newPReg() and indexReg = newPReg() and valueReg = newPReg()
-                (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
-                   index factor and offset.  *)
-                val destArg =
-                    if isX64
-                    then MemoryLocation{base=baseReg, offset=Word.toInt offset-4, index= MemIndex4 indexReg}
-                    else MemoryLocation{base=baseReg, offset=Word.toInt offset-2, index= MemIndex2 indexReg}
-                val code =
-                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
-                        codeToICodeTarget(arg3, context, false, valueReg) @
-                        [MoveArgument {source=valueReg, dest=destArg, kind=WordToWord}]
-            in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
-
-        |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address={base=arg1, index=NONE, offset}, value=arg3}, context, _, destination) =
+        |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address, value}, context, _, destination) =
             let
                 (* We have to untag the value to store. *)
-                val baseReg = newPReg() and valueReg = newPReg() and valueReg1 = newUReg()
+                val valueReg = newPReg() and valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, true, context)
                 val code =
-                    codeToICodeTarget(arg1, context, false, baseReg) @
-                    codeToICodeTarget(arg3, context, false, valueReg) @
-                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false },
-                     MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=Word.toInt offset, index=NoMemIndex}, kind=ByteToByte}]
+                    codeBaseIndex @
+                    codeToICodeTarget(value, context, false, valueReg) @
+                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false }] @ codeUntag @
+                    [MoveArgument {source=valueReg1, dest=MemoryLocation memLoc, kind=ByteToByte}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address={base=arg1, index=SOME arg2, offset}, value=arg3}, context, _, destination) =
+        |   codeToICode(instr as BICBlockOperation {kind=BlockOpEqualByte, ...}, context, isTail, destination) =
+                codeAsConditional(instr, context, isTail, destination)
+
+        |   codeToICode(BICBlockOperation {kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
             let
-                (* We have to untag both the index and the value to store. *)
-                val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newUReg()
-                and valueReg = newPReg() and valueReg1 = newUReg()
+                val target = asTarget destination
+                val lengthReg = newPReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex}) =
+                    codeAddress(sourceLeft, true, context)
+                val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
+                    codeAddress(destRight, true, context)
+                val ccRef = newCCRef()
+                val labLess = newLabel() and labGreater = newLabel()
+                and exitLab1 = newLabel() and exitLab2 = newLabel()
+
                 val code =
-                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
-                    codeToICodeTarget(arg3, context, false, valueReg) @
-                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false },
-                     UntagValue{dest=indexReg1, source=indexReg, isSigned=false },
-                     MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}, kind=ByteToByte}]
+                    leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
+                    leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
+                    rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
+                    [UntagValue{source=lengthReg, dest=lenReg, isSigned=false},
+                     CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
+                     ConditionalForwardJump{ ccRef=ccRef, condition=JL, label=labLess },
+                     ConditionalForwardJump{ ccRef=ccRef, condition=JG, label=labGreater },
+                     MoveArgument{ source=IntegerConstant(tag 0), dest=target, kind=WordToWord },
+                     UnconditionalForwardJump{ label=exitLab1 },
+                     ForwardJumpLabel{ label=labLess, result=NONE },
+                     MoveArgument{ source=IntegerConstant(tag ~1), dest=target, kind=WordToWord },
+                     UnconditionalForwardJump{ label=exitLab2 },
+                     ForwardJumpLabel{ label=labGreater, result=NONE },
+                     MoveArgument{ source=IntegerConstant(tag 1), dest=target, kind=WordToWord },
+                     ForwardJumpLabel{ label=exitLab1, result=SOME target },
+                     ForwardJumpLabel{ label=exitLab2, result=SOME target }]
+            in
+                (code, target)
+            end
+
+        |   codeToICode(BICBlockOperation {kind=BlockOpMove {isByteMove}, sourceLeft, destRight, length}, context, _, destination) =
+            let
+                val lengthReg = newPReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex}) =
+                    codeAddress(sourceLeft, isByteMove, context)
+                val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
+                    codeAddress(destRight, isByteMove, context)
+                val code =
+                    leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
+                    leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
+                    rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
+                    [UntagValue{source=lengthReg, dest=lenReg, isSigned=false},
+                     BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove }]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
-
-        |   codeToICode(BICBlockOperation _, context, _, destination) =
-                raise InternalError "codeToICode: BICBlockOperation TODO"
 
         (* Process a list of bindings. *)
         and codeBindingsToICode(bindings, context) =
@@ -1658,28 +1577,23 @@ struct
                            condition=testAsBranch(test, false, jumpOn), label=jumpLabel}]
             end
 
-        |   codeCondition(BICBuiltIn5{oper=BuiltIns.ByteVecEqual, arg1, arg2, arg3, arg4, arg5},
-                    context, jumpOn, jumpLabel) =
+        |   codeCondition(
+                BICBlockOperation{kind=BlockOpEqualByte, sourceLeft, destRight, length}, context, jumpOn, jumpLabel) =
             let
-                val arg1Reg = newPReg() and arg2Reg = newPReg() and arg3Reg = newPReg()
-                and arg4Reg = newPReg() and arg5Reg = newPReg()
-                val untag3Reg = newUReg() and untag4Reg = newUReg()
+                val lengthReg = newPReg()
                 val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
                 val ccRef = newCCRef()
+                val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex}) =
+                    codeAddress(sourceLeft, true, context)
+                val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
+                    codeAddress(destRight, true, context)
             in
-                codeToICodeTarget(arg1, context, false, arg1Reg) @
-                codeToICodeTarget(arg2, context, false, arg2Reg) @
-                codeToICodeTarget(arg3, context, false, arg3Reg) @
-                codeToICodeTarget(arg4, context, false, arg4Reg) @
-                codeToICodeTarget(arg5, context, false, arg5Reg) @
-                [UntagValue{source=arg3Reg, dest=untag3Reg, isSigned=false},
-                 LoadEffectiveAddress{base=SOME arg1Reg, offset=0, index=MemIndex1 untag3Reg, dest=vec1Reg},
-                 UntagValue{source=arg4Reg, dest=untag4Reg, isSigned=false},
-                 LoadEffectiveAddress{base=SOME arg2Reg, offset=0, index=MemIndex1 untag4Reg, dest=vec2Reg},
-                 UntagValue{source=arg5Reg, dest=lenReg, isSigned=false},
+                leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
+                leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
+                rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
+                [UntagValue{source=lengthReg, dest=lenReg, isSigned=false},
                  CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
-                 ConditionalForwardJump{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                 ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JE else JNE, label=jumpLabel}]
             end
 
         |   codeCondition(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel) =
@@ -1728,6 +1642,44 @@ struct
         and codeAsConditional(instr, context, isTail, target) =
             codeToICode(
                 BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target)
+
+        (* Code an address.  The index is optional. *)
+        and codeAddress({base, index=SOME index, offset}, true (* byte move *), context) =
+            let
+                (* Byte address with index.  The index needs to be untagged. *)
+                val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newUReg()
+                val codeValues =
+                    codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
+                val untagCode = [UntagValue{dest=indexReg1, source=indexReg, isSigned=false }]
+                val memResult = {base=baseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}
+            in
+                (codeValues, untagCode, memResult)
+            end
+
+        |   codeAddress({base, index=SOME index, offset}, false (* word move *), context) =
+            let
+                (* Word address with index.  We can avoid untagging the index by adjusting the
+                   multiplier and offset *) 
+                val baseReg = newPReg() and indexReg = newPReg()
+                val codeValues =
+                    codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
+                val memResult =
+                    if isX64
+                    then {base=baseReg, offset=Word.toInt offset-4, index=MemIndex4 indexReg}
+                    else {base=baseReg, offset=Word.toInt offset-2, index=MemIndex2 indexReg}
+            in
+                (codeValues, [], memResult)
+            end
+
+        |   codeAddress({base, index=NONE, offset}, _, context) =
+            let
+                val baseReg = newPReg()
+                val codeValues = codeToICodeTarget(base, context, false, baseReg)
+                val memResult = {offset=Word.toInt offset, base=baseReg, index=NoMemIndex}
+            in
+                (codeValues, [], memResult)
+            end
+        
 
         val icode = pushClosureReg @ pushArgs @
             codeToICodeTarget(body, {loopArgs=NONE}, true, resultTarget) @ returnInstruction
