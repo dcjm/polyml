@@ -1365,6 +1365,18 @@ struct
                     loadByte{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
+        |   OGCLoadOperation{ kind=LoadStoreC8, ... } => raise InternalError "TODO-LoadStoreC8"
+
+        |   OGCLoadOperation{ kind=LoadStoreC16, ... } => raise InternalError "TODO-LoadStoreC16"
+
+        |   OGCLoadOperation{ kind=LoadStoreC32, ... } => raise InternalError "TODO-LoadStoreC32"
+
+        |   OGCLoadOperation{ kind=LoadStoreC64, ... } => raise InternalError "TODO-LoadStoreC64"
+
+        |   OGCLoadOperation{ kind=LoadStoreCFloat, ... } => raise InternalError "TODO-LoadStoreCFloat"
+
+        |   OGCLoadOperation{ kind=LoadStoreCDouble, ... } => raise InternalError "TODO-LoadStoreCDouble"
+
         |   OGCStoreOperation{ kind=LoadStoreMLWord _, address={base, index, offset}, value} =>
                 cgAndRes(
                     storeWord{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
@@ -1374,6 +1386,18 @@ struct
                 cgAndRes(
                     storeByte{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
                               byteOffset=offset, transtable=transtable, whereto=whereto})
+
+        |   OGCStoreOperation{ kind=LoadStoreC8, ...} => raise InternalError "TODO-Store LoadStoreC8"
+
+        |   OGCStoreOperation{ kind=LoadStoreC16, ...} => raise InternalError "TODO-Store LoadStoreC16"
+
+        |   OGCStoreOperation{ kind=LoadStoreC32, ...} => raise InternalError "TODO-Store LoadStoreC32"
+
+        |   OGCStoreOperation{ kind=LoadStoreC64, ...} => raise InternalError "TODO-Store LoadStoreC64"
+
+        |   OGCStoreOperation{ kind=LoadStoreCFloat, ...} => raise InternalError "TODO-Store LoadStoreCFloat"
+
+        |   OGCStoreOperation{ kind=LoadStoreCDouble, ...} => raise InternalError "TODO-Store LoadStoreCDouble"
 
         |   OGCBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
                                destRight={base=bRight, index=iRight, offset=oRight}, length } =>
