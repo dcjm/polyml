@@ -212,6 +212,10 @@ sig
     |   CompareByteVectors of
             { vec1Addr: argument, vec2Addr: argument, length: argument, ccRef: ccRef }
 
+        (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
+           number of items (bytes or words) to move. *)
+    |   BlockMove of { srcAddr: argument, destAddr: argument, length: argument, isByteMove: bool }
+
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 

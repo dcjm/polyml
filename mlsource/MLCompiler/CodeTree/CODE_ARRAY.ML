@@ -117,16 +117,13 @@ struct
         val fromLengthBytes : word = wordSize * fromLengthWords
         val toLengthBytes   : word = wordSize * toLengthWords
         val offsetBytes     : word = wordSize * offsetWords
- 
-        val System_move_bytes:
-            address*word*address*word*word->unit = RunCall.run_call5 RuntimeCalls.POLY_SYS_move_bytes
-      
+
         val maxOffsetBytes = toLengthBytes - lengthBytes
     in
         (* Check the lengths are in the range. *)
         if fromLengthBytes < lengthBytes orelse maxOffsetBytes < offsetBytes
         then raise Subscript
-        else System_move_bytes(fromAddr, 0w0, toAddr, offsetBytes, lengthBytes)
+        else RunCall.moveBytes(fromAddr, toAddr, 0w0, offsetBytes, lengthBytes)
     end
 
     |   csegCopySeg _ = raise InternalError "csegCopySeg: can only copy between byte segements"

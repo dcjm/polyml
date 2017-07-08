@@ -73,8 +73,7 @@ struct
     (* Both volatileRef and SysWord.word are the ADDRESSes of the actual value. *)
     type volatileRef = word ref
 
-    val memMove: SysWord.word * word * SysWord.word * word* word -> unit =
-        RunCall.run_call5 RuntimeCalls.POLY_SYS_move_bytes
+    val memMove: SysWord.word * SysWord.word * word * word* word -> unit = RunCall.moveBytes
    
     fun volatileRef init =
     let
@@ -87,19 +86,18 @@ struct
            when we load a child. *)
         val v = RunCall.allocateWordMemory(0w1, 0wx69, 0w0)
         (* Copy the SysWord into it. *)
-        val () = memMove(init, 0w0, RunCall.unsafeCast v, 0w0, wordSize)
+        val () = memMove(init, RunCall.unsafeCast v, 0w0, 0w0, wordSize)
     in
         v
     end
 
-    fun setVolatileRef(v, i) =
-        memMove(i, 0w0, RunCall.unsafeCast v, 0w0, wordSize)
+    fun setVolatileRef(v, i) = memMove(i, RunCall.unsafeCast v, 0w0, 0w0, wordSize)
 
     fun getVolatileRef var =
     let
         (* Allocate a single word marked as mutable, byte. *)
         val v = RunCall.allocateByteMemory(0w1, 0wx41)
-        val () = memMove(RunCall.unsafeCast var, 0w0, v, 0w0, wordSize)
+        val () = memMove(RunCall.unsafeCast var, v, 0w0, 0w0, wordSize)
         val () = RunCall.clearMutableBit v
     in
         v

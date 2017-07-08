@@ -21,11 +21,6 @@ local
     open RuntimeCalls
     type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
-    val System_move_words:
-        word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
-    val System_move_words_overlap:
-        word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words_overlap
-
     val arrayAsWord: 'a array -> word = RunCall.unsafeCast
     val intAsWord: int -> word = RunCall.unsafeCast
 
@@ -50,7 +45,7 @@ local
             (* Make a vector initialised to zero. *)
             val new_vec = RunCall.allocateWordMemory(Word.fromInt length, 0wx40, 0w0)
         in
-            System_move_words(RunCall.unsafeCast v, start, new_vec, 0, length);
+            RunCall.moveWords(RunCall.unsafeCast v, new_vec, Word.fromInt start, 0w0, Word.fromInt length);
             RunCall.clearMutableBit new_vec;
             RunCall.unsafeCast new_vec
         end
@@ -142,7 +137,7 @@ struct
         in
             if di < 0 orelse di+len > length dst
             then raise General.Subscript
-            else System_move_words(RunCall.unsafeCast s, 0, RunCall.unsafeCast d, di, len)
+            else RunCall.moveWords(s, d, 0w0, Word.fromInt di, Word.fromInt len)
         end
 
     (* Copy a vector into an array. *)
@@ -152,7 +147,7 @@ struct
         in
             if di < 0 orelse di+len > length dst
             then raise General.Subscript
-            else System_move_words(RunCall.unsafeCast src, 0, RunCall.unsafeCast d, di, len)
+            else RunCall.moveWords(src, RunCall.unsafeCast d, 0w0, Word.fromInt di, Word.fromInt len)
         end
         
 
@@ -252,14 +247,26 @@ struct
 
     fun vector (Slice{array, start, length}): 'a vector = makeVector(array, start, length)
 
-    
     (* Copy one array into another.  It's possible for the arrays
        to be the same and for the source and destinations to overlap so we
-       have to take care of that. *)
+       have to take care of that.  If they are not the same we could simply
+       use a WordMove. *)
     fun copy {src = Slice{array=s, start=srcStart, length=srcLen}, dst, di: int} =
+    let
+        fun copyUp n =
+        if n = srcLen then ()
+        else (Array.update(dst, n+di, Array.sub(s, n+srcStart)); copyUp(n+1))
+        
+        and copyDown n =
+        if n < 0 then ()
+        else (Array.update(dst, n+di, Array.sub(s, n+srcStart)); copyDown(n-1))
+    in
         if di < 0 orelse di+srcLen > Array.length dst
         then raise General.Subscript
-        else System_move_words_overlap(RunCall.unsafeCast s, srcStart, RunCall.unsafeCast dst, di, srcLen)
+        else if di > srcStart
+        then copyDown(srcLen-1)
+        else copyUp 0
+    end
 
     (* Copy a vector into an array. *)
     fun copyVec {src: 'a VectorSlice.slice, dst: 'a array as d, di: int} =
@@ -268,7 +275,7 @@ struct
         in
             if di < 0 orelse di+len > Array.length dst
             then raise General.Subscript
-            else System_move_words(RunCall.unsafeCast v, i, RunCall.unsafeCast d, di, len)
+            else RunCall.moveWords(v, RunCall.unsafeCast d, Word.fromInt i, Word.fromInt di, Word.fromInt len)
         end
 
     fun isEmpty(Slice{length, ...}) = length = 0

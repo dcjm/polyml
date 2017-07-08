@@ -27,11 +27,9 @@ local
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open LibrarySupport
 
-    val MemMove: string*word*string*word*word -> unit = RunCall.run_call5 POLY_SYS_move_bytes
-
     (* Redefine these as functions on the abstract type. *)
     val System_move_bytesA:
-        address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
+        address*address*word*word*word->unit = RunCall.moveBytes
 
     (* If a vector/string is short (i.e. has an integer tag) it must be the character
        itself rather than a pointer to a segment. *)
@@ -42,14 +40,7 @@ local
     val charAsString: char->string = RunCall.unsafeCast
     val singleCharStringAsChar: string->char = RunCall.unsafeCast
 
-    local
-        val mem_move: string*word*string*word*word -> unit = 
-            RunCall.run_call5 POLY_SYS_move_bytes
-    in
-        fun bcopy(src: string, dst: string, src_off: word, dst_off: word, length: word) =
-            mem_move(src, src_off, dst, dst_off, length)
-    end
-
+    val bcopy: string*string*word*word*word -> unit = RunCall.moveBytes
 
     (* If a vector/string is short (i.e. has an integer tag) it must be the character
        itself rather than a pointer to a segment. *)
@@ -530,7 +521,7 @@ local
     struct
         val chToString: char->string = charAsString
         and stringToCh: string->char = singleCharStringAsChar
-        val mem_move: string*word*string*word*word -> unit = MemMove
+        val mem_move: string*string*word*word*word -> unit = RunCall.moveBytes
 
         datatype radix = BIN | OCT | DEC | HEX
 
@@ -566,7 +557,7 @@ local
                 (* Copy the character part of the string over. *)
                 if len = 0w1
                 then RunCall.storeByte(str, extra + wordSize, stringToCh s)
-                else mem_move(s, wordSize, str, extra + wordSize, len);
+                else mem_move(s, str, wordSize, extra + wordSize, len);
                 RunCall.clearMutableBit str;
                 str
             end
@@ -594,7 +585,7 @@ local
                 (* Copy the character part of the string over. *)
                 if len = 0w1
                 then RunCall.storeByte(str, wordSize, stringToCh s)
-                else mem_move(s, wordSize, str, wordSize, len);
+                else mem_move(s, str, wordSize, wordSize, len);
                 setCh len;
                 RunCall.clearMutableBit str;
                 str
@@ -1221,7 +1212,7 @@ in
                 (* Make an array initialised to zero. *)
                 val new_vec = LibrarySupport.allocString len
             in
-                System_move_bytesA(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
+                System_move_bytesA(vec, RunCall.unsafeCast new_vec, 0w0, wordSize, len);
                 RunCall.clearMutableBit new_vec;
                 new_vec
             end
@@ -1234,7 +1225,7 @@ in
             in
                 if diW+len > dlen
                 then raise General.Subscript
-                else System_move_bytesA(s, 0w0, d, diW, len)
+                else System_move_bytesA(s, d, 0w0, diW, len)
         end
     
         (* Copy avector into an array. *)
@@ -1251,7 +1242,7 @@ in
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
                     RunCall.storeByte(d, diW, singleCharStringAsChar src)
-                else System_move_bytesA(RunCall.unsafeCast src, wordSize, d, diW, len)
+                else System_move_bytesA(RunCall.unsafeCast src, d, wordSize, diW, len)
             end
             
         (* Create the other functions. *)
@@ -1663,7 +1654,7 @@ in
                     (* Make an array initialised to zero. *)
                     val new_vec = LibrarySupport.allocString len
                 in
-                    System_move_bytesA(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
+                    System_move_bytesA(vec, RunCall.unsafeCast new_vec, intAsWord start, wordSize, len);
                     RunCall.clearMutableBit new_vec;
                     new_vec
                 end
@@ -1689,7 +1680,7 @@ in
                 else (CharArray.update(dst, n+di, CharArray.sub(src, n+start)); copyDown(n-1))
             in
                 if di > start then copyDown(length-1) else copyUp 0
-            end (* System_move_bytesA(s, intAsWord start, d, intAsWord di, intAsWord length) *)
+            end
         end
     
         (* Copy a vector slice into an array. *)
@@ -1706,7 +1697,7 @@ in
                         so we just need to insert the character into the array. *)
                     RunCall.storeByte(d, diW + offset, singleCharStringAsChar source)
                     (* The source is represented by a string whose first word is the length. *)
-                else System_move_bytesA(RunCall.unsafeCast source, offset + wordSize, d, diW, len)
+                else System_move_bytesA(RunCall.unsafeCast source, d, offset + wordSize, diW, len)
             end
         
     end (* CharArraySlice *);

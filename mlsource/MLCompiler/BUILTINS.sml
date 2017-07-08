@@ -109,6 +109,9 @@ sig
         (* This is almost the same as ByteVecComparison except it returns an integer
            that is zero if the vec1=vec2, negative if vec1<vec2 and positive if
            vec1>vec2. *)
+    |   BlockMove of { isByteMove: bool }
+        (* Move a set of bytes or words.  The arguments are (sourceAddr, destAddr, srcOffset, destOffset, length).
+           This uses an incrementing move. *)
         
     val builtIn0Repr: builtIn0Ops -> string
     and builtIn1Repr: builtIn1Ops -> string

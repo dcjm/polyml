@@ -1078,6 +1078,28 @@ struct
                  ForwardJumpLabel{ label=exitLab2, result=SOME target }], target)
             end
 
+        |   codeToICode(BICBuiltIn5{oper=BuiltIns.BlockMove{isByteMove}, arg1, arg2, arg3, arg4, arg5}, context, _, destination) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg() and arg3Reg = newPReg()
+                and arg4Reg = newPReg() and arg5Reg = newPReg()
+                val untag3Reg = newUReg() and untag4Reg = newUReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, arg1Reg) @
+                    codeToICodeTarget(arg2, context, false, arg2Reg) @
+                    codeToICodeTarget(arg3, context, false, arg3Reg) @
+                    codeToICodeTarget(arg4, context, false, arg4Reg) @
+                    codeToICodeTarget(arg5, context, false, arg5Reg) @
+                    [UntagValue{source=arg3Reg, dest=untag3Reg, isSigned=false},
+                     LoadEffectiveAddress{base=SOME arg1Reg, offset=0, index=MemIndex1 untag3Reg, dest=vec1Reg},
+                     UntagValue{source=arg4Reg, dest=untag4Reg, isSigned=false},
+                     LoadEffectiveAddress{base=SOME arg2Reg, offset=0, index=MemIndex1 untag4Reg, dest=vec2Reg},
+                     UntagValue{source=arg5Reg, dest=lenReg, isSigned=false},
+                     BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove }]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
         |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, destination) =
             (* Empty closure - create a constant closure for any recursive calls. *)
             let

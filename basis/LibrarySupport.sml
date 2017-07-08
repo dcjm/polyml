@@ -110,8 +110,6 @@ struct
         (* This is put in by Initialise and filtered out later. *)
         val SetLengthWord: string * word -> unit = String.setLengthWord
           
-        val MemMove: string*word*string*word*word -> unit = 
-            RunCall.run_call5 POLY_SYS_move_bytes
         val callProcessEnv = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         val maxString = callProcessEnv (101, ())
         val charAsVec: char->string = RunCall.unsafeCast
@@ -199,7 +197,7 @@ struct
                     (* Multiple character string. *)
                     val vec = allocString l
                 in
-                    MemMove(s, wordSize+i, vec, wordSize, l);
+                    RunCall.moveBytes(s, vec, wordSize+i, wordSize, l);
                     RunCall.clearMutableBit vec;
                     vec
                 end

@@ -91,6 +91,7 @@ struct
         and builtIn5Ops =
             ByteVecEqual
         |   ByteVecCompare
+        |   BlockMove of { isByteMove: bool }
         
         fun builtIn0Repr CurrentThreadId = "CurrentThreadId"
 
@@ -153,6 +154,8 @@ struct
 
         and builtIn5Repr ByteVecEqual = "ByteVecEqual"
         |   builtIn5Repr ByteVecCompare = "ByteVecCompare"
+        |   builtIn5Repr (BlockMove {isByteMove=true}) = "ByteMove"
+        |   builtIn5Repr (BlockMove {isByteMove=false}) = "WordMove"
     end
 
     datatype argumentType =

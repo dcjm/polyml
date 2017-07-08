@@ -19,8 +19,7 @@
 *)
 
 
-(* This file should reflect the RTS entries in libpolyml/sys.h.
-   When adding entries don't forget to update the table in Address.ML. *)
+(* This file should reflect the RTS entries in libpolyml/sys.h. *)
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
@@ -58,10 +57,6 @@ struct
   val POLY_SYS_cmem_store_float    = 170
   val POLY_SYS_cmem_store_double   = 171
   val POLY_SYS_io_operation        = 189
-  val POLY_SYS_move_words_overlap  = 193
-  val POLY_SYS_move_words          = 195  (* DCJM 9/10/99 *)
-  val POLY_SYS_move_bytes          = 198  (* DCJM 9/10/99 *)
-  val POLY_SYS_move_bytes_overlap  = 199
 
   (* val POLY_SYS_vecsize = 256 *)
 

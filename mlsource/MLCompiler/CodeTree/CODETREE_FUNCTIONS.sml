@@ -187,6 +187,7 @@ struct
                     case oper of
                         ByteVecEqual => applicative
                     |   ByteVecCompare => applicative
+                    |   BlockMove _ => PROPWORD_NORAISE
             in
                 operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3 andb codeProps arg4 andb codeProps arg5
             end

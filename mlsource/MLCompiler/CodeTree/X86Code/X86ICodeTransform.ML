@@ -1516,6 +1516,38 @@ struct
                         MoveArgument{source=RealRegister realVec2Reg, dest=rdiAsArg, kind=WordToWord} :: code, context=context}
             end
 
+        |   codeICode{icode=BlockMove { srcAddr, destAddr, length, isByteMove } :: rest, state=NormalState state, code, context} =
+            let
+                val {untaggedRegs, ...} = state
+                val srcReg = argToUReg srcAddr and destReg = argToUReg destAddr and lenReg = argToUReg length
+                val realSrcReg =
+                    case List.find (fn {ureg, ...} => ureg = srcReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: BlockMove"
+                val realDestReg =
+                    case List.find (fn {ureg, ...} => ureg = destReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: BlockMove"
+                val realLenReg =
+                    case List.find (fn {ureg, ...} => ureg = lenReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: BlockMove"
+                (* These aren't in the registers we want so we have to shuffle them. *)
+                val _ = realSrcReg = GenReg edx orelse raise InternalError "codeICode: vec1Reg"
+                val _ = realDestReg = GenReg ecx orelse raise InternalError "codeICode: vec2Reg"
+                val _ = realLenReg = GenReg esi orelse raise InternalError "codeICode: lenReg"
+                val resultState =
+                    {valueStack= #valueStack state, ccState=CCIndeterminate, untaggedRegs= []}
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code =
+                        BlockMove{srcAddr=rsiAsArg, destAddr=rdiAsArg, length=rcxAsArg, isByteMove=isByteMove} ::
+                        MoveArgument{source=RealRegister realSrcReg, dest=rsiAsArg, kind=WordToWord} ::
+                        MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=WordToWord} ::
+                        MoveArgument{source=RealRegister realDestReg, dest=rdiAsArg, kind=WordToWord} :: code, context=context}
+            end
+
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"

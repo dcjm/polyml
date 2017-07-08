@@ -33,10 +33,11 @@ local
     type vector = LibrarySupport.Word8Array.vector
     datatype array = datatype LibrarySupport.Word8Array.array
 
-    val System_move_bytes:
-        address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
-    val System_move_str:
-        vector*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
+    val System_move_bytes: address*address*word*word*word->unit = RunCall.moveBytes
+
+    fun System_move_str(src: vector, dst: address, srcOffset: word, dstOffset: word, length: word): unit =
+        RunCall.moveBytes(src, RunCall.unsafeCast dst, srcOffset, dstOffset, length)
+
     val System_isShort   : vector -> bool = RunCall.isShort
     val emptyVec: vector = w8vectorFromString "" (* This is represented by a null string not a null vector. *)
 
@@ -206,7 +207,7 @@ in
                 (* Make an array initialised to zero. *)
                 val new_vec = allocString len
             in
-                System_move_bytes(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
+                System_move_bytes(vec, RunCall.unsafeCast new_vec, 0w0, wordSize, len);
                 RunCall.clearMutableBit new_vec;
                 w8vectorFromString new_vec
             end
@@ -220,7 +221,7 @@ in
             in
                 if diW+len > dlen
                 then raise General.Subscript
-                else System_move_bytes(s, 0w0, d, diW, len)
+                else System_move_bytes(s, d, 0w0, diW, len)
             end
     
         (* Copy a vector into an array. *)
@@ -235,7 +236,7 @@ in
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
                     RunCall.storeByte(d, diW, RunCall.unsafeCast src)
-                else System_move_str(src, wordSize, d, diW, len)
+                else System_move_str(src, d, wordSize, diW, len)
             end
 
         (* Create the other functions. *)
@@ -376,7 +377,7 @@ in
                     (* Make an array initialised to zero. *)
                     val new_vec = allocString len
                 in
-                    System_move_bytes(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
+                    System_move_bytes(vec, RunCall.unsafeCast new_vec, intAsWord start, wordSize, len);
                     RunCall.clearMutableBit new_vec;
                     w8vectorFromString new_vec
                 end
@@ -389,9 +390,10 @@ in
         in
             if di < 0 orelse di+length > Word8Array.length dst
             then raise General.Subscript
-            else (* We can't use System_move_bytes because of the potential overlap problem.
+            else (* We can't use MoveBytes because of the potential overlap problem.
                     Instead we use explicit copying choosing to copy up or down depending
-                    on the index whether the source and destination are the same or not. *)
+                    on the index whether the source and destination are the same or not.
+                    We could use MoveBytes if we know the arrays are different. *)
             let
                 fun copyUp n =
                 if n = length then ()
@@ -403,7 +405,6 @@ in
             in
                 if di > start then copyDown(length-1) else copyUp 0
             end
-            (* System_move_bytes(s, intAsWord start, d, intAsWord di, intAsWord length) *)
         end
     
         (* Copy a vector slice into an array. *)
@@ -420,7 +421,7 @@ in
                         so we just need to insert the character into the array. *)
                     RunCall.storeByte(d, diW + offset, RunCall.unsafeCast source)
                     (* The source is represented by a string whose first word is the length. *)
-                else System_move_str(source, offset + wordSize, d, diW, len)
+                else System_move_str(source, d, offset + wordSize, diW, len)
             end
         
     end (* Word8ArraySlice *);

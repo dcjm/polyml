@@ -25,8 +25,6 @@ local
     (* It would be simpler to be able to define these as functions
        to or from 'a vector but that gives error messages about free
        type variables. *)
-    val System_move_words:
-        word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
 
     val vecAsWord: 'a vector -> word = RunCall.unsafeCast
     and wordAsVec: word -> 'a vector = RunCall.unsafeCast
@@ -136,7 +134,7 @@ struct
                     val v = vecAsWord h
                     val src_len = length h
                 in
-                    System_move_words(v, 0, new_vec, j, src_len);
+                    RunCall.moveWords(v, new_vec, 0w0, Word.fromInt j, Word.fromInt src_len);
                     copy_list t (j+src_len)
                 end
         in
@@ -288,7 +286,7 @@ struct
             (* Make a vector initialised to zero. *)
             val new_vec = alloc length
         in
-            System_move_words(vecAsWord vector, start, new_vec, 0, length);
+            RunCall.moveWords(vecAsWord vector, new_vec, Word.fromInt start, 0w0, Word.fromInt length);
             RunCall.clearMutableBit new_vec;
             wordAsVec new_vec
         end
@@ -321,7 +319,7 @@ struct
             fun copy_list [] _ = ()
               | copy_list (Slice{vector, start, length}::t) j =
                 (
-                    System_move_words(vecAsWord vector, start, new_vec, j, length);
+                    RunCall.moveWords(vecAsWord vector, new_vec, Word.fromInt start, Word.fromInt j, Word.fromInt length);
                     copy_list t (j+length)
                 )
         in

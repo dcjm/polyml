@@ -344,6 +344,14 @@ end
 and LargeWord =
 struct
     type word = Bootstrap.word
+end
+and String =
+struct
+    type string = string
+end
+and Char =
+struct
+    type char = char
 end;
 
 (* Extend RunCall for compatibility with 5.6.1 *)
@@ -374,6 +382,13 @@ struct
     
     fun allocateWordMemory(len: word, flags: word, init: 'a): 'b =
         RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store(len, flags, init)
+
+    (* N.B. moveBytes/word and POLY_SYS_move_bytes/words have slightly different argument ordering. *)
+    fun moveBytes(src: 'a, dst: 'a, srcOffset: word, dstOffset: word, length: word) =
+        RunCall.run_call5 RuntimeCalls.POLY_SYS_move_bytes(src, srcOffset, dst, dstOffset, length)
+
+    fun moveWords(src: 'a, dst: 'a, srcOffset: word, dstOffset: word, length: word) =
+        RunCall.run_call5 RuntimeCalls.POLY_SYS_move_words(src, srcOffset, dst, dstOffset, length)
 end;
 
 (* This is used to provide compatibility between 5.6.0 and 5.6.1. *)

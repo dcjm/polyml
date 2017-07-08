@@ -37,8 +37,7 @@ local
     val realSize: word = Compat560.realGeneral (28, ())
 
     local
-        val System_move_bytes: address*word*address*word*word->unit =
-                RunCall.run_call5 POLY_SYS_move_bytes
+        val System_move_bytes: address*address*word*word*word->unit = RunCall.moveBytes
 
         (* Move bytes, reversing the order. *)
         fun swapOrder(src: address, srcOff: word,
@@ -54,7 +53,7 @@ local
         fun doMove(src: address, srcOff: word,
                    dest: address, destOff: word, wantBigEndian: bool) =
             if wantBigEndian = bigEndian (* Host byte order = required byte order *)
-            then System_move_bytes(src, srcOff, dest, destOff, realSize)
+            then System_move_bytes(src, dest, srcOff, destOff, realSize)
             else (* Host byte order is reverse of required byte order. *)
                 swapOrder(src, srcOff, dest, destOff, realSize)
     end

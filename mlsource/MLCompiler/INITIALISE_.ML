@@ -320,6 +320,11 @@ struct
                     makePolymorphic([a], mkBuiltIn5Fn ByteVecEqual), mkProductType[a, a, Word, Word, Word] ->> Bool)
             val () = enterRunCall ("byteVectorCompare",
                     makePolymorphic([a], mkBuiltIn5Fn ByteVecCompare), mkProductType[a, a, Word, Word, Word] ->> Int)
+            (* Block moves. *)
+            val () = enterRunCall ("moveBytes",
+                    makePolymorphic([a], mkBuiltIn5Fn (BlockMove{isByteMove=true})), mkProductType[a, a, Word, Word, Word] ->> Unit)
+            val () = enterRunCall ("moveWords",
+                    makePolymorphic([a], mkBuiltIn5Fn (BlockMove{isByteMove=false})), mkProductType[a, a, Word, Word, Word] ->> Unit)
         end
 
         local

@@ -199,6 +199,10 @@ struct
     |   CompareByteVectors of
             { vec1Addr: argument, vec2Addr: argument, length: argument, ccRef: ccRef }
 
+        (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
+           number of items (bytes or words) to move. *)
+    |   BlockMove of { srcAddr: argument, destAddr: argument, length: argument, isByteMove: bool }
+
     
     exception InternalError = Misc.InternalError
 
@@ -636,6 +640,16 @@ struct
                 val _ = asGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
             in
                 codeGenICode(rest, RepeatOperation CMPSB :: code)
+            end
+
+        |   codeGenICode(BlockMove { srcAddr, destAddr, length, isByteMove } :: rest, code) =
+            let
+                (* The arguments must be in specific registers. *)
+                val _ = asGenReg srcAddr = esi orelse raise InternalError "BlockMove: esi"
+                val _ = asGenReg destAddr = edi orelse raise InternalError "BlockMove: edi"
+                val _ = asGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
+            in
+                codeGenICode(rest, RepeatOperation(if isByteMove then MOVSB else MOVSL) :: code)
             end
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)
