@@ -1251,7 +1251,7 @@ struct
                     else mkProc(codePrintDefault, arity, "print-printdefault", [], 0)
             in
                 mkNullDec(
-                    mkBuiltIn3(BuiltIns.StoreWord,
+                    mkStoreOperation(LoadStoreMLWord{isImmutable=false},
                         TypeValue.extractPrinter(codeId(identifier, level)), CodeZero, printCode))
             end
         in

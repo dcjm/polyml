@@ -29,59 +29,33 @@
    declarations. *)
 functor INTGCODE (
 
-structure CODECONS : INTCODECONSSIG
+    structure CODECONS : INTCODECONSSIG
 
-structure MISC :
-sig
-  exception InternalError of string;
-end;
+    structure MISC:
+    sig
+        exception InternalError of string;
+    end;
 
-structure BACKENDTREE: BackendIntermediateCodeSig
+    structure BACKENDTREE: BackendIntermediateCodeSig
 
 ) : GENCODESIG =
 
-let
-
-(*****************************************************************************)
-(*                  STRETCHARRAY                                             *)
-(*****************************************************************************)
-structure STRETCHARRAY :
-sig
-  type 'a stretchArray;
-  
-  val stretchArray : int * '_a -> '_a stretchArray;
-  val update : '_a stretchArray * int * '_a -> unit;
-  val sub    : 'a stretchArray * int -> 'a;
-end = StretchArray;
-
-in
-
-(*****************************************************************************)
-(*                  GCODE functor body                                       *)
-(*****************************************************************************)
 struct
 
-  open CODECONS;
-  open Address;
-  open BACKENDTREE;
-  open MISC;
+    open CODECONS
+    open Address
+    open BACKENDTREE
+    open MISC
 
-
-  open RuntimeCalls; (* for POLY_SYS numbers *)
-
-  (* gets a value from the run-time system; 
-    usually this is a closure, but sometimes it's an int.  *)
-  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
-
-  (* minor HACKS *)
-  fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
-  fun apply _ [] = () | apply f (h::t) = (f h; apply f t);
+    (* minor HACKS *)
+    fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
+    fun apply _ [] = () | apply f (h::t) = (f h; apply f t);
       
-  val word0 = toMachineWord 0;
+    val word0 = toMachineWord 0;
   
-  val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
+    val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
 
-  type caseForm =
+    type caseForm =
         {
             cases   : (backendIC * word) list,
             test    : backendIC,
@@ -89,86 +63,65 @@ struct
             default : backendIC
         }
    
-   (* Where the result, if any, should go *)
-  datatype whereto =
-    NoResult     (* discard result *)
-  | ToStack     (* Need a result but it can stay on the pseudo-stack *);
+    (* Where the result, if any, should go *)
+    datatype whereto =
+        NoResult     (* discard result *)
+    |   ToStack     (* Need a result but it can stay on the pseudo-stack *);
   
-  (* Are we at the end of the function. *)
-  datatype tail =
-    EndOfProc
-  | NotEnd;
+    (* Are we at the end of the function. *)
+    datatype tail =
+        EndOfProc
+    |   NotEnd
 
-  datatype slValue =
-    Address    of int  * int (* Address of an entry on the stack. *)
-  | Recursive  of machineWord       (* A recursive reference to a closure. *)
-
-  (* Code generate a function or global declaration *)
-  fun codegen
-       (pt : backendIC,
-        cvec : code,
-        loadStaticLink : int * int -> slValue,
-        numOfArgs: int, parameters) : address =
-  let
-    val initTrans = 5; (* Initial size of tables. *)
-    
-    datatype decEntry =
-      StackAddr of int
-    | Empty;
-    
-    val decVec : decEntry STRETCHARRAY.stretchArray =
-      STRETCHARRAY.stretchArray (initTrans, Empty);
-    
-    (* Count of number of items on the stack. *)
-    val realstackptr = ref 1; (* The static-link/closure ptr is already there *)
- 
-    (* Exited - set to true if we have jumped out. *)
-    val exited = ref false;
- 
-    (* Push a value onto the stack. For the moment this merely involves
-       adding corresponding values to the real and pseudo-stacks. *)
-    fun incsp () : unit = realstackptr := !realstackptr + 1;
- 
-    (* An entry has been removed from the stack. *)
-    fun decsp ()  : unit= realstackptr := !realstackptr - 1;
- 
-    (* Pushes a local or non-local stack value. *)
-    fun pushStackValue (addr : int, level : int) : unit =
+    (* Code generate a function or global declaration *)
+    fun codegen (pt : backendIC, cvec : code, recReference: machineWord option, numOfArgs: int, parameters) : address =
     let
-      val () =
-        if level > 0
-        then (* Non-local *)
-          genNonLocal(!realstackptr, level, addr, cvec)
-        else (* Locals and references to the closure. *)
-           genLocal(!realstackptr + addr, cvec);
-    in
-      incsp ()
-    end;
+        val initTrans = 5 (* Initial size of tables. *)
+    
+        datatype decEntry =
+            StackAddr of int
+        |   Empty
+    
+        val decVec = StretchArray.stretchArray (initTrans, Empty)
+    
+        (* Count of number of items on the stack. *)
+        val realstackptr = ref 1; (* The static-link/closure ptr is already there *)
 
+        (* Exited - set to true if we have jumped out. *)
+        val exited = ref false;
 
-    (* Loads a local, argument or closure value; translating local
-       stack addresses to real stack offsets. *)
-        fun locaddr(BICLoadArgument locn) = pushStackValue (numOfArgs-locn, 0)
+        (* Push a value onto the stack. For the moment this merely involves
+           adding corresponding values to the real and pseudo-stacks. *)
+        fun incsp () : unit = realstackptr := !realstackptr + 1;
+
+        (* An entry has been removed from the stack. *)
+        fun decsp ()  : unit= realstackptr := !realstackptr - 1;
+ 
+        fun pushLocalStackValue addr = ( genLocal(!realstackptr + addr, cvec); incsp() )
+
+        fun pushClosureValue addr =
+            ( genNonLocal(!realstackptr, 1, addr, cvec); incsp() )
+
+        (* Loads a local, argument or closure value; translating local
+           stack addresses to real stack offsets. *)
+        fun locaddr(BICLoadArgument locn) = pushLocalStackValue (numOfArgs-locn)
+
         |   locaddr(BICLoadLocal locn) =
             (
                 (* positive address - on the stack. *)
-                    case STRETCHARRAY.sub (decVec, locn) of
-                        StackAddr n => pushStackValue (~ n, 0)
-
+                    case StretchArray.sub (decVec, locn) of
+                        StackAddr n => pushLocalStackValue (~ n)
                     |   _ => (* Should be on the stack, not a function. *)
                         raise InternalError "locaddr: bad stack address"
             )
-        | locaddr(BICLoadClosure locn) =
-            ( (* closure-pointer relative *)
-                case loadStaticLink (locn+1, 1) of
-                    Recursive codeAddr => ( pushConst (codeAddr, cvec); incsp () )
-                |   Address (addr, level) => pushStackValue (addr, level)
-            )
+
+        |   locaddr(BICLoadClosure locn) = (* closure-pointer relative *) pushClosureValue (locn+1)
+
         |   locaddr BICLoadRecursive =
             (
-                case loadStaticLink (0, 1) of
-                    Recursive codeAddr => ( pushConst (codeAddr, cvec); incsp () )
-                |   Address (addr, level) => pushStackValue (addr, level)
+                case recReference of
+                    SOME codeAddr => ( pushConst (codeAddr, cvec); incsp () )
+                |   NONE => pushLocalStackValue ~1 (* The closure itself - first value on the stack. *)
             )
 
    (* generates code from the tree *)
@@ -214,7 +167,7 @@ struct
                         genProc (lambda, true,
                             fn() =>
                             (
-                                STRETCHARRAY.update (decVec, addr, StackAddr (! realstackptr));
+                                StretchArray.update (decVec, addr, StackAddr (! realstackptr));
                                 genMutualDecs (otherDecs)
                             ))
 
@@ -226,13 +179,13 @@ struct
                            will be removed in the stack adjustment code. *)
                         genContainer(size, cvec); (* Push the address of this container. *)
                         realstackptr := !realstackptr + size + 1; (* Pushes N words plus the address. *)
-                        STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
+                        StretchArray.update (decVec, addr, StackAddr(!realstackptr))
                     )
 
                 |   codeDecls(BICDeclar{value, addr, ...}) =
                     (
                         gencde (value, ToStack, NotEnd, loopAddr);
-                        STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
+                        StretchArray.update (decVec, addr, StackAddr(!realstackptr))
                     )
                 |   codeDecls(BICNullBinding exp) = gencde (exp, NoResult, NotEnd, loopAddr)
             in
@@ -250,7 +203,7 @@ struct
                 fun genLoopArg ({addr, value, ...}) =
                     (
                      gencde (value, ToStack, NotEnd, loopAddr);
-                     STRETCHARRAY.update (decVec, addr, StackAddr (!realstackptr));
+                     StretchArray.update (decVec, addr, StackAddr (!realstackptr));
                      !realstackptr (* Return the posn on the stack. *)
                     )
                 val argIndexList = map genLoopArg args;
@@ -483,34 +436,6 @@ struct
                 |   UnsignedToLongWord => genOpcode(opcode_unsignedToLongW, cvec)
             end
 
-        |   BICBuiltIn2 { oper=BuiltIns.LoadWord _, arg1, arg2 } =>
-            let
-                (* This is temporary.  The load instructions take three arguments:
-                   base address, index and offset.  This does not currently use the
-                   offset. *)
-                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord 0, cvec)
-                val () = incsp()
-            in
-                genOpcode(opcode_loadMLWord, cvec);
-                decsp(); decsp()
-            end
-
-        |   BICBuiltIn2 { oper=BuiltIns.LoadByte _, arg1, arg2 } =>
-            let
-                (* This is temporary.  The load instructions take three arguments:
-                   base address, index and offset.  This does not currently use the
-                   offset. *)
-                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord 0, cvec)
-                val () = incsp()
-            in
-                genOpcode(opcode_loadMLByte, cvec);
-                decsp(); decsp()
-            end
-
         |   BICBuiltIn2 { oper, arg1, arg2 } =>
             let
                 open BuiltIns
@@ -548,10 +473,7 @@ struct
                 |   WordShift ShiftLeft => genOpcode(opcode_wordShiftLeft, cvec)
                 |   WordShift ShiftRightLogical => genOpcode(opcode_wordShiftRLog, cvec)
                 |   WordShift ShiftRightArithmetic => genOpcode(opcode_wordShiftRArith, cvec)
-                
-                |   LoadWord _ => raise InternalError "LoadWord"
-                |   LoadByte _ => raise InternalError "LoadWord"
-                
+                 
                 |   SetStringLengthWord => genOpcode(opcode_setStringLength, cvec)
                 |   AllocateByteMemory => genOpcode(opcode_allocByteMem, cvec)
                 
@@ -593,17 +515,14 @@ struct
 
         |   BICBuiltIn3 { oper=BuiltIns.StoreByte, arg1, arg2, arg3 } =>
             let
-                (* This is temporary.  The store instructions take four arguments:
-                   base address, index, offset and value to store.  This does not currently use the
-                   offset. *)
+                (* This is temporary.  The store instructions take three arguments:
+                   base address, index and value to store. *)
                 val () = gencde (arg1, ToStack, NotEnd, loopAddr)
                 val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord 0, cvec)
-                val () = incsp()
                 val () = gencde (arg3, ToStack, NotEnd, loopAddr)
             in
                 genOpcode(opcode_storeMLByte, cvec);
-                decsp(); decsp(); decsp()
+                decsp(); decsp()
             end
             
         |   BICBuiltIn3 {
@@ -652,6 +571,51 @@ struct
                 |   BlockMove{isByteMove=false} => genOpcode(opcode_blockMoveWord, cvec);
                 decsp(); decsp(); decsp(); decsp()
             end
+
+       |    BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}} =>
+            (
+                (* If the index is a constant, frequently zero, we can use indirection.
+                   The offset is a byte count so has to be divided by the word size but
+                   it should always be an exact multiple. *)
+                gencde (base, ToStack, NotEnd, loopAddr);
+                offset mod (Word.fromInt wordSize) = 0w0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
+                genIndirect (Word.toInt(offset div Word.fromInt wordSize), cvec)
+            )
+
+       |    BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}} =>
+            let
+                (* Variable index. *)
+                val () = gencde (base, ToStack, NotEnd, loopAddr)
+                val () = gencde (indexVal, ToStack, NotEnd, loopAddr)
+                val () = (pushConst (toMachineWord offset, cvec); incsp())
+            in
+                genOpcode(opcode_loadMLWord, cvec);
+                decsp(); decsp()
+            end
+
+       |    BICLoadOperation { kind=LoadStoreMLByte _, address={base, index, offset}} =>
+            let
+                val () = gencde (base, ToStack, NotEnd, loopAddr)
+                (* Because the index and offset are both byte counts we can just add
+                   them if we need both. *)
+                val () =
+                    case (index, offset) of
+                        (NONE, offset) => (pushConst (toMachineWord offset, cvec); incsp())
+                    |   (SOME indexVal, 0w0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
+                    |   (SOME indexVal, offset) =>
+                        (
+                            gencde (indexVal, ToStack, NotEnd, loopAddr);
+                            pushConst (toMachineWord offset, cvec);
+                            genOpcode(opcode_wordAdd, cvec)
+                        )
+            in
+                genOpcode(opcode_loadMLByte, cvec);
+                decsp()
+            end
+
+       |    BICStoreOperation { kind, address, value } => raise InternalError "intgcode: BICStoreOperation"
+
+       |    BICBlockOperation { kind, sourceLeft, destRight, length } => raise InternalError "intgcode: BICBlockOperation"
 
     in (* body of gencde *) 
 
@@ -718,13 +682,10 @@ struct
                and filled in with the address of the code when we've finished. *)
             val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
             val newCode : code = codeCreate(#name lam, parameters);
-        
-            (* The only global references are recursive ones (?) *)
-            fun loadRecLink _ = Recursive(toMachineWord closure)
-        
+
             (* Code-gen function. No non-local references. *)
              val res : address =
-               codegen (#body lam, newCode, loadRecLink, List.length (#argTypes lam), parameters);
+               codegen (#body lam, newCode, SOME(toMachineWord closure), List.length (#argTypes lam), parameters);
             val () = Address.assignWord(closure, 0w0, Address.toMachineWord res)
             val () = Address.lock closure
 
@@ -736,17 +697,9 @@ struct
 
     |   genProc (lam, mutualDecs, doNext) =
         let (* Full closure required. *)
-            (* If there is a closure we must fetch all non-local references from it. *)
-
-            (* Loads the value from the closure. *)
-            fun loadSl (0, level) = Address (~1, level - 1) (* recursive - return address of closure. *)
-            |   loadSl (addr, level) = Address (addr, level) (* Return an entry in the closure. *)
-
-            val newCode = codeCreate (#name lam, parameters);
-
+            val newCode = codeCreate (#name lam, parameters)
             (* Code-gen function. *)
-            val res = codegen (#body lam, newCode, loadSl, List.length (#argTypes lam), parameters);
-
+            val res = codegen (#body lam, newCode, NONE, List.length (#argTypes lam), parameters);
             val sizeOfClosure = List.length (#closure lam) + 1;
         in
             if mutualDecs
@@ -769,7 +722,7 @@ struct
 
                 (* Push the address of the vector - If we have processed other
                    closures the vector will no longer be on the top of the stack. *)
-                val () = pushStackValue (~ entryAddr, 0)
+                val () = pushLocalStackValue (~ entryAddr)
 
                 (* Load items for the closure. *)
                 fun loadItems ([], _) = ()
@@ -842,126 +795,84 @@ struct
        end
    end (* genCond *)
 
-   and genEval (eval, tailKind : tail) : unit =
-   let
-     val argList : backendIC list = List.map #1 (#argList eval)
-     val argsToPass : int = List.length argList;
+    and genEval (eval, tailKind : tail) : unit =
+    let
+        val argList : backendIC list = List.map #1 (#argList eval)
+        val argsToPass : int = List.length argList;
 
-     (* Load arguments *)
-     fun loadArgs [] = ()
-       | loadArgs (v :: vs) =
-       let (* Push each expression onto the stack. *)
-         val () = gencde(v, ToStack, NotEnd, NONE);
-       in
-         loadArgs vs
-       end;
-
-     (* Called after the args and the closure to call have been pushed
-        onto the stack. *)
-     fun callClosure () : unit =
-       case tailKind of
-         NotEnd => (* Normal call. *)
-           genCallClosure cvec
-         
-       | EndOfProc => (* Tail recursive call. *)
-         let
-           (* Get the return address onto the top of the stack. *)
-           val () = pushStackValue (0, 0);
-           
-           (* Slide the return address, closure and args over the
-              old closure, return address and args, and reset the
-              stack. Then jump to the closure. *)
-           val () =
-             genTailCall(argsToPass + 2, !realstackptr - 1 + (numOfArgs - argsToPass), cvec);
-            (* It's "-1" not "-2", because we didn't bump the realstackptr
-               when we pushed the return address. SPF 3/1/97 *)
-         in
-           exited := true
-         end;
-         
-      val () =
-    case #function eval of
-       (* The function is being loaded from the stack or closure so it
-          may be a static-link function. *)
-      BICExtract ext =>
-        let
-            (* Since the function is on the stack there can be no side-effects
-               in loading it. Can therefore load the arguments now. *)
-            val () = loadArgs argList;
-  
-            val staticLinkValue =
-                case ext of
-                    BICLoadArgument addr => Address (numOfArgs - addr, 0)
-                |   BICLoadLocal addr =>
-                    (
-                        (* Local - is it a function? *)
-                        case STRETCHARRAY.sub (decVec, addr) of
-                            StackAddr n => Address (~ n, 0)
-                        |   Empty       => raise InternalError "staticLinkValue: missing decVec entry"
-                    )
-                |   BICLoadClosure addr => loadStaticLink (addr+1, 1)(* Non-local or recursive. *)
-                |   BICLoadRecursive => loadStaticLink (0, 1)
-       
-            val () =
-                case staticLinkValue of
-                    Address (addr, level) => pushStackValue (addr, level)
-                        (* recursive reference to a function. *)
-                |   Recursive closureAddr => (pushConst(closureAddr, cvec); incsp())
+        (* Load arguments *)
+        fun loadArgs [] = ()
+        |   loadArgs (v :: vs) =
+        let (* Push each expression onto the stack. *)
+            val () = gencde(v, ToStack, NotEnd, NONE)
         in
-            callClosure ()
-        end (* BICExtract *)
-    
-    | _ => (* The function is not being found by simply loading a value
-          from the stack or the closure. *)
-      let
-        (* Must load the closure and call. *)
+            loadArgs vs
+        end;
+
+        (* Called after the args and the closure to call have been pushed
+            onto the stack. *)
+        fun callClosure () : unit =
+            case tailKind of
+                NotEnd => (* Normal call. *) genCallClosure cvec
+         
+            |   EndOfProc => (* Tail recursive call. *)
+                let
+                    (* Get the return address onto the top of the stack. *)
+                    val () = pushLocalStackValue 0
+           
+                    (* Slide the return address, closure and args over the
+                      old closure, return address and args, and reset the
+                      stack. Then jump to the closure. *)
+                    val () =
+                        genTailCall(argsToPass + 2, !realstackptr - 1 + (numOfArgs - argsToPass), cvec);
+                        (* It's "-1" not "-2", because we didn't bump the realstackptr
+                           when we pushed the return address. SPF 3/1/97 *)
+                in
+                    exited := true
+                end
+
         (* Have to guarantee that the expression to return the function
           is evaluated before the arguments. *)
-    
+
         (* Returns true if evaluating it later is safe. *)
-        fun safeToLeave (node: backendIC) : bool =
-          case node of
-        BICConstnt _ => true
-          | BICLambda _  => true
-          | BICField {base, ...} => 
-        (* Safe only if the expression (always a type) being indirected
-           is. This is put in because calling functions in a type is a
-           common occurence and should be made reasonably efficient. *)
-           safeToLeave base
-          | _        => false
-    
+        fun safeToLeave (BICConstnt _) = true
+        |   safeToLeave (BICLambda _) = true
+        |   safeToLeave (BICExtract _) = true
+        |   safeToLeave (BICField {base, ...}) = safeToLeave base
+        |   safeToLeave _ = false
+
         val () =
-          if (case argList of [] => true | _ => safeToLeave (#function eval))
-          then let
-        (* Can load the args first. *)
-        val () = loadArgs argList;
-          in 
-        gencde (#function eval, ToStack, NotEnd, NONE)
-          end
-          
-          else let
-        (* The expression for the function is too complicated to
-           risk leaving. It might have a side-effect and we must
-           ensure that any side-effects it has are done before the
-           arguments are loaded. *)
-        val () = gencde(#function eval, ToStack, NotEnd, NONE);
-        val () = loadArgs(argList);
-        (* Load the function again. *)
-        val () = genLocal(argsToPass, cvec);
-          in
-        incsp ()
-          end
-     in
-       (* Call the function. *)
-       callClosure ()
-     end; (* Not BICExtract *)
+            if (case argList of [] => true | _ => safeToLeave (#function eval))
+            then
+            let
+                (* Can load the args first. *)
+                val () = loadArgs argList
+            in 
+                gencde (#function eval, ToStack, NotEnd, NONE)
+            end
 
-       (* Make sure we interpret when we return from the call *)
-       val () = genEnterIntCall (cvec, argsToPass);
+            else
+            let
+                (* The expression for the function is too complicated to
+                   risk leaving. It might have a side-effect and we must
+                   ensure that any side-effects it has are done before the
+                   arguments are loaded. *)
+                val () = gencde(#function eval, ToStack, NotEnd, NONE);
+                val () = loadArgs(argList);
+                (* Load the function again. *)
+                val () = genLocal(argsToPass, cvec);
+            in
+                incsp ()
+            end
 
-     in (* body of genEval *)
-       realstackptr := !realstackptr - argsToPass (* Args popped by caller. *)
-     end
+        val () = callClosure () (* Call the function. *)
+
+        (* Make sure we interpret when we return from the call *)
+        val () = genEnterIntCall (cvec, argsToPass)
+
+    in (* body of genEval *)
+        realstackptr := !realstackptr - argsToPass (* Args popped by caller. *)
+    end
 
    (* This is used for cases which are not sparse i.e. the values occupy
       a narrow enough range to make indexing efficient. *)
@@ -1083,13 +994,9 @@ struct
     let
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
-
-        (* The only global references are recursive ones (?) *)
-        fun loadRecLink (_ : int, _ : int) : slValue = Recursive(toMachineWord closure)
-
         (* This function must have no non-local references. *)
         val codeAddr =
-            codegen (body, newCode, loadRecLink, List.length argTypes, parameters)
+            codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, parameters)
     in
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure
@@ -1133,6 +1040,5 @@ struct
         end
     end
 
-end (* GCODE functor body *)
+end;
 
-end; (* structure-level let *)

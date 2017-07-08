@@ -126,10 +126,12 @@ sig
     and mkBuiltIn3Fn: BuiltIns.builtIn3Ops -> codetree
     and mkBuiltIn5Fn: BuiltIns.builtIn5Ops -> codetree
 
-    (* Load operations.  At this level the first operand is the base address and
+    (* Load and store operations.  At this level the first operand is the base address and
        the second is an index. *)
     val mkLoadOperation: loadStoreKind * codetree * codetree -> codetree
     val mkLoadOperationFn: loadStoreKind -> codetree
+    val mkStoreOperation: loadStoreKind * codetree * codetree * codetree -> codetree
+    val mkStoreOperationFn: loadStoreKind -> codetree
 
 
     structure Foreign: FOREIGNCALLSIG

@@ -301,10 +301,10 @@ struct
             val () = enterRunCall ("bytesPerWord", mkConst(toMachineWord wordSize), Word)
             (* Store a word *)
             val () = enterRunCall ("storeWord",
-                    makePolymorphic([a, b], mkBuiltIn3Fn StoreWord), mkProductType[a, Word, b] ->> Unit)
+                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLWord{isImmutable=false})), mkProductType[a, Word, b] ->> Unit)
             (* Store a byte *)
             val () = enterRunCall ("storeByte",
-                    makePolymorphic([a, b], mkBuiltIn3Fn StoreByte), mkProductType[a, Word, b] ->> Unit)
+                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=false})), mkProductType[a, Word, b] ->> Unit)
             (* Lock a mutable cell. *)
             val () = enterRunCall ("clearMutableBit",
                     makePolymorphic([a], mkBuiltIn1Fn ClearMutableFlag), a ->> Unit)

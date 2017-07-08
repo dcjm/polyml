@@ -454,6 +454,12 @@ struct
         mkInlproc(mkLoadOperation(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)), 1,
             "loadOperation()", [], 0)
 
+    fun mkStoreOperation(oper, base, index, value) =
+        StoreOperation{kind=oper, address={base=base, index=SOME index, offset=0w0}, value=value}
+
+    fun mkStoreOperationFn oper =
+        mkInlproc(mkStoreOperation(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0)), 1,
+            "storeOperation()", [], 0)
 
     fun identityFunction (name : string) : codetree = 
         mkInlproc (mkLoadArgument 0, 1, name, [], 0) (* Returns its argument. *);

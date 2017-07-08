@@ -230,13 +230,79 @@ struct
         )
 
     |   simpGeneral context (LoadOperation{kind, address}) =
-            SOME(specialToGeneral(simpLoadOperation(kind, address, context)))
+        let
+            (* Try to move constants out of the index. *)
+            val multiplier =
+                case kind of
+                    LoadStoreMLWord _ => RunCall.bytesPerWord
+                |   LoadStoreMLByte _ => 0w1
+            val (genAddress, decAddress) = simpAddress(address, multiplier, context)
+            (* If the base address and index are constant and this is an immutable
+               load we can do this at compile time. *)
+            val result =
+                case (genAddress, kind) of
+                    ({base=Constnt(baseAddr, _), index=NONE, offset}, LoadStoreMLWord _) =>
+                    if isShort baseAddr
+                    then LoadOperation{kind=kind, address=genAddress}
+                    else
+                    let
+                        (* Ignore the "isImmutable" flag and look at the immutable status of the memory.
+                           Check that this is a word object and that the offset is within range.
+                           The code for Vector.sub, for example, raises an exception if the index
+                           is out of range but still generates the (unreachable) indexing code. *)
+                        val addr = toAddress baseAddr
+                        val wordOffset = offset div RunCall.bytesPerWord
+                    in
+                        if isMutable addr orelse not(isWords addr) orelse wordOffset >= length addr
+                        then LoadOperation{kind=kind, address=genAddress}
+                        else Constnt(toMachineWord(loadWord(addr, wordOffset)), [])
+                    end
+
+                |   ({base=Constnt(baseAddr, _), index=NONE, offset}, LoadStoreMLByte _) =>
+                    if isShort baseAddr
+                    then LoadOperation{kind=kind, address=genAddress}
+                    else
+                    let
+                        val addr = toAddress baseAddr
+                        val wordOffset = offset div RunCall.bytesPerWord
+                    in
+                        if isMutable addr orelse not(isBytes addr) orelse wordOffset >= length addr
+                        then LoadOperation{kind=kind, address=genAddress}
+                        else Constnt(toMachineWord(loadByte(addr, offset)), [])
+                    end
+
+                |   _ => LoadOperation{kind=kind, address=genAddress}
+        in
+            SOME(mkEnv(decAddress, result))
+        end
 
     |   simpGeneral context (StoreOperation{kind, address, value}) =
-            SOME(specialToGeneral(simpStoreOperation(kind, address, value, context)))
+        let
+            val multiplier =
+                case kind of
+                    LoadStoreMLWord _ => RunCall.bytesPerWord
+                |   LoadStoreMLByte _ => 0w1
+            val (genAddress, decAddress) = simpAddress(address, multiplier, context)
+            val (genValue, decValue, _) = simpSpecial(value, context)
+        in 
+            SOME(mkEnv(decAddress @ decValue, StoreOperation{kind=kind, address=genAddress, value=genValue}))
+        end
 
     |   simpGeneral context (BlockOperation{kind, sourceLeft, destRight, length}) =
-            SOME(specialToGeneral(simpBlockOperation(kind, sourceLeft, destRight, length, context)))
+        let
+            val multiplier =
+                case kind of
+                    BlockOpMoveWord => RunCall.bytesPerWord
+                |   BlockOpMoveByte => 0w1
+                |   BlockOpEqualByte => 0w1
+                |   BlockOpCompareByte => 0w1
+            val (genSrcAddress, decSrcAddress) = simpAddress(sourceLeft, multiplier, context)
+            val (genDstAddress, decDstAddress) = simpAddress(destRight, multiplier, context)
+            val (genLength, decLength, _) = simpSpecial(length, context)
+        in 
+            SOME(mkEnv(decSrcAddress @ decDstAddress @ decLength, 
+                BlockOperation{kind=kind, sourceLeft=genSrcAddress, destRight=genDstAddress, length=genLength}))
+        end
 
     |   simpGeneral _ _ = NONE
 
@@ -284,15 +350,6 @@ struct
     |   simpSpecial (Tuple { fields, isVariant }, context) = simpTuple(fields, isVariant, context)
 
     |   simpSpecial (Indirect{ base, offset, isVariant }, context) = simpFieldSelect(base, offset, isVariant, context)
-
-    |   simpSpecial (LoadOperation{kind, address}, context) =
-            simpLoadOperation(kind, address, context)
-
-    |   simpSpecial (StoreOperation{kind, address, value}, context) =
-            simpStoreOperation(kind, address, value, context)
-
-    |   simpSpecial (BlockOperation{kind, sourceLeft, destRight, length}, context) =
-            simpBlockOperation(kind, sourceLeft, destRight, length, context)
 
     |   simpSpecial (c: codetree, s: simpContext): codetree * codeBinding list * envSpecial =
         let
@@ -843,41 +900,6 @@ struct
                (resultCode, decArgs, EnvSpecNone)
             end
 
-(*        |   (LoadWord _, Constnt(v1, _), Constnt(v2, _)) =>
-            if isShort v1 orelse not (isShort v2)
-            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
-            else
-            let
-                val addr = toAddress v1 and offset = toShort v2
-            in
-                (* Ignore the "isImmutable" flag and look at the immutable status of the memory.
-                   Check that this is a word object and that the offset is within range.
-                   The code for Vector.sub, for example, raises an exception if the index
-                   is out of range but still generates the (unreachable) indexing code. *)
-                if isMutable addr orelse not(isWords addr) orelse offset >= length addr
-                then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) (* Leave until run-time *)
-                else
-                (
-                    reprocess := true;
-                    (Constnt(loadWord(addr, offset), []), decArgs, EnvSpecNone)
-                )
-            end
-
-        |   (LoadByte _, Constnt(v1, _), Constnt(v2, _)) =>
-            if isShort v1 orelse not (isShort v2)
-            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
-            else
-            let
-                val addr = toAddress v1 and offset = toShort v2
-            in
-                (* Ignore the "isImmutable" flag and look at the immutable status of the memory. *)
-                if isMutable addr orelse not(isBytes addr) orelse offset >= length addr * Word.fromInt wordSize
-                then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) (* Leave until run-time *)
-                else
-                (
-                    reprocess := true;
-                    (Constnt(toMachineWord(loadByte(addr, offset)), []), decArgs, EnvSpecNone)
-*)
         |   _ => (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
     end
 
@@ -911,47 +933,6 @@ struct
     in 
         (BuiltIn5{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3, arg4=genArg4, arg5=genArg5},
          decArg1 @ decArg2 @ decArg3 @ decArg4 @ decArg5, EnvSpecNone)
-    end
-
-    and simpLoadOperation(kind, address, context) =
-    let
-        val multiplier =
-            case kind of
-                LoadStoreMLWord _ => RunCall.bytesPerWord
-            |   LoadStoreMLByte _ => 0w1
-        val (genAddress, decAddress) = simpAddress(address, multiplier, context)
-        (* TODO: If the base address and index are constant and this is an immutable
-           load we can do this at compile time. *)
-    in 
-        (LoadOperation{kind=kind, address=genAddress}, decAddress, EnvSpecNone)
-    end
-
-    and simpStoreOperation(kind, address, value, context) =
-    let
-        val multiplier =
-            case kind of
-                LoadStoreMLWord _ => RunCall.bytesPerWord
-            |   LoadStoreMLByte _ => 0w1
-        val (genAddress, decAddress) = simpAddress(address, multiplier, context)
-        val (genValue, decValue, _) = simpSpecial(value, context)
-    in 
-        (StoreOperation{kind=kind, address=genAddress, value=genValue}, decAddress @ decValue, EnvSpecNone)
-    end
-
-    and simpBlockOperation(kind, sourceLeft, destRight, length, context) =
-    let
-        val multiplier =
-            case kind of
-                BlockOpMoveWord => RunCall.bytesPerWord
-            |   BlockOpMoveByte => 0w1
-            |   BlockOpEqualByte => 0w1
-            |   BlockOpCompareByte => 0w1
-        val (genSrcAddress, decSrcAddress) = simpAddress(sourceLeft, multiplier, context)
-        val (genDstAddress, decDstAddress) = simpAddress(destRight, multiplier, context)
-        val (genLength, decLength, _) = simpSpecial(length, context)
-    in 
-        (BlockOperation{kind=kind, sourceLeft=genSrcAddress, destRight=genDstAddress, length=genLength},
-            decSrcAddress @ decDstAddress @ decLength, EnvSpecNone)
     end
 
     (* Loads, stores and block operations use address values.  The index value is initially

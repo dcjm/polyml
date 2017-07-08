@@ -160,9 +160,7 @@ struct
                 open BuiltIns
                 val operProps =
                     case oper of
-                        StoreWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
-                    |   StoreByte => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
-                    |   AllocateWordMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                        AllocateWordMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3
             end

@@ -88,13 +88,11 @@ sig
     |   LargeWordShift of shiftOperations
 
     and builtIn3Ops =
-        StoreWord
-    |   StoreByte
          (* Allocate a heap cell for word data.  The first argument is the number of words needed.
             The second argument is the "flags" byte which will nearly always include F_mutable.
             The third argument is the initialiser.  Each word of the cell is initialised with this.
             There is no check that the size is valid. *)
-    |   AllocateWordMemory
+        AllocateWordMemory
 
     and builtIn4Ops =
         Built4PlaceHolder

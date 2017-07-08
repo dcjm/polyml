@@ -1024,7 +1024,7 @@ struct
                         (* Generate a function that will set the "print" ref for the type to
                            the argument function. *)
                         mkProc(
-                            mkBuiltIn3(BuiltIns.StoreWord,
+                            mkStoreOperation(LoadStoreMLWord{isImmutable=false},
                                 TypeValue.extractPrinter(
                                     codeAccess(idAccess typeId, nLevel)), CodeZero, printFunction
                                 ), 1, "addPP", getClosure nLevel, 0)

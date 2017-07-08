@@ -79,9 +79,7 @@ struct
         |   LargeWordShift of shiftOperations
 
         and builtIn3Ops =
-            StoreWord
-        |   StoreByte
-        |   AllocateWordMemory
+            AllocateWordMemory
 
         and builtIn4Ops =
             Built4PlaceHolder
@@ -140,9 +138,7 @@ struct
         |   shiftRepr ShiftRightLogical = "RightLogical"
         |   shiftRepr ShiftRightArithmetic = "RightArithmetic"
 
-        and builtIn3Repr StoreWord = "StoreWord"
-        |   builtIn3Repr StoreByte = "StoreByte"
-        |   builtIn3Repr AllocateWordMemory = "AllocateWordMemory"
+        and builtIn3Repr AllocateWordMemory = "AllocateWordMemory"
 
         and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"
 

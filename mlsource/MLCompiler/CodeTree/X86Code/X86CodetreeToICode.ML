@@ -895,50 +895,6 @@ struct
                   BoxLargeWord{source=aReg3, dest=target}], target)
             end
 
-        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =
-            let
-                val baseReg = newPReg() and valueReg = newPReg()
-                (* Fixed offset.  *)
-                val offset = Word.toInt(toShort value)
-                val code =
-                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg3, context, false, valueReg) @
-                        [MoveArgument {source=valueReg, dest=wordOffsetAddress(offset, baseReg), kind=WordToWord}]
-            in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
-
-        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2, arg3}, context, _, destination) =
-            let
-                val baseReg = newPReg() and indexReg = newPReg() and valueReg = newPReg()
-                (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
-                   index factor and offset.  *)
-                val destArg =
-                    if isX64
-                    then MemoryLocation{base=baseReg, offset= ~4, index= MemIndex4 indexReg}
-                    else MemoryLocation{base=baseReg, offset= ~2, index= MemIndex2 indexReg}
-                val code =
-                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
-                        codeToICodeTarget(arg3, context, false, valueReg) @
-                        [MoveArgument {source=valueReg, dest=destArg, kind=WordToWord}]
-            in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
-
-        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreByte, arg1, arg2, arg3}, context, _, destination) =
-            let
-                (* We have to untag both the index and the value to store. *)
-                val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newUReg()
-                and valueReg = newPReg() and valueReg1 = newUReg()
-                val code =
-                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
-                    codeToICodeTarget(arg3, context, false, valueReg) @
-                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false },
-                     UntagValue{dest=indexReg1, source=indexReg, isSigned=false },
-                     MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 indexReg1}, kind=ByteToByte}]
-            in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
-
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.AllocateWordMemory, arg1 as BICConstnt(length, _), arg2 as BICConstnt(flags, _), arg3}, context, _, destination) =
             (* Constant length and flags is used for ref.  We could handle other cases. *)
             if  isShort length andalso isShort flags andalso toShort length = 0w1
@@ -1459,8 +1415,62 @@ struct
                      TagValue {source=untaggedResReg, dest=target}], target)
             end
 
-        |   codeToICode(BICStoreOperation _, context, _, destination) =
-                raise InternalError "codeToICode: BICStoreOperation TODO"
+        |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address={base=arg1, index=NONE, offset}, value=arg3}, context, _, destination) =
+            let
+                val baseReg = newPReg() and valueReg = newPReg()
+                (* Fixed offset.  *)
+                val offset = Word.toInt offset
+                val code =
+                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg3, context, false, valueReg) @
+                        [MoveArgument {source=valueReg, dest=MemoryLocation{offset=offset, base=baseReg, index=NoMemIndex}, kind=WordToWord}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address={base=arg1, index=SOME arg2, offset}, value=arg3}, context, _, destination) =
+            let
+                val baseReg = newPReg() and indexReg = newPReg() and valueReg = newPReg()
+                (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
+                   index factor and offset.  *)
+                val destArg =
+                    if isX64
+                    then MemoryLocation{base=baseReg, offset=Word.toInt offset-4, index= MemIndex4 indexReg}
+                    else MemoryLocation{base=baseReg, offset=Word.toInt offset-2, index= MemIndex2 indexReg}
+                val code =
+                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
+                        codeToICodeTarget(arg3, context, false, valueReg) @
+                        [MoveArgument {source=valueReg, dest=destArg, kind=WordToWord}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address={base=arg1, index=NONE, offset}, value=arg3}, context, _, destination) =
+            let
+                (* We have to untag the value to store. *)
+                val baseReg = newPReg() and valueReg = newPReg() and valueReg1 = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, baseReg) @
+                    codeToICodeTarget(arg3, context, false, valueReg) @
+                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false },
+                     MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=Word.toInt offset, index=NoMemIndex}, kind=ByteToByte}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address={base=arg1, index=SOME arg2, offset}, value=arg3}, context, _, destination) =
+            let
+                (* We have to untag both the index and the value to store. *)
+                val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newUReg()
+                and valueReg = newPReg() and valueReg1 = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
+                    codeToICodeTarget(arg3, context, false, valueReg) @
+                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false },
+                     UntagValue{dest=indexReg1, source=indexReg, isSigned=false },
+                     MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}, kind=ByteToByte}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
 
         |   codeToICode(BICBlockOperation _, context, _, destination) =
                 raise InternalError "codeToICode: BICBlockOperation TODO"

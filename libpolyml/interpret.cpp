@@ -1876,12 +1876,10 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_loadMLByte:
         {
-            // The values on the stack are base, index and offset.
-            // For byte loads the offset and index are both byte counts.
-            POLYUNSIGNED offset = UNTAGGED(*sp++);
+            // The values on the stack are base and index.
             POLYUNSIGNED index = UNTAGGED(*sp++);
             POLYCODEPTR p = (*sp).AsCodePtr();
-            *sp = TAGGED(p[index + offset]); // Have to tag the result
+            *sp = TAGGED(p[index]); // Have to tag the result
             break;
         }
 
@@ -1899,10 +1897,9 @@ int IntTaskData::SwitchToPoly()
         case INSTR_storeMLByte: 
         {
             POLYUNSIGNED toStore = UNTAGGED(*sp++);
-            POLYUNSIGNED offset = UNTAGGED(*sp++);
             POLYUNSIGNED index = UNTAGGED(*sp++);
             POLYCODEPTR p = (*sp).AsCodePtr();
-            p[index+offset] = (byte)toStore;
+            p[index] = (byte)toStore;
             *sp = Zero;
             break; 
         }
