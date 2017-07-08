@@ -73,8 +73,13 @@ sig
        WordToWord copies the whole value.  This is the "normal" move.
        ByteToByte overwrites only a byte.  This is used to store a byte.
        ByteToWordZeroExtend loads a byte and zero extends it to fill the
-       destination.  This is used when loading a byte. *)
-    datatype moveKind = WordToWord | ByteToByte | ByteToWordZeroExtend
+       destination.  This is used when loading a byte.
+       Bit16ToWordZeroExtend is used when loading a 16-bit word from C-memory.
+       Bit32ToWordZeroExtend is used in 64-bit mode to load a 32-bit word from C-memory.
+       WordTo16Bit and WordTo32Bit are used for the corresponding stores. *)
+    datatype moveKind =
+        WordToWord | ByteToByte | ByteToWordZeroExtend |
+        Bit16ToWordZeroExtend | Bit32ToWordZeroExtend | WordTo16Bit | WordTo32Bit
 
     datatype iLabel = ILabel of int
     

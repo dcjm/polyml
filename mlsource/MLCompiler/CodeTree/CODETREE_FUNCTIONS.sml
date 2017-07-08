@@ -183,9 +183,8 @@ struct
                 val operProps =
                     case kind of
                         LoadStoreMLWord {isImmutable=true} => applicative
-                    |   LoadStoreMLWord {isImmutable=false} => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   LoadStoreMLByte {isImmutable=true} => applicative
-                    |   LoadStoreMLByte {isImmutable=false} => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             in
                 operProps andb addressProps address
             end

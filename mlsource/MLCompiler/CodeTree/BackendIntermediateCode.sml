@@ -222,6 +222,12 @@ struct
     and loadStoreKind =
         LoadStoreMLWord of {isImmutable: bool} (* Load/Store an ML word in an ML word cell. *)
     |   LoadStoreMLByte of {isImmutable: bool} (* Load/Store a byte, tagging and untagging as appropriate, in an ML byte cell. *)
+    |   LoadStoreC8         (* Load/Store C values - The base address is a boxed SysWord.word value. *)
+    |   LoadStoreC16
+    |   LoadStoreC32
+    |   LoadStoreC64
+    |   LoadStoreCFloat
+    |   LoadStoreCDouble
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}
@@ -284,6 +290,12 @@ struct
     |   loadStoreKindRepr(LoadStoreMLWord {isImmutable=false}) = "MLWord"
     |   loadStoreKindRepr(LoadStoreMLByte {isImmutable=true}) = "MLByteImmutable"
     |   loadStoreKindRepr(LoadStoreMLByte {isImmutable=false}) = "MLByte"
+    |   loadStoreKindRepr LoadStoreC8 = "C8Bit"
+    |   loadStoreKindRepr LoadStoreC16 = "C16Bit"
+    |   loadStoreKindRepr LoadStoreC32 = "C32Bit"
+    |   loadStoreKindRepr LoadStoreC64 = "C64Bit"
+    |   loadStoreKindRepr LoadStoreCFloat = "CFloat"
+    |   loadStoreKindRepr LoadStoreCDouble = "CDouble"
 
     fun blockOpKindRepr (BlockOpMove{isByteMove=false}) = "MoveWord"
     |   blockOpKindRepr (BlockOpMove{isByteMove=true}) = "MoveByte"

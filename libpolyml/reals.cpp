@@ -132,6 +132,7 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyRealCeil(double arg);
     POLYEXTERNALSYMBOL double PolyRealTrunc(double arg);
     POLYEXTERNALSYMBOL double PolyRealRound(double arg);
+    POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg);
 }
 
 // Positive and negative infinities and (positive) NaN.
@@ -267,8 +268,13 @@ Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x)
 // Convert an arbitrary precision value to float.
 Handle Real_from_arbitrary_precision(TaskData *mdTaskData, Handle x)
 {
-    double d = get_arbitrary_precision_as_real(mdTaskData, DEREFWORDHANDLE(x));
+    double d = get_arbitrary_precision_as_real(DEREFWORDHANDLE(x));
     return real_result(mdTaskData, d);
+}
+
+POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg)
+{
+    return get_arbitrary_precision_as_real(arg);
 }
 
 /* CALL_IO1(Real_int, REF, NOIND) */
@@ -968,7 +974,7 @@ static struct _entrypts entryPtTable[] =
     { "PolyRealCeil",                   (polyRTSFunction)&PolyRealCeil},
     { "PolyRealTrunc",                  (polyRTSFunction)&PolyRealTrunc},
     { "PolyRealRound",                  (polyRTSFunction)&PolyRealRound},
-
+    { "PolyFloatArbitraryPrecision",    (polyRTSFunction)&PolyFloatArbitraryPrecision},
 
     { NULL, NULL} // End of list.
 };

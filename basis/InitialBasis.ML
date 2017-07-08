@@ -246,6 +246,12 @@ struct
 
     val ~ : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Neg_real
     val abs : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Abs_real
+
+    val op == : (real * real) -> bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_eq;
+    val op != : (real * real) -> bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_neq;
+
+    (* fromFixedInt is used internally and not exported from the final version of Real. *)
+    val fromFixedInt: FixedInt.int -> real = RunCall.run_call1 RuntimeCalls.POLY_SYS_fixed_to_real
 end;
 
 val () = RunCall.addOverload Real.>= ">="
@@ -393,5 +399,7 @@ struct
         and processEnvGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(processEnvGeneralCall(RunCall.unsafeCast(code, arg)))
         and realGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(realGeneralCall(RunCall.unsafeCast(code, arg)))
         val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
+        and ffiSizeFloat: unit -> word = RunCall.rtsCallFast1 "PolySizeFloat"
+        and ffiSizeDouble: unit -> word = RunCall.rtsCallFast1 "PolySizeDouble"
     end
 end;

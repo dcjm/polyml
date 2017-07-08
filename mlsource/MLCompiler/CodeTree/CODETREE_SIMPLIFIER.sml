@@ -113,6 +113,21 @@ struct
     (* Convert a constant to a fixed value.  Used in some constant folding. *)
     val toFix: machineWord -> FixedInt.int = FixedInt.fromInt o Word.toIntX o toShort
 
+    (* If we have a constant index value we convert that into a byte offset. We need
+       to know the size of the item on this platform.  We have to make this check
+       when we actually compile the code because the interpreted version will
+       generally be run on a platform different from the one the pre-built
+       compiler was compiled on. The ML word length will be the same because
+       we have separate pre-built compilers for 32 and 64-bit. *)
+    fun getMultiplier (LoadStoreMLWord _)   = RunCall.bytesPerWord
+    |   getMultiplier (LoadStoreMLByte _)   = 0w1
+    |   getMultiplier LoadStoreC8           = 0w1
+    |   getMultiplier LoadStoreC16          = 0w2
+    |   getMultiplier LoadStoreC32          = 0w4
+    |   getMultiplier LoadStoreC64          = 0w8
+    |   getMultiplier LoadStoreCFloat       = Compat560.ffiSizeFloat()
+    |   getMultiplier LoadStoreCDouble      = Compat560.ffiSizeDouble()
+
     fun simplify(c, s) = mapCodetree (simpGeneral s) c
 
     (* Process the codetree to return a codetree node.  This is used
@@ -226,11 +241,7 @@ struct
     |   simpGeneral context (LoadOperation{kind, address}) =
         let
             (* Try to move constants out of the index. *)
-            val multiplier =
-                case kind of
-                    LoadStoreMLWord _ => RunCall.bytesPerWord
-                |   LoadStoreMLByte _ => 0w1
-            val (genAddress, decAddress) = simpAddress(address, multiplier, context)
+            val (genAddress, decAddress) = simpAddress(address, getMultiplier kind, context)
             (* If the base address and index are constant and this is an immutable
                load we can do this at compile time. *)
             val result =
@@ -272,11 +283,7 @@ struct
 
     |   simpGeneral context (StoreOperation{kind, address, value}) =
         let
-            val multiplier =
-                case kind of
-                    LoadStoreMLWord _ => RunCall.bytesPerWord
-                |   LoadStoreMLByte _ => 0w1
-            val (genAddress, decAddress) = simpAddress(address, multiplier, context)
+            val (genAddress, decAddress) = simpAddress(address, getMultiplier kind, context)
             val (genValue, decValue, _) = simpSpecial(value, context)
         in 
             SOME(mkEnv(decAddress @ decValue, StoreOperation{kind=kind, address=genAddress, value=genValue}))

@@ -31,6 +31,12 @@ sig
     and loadStoreKind =
         LoadStoreMLWord of {isImmutable: bool}
     |   LoadStoreMLByte of {isImmutable: bool}
+    |   LoadStoreC8
+    |   LoadStoreC16
+    |   LoadStoreC32
+    |   LoadStoreC64
+    |   LoadStoreCFloat
+    |   LoadStoreCDouble
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}

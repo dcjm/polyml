@@ -1487,7 +1487,7 @@ Handle xor_longc(TaskData *taskData, Handle y, Handle x)
 }
 
 // Convert a long precision value to floating point
-double get_arbitrary_precision_as_real(TaskData *, PolyWord x)
+double get_arbitrary_precision_as_real(PolyWord x)
 {
     if (IS_INT(x)) {
         POLYSIGNED t = UNTAGGED(x);

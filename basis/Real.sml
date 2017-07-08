@@ -20,8 +20,7 @@
 structure Real: REAL =
 struct
     open RuntimeCalls IEEEReal
-
-    val fromLargeInt: LargeInt.int -> real = RunCall.run_call1 POLY_SYS_int_to_real
+    val fromLargeInt: LargeInt.int -> real = Real.rtsCallFastI_F "PolyFloatArbitraryPrecision"
     
     val fromInt: int -> real =
         (* We have to select the appropriate conversion.  This will be
@@ -30,39 +29,32 @@ struct
            precision.  Hence the "o Large/FixedInt.fromInt". *)
         if Bootstrap.intIsArbitraryPrecision
         then fromLargeInt o LargeInt.fromInt
-        else RunCall.run_call1 POLY_SYS_fixed_to_real o FixedInt.fromInt
+        else Real.fromFixedInt o FixedInt.fromInt
 
     (* These are needed because we don't yet have conversion from string
        to real.  They are filtered out by the signature. *)
     val zero = fromInt 0 and one = fromInt 1 and four = fromInt 4
     
-    (* This is used for newly added functions in the Standard Basis. *)
-    (* We want to get the io function once for each function, not once
-       per call, but that's complicated in ML97. *)
     local
-        val doReal : int*real->real =
-            RunCall.rtsCallFull2 "PolyRealGeneral"
+        val doReal : int*real->real = RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun callReal n x = doReal(n, x)
     end
 
     local
-        val doReal : int*(real*real)->real =
-            RunCall.rtsCallFull2 "PolyRealGeneral"
+        val doReal : int*(real*real)->real = RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun callRealReal n p = doReal(n, p)
     end
 
     local
-        val doReal : int*real->bool =
-            RunCall.rtsCallFull2 "PolyRealGeneral"
+        val doReal : int*real->bool = RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun callRealToBool n x = doReal(n, x)
     end
 
     local
-        val doReal : int*real->int =
-            RunCall.rtsCallFull2 "PolyRealGeneral"
+        val doReal : int*real->int = RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun callRealToInt n x = doReal(n, x)
     end
@@ -72,19 +64,19 @@ struct
     structure Math: MATH =
     struct
         type real = real (* Pick up from globals. *)
-        val sqrt  = RunCall.rtsCallFastF_F "PolyRealSqrt"
-        and sin   = RunCall.rtsCallFastF_F "PolyRealSin"
-        and cos   = RunCall.rtsCallFastF_F "PolyRealCos"
-        and atan  = RunCall.rtsCallFastF_F "PolyRealArctan"
-        and exp   = RunCall.rtsCallFastF_F "PolyRealExp"
-        and ln    = RunCall.rtsCallFastF_F "PolyRealLog"
-        and tan   = RunCall.rtsCallFastF_F "PolyRealTan"
-        and asin  = RunCall.rtsCallFastF_F "PolyRealArcSin"
-        and acos  = RunCall.rtsCallFastF_F "PolyRealArcCos"
-        and log10 = RunCall.rtsCallFastF_F "PolyRealLog10"
-        and sinh  = RunCall.rtsCallFastF_F "PolyRealSinh"
-        and cosh  = RunCall.rtsCallFastF_F "PolyRealCosh"
-        and tanh  = RunCall.rtsCallFastF_F "PolyRealTanh"
+        val sqrt  = Real.rtsCallFastF_F "PolyRealSqrt"
+        and sin   = Real.rtsCallFastF_F "PolyRealSin"
+        and cos   = Real.rtsCallFastF_F "PolyRealCos"
+        and atan  = Real.rtsCallFastF_F "PolyRealArctan"
+        and exp   = Real.rtsCallFastF_F "PolyRealExp"
+        and ln    = Real.rtsCallFastF_F "PolyRealLog"
+        and tan   = Real.rtsCallFastF_F "PolyRealTan"
+        and asin  = Real.rtsCallFastF_F "PolyRealArcSin"
+        and acos  = Real.rtsCallFastF_F "PolyRealArcCos"
+        and log10 = Real.rtsCallFastF_F "PolyRealLog10"
+        and sinh  = Real.rtsCallFastF_F "PolyRealSinh"
+        and cosh  = Real.rtsCallFastF_F "PolyRealCosh"
+        and tanh  = Real.rtsCallFastF_F "PolyRealTanh"
 
         (* These have not yet been done. *)
         val atan2 = callRealReal 3
@@ -99,9 +91,6 @@ struct
 
     infix 4 == != ?=;
 
-    val op == : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_eq;
-    val op != : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_neq;
-
     val radix : int = callRealToInt 11 zero
     val precision : int = callRealToInt 12 zero
     val maxFinite : real = callReal 13 zero
@@ -114,29 +103,33 @@ struct
     fun toLarge (x: real) : (*LargeReal.*)real =x
     fun fromLarge (_ : IEEEReal.rounding_mode) (x: (*LargeReal.*)real): real = x
 
-    (* NAN values fail any test including equality with themselves. *)
-    fun isNan x = x != x
-    (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
-    fun isFinite x = x * zero == zero
+    local
+        open Real
+    in
+        (* NAN values fail any test including equality with themselves. *)
+        fun isNan x = x != x
+        (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
+        fun isFinite x = x * zero == zero
     
-    val signBit : real -> bool = callRealToBool 17
-    val copySign : (real * real) -> real = callRealReal 18
+        val signBit : real -> bool = callRealToBool 17
+        val copySign : (real * real) -> real = callRealReal 18
 
-    (* If we assume that all functions produce normalised results where
-       possible, the only subnormal values will be those smaller than
-       minNormalPos. *)
-    fun isNormal x = isFinite x andalso abs x >= minNormalPos
+        (* If we assume that all functions produce normalised results where
+           possible, the only subnormal values will be those smaller than
+           minNormalPos. *)
+        fun isNormal x = isFinite x andalso abs x >= minNormalPos
     
-    fun class x =
-        if isFinite x then if x == zero then ZERO
-           else if abs x >= minNormalPos then NORMAL
-           else SUBNORMAL
-        else if isNan x then NAN
-           else (* not finite and not Nan *) INF
+        fun class x =
+            if isFinite x then if x == zero then ZERO
+               else if abs x >= minNormalPos then NORMAL
+               else SUBNORMAL
+            else if isNan x then NAN
+               else (* not finite and not Nan *) INF
     
-    fun sign x = 
-        if isNan x then raise General.Domain
-        else if x == zero then 0 else if x < zero then ~1 else 1
+        fun sign x = 
+            if isNan x then raise General.Domain
+            else if x == zero then 0 else if x < zero then ~1 else 1
+    end
         
     fun sameSign (x, y) = signBit x = signBit y
     
@@ -161,10 +154,11 @@ struct
         val toMantissa : real->real = callReal 24
         and toExponent : real->int = callRealToInt 25
 
-        val doReal : int*(real*int)->real =
-            RunCall.rtsCallFull2 "PolyRealGeneral"
+        val doReal : int*(real*int)->real = RunCall.rtsCallFull2 "PolyRealGeneral"
 
         fun fromManAndExp (ri: real*int): real = doReal(23, ri)
+        
+        open Real
     in
         fun toManExp r = 
             if not (isFinite r) orelse r == zero
@@ -192,10 +186,10 @@ struct
            some power of two. *)
         val realToInt: real -> LargeInt.int  = RunCall.rtsCallFull1 "PolyRealBoxedToLongInt"
     in
-        val realFloor = RunCall.rtsCallFastF_F "PolyRealFloor"
-        and realCeil  = RunCall.rtsCallFastF_F "PolyRealCeil"
-        and realTrunc  = RunCall.rtsCallFastF_F "PolyRealTrunc"
-        and realRound  = RunCall.rtsCallFastF_F "PolyRealRound"
+        val realFloor = Real.rtsCallFastF_F "PolyRealFloor"
+        and realCeil  = Real.rtsCallFastF_F "PolyRealCeil"
+        and realTrunc  = Real.rtsCallFastF_F "PolyRealTrunc"
+        and realRound  = Real.rtsCallFastF_F "PolyRealRound"
 
         fun toArbitrary x = 
             if isNan x then raise General.Domain
@@ -541,15 +535,7 @@ struct
         val (): unit = RunCall.addOverload convReal "convReal"
     end
 
-    val op + : (real * real) -> real = RunCall.run_call2 POLY_SYS_Add_real;
-    val op - : (real * real) -> real = RunCall.run_call2 POLY_SYS_Sub_real;
-    val op * : (real * real) -> real = RunCall.run_call2 POLY_SYS_Mul_real;
-    val op / : (real * real) -> real = RunCall.run_call2 POLY_SYS_Div_real;
-
-    val op < : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_lss;
-    val op <= : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_leq;
-    val op > : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_gtr;
-    val op >= : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_geq;
+    open Real (* Get the other definitions. *)
 
     fun compare (r1, r2) =
         if r1 == r2 then General.EQUAL
@@ -573,11 +559,6 @@ struct
     fun *+ (x: real, y: real, z: real): real = x*y+z
     and *- (x: real, y: real, z: real): real = x*y-z
 
-    val ~ : real -> real = RunCall.run_call1 POLY_SYS_Neg_real
-    (* This was previously done by a test and negation but it's difficult
-       to get that right for +/- NaN *)
-    and abs : real -> real = RunCall.run_call1 POLY_SYS_Abs_real
-    
     fun rem (x, y) =
         if not (isFinite y) andalso not (isNan y) then x
         else x - realTrunc(x / y)*y

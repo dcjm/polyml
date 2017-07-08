@@ -436,7 +436,6 @@ struct
             fun makeCall rtsCall n entryName = rtsCall (entryName, n, debugOpts)
             val makeFastCall = makeCall CODETREE.Foreign.rtsCallFast
             and makeFullCall = makeCall CODETREE.Foreign.rtsCallFull
-            fun makeFastRealRealCall _ entryName = CODETREE.Foreign.rtsCallFastFloattoFloat (entryName, debugOpts)
             (* We need to wrap this so that the arguments are passed in registers. *)
 
             fun makeRunCallTupled (width:int, callN) : codetree =
@@ -511,7 +510,6 @@ struct
             in
                 val rtsCallFull1Entry = makeInlCode(makeFullCall, "rtsCallFull1")
                 and rtsCallFast1Entry = makeInlCode(makeFastCall, "rtsCallFast1")
-                and rtsCallFastF_FEntry = makeInlCode(makeFastRealRealCall, "rtsCallFastRealReal")
             end
             
             local
@@ -538,7 +536,6 @@ struct
                 val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
                 val rtsCallFast4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFastCall))
                 val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
-                val rtsCallF_FType = String ->> Real ->> Real
             end
         in
             val () = enterRunCall ("rtsCallFull0", rtsCallFull0Entry, rtsCall0Type)
@@ -550,7 +547,6 @@ struct
             val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
-            val () = enterRunCall ("rtsCallFastF_F", rtsCallFastF_FEntry, rtsCallF_FType)
             val quotRemCall = makeRunCallTupledWithContainer(2, 2, toMachineWord(makeFullCall 3))
         end
 
@@ -792,8 +788,27 @@ struct
 
         local
             val realEnv = makeStructure(globalEnv, "Real")
+
+            (* These are only used in Real so are included here rather than in RunCall.
+               rtsCallFastFloattoFloat is used for functions such as sqrt.
+               rtsCallFastGeneraltoFloat is used for Real.fromLargeInt. *)
+            val debugOpts = [] (* Place to add debugging if necessary. *)
+
+            fun makeFastRealRealCall entryName = CODETREE.Foreign.rtsCallFastFloattoFloat (entryName, debugOpts)
+            and makeFastIntInfRealCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoFloat (entryName, debugOpts)
+                
+            val rtsCallFastF_FEntry =
+                mkInlproc (mkEval(mkConst(toMachineWord makeFastRealRealCall), [mkLoadArgument 0]), 1, "rtsCallFastRealReal", [], 0)
+
+            val rtsCallFastI_FEntry =
+                mkInlproc (mkEval(mkConst(toMachineWord makeFastIntInfRealCall), [mkLoadArgument 0]), 1, "rtsCallFastIntInfReal", [], 0)
+
+            val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", String ->> Real ->> Real, rtsCallFastF_FEntry, declInBasis)
+            val rtsCallFastG_F = mkGvar ("rtsCallFastI_F", String ->> intInfType ->> Real, rtsCallFastI_FEntry, declInBasis)
         in
             val () = #enterType realEnv ("real", TypeConstrSet(realConstr, []))
+            val () = #enterVal realEnv ("rtsCallFastF_F", rtsCallFastF_F)
+            val () = #enterVal realEnv ("rtsCallFastI_F", rtsCallFastG_F)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")

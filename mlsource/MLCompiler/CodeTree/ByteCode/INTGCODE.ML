@@ -47,10 +47,8 @@ struct
     open BACKENDTREE
     open MISC
 
-    (* minor HACKS *)
     fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
-    fun apply _ [] = () | apply f (h::t) = (f h; apply f t);
-      
+
     val word0 = toMachineWord 0;
   
     val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
@@ -99,9 +97,6 @@ struct
  
         fun pushLocalStackValue addr = ( genLocal(!realstackptr + addr, cvec); incsp() )
 
-        fun pushClosureValue addr =
-            ( genNonLocal(!realstackptr, 1, addr, cvec); incsp() )
-
         (* Loads a local, argument or closure value; translating local
            stack addresses to real stack offsets. *)
         fun locaddr(BICLoadArgument locn) = pushLocalStackValue (numOfArgs-locn)
@@ -115,7 +110,11 @@ struct
                         raise InternalError "locaddr: bad stack address"
             )
 
-        |   locaddr(BICLoadClosure locn) = (* closure-pointer relative *) pushClosureValue (locn+1)
+        |   locaddr(BICLoadClosure locn) = (* closure-pointer relative *)
+            (
+                pushLocalStackValue ~1; (* The closure itself. *)
+                genIndirect (locn+1, cvec) (* The value in the closure. +1 because first item is code addr. *)
+            )
 
         |   locaddr BICLoadRecursive =
             (
@@ -129,6 +128,23 @@ struct
    let
      (* Save the stack pointer value here. We may want to reset the stack. *)
      val oldsp = !realstackptr;
+
+        (* Load the address and index value for byte operations. *)
+        fun genByteAddress{base, index, offset} =
+        (
+            gencde (base, ToStack, NotEnd, loopAddr);
+            (* Because the index and offset are both byte counts we can just add
+               them if we need both. *)
+            case (index, offset) of
+                (NONE, offset) => (pushConst (toMachineWord offset, cvec); incsp())
+            |   (SOME indexVal, 0w0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
+            |   (SOME indexVal, offset) =>
+                (
+                    gencde (indexVal, ToStack, NotEnd, loopAddr);
+                    pushConst (toMachineWord offset, cvec);
+                    genOpcode(opcode_wordAdd, cvec)
+                )
+       )
 
      val () =
        case pt of
@@ -257,92 +273,139 @@ struct
             end
   
         |   BICHandle {exp, handler} =>
-         let
-           type handler = labels;
-           
-           (* Save old handler *)
-           val () = genPushHandler cvec;
-           val () = incsp ();
-  
-            val genTag =
-                putBranchInstruction (setHandler, cvec) before incsp()
-
-            val handlerList : handler list = [genTag]
-
-          (* Code generate the body; "NotEnd" because we have to come back
-             to remove the handler; "ToStack" because delHandler needs
-             a result to carry down. *)
-          val () = gencde (exp, ToStack, NotEnd, loopAddr);
-      
-          (* Now get out of the handler and restore the old one. *)
-          val skipHandler : labels = putBranchInstruction (delHandler, cvec);
-          
-          (* Now process the handler itself. First we have to reset the stack.
-             Note that we have to use "ToStack" again to be consistent with
-             the stack-handling in the body-part. If we actually wanted "NoResult",
-             the stack adjustment code at the end of gencde will take care
-             of this. This means that I don't want to do any clever "end-of-function"
-             optimisation either. SPF 6/1/97
-          *)
-          val () = realstackptr := oldsp;
-          val () = exited := false;
-          val () = apply (fn handlerLab => fixup (handlerLab, cvec)) handlerList;
-      (* If we were executing machine code we must re-enter the interpreter. *)
-          val () = genEnterIntCatch cvec;
-          val () = gencde (handler, ToStack, NotEnd, loopAddr);
-          
-          (* Finally fix-up the jump around the handler *)
-          val () = fixup (skipHandler, cvec);
-         in
-           exited := false
-         end
-  
-        |   BICLdexc =>
             let
-                (* Get the name of the exception. *)
-                val () = genLdexc cvec
+                (* Save old handler *)
+                val () = genPushHandler cvec
+                val () = incsp ()
+                val genTag = putBranchInstruction (setHandler, cvec) before incsp()
+                (* Code generate the body; "NotEnd" because we have to come back
+                 to remove the handler; "ToStack" because delHandler needs
+                 a result to carry down. *)
+                val () = gencde (exp, ToStack, NotEnd, loopAddr)
+      
+                (* Now get out of the handler and restore the old one. *)
+                val skipHandler = putBranchInstruction (delHandler, cvec)
+          
+                (* Now process the handler itself. First we have to reset the stack.
+                   Note that we have to use "ToStack" again to be consistent with
+                   the stack-handling in the body-part. If we actually wanted "NoResult",
+                   the stack adjustment code at the end of gencde will take care
+                   of this. This means that I don't want to do any clever "end-of-function"
+                   optimisation either. SPF 6/1/97
+                *)
+                val () = realstackptr := oldsp
+                val () = exited := false
+                val () = fixup (genTag, cvec)
+                (* If we were executing machine code we must re-enter the interpreter. *)
+                val () = genEnterIntCatch cvec
+                val () = gencde (handler, ToStack, NotEnd, loopAddr)
+          
+                (* Finally fix-up the jump around the handler *)
+                val () = fixup (skipHandler, cvec)
             in
-                incsp ()
+                exited := false
             end
   
-        |   BICCase (cas as {cases, caseType, ...}) =>
+        |   BICLdexc => (genLdexc cvec; incsp ())
+  
+        |   BICCase ({cases, caseType, test, default, ...}) =>
             let
-                val numberOfCases = LargeInt.fromInt(List.length cases)
-                val range =
+                val () = gencde (test, ToStack, NotEnd, loopAddr)
+                (* The exit jumps are chained together. *)
+                val lastEndJump : labels ref = ref noJump;
+
+                val (_, min: LargeInt.int, max:LargeInt.int) =
                     case caseType of
-                        CaseTag max => Word.toLargeInt max
-                    |   _ =>
-                        let
-                            val (_, aLabel) = hd cases
-                            fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                            val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                        CaseTag max => (true, 0, Word.toLargeInt max)
+                |   _ =>
+                    let
+                        val (_, aLabel) = hd cases
+                        fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                        val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                    in
+                        (false, Word.toLargeInt min, Word.toLargeInt max)
+                    end
+
+                val limit : int = Int.fromLarge(max - min)
+
+                val () =
+                    if min = 0 then ()
+                    else
+                    ( (* Subtract lower limit. *)
+                        pushConst(toMachineWord min, cvec);
+                        genOpcode(opcode_fixedSub, cvec) (* Is this fixed, word or arbitrary? *)
+                    )
+
+                val () = genCase (limit, cvec);
+                val () = decsp ();
+ 
+                (* Addresses are relative to the first entry in the vector. *)
+                val startVec : addrs = ic cvec;
+
+                (* Set each address in the vector to point to the default - they
+                 will be overwritten by the actual address later. *)
+                val defaultAddr : int = (limit + 1) * 2;
+
+                val () = forLoop (fn (_ : int) => genWord (defaultAddr, cvec)) 0 limit;
+
+                (* The default case, if any, follows the case statement. *)
+                val () = gencde (default, whereto, tailKind, loopAddr);
+
+                val () = exited := false;
+
+                (* Now generate the code for each of the cases. *)
+                fun genEachCase ([] : (backendIC * word) list) : unit = ()
+                |   genEachCase ((body : backendIC, matches : word) :: otherCases) : unit =
+                    let
+                     (* First exit from the previous case or the default if
+                        this is the first. *)
+                        val () = 
+                            lastEndJump := linkLabels
+                                (!lastEndJump,
+                                if !exited then noJump else putBranchInstruction(jump, cvec),
+                                cvec)
+                        (* Remove the result - the last case will leave it. *)
+                        val () = case whereto of ToStack => decsp () | NoResult => ();
+     
+                        (* Now put the address of this code into the table if
+                           an entry has not already been set. If it has the new
+                           entry should be ignored. It is NOT an error (just
+                           redundant). *)
+                        local
+                            val entryAddr : addrs = addrPlus(startVec, Int.fromLarge(Word.toLargeInt matches - min) * 2)
                         in
-                            Word.toLargeInt (max-min)
+                            val () =
+                                if getBytes(2, entryAddr, cvec) = defaultAddr
+                                then putBytes(addrMinus(ic cvec, startVec), 2, entryAddr, cvec)
+                                else ()
                         end
+
+                        (* Generate code for this case *)
+                        val () = exited := false;
+                        val () = gencde (body, whereto, tailKind, loopAddr);
+                    in
+                        genEachCase otherCases
+                    end; (* genEachCase *)
+         
+                val () = genEachCase cases
+     
+                (* Finally go down the list of exit labels pointing them to here. *)
+                val () = fixup (!lastEndJump, cvec);
             in
-                genDenseCase (cas, whereto, tailKind, loopAddr)
+                exited := false
             end
   
         |   BICTuple recList =>
-         let
-           (* Move the fields into the vector. *)
-           fun loadItems [] = ()
-             | loadItems (v :: vs) =
-             let
-               val () = gencde (v, ToStack, NotEnd, loopAddr);
-             in
-               loadItems vs
-             end;
-             
-           val size : int = List.length recList;
-  
-           val () = loadItems recList;
-           val () = genTuple (size, cvec);
-         in
-           realstackptr := !realstackptr - (size - 1)
-         end
+            let
+                val size = List.length recList
+            in
+                (* Move the fields into the vector. *)
+                List.app(fn v => gencde (v, ToStack, NotEnd, loopAddr)) recList;
+                genTuple (size, cvec);
+                realstackptr := !realstackptr - (size - 1)
+            end
 
-        |   BICContainer size => raise InternalError "BICContainer" (* This must be processed in codeDecls. *)
+        |   BICContainer _ => raise InternalError "BICContainer" (* This must be processed in codeDecls. *)
 
         |   BICSetContainer{container, tuple, filter} =>
             (* Copy the contents of a tuple into a container.  If the tuple is a
@@ -402,13 +465,12 @@ struct
             )
 
         |   BICTagTest { test, tag, ... } =>
-            let
+            (
                 (* Convert this into a simple equality function. *)
-                val () = gencde (test, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord tag, cvec)
-            in
+                gencde (test, ToStack, NotEnd, loopAddr);
+                pushConst (toMachineWord tag, cvec);
                 genOpcode(opcode_equalWord, cvec)
-            end
+            )
 
         |   BICBuiltIn0 { oper=BuiltIns.CurrentThreadId } =>
             (
@@ -526,25 +588,6 @@ struct
                 decsp(); decsp()
             end
 
-        |   BICBuiltIn4 { oper, arg1, arg2, arg3, arg4 } => raise InternalError "intgcode: BICBuiltIn4"
-
-        |   BICBuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 } =>
-            let
-                open BuiltIns
-                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg4, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg5, ToStack, NotEnd, loopAddr)
-            in
-                case oper of
-                    ByteVecEqual => genOpcode(opcode_blockEqualByte, cvec)
-                |   ByteVecCompare => genOpcode(opcode_blockCompareByte, cvec)
-                |   BlockMove{isByteMove=true} => genOpcode(opcode_blockMoveByte, cvec)
-                |   BlockMove{isByteMove=false} => genOpcode(opcode_blockMoveWord, cvec);
-                decsp(); decsp(); decsp(); decsp()
-            end
-
        |    BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}} =>
             (
                 (* If the index is a constant, frequently zero, we can use indirection.
@@ -566,25 +609,12 @@ struct
                 decsp(); decsp()
             end
 
-       |    BICLoadOperation { kind=LoadStoreMLByte _, address={base, index, offset}} =>
-            let
-                val () = gencde (base, ToStack, NotEnd, loopAddr)
-                (* Because the index and offset are both byte counts we can just add
-                   them if we need both. *)
-                val () =
-                    case (index, offset) of
-                        (NONE, offset) => (pushConst (toMachineWord offset, cvec); incsp())
-                    |   (SOME indexVal, 0w0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
-                    |   (SOME indexVal, offset) =>
-                        (
-                            gencde (indexVal, ToStack, NotEnd, loopAddr);
-                            pushConst (toMachineWord offset, cvec);
-                            genOpcode(opcode_wordAdd, cvec)
-                        )
-            in
+       |    BICLoadOperation { kind=LoadStoreMLByte _, address} =>
+            (
+                genByteAddress address;
                 genOpcode(opcode_loadMLByte, cvec);
                 decsp()
-            end
+            )
 
        |    BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}, value } =>
             let
@@ -614,30 +644,59 @@ struct
                 decsp(); decsp(); decsp()
             end
 
-       |    BICStoreOperation { kind=LoadStoreMLByte _, address={base, index, offset}, value } =>
-            let
-                (* This is temporary.  The store instructions take three arguments:
-                   base address, index and value to store. *)
-                val () = gencde (base, ToStack, NotEnd, loopAddr)
-                (* Because the index and offset are both byte counts we can just add
-                   them if we need both. *)
-                val () =
-                    case (index, offset) of
-                        (NONE, offset) => (pushConst (toMachineWord offset, cvec); incsp())
-                    |   (SOME indexVal, 0w0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
-                    |   (SOME indexVal, offset) =>
-                        (
-                            gencde (indexVal, ToStack, NotEnd, loopAddr);
-                            pushConst (toMachineWord offset, cvec);
-                            genOpcode(opcode_wordAdd, cvec)
-                        )
-                val () = gencde (value, ToStack, NotEnd, loopAddr)
-            in
+       |    BICStoreOperation { kind=LoadStoreMLByte _, address, value } =>
+            (
+                genByteAddress address;
+                gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeMLByte, cvec);
                 decsp(); decsp()
+            )
+
+        |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
+            (
+                genByteAddress sourceLeft;
+                genByteAddress destRight;
+                gencde (length, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_blockMoveByte, cvec);
+                decsp(); decsp(); decsp(); decsp()
+            )
+
+        |   BICBlockOperation { kind=BlockOpMove{isByteMove=false}, sourceLeft, destRight, length } =>
+            let
+                (* This is more complicated - we can't just add the index and offset. *)
+                fun loadAddress{base, index, offset} =
+                (
+                    gencde (base, ToStack, NotEnd, loopAddr);
+                    case index of
+                        NONE => (pushConst (toMachineWord 0, cvec); incsp())
+                    |   SOME indexVal => gencde (indexVal, ToStack, NotEnd, loopAddr);
+                    pushConst (toMachineWord offset, cvec); incsp()
+                )
+            in
+                loadAddress sourceLeft;
+                loadAddress destRight;
+                gencde (length, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_blockMoveWord, cvec);
+                decsp(); decsp(); decsp(); decsp(); decsp(); decsp()
             end
 
-       |    BICBlockOperation { kind, sourceLeft, destRight, length } => raise InternalError "intgcode: BICBlockOperation"
+        |   BICBlockOperation { kind=BlockOpEqualByte, sourceLeft, destRight, length } =>
+            (
+                genByteAddress sourceLeft;
+                genByteAddress destRight;
+                gencde (length, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_blockEqualByte, cvec);
+                decsp(); decsp(); decsp(); decsp()
+            )
+
+        |   BICBlockOperation { kind=BlockOpCompareByte, sourceLeft, destRight, length } =>
+            (
+                genByteAddress sourceLeft;
+                genByteAddress destRight;
+                gencde (length, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_blockCompareByte, cvec);
+                decsp(); decsp(); decsp(); decsp()
+            )
 
     in (* body of gencde *) 
 
@@ -772,9 +831,7 @@ struct
                 (* Put it on the stack. *)
                 val () = pushConst (toMachineWord res, cvec)
                 val () = incsp ()
-           
-                val () = apply (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) (#closure lam)
-                
+                val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) (#closure lam)
                 val () = genTuple (sizeOfClosure, cvec)
             in
                 realstackptr := !realstackptr - (sizeOfClosure - 1)
@@ -896,102 +953,6 @@ struct
         realstackptr := !realstackptr - argsToPass (* Args popped by caller. *)
     end
 
-   (* This is used for cases which are not sparse i.e. the values occupy
-      a narrow enough range to make indexing efficient. *)
-   and genDenseCase 
-        (pt as { cases, ...}: caseForm,
-         whereto: whereto,
-         tailKind: tail,
-         loopAddr) : unit =
-   let     
-     val () = gencde (#test pt, ToStack, NotEnd, loopAddr);
-
-     (* The exit jumps are chained together. *)
-     val lastEndJump : labels ref = ref noJump;
-
-    val (_, min: LargeInt.int, max:LargeInt.int) =
-        case #caseType pt of
-            CaseTag max => (true, 0, Word.toLargeInt max)
-        |   _ =>
-            let
-                val (_, aLabel) = hd cases
-                fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
-            in
-                (false, Word.toLargeInt min, Word.toLargeInt max)
-            end
-
-     val limit : int = Int.fromLarge(max - min)
-
-     val () =
-       if min = 0 then ()
-       else let (* Subtract lower limit. *)
-         val () = pushConst(toMachineWord min, cvec)
-       in
-         genOpcode(opcode_fixedSub, cvec) (* Is this fixed, word or arbitrary? *)
-       end;
-
-     val () = genCase (limit, cvec);
-     val () = decsp ();
- 
-     (* Addresses are relative to the first entry in the vector. *)
-     val startVec : addrs = ic cvec;
-     
-     (* Set each address in the vector to point to the default - they
-         will be overwritten by the actual address later. *)
-     val defaultAddr : int = (limit + 1) * 2;
-     
-     val () =
-       forLoop (fn (_ : int) => genWord (defaultAddr, cvec)) 0 limit;
-
-     (* The default case, if any, follows the case statement. *)
-     val () = gencde (#default pt, whereto, tailKind, loopAddr);
-
-     val () = exited := false;
-
-     (* Now generate the code for each of the cases. *)
-     fun genEachCase ([] : (backendIC * word) list) : unit = ()
-       | genEachCase ((body : backendIC, matches : word) :: otherCases) : unit =
-       let
-     (* First exit from the previous case or the default if
-        this is the first. *)
-     val () = 
-       lastEndJump :=
-         linkLabels
-           (!lastEndJump,
-        if !exited then noJump else putBranchInstruction(jump, cvec),
-        cvec);
-        
-     (* Remove the result - the last case will leave it. *)
-     val () = case whereto of ToStack => decsp () | NoResult => ();
-     
-     (* Now put the address of this code into the table if
-        an entry has not already been set. If it has the new
-        entry should be ignored. It is NOT an error (just
-        redundant). *)
-     local
-       val entryAddr : addrs = addrPlus(startVec, Int.fromLarge(Word.toLargeInt matches - min) * 2)
-     in
-        val () =
-       if getBytes(2, entryAddr, cvec) = defaultAddr
-       then putBytes(addrMinus(ic cvec, startVec), 2, entryAddr, cvec)
-       else ()
-     end
-
-     (* Generate code for this case *)
-     val () = exited := false;
-     val () = gencde (body, whereto, tailKind, loopAddr);
-       in
-     genEachCase otherCases
-       end; (* genEachCase *)
-         
-     val () = genEachCase (#cases pt);
-     
-     (* Finally go down the list of exit labels pointing them to here. *)
-     val () = fixup (!lastEndJump, cvec);
-   in
-     exited := false
-   end (* genDenseCase *)
      
     (* Closure functions must start with ``enterIntProc''. This is actually a
        break-point instruction in the machine-code instruction set to make sure

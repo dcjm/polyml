@@ -34,6 +34,12 @@ sig
     datatype loadStoreKind =
         LoadStoreMLWord of {isImmutable: bool}     (* Load/Store an ML word in an ML word cell. *)
     |   LoadStoreMLByte of {isImmutable: bool}     (* Load/Store a byte, tagging and untagging as appropriate, in an ML byte cell. *)
+    |   LoadStoreC8         (* Load/Store C values - The base address is a boxed SysWord.word value. *)
+    |   LoadStoreC16
+    |   LoadStoreC32
+    |   LoadStoreC64
+    |   LoadStoreCFloat
+    |   LoadStoreCDouble
 
     datatype blockOpKind =
         BlockOpMove of {isByteMove: bool}

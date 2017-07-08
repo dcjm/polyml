@@ -1202,26 +1202,6 @@ struct
       opcode_tuple_2,
       2, 4, arg1, cvec)
 
-  fun genNonLocal (arg1 : int, arg2 : int, arg3 : int, cvec: code) : unit =
-    if arg1 <= 0 orelse arg2 <= 0
-      then raise InternalError "genNonLocal: invalid parameters"
-  
-    else if arg1 <= 16 andalso arg2 <= 3 andalso ~6 <= arg3 andalso arg3 <= 9
-    then let (* use a coded representation *)
-      val opc = opcode_up(opcode_down opcode_nonLocalL_1 + arg2 - 1);
-      val () = genOpc (opc, 1, cvec);
-    in
-      genByte((arg1 - 1) * 16 + arg3 + 6, cvec)
-    end
-
-    else let
-      val () = genOpc (opcode_nonLocal, 5, cvec);
-      val () = genWord (arg1, cvec);
-      val () = genWord (arg2, cvec);
-    in
-      genWord (arg3, cvec)
-    end;
-
     fun genEnterInt (cvec: code, args: int) : unit =
     if generateEnterInt
     then

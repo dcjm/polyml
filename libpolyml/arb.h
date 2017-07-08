@@ -80,7 +80,7 @@ extern unsigned         get_C_unsigned(TaskData *taskData, PolyWord);
 extern short            get_C_short(TaskData *taskData, PolyWord);
 extern int              get_C_int(TaskData *taskData, PolyWord);
 
-extern double           get_arbitrary_precision_as_real(TaskData *taskData, PolyWord x);
+extern double           get_arbitrary_precision_as_real(PolyWord x);
 
 #if defined(_WIN32)
 void getFileTimeFromArb(TaskData *taskData, Handle numHandle, PFILETIME ft);

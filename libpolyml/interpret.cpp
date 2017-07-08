@@ -1906,12 +1906,15 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_blockMoveWord:
         {
+            // The offsets are byte counts but the the indexes are in words.
             POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
             POLYUNSIGNED destOffset = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED destIndex = UNTAGGED_UNSIGNED(*sp++);
+            PolyObject *dest = (PolyObject*)((*sp++).AsCodePtr() + destOffset);
             POLYUNSIGNED srcOffset = UNTAGGED_UNSIGNED(*sp++);
-            PolyObject *dest = (*sp++).AsObjPtr();
-            PolyObject *src = (*sp).AsObjPtr();
-            for (POLYUNSIGNED u = 0; u < length; u++) dest->Set(destOffset+u, src->Get(srcOffset+u));
+            POLYUNSIGNED srcIndex = UNTAGGED_UNSIGNED(*sp++);
+            PolyObject *src = (PolyObject*)((*sp).AsCodePtr() + srcOffset);
+            for (POLYUNSIGNED u = 0; u < length; u++) dest->Set(destIndex+u, src->Get(srcIndex+u));
             *sp = Zero;
             break;
         }
@@ -1920,8 +1923,8 @@ int IntTaskData::SwitchToPoly()
         {
             POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
             POLYUNSIGNED destOffset = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED srcOffset = UNTAGGED_UNSIGNED(*sp++);
             POLYCODEPTR dest = (*sp++).AsCodePtr();
+            POLYUNSIGNED srcOffset = UNTAGGED_UNSIGNED(*sp++);
             POLYCODEPTR src = (*sp).AsCodePtr();
             memcpy(dest+destOffset, src+srcOffset, length);
             *sp = Zero;
@@ -1932,8 +1935,8 @@ int IntTaskData::SwitchToPoly()
         {
             POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
             POLYUNSIGNED arg2Offset = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED arg1Offset = UNTAGGED_UNSIGNED(*sp++);
             POLYCODEPTR arg2Ptr = (*sp++).AsCodePtr();
+            POLYUNSIGNED arg1Offset = UNTAGGED_UNSIGNED(*sp++);
             POLYCODEPTR arg1Ptr = (*sp).AsCodePtr();
             *sp = memcmp(arg1Ptr+arg1Offset, arg2Ptr+arg2Offset, length) == 0 ? True : False;
             break;
@@ -1943,8 +1946,8 @@ int IntTaskData::SwitchToPoly()
         {
             POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
             POLYUNSIGNED arg2Offset = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED arg1Offset = UNTAGGED_UNSIGNED(*sp++);
             POLYCODEPTR arg2Ptr = (*sp++).AsCodePtr();
+            POLYUNSIGNED arg1Offset = UNTAGGED_UNSIGNED(*sp++);
             POLYCODEPTR arg1Ptr = (*sp).AsCodePtr();
             int result = memcmp(arg1Ptr+arg1Offset, arg2Ptr+arg2Offset, length);
             *sp = result == 0 ? TAGGED(0) : result < 0 ? TAGGED(-1) : TAGGED(1);

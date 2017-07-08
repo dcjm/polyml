@@ -35,7 +35,6 @@ struct
   val POLY_SYS_Div_real            = 128
   val POLY_SYS_Abs_real            = 129
   val POLY_SYS_Neg_real            = 130
-  val POLY_SYS_int_to_real         = 135
   val POLY_SYS_fixed_to_real       = 142
   val POLY_SYS_cmem_load_8         = 160
   val POLY_SYS_cmem_load_16        = 161

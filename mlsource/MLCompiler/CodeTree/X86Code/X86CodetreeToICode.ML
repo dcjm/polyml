@@ -1314,6 +1314,67 @@ struct
                      TagValue {source=untaggedResReg, dest=target}], target)
             end
 
+        |   codeToICode(BICLoadOperation {kind=LoadStoreC8, address}, context, _, destination) =
+            let
+                (* Load a byte from C memory.  This is almost exactly the same as LoadStoreMLByte except
+                   that the base address is a LargeWord.word value. *)
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w1, context)
+                val untaggedResReg = newUReg()
+            in
+                (codeBaseIndex @ codeUntag @
+                    [MoveArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=ByteToWordZeroExtend},
+                     TagValue {source=untaggedResReg, dest=target}], target)
+            end
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreC16, address}, context, _, destination) =
+            let
+                (* Load a 16-bit value from C memory. *)
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w2, context)
+                val untaggedResReg = newUReg()
+            in
+                (codeBaseIndex @ codeUntag @
+                    [MoveArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=Bit16ToWordZeroExtend},
+                     TagValue {source=untaggedResReg, dest=target}], target)
+            end
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreC32, address}, context, _, destination) =
+            let
+                (* Load a 32-bit value from C memory.  If this is 64-bit mode we can tag it but
+                   if this is 32-bit mode we need to box it. *)
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w4, context)
+                val untaggedResReg = newUReg()
+                val (boxTagCode, moveKind) =
+                    if isX64
+                    then (TagValue {source=untaggedResReg, dest=target}, Bit32ToWordZeroExtend)
+                    else (BoxLargeWord{source=untaggedResReg, dest=target}, WordToWord)
+            in
+                (codeBaseIndex @ codeUntag @
+                    [MoveArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveKind}, boxTagCode], target)
+            end
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreC64, address}, context, _, destination) =
+            let
+                (* Load a 64-bit value from C memory.  This is only allowed in 64-bit mode.  The result
+                   is a boxed value. *)
+                val _ = isX64 orelse raise InternalError "codeToICode: BICLoadOperation LoadStoreC64 in 32-bit"
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
+                val untaggedResReg = newUReg()
+            in
+                (codeBaseIndex @ codeUntag @
+                    [MoveArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=WordToWord},
+                     BoxLargeWord{source=untaggedResReg, dest=target}], target)
+            end
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreCFloat, address}, context, _, destination) =
+                raise InternalError "codeToICode: Load LoadStoreCFloat"
+
+        |   codeToICode(BICLoadOperation {kind=LoadStoreCDouble, address}, context, _, destination) =
+                raise InternalError "codeToICode: Load LoadStoreCDouble"
+
         |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address, value}, context, _, destination) =
             let
                 val valueReg = newPReg()
@@ -1338,6 +1399,24 @@ struct
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreC8, address, value}, context, _, destination) =
+                raise InternalError "codeToICode: Store LoadStoreC8"
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreC16, address, value}, context, _, destination) =
+                raise InternalError "codeToICode: Store LoadStoreC16"
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreC32, address, value}, context, _, destination) =
+                raise InternalError "codeToICode: Store LoadStoreC32"
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreC64, address, value}, context, _, destination) =
+                raise InternalError "codeToICode: Store LoadStoreC64"
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreCFloat, address, value}, context, _, destination) =
+                raise InternalError "codeToICode: Store LoadStoreCFloat"
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreCDouble, address, value}, context, _, destination) =
+                raise InternalError "codeToICode: Store LoadStoreCDouble"
 
         |   codeToICode(instr as BICBlockOperation {kind=BlockOpEqualByte, ...}, context, isTail, destination) =
                 codeAsConditional(instr, context, isTail, destination)
@@ -1679,7 +1758,50 @@ struct
             in
                 (codeValues, [], memResult)
             end
-        
+
+        (* C-memory operations are slightly different.  The base address is a LargeWord.word value.
+           The index is a byte index so may have to be untagged. *)
+        and codeCAddress({base, index=SOME index, offset}, 0w1, context) =
+            let
+                (* Byte address with index.  The index needs to be untagged. *)
+                val baseReg = newPReg() and untaggedBaseReg = newUReg() and indexReg = newPReg() and indexReg1 = newUReg()
+                val codeValues =
+                    codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
+                val untagCode =
+                    [MoveArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=WordToWord},
+                     UntagValue{dest=indexReg1, source=indexReg, isSigned=false }]
+                val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}
+            in
+                (codeValues, untagCode, memResult)
+            end
+
+        |   codeCAddress({base, index=SOME index, offset}, size, context) =
+            let
+                (* Non-byte address with index.  By using an appropriate multiplier we can avoid
+                   having to untag the index. *)
+                val baseReg = newPReg() and untaggedBaseReg = newUReg() and indexReg = newPReg()
+                val codeValues =
+                    codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
+                val untagCode = [MoveArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=WordToWord}]
+                val memResult =
+                    case size of
+                        0w2 => {base=untaggedBaseReg, offset=Word.toInt offset-1, index=MemIndex1 indexReg}
+                    |   0w4 => {base=untaggedBaseReg, offset=Word.toInt offset-2, index=MemIndex2 indexReg}
+                    |   0w8 => {base=untaggedBaseReg, offset=Word.toInt offset-4, index=MemIndex4 indexReg}
+                    |   _ => raise InternalError "codeCAddress: unknown size"
+            in
+                (codeValues, untagCode, memResult)
+            end
+
+        |   codeCAddress({base, index=NONE, offset}, _, context) =
+            let
+                val baseReg = newPReg() and untaggedBaseReg = newUReg()
+                val codeValues = codeToICodeTarget(base, context, false, baseReg)
+                val untagCode = [MoveArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=WordToWord}]
+                val memResult = {offset=Word.toInt offset, base=untaggedBaseReg, index=NoMemIndex}
+            in
+                (codeValues, untagCode, memResult)
+            end
 
         val icode = pushClosureReg @ pushArgs @
             codeToICodeTarget(body, {loopArgs=NONE}, true, resultTarget) @ returnInstruction

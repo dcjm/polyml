@@ -161,10 +161,8 @@ sig
    val genSetStackVal : int * code -> unit
    val genCase        : int * code -> unit
    val genTuple       : int * code -> unit
-   
    val genTailCall    : int * int * code -> unit
-   val genNonLocal    : int * int * int * code -> unit
-   
+
    val genRTSCallFast:    int * code -> unit
    val genRTSCallFull:    int * code -> unit
    val genRTSCallFastFloatFloat: code -> unit

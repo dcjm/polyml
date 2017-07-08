@@ -430,4 +430,17 @@ struct
         RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_Dispatch (code, arg)
 
     val isBigEndian: unit -> bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian
+    
+    local
+        fun getSize (n: int) =
+        let
+            val ffiType = ffiGeneral (52, n)
+            val (size: word, _, _, _) = ffiGeneral (53, ffiType)
+        in
+            size
+        end
+    in
+        fun ffiSizeFloat(): word = getSize 9
+        and ffiSizeDouble(): word = getSize 10
+    end
 end;

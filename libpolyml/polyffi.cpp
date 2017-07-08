@@ -86,6 +86,8 @@
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble();
 }
 
 static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
@@ -711,9 +713,22 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     processes->ThreadReleaseMLMemory(taskData);
 }
 
+// These functions are needed in the compiler
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat()
+{
+    return TAGGED(ffi_type_float.size).AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble()
+{
+    return TAGGED(ffi_type_double.size).AsUnsigned();
+}
+
 static struct _entrypts entryPtTable[] =
 {
     { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
+    { "PolySizeFloat",                  (polyRTSFunction)&PolySizeFloat},
+    { "PolySizeDouble",                 (polyRTSFunction)&PolySizeDouble},
 
     { NULL, NULL} // End of list.
 };
