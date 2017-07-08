@@ -1355,6 +1355,12 @@ struct
                     byteVecComparison(genToStack arg1, genToStack arg2, genToStack arg3, 
                                       genToStack arg4, genToStack arg5, transtable, whereto))
 
+        |   OGCBuiltIn5{oper=BuiltIns.BlockMove {isByteMove=true}, arg1, arg2, arg3, arg4, arg5} =>
+                cgAndRes(moveBytes(genToStack arg1, genToStack arg2, genToStack arg3, genToStack arg4, genToStack arg5, transtable, whereto))
+        
+        |   OGCBuiltIn5{oper=BuiltIns.BlockMove {isByteMove=false}, arg1, arg2, arg3, arg4, arg5} =>
+                cgAndRes(moveWords(genToStack arg1, genToStack arg2, genToStack arg3, genToStack arg4, genToStack arg5, transtable, whereto))
+
         |   OGCExtract ext =>
             let
                 val (loc, locCode) = locaddr ext
@@ -2583,6 +2589,8 @@ struct
                     end
 
                 |   BuiltIns.ByteVecCompare => raise InternalError "TODO-genTest: OGCBuiltIn5-ByteVecCompare"
+
+                |   BuiltIns.BlockMove _ => raise InternalError "TODO-genTest: OGCBuiltIn5-BlockMove"
             )
 
         |   OGCEval {function = OGCConstnt(oper, _), argList = args, ...} =>
@@ -3188,15 +3196,6 @@ struct
                             then genCond
                                     (OGCEval {function = evalFun, argList = argList, resultType=resultType},
                                      constntTrue, constntFalse, whereto, tailKind, NONE)
-
-                            else callClosure (SOME evalFun, true)
-
-                        |   [arg1, arg2, arg3, arg4, arg5] => (* Five arguments *)
-                            if wordEq (oper,ioOp POLY_SYS_move_bytes)
-                            then cgAndRes(moveBytes(genToStack arg1, genToStack arg2, genToStack arg3, genToStack arg4, genToStack arg5, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_move_words)
-                            then cgAndRes(moveWords(genToStack arg1, genToStack arg2, genToStack arg3, genToStack arg4, genToStack arg5, transtable, whereto))
 
                             else callClosure (SOME evalFun, true)
 

@@ -4106,7 +4106,7 @@ struct
         end
         
         local
-            fun byteMemMove([InRegister _, sourceOffset, InRegister _, destOffset, InRegister _], _) =
+            fun byteMemMove([InRegister _, InRegister _, sourceOffset, destOffset, InRegister _], _) =
                 let (* Byte move.  The offsets are byte offsets. *)
                     fun getOffset(InRegister(GenReg offsetReg), baseReg) =
                         [
@@ -4132,7 +4132,7 @@ struct
 
             |   byteMemMove _ = raise InternalError "byteMemMove"
             
-            and wordMemMove([InRegister _, sourceOffset, InRegister _, destOffset, InRegister _], _) =
+            and wordMemMove([InRegister _, InRegister _, sourceOffset, destOffset, InRegister _], _) =
                 let
                     (* Word move.  The offsets and the count are the number of words.
                        We can compute the offset by using the LEAL instruction. *)
@@ -4161,7 +4161,7 @@ struct
                    The source and destination offsets can be any registers.  We can't add the offsets in
                    advance because that would create invalid addresses. *)
                 loadToSpecificRegister(GenReg esi, true, 0,
-                    loadToSpecificRegister(GenReg edi, true, 2,
+                    loadToSpecificRegister(GenReg edi, true, 1,
                         loadToSpecificRegister(GenReg ecx, true, 4,
                             allInRegsOrLiterals(generalRegisters, generateInstruction memMove)
                             ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
