@@ -25,7 +25,6 @@ struct
     struct
         datatype testConditions =
             TestEqual
-        |   TestNotEqual
         |   TestLess
         |   TestLessEqual
         |   TestGreater
@@ -37,6 +36,8 @@ struct
         |   ArithMult
         |   ArithQuot
         |   ArithRem
+        |   ArithDiv
+        |   ArithMod
 
         datatype logicalOperations =
             LogicalAnd
@@ -64,6 +65,8 @@ struct
         |   LongWordToTagged
         |   SignedToLongWord
         |   UnsignedToLongWord
+        |   RealAbs     (* Set the sign bit of a real to positive. *)
+        |   RealNeg     (* Invert the sign bit of a real. *)
 
         and builtIn2Ops =
             WordComparison of { test: testConditions, isSigned: bool }
@@ -77,6 +80,8 @@ struct
         |   LargeWordArith of arithmeticOperations
         |   LargeWordLogical of logicalOperations
         |   LargeWordShift of shiftOperations
+        |   RealComparison of testConditions
+        |   RealArith of arithmeticOperations
 
         and builtIn3Ops =
             AllocateWordMemory
@@ -95,6 +100,8 @@ struct
         |   builtIn1Repr LongWordToTagged = "LongWordToTagged"
         |   builtIn1Repr SignedToLongWord = "SignedToLongWord"
         |   builtIn1Repr UnsignedToLongWord = "UnsignedToLongWord"
+        |   builtIn1Repr RealAbs = "RealAbs"
+        |   builtIn1Repr RealNeg = "RealNeg"
 
         and builtIn2Repr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
@@ -108,9 +115,10 @@ struct
         |   builtIn2Repr (LargeWordArith arithOp) =  (arithRepr arithOp) ^ "LargeWord"
         |   builtIn2Repr (LargeWordLogical logOp) =  (logicRepr logOp) ^ "LargeWord"
         |   builtIn2Repr (LargeWordShift shiftOp) =  (shiftRepr shiftOp) ^ "LargeWord"
+        |   builtIn2Repr (RealComparison test) = "Test" ^ (testRepr test) ^ "Real"
+        |   builtIn2Repr (RealArith arithOp) = (arithRepr arithOp) ^ "Real"
         
         and testRepr TestEqual          = "Equal"
-        |   testRepr TestNotEqual       = "NotEqual"
         |   testRepr TestLess           = "Less"
         |   testRepr TestLessEqual      = "LessEqual"
         |   testRepr TestGreater        = "Greater"
@@ -121,6 +129,8 @@ struct
         |   arithRepr ArithMult         = "Mult"
         |   arithRepr ArithQuot         = "Quot"
         |   arithRepr ArithRem          = "Rem"
+        |   arithRepr ArithDiv          = "Div"
+        |   arithRepr ArithMod          = "Mod"
 
         and logicRepr LogicalAnd        = "And"
         |   logicRepr LogicalOr         = "Or"

@@ -79,8 +79,9 @@ sig
     and      repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
-
-    datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
+    and      branchOps =
+                JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
+    and      sse2Operations = SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div
 
     datatype callKinds =
         Recursive
@@ -161,7 +162,7 @@ sig
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
-    |   FPLoadFromGenReg of genReg
+    |   FPLoadFromMemory of { base: genReg, offset: int }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
@@ -175,7 +176,7 @@ sig
     |   FPFree of fpReg
     |   MultiplyRR of { source: genReg, output: genReg }
     |   MultiplyRM of { base: genReg, offset: int,output: genReg }
-    |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
+    |   XMMArithRMem of { opc: sse2Operations, base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
     |   SignExtendForDivide
 

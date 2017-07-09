@@ -4,8 +4,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,10 +22,11 @@
     Copyright   Cambridge University 1985
 *)
 
-(* This code-generator is primarily intended as a porting aid from one
-   machine-code to another. It is modelled on the VAX code-generator and has
-   a similar structure. Note: It does not use the use-count information on
-   declarations. *)
+(* This generates byte-code that is interpreted by the run-time system.  It
+   is now used as a fall-back to allow Poly/ML to run on non-X86 architectures.
+   Early versions were used as a porting aid while a native code-generator
+   was being developed and the "enter-int" instructions that were needed
+   for that have been retained although they no longer actually generate code. *)
 functor INTGCODE (
 
     structure CODECONS : INTCODECONSSIG
@@ -616,6 +616,18 @@ struct
                 decsp()
             )
 
+       |    BICLoadOperation { kind=LoadStoreC8, address} => raise InternalError "TODO: LoadStoreC8"
+
+       |    BICLoadOperation { kind=LoadStoreC16, address} => raise InternalError "TODO: LoadStoreC16"
+
+       |    BICLoadOperation { kind=LoadStoreC32, address} => raise InternalError "TODO: LoadStoreC32"
+
+       |    BICLoadOperation { kind=LoadStoreC64, address} => raise InternalError "TODO: LoadStoreC64"
+
+       |    BICLoadOperation { kind=LoadStoreCFloat, address} => raise InternalError "TODO: LoadStoreCFloat"
+
+       |    BICLoadOperation { kind=LoadStoreCDouble, address} => raise InternalError "TODO: LoadStoreCDouble"
+
        |    BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}, value } =>
             let
                 (* No index.  We could almost use move_to_vec here except that it leaves
@@ -651,6 +663,18 @@ struct
                 genOpcode(opcode_storeMLByte, cvec);
                 decsp(); decsp()
             )
+
+       |    BICStoreOperation { kind=LoadStoreC8, address, value} => raise InternalError "TODO: StoreC8"
+
+       |    BICStoreOperation { kind=LoadStoreC16, address, value} => raise InternalError "TODO: StoreC16"
+
+       |    BICStoreOperation { kind=LoadStoreC32, address, value} => raise InternalError "TODO: StoreC32"
+
+       |    BICStoreOperation { kind=LoadStoreC64, address, value} => raise InternalError "TODO: StoreC64"
+
+       |    BICStoreOperation { kind=LoadStoreCFloat, address, value} => raise InternalError "TODO: StoreCFloat"
+
+       |    BICStoreOperation { kind=LoadStoreCDouble, address, value} => raise InternalError "TODO: StoreCDouble"
 
         |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
             (
@@ -717,40 +741,38 @@ struct
                It's all much better now.
                SPF 9/1/97
      *)
-      case whereto of
-        ToStack =>
-        let
-          val newsp = oldsp + 1;
-          val adjustment = !realstackptr - newsp;
+        case whereto of
+            ToStack =>
+            let
+                val newsp = oldsp + 1;
+                val adjustment = !realstackptr - newsp
 
-          val () =
-            if !exited orelse adjustment = 0
-              then ()
-            else if adjustment < ~1
-              then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
-            (* Hack for declarations that should push values, but don't *)
-            else if adjustment = ~1
-              then pushConst (DummyValue, cvec)
-            else
-              resetStack (adjustment, true, cvec);
-        in
-          realstackptr := newsp
-        end
+                val () =
+                    if !exited orelse adjustment = 0
+                    then ()
+                    else if adjustment < ~1
+                    then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
+                    (* Hack for declarations that should push values, but don't *)
+                    else if adjustment = ~1
+                    then pushConst (DummyValue, cvec)
+                    else resetStack (adjustment, true, cvec)
+            in
+                realstackptr := newsp
+            end
           
-      | NoResult =>
-        let
-          val adjustment = !realstackptr - oldsp;
+        |   NoResult =>
+            let
+                val adjustment = !realstackptr - oldsp
 
-          val () =
-            if !exited orelse adjustment = 0
-              then ()
-            else if adjustment < 0
-              then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
-            else
-              resetStack (adjustment, false, cvec);
-        in
-          realstackptr := oldsp
-        end
+                val () =
+                    if !exited orelse adjustment = 0
+                    then ()
+                    else if adjustment < 0
+                    then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
+                    else resetStack (adjustment, false, cvec)
+            in
+                realstackptr := oldsp
+            end
     end (* gencde *)
 
    (* doNext is only used for mutually recursive functions where a
@@ -1020,6 +1042,8 @@ struct
             
             fun rtsCallFastFloattoFloat(entryName, debugArgs) =
                 rtsCall (fn (_, c) => genRTSCallFastFloatFloat c) (entryName, 1, debugArgs)
+            fun rtsCallFastGeneraltoFloat(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastGeneralFloat c) (entryName, 1, debugArgs)
         end
     end
 

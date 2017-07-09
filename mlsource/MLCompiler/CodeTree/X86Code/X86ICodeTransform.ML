@@ -1150,6 +1150,23 @@ struct
                     context=context}
             end
 
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegUntagged), operand1=PReg(oper1Reg, PRegUntagged), operand2 as IntegerConstant _, ccRef } :: rest,
+                      state=NormalState ({valueStack, untaggedRegs, ...}), code, context} =
+            let
+                (* The result and argument are both untagged.  This is used in computing floating point comparisons. *)
+                val realSReg =
+                    case List.find (fn {ureg, ...} => ureg = oper1Reg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: ArithmeticFunction"
+                (* Leave the untagged register where it was but add the condition code. *)
+                val resultState = {valueStack=valueStack, ccState=CCState(ccRef, fn i => i), untaggedRegs=[{ureg=resReg, reg=realSReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        ArithmeticFunction { oper=oper, resultReg=RealRegister realSReg, operand1=RealRegister realSReg, operand2=operand2, ccRef=ccRef } :: code,
+                    context=context}
+            end
+
         |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg(oper1Reg, PRegGeneral), operand2=PReg(oper2Reg, PRegGeneral), ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
@@ -1586,6 +1603,67 @@ struct
                         MoveArgument{source=RealRegister realSrcReg, dest=rsiAsArg, kind=WordToWord} ::
                         MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=WordToWord} ::
                         MoveArgument{source=RealRegister realDestReg, dest=rdiAsArg, kind=WordToWord} :: code, context=context}
+            end
+
+        |   codeICode{
+                icode=CompareFloatingPt{
+                        arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
+                        arg2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}, ccRef} :: rest,
+                      state=NormalState state, code, context=context} =
+            let
+                (* Load the first argument into an SSE2 register or the X87 stack.
+                   Compare with the second.
+                   We may have the arguments either way round.  The second argument to be loaded
+                   will be in RAX but that may be bReg2 or bReg1. *)
+                val (startState as {valueStack, ...}, topReg) =
+                    case state of
+                        {valueStack={preg, loc=InRax } :: resultState, ccState, untaggedRegs} =>
+                        ({valueStack=resultState, ccState=ccState, untaggedRegs=untaggedRegs}, preg)
+                    |   _ => raise InternalError "codeICode: CompareFloatingPt - check top"
+                val (loadArgAddr, arg1Reg, arg2Reg) =
+                    if topReg = argToPReg bReg2
+                    then (loadSource(bReg1, ebx, startState), rbxAsArg, raxAsArg)
+                    else if topReg = argToPReg bReg1
+                    then (loadSource(bReg2, ebx, startState), raxAsArg, rbxAsArg)
+                    else raise InternalError "codeICode: CompareFloatingPt - check top"
+
+                val floatingPointReg =
+                    case fpMode of
+                        FPModeX87 => FPReg fp0
+                    |   FPModeSSE2 => XMMReg xmm0
+                val checkState = {valueStack= valueStack, ccState=CCState(ccRef, fn c => c), untaggedRegs= []}
+            in
+                codeICode{icode=rest, state=NormalState checkState,
+                          code=
+                            CompareFloatingPt{arg1=RealRegister floatingPointReg, arg2=MemoryLocation{offset=offset2, base=arg2Reg, index=NoMemIndex}, ccRef=ccRef} ::
+                            MoveArgument{source=MemoryLocation{offset=offset1, base=arg1Reg, index=NoMemIndex},
+                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                            loadArgAddr @ code,
+                          context=context}
+            end
+
+        |   codeICode{icode=CompareFloatingPt _ :: _, ...} =
+                raise InternalError "codeICode: CompareFloatingPt"
+
+        |   codeICode{
+                icode=GetFloatingPtCondition{ ccRef, dest } :: rest, state=NormalState state, code, context=context} =
+            let
+                val destReg = argToUReg dest
+                (* Check we have the condition. *)
+                (* We can only use RAX here. *)
+                val ({valueStack, ccState, ...}, pushCode) = pushRax state
+                val () =
+                    case ccState of
+                        CCState(currentRef, _) =>
+                            if currentRef = ccRef then ()
+                            else raise InternalError "codeICode: condition ref incorrect"
+                    |   _ => raise InternalError "codeICode: condition ref unset"
+                val resultState =
+                    {valueStack=valueStack, ccState=ccState, untaggedRegs=[{ureg=destReg, reg=GenReg eax}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code= GetFloatingPtCondition{ ccRef=ccRef, dest=raxAsArg } :: pushCode @ code,
+                    context=context}
             end
 
             (* These should not occur here.  They are only added during this phase. *)

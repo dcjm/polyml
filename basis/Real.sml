@@ -90,6 +90,9 @@ struct
 
 
     infix 4 == != ?=;
+    
+    val op == = Real.==
+    val op != : real * real -> bool = not o op ==
 
     val radix : int = callRealToInt 11 zero
     val precision : int = callRealToInt 12 zero

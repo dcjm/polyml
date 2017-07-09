@@ -694,8 +694,8 @@ struct
             val () = enterBinaryOp("+",     ArithAdd)
             val () = enterBinaryOp("-",     ArithSub)
             val () = enterBinaryOp("*",     ArithMult)
-            val () = enterBinaryOp("div",   ArithQuot) (* Word.div and Word.mod are Quot and Rem. *)
-            val () = enterBinaryOp("mod",   ArithRem)
+            val () = enterBinaryOp("div",   ArithDiv)
+            val () = enterBinaryOp("mod",   ArithMod)
             val () = enterBinaryLogical("orb",  LogicalOr)
             val () = enterBinaryLogical("andb", LogicalAnd)
             val () = enterBinaryLogical("xorb", LogicalXor)
@@ -740,8 +740,8 @@ struct
             val () = enterBinaryOp("+",     ArithAdd)
             val () = enterBinaryOp("-",     ArithSub)
             val () = enterBinaryOp("*",     ArithMult)
-            val () = enterBinaryOp("div",   ArithQuot) (* Word.div and Word.mod are Quot and Rem. *)
-            val () = enterBinaryOp("mod",   ArithRem)
+            val () = enterBinaryOp("div",   ArithDiv)
+            val () = enterBinaryOp("mod",   ArithMod)
             val () = enterBinaryLogical("orb",  LogicalOr)
             val () = enterBinaryLogical("andb", LogicalAnd)
             val () = enterBinaryLogical("xorb", LogicalXor)
@@ -805,10 +805,46 @@ struct
 
             val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", String ->> Real ->> Real, rtsCallFastF_FEntry, declInBasis)
             val rtsCallFastG_F = mkGvar ("rtsCallFastI_F", String ->> intInfType ->> Real, rtsCallFastI_FEntry, declInBasis)
+
+            fun enterUnary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkBuiltIn1Fn oper, declInBasis)
+            in
+                #enterVal realEnv (name, value)
+            end
+
+            fun enterBinary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
+            in
+                #enterVal realEnv (name, value)
+            end
+            
+            val compareType = Real ** Real ->> Bool
+            and binaryType  = Real ** Real ->> Word
+            and unaryType   = Real ->> Real
+
+            open BuiltIns
+
+            fun enterComparison(name, test) =
+                enterBinary(name, RealComparison test, compareType)
+            and enterBinaryOp(name, oper) =
+                enterBinary(name, RealArith oper, binaryType)
         in
             val () = #enterType realEnv ("real", TypeConstrSet(realConstr, []))
             val () = #enterVal realEnv ("rtsCallFastF_F", rtsCallFastF_F)
             val () = #enterVal realEnv ("rtsCallFastI_F", rtsCallFastG_F)
+            val () = enterComparison("<",   TestLess)
+            val () = enterComparison("<=",  TestLessEqual)
+            val () = enterComparison(">",   TestGreater)
+            val () = enterComparison(">=",  TestGreaterEqual)
+            val () = enterComparison("==",  TestEqual) (* real is not an eqtype. *)
+            val () = enterBinaryOp("+",     ArithAdd)
+            val () = enterBinaryOp("-",     ArithSub)
+            val () = enterBinaryOp("*",     ArithMult)
+            val () = enterBinaryOp("/",     ArithDiv)
+            val () = enterUnary("~",   RealNeg, unaryType)
+            val () = enterUnary("abs", RealAbs, unaryType)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")

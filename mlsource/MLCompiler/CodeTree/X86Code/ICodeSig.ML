@@ -34,6 +34,10 @@ sig
 
     val isX64: bool and is32bit: LargeInt.int -> bool
 
+    (* Should we use SSE2 or X87 floating point? *)
+    datatype fpMode = FPModeSSE2 | FPModeX87
+    val fpMode: fpMode
+
     val eax: genReg and ebx: genReg and ecx: genReg and edx: genReg
     and edi: genReg and esi: genReg and esp: genReg and ebp: genReg
     and r8:  genReg and r9:  genReg and r10: genReg and r11: genReg
@@ -43,7 +47,8 @@ sig
     and xmm0:xmmReg and xmm1:xmmReg and xmm2:xmmReg and xmm3:xmmReg
     and xmm4:xmmReg and xmm5:xmmReg and xmm6:xmmReg
 
-    datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
+    datatype branchOps =
+        JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
@@ -220,6 +225,13 @@ sig
         (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
            number of items (bytes or words) to move. *)
     |   BlockMove of { srcAddr: argument, destAddr: argument, length: argument, isByteMove: bool }
+
+        (* Floating point comparison. *)
+    |   CompareFloatingPt of { arg1: argument, arg2: argument, ccRef: ccRef }
+
+        (* The X87 FP unit does not generate condition codes directly.  We have to
+           load the cc into RAX and test it there. *)
+    |   GetFloatingPtCondition of { ccRef: ccRef, dest: argument }
 
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address

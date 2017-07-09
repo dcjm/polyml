@@ -1566,8 +1566,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xa6: /* cmpsb */ case 0x9e: /* sahf */ case 0x99: /* cqo/cdq */
             pt++; break;
 
-        case 0x70: case 0x71: case 0x72: case 0x73: case 0x74: case 0x75: case 0x76:
-        case 0x77: case 0x7c: case 0x7d: case 0x7e: case 0x7f: case 0xeb:
+        case 0x70: case 0x71: case 0x72: case 0x73: case 0x74: case 0x75: case 0x76: case 0x77:
+        case 0x78: case 0x79: case 0x7a: case 0x7b: case 0x7c: case 0x7d: case 0x7e: case 0x7f:
+        case 0xeb:
             /* short jumps. */
         case 0xcd: /* INT */
         case 0xa8: /* TEST_ACC8 */
@@ -1750,14 +1751,16 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             }
 
         case 0xf2: // Beginning of SSE2 sequence.  Can also be RETNE but we don't use that.
+        case 0x66: // Beginning of ucompisd sequence.  Can be OPSIZE but we don't use that.
             {
                 pt++;
-                if (*pt != 0x0f) Crash("Unknown opcode 0xf2:%d at %p\n", *pt, pt);
+                if (*pt != 0x0f) Crash("Unknown opcode 0xf2/66:%d at %p\n", *pt, pt);
                 pt++;
                 switch (*pt)
                 {
-                case 0x10:
-                case 0x11: pt++; skipea(&pt, process, false); break;
+                case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
+                case 0x2e:
+                    pt++; skipea(&pt, process, false); break;
 
                 default: Crash("Unknown opcode 0xf2:0x0f:%d at %p\n", *pt, pt);
                 }

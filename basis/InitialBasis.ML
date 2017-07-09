@@ -234,10 +234,6 @@ end;
 structure Real =
 struct
     open Real
-    val op >= : real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_geq
-    and op <= : real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_leq
-    and op >  : real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_gtr
-    and op <  : real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_lss
 
     val op + : real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Add_real
     and op - : real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Sub_real
@@ -247,11 +243,9 @@ struct
     val ~ : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Neg_real
     val abs : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Abs_real
 
-    val op == : (real * real) -> bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_eq;
-    val op != : (real * real) -> bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_neq;
-
     (* fromFixedInt is used internally and not exported from the final version of Real. *)
     val fromFixedInt: FixedInt.int -> real = RunCall.run_call1 RuntimeCalls.POLY_SYS_fixed_to_real
+
 end;
 
 val () = RunCall.addOverload Real.>= ">="

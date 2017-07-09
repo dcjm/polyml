@@ -831,16 +831,15 @@ struct
     in
         case (oper, genArg1, genArg2) of
             (WordComparison{test, isSigned}, Constnt(v1, _), Constnt(v2, _)) =>
-            if (case test of TestEqual => false | TestNotEqual => false | _ => not(isShort v1) orelse not(isShort v2))
+            if (case test of TestEqual => false | _ => not(isShort v1) orelse not(isShort v2))
             then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             else
             let
                 val () = reprocess := true
                 val testResult =
                     case (test, isSigned) of
-                        (* TestEqual/TestNotEqual can be applied to addresses. *)
+                        (* TestEqual can be applied to addresses. *)
                         (TestEqual, _)              => RunCall.pointerEq(v1, v2)
-                    |   (TestNotEqual, _)           => not(RunCall.pointerEq(v1, v2))
                     |   (TestLess, false)           => toShort v1 < toShort v2
                     |   (TestLessEqual, false)      => toShort v1 <= toShort v2
                     |   (TestGreater, false)        => toShort v1 > toShort v2
@@ -871,6 +870,8 @@ struct
                     |   ArithMult => (asConstnt(v1S*v2S) handle Overflow => raiseOverflow)
                     |   ArithQuot => (asConstnt(FixedInt.quot(v1S,v2S)) handle Overflow => raiseOverflow | Div => raiseDiv)
                     |   ArithRem => (asConstnt(FixedInt.rem(v1S,v2S)) handle Overflow => raiseOverflow | Div => raiseDiv)
+                    |   ArithDiv => (asConstnt(FixedInt.div(v1S,v2S)) handle Overflow => raiseOverflow | Div => raiseDiv)
+                    |   ArithMod => (asConstnt(FixedInt.mod(v1S,v2S)) handle Overflow => raiseOverflow | Div => raiseDiv)
             in
                 (resultCode, decArgs, EnvSpecNone)
             end
@@ -889,8 +890,10 @@ struct
                         ArithAdd => asConstnt(v1S+v2S)
                     |   ArithSub => asConstnt(v1S-v2S)
                     |   ArithMult => asConstnt(v1S*v2S)
-                    |   ArithQuot => asConstnt(v1S div v2S)
-                    |   ArithRem => asConstnt(v1S mod v2S)
+                    |   ArithQuot => raise InternalError "WordArith: ArithQuot"
+                    |   ArithRem => raise InternalError "WordArith: ArithRem"
+                    |   ArithDiv => asConstnt(v1S div v2S)
+                    |   ArithMod => asConstnt(v1S mod v2S)
             in
                (resultCode, decArgs, EnvSpecNone)
             end

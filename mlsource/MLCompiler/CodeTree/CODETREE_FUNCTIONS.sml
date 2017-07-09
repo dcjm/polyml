@@ -128,6 +128,8 @@ struct
                     |   LongWordToTagged => applicative
                     |   SignedToLongWord => applicative
                     |   UnsignedToLongWord => applicative
+                    |   RealAbs => applicative (* Does not depend on rounding setting. *)
+                    |   RealNeg => applicative (* Does not depend on rounding setting. *)
             in
                 operProps andb codeProps arg1
             end
@@ -150,6 +152,9 @@ struct
                     |   LargeWordArith _ => applicative (* Quot and Rem don't raise exceptions - zero checking is done before. *)
                     |   LargeWordLogical _ => applicative
                     |   LargeWordShift _ => applicative
+                    |   RealComparison _ => applicative
+                        (* Real arithmetic operations depend on the current rounding setting. *)
+                    |   RealArith _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
 
             in
                 operProps andb codeProps arg1 andb codeProps arg2

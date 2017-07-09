@@ -722,7 +722,7 @@ struct
     |   fpUnaryRepr FLD1   = "FPLoadOne"
     |   fpUnaryRepr FLDZ   = "FPLoadZero"
 
-    datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
+    datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
 
     fun branchOpToWord JO   = 0wx0: Word8.word
     |   branchOpToWord JNO  = 0wx1
@@ -732,6 +732,8 @@ struct
     |   branchOpToWord JNE  = 0wx5
     |   branchOpToWord JNA  = 0wx6
     |   branchOpToWord JA   = 0wx7
+    |   branchOpToWord JP   = 0wxa
+    |   branchOpToWord JNP  = 0wxb
     |   branchOpToWord JL   = 0wxc
     |   branchOpToWord JGE  = 0wxd
     |   branchOpToWord JLE  = 0wxe
@@ -749,7 +751,17 @@ struct
     |   branchOpRepr JNB= "JumpNotBefore"
     |   branchOpRepr JNA = "JumpNotAfter"
     |   branchOpRepr JA = "JumpAfter"
-        
+    |   branchOpRepr JP = "JumpParity"
+    |   branchOpRepr JNP = "JumpNoParity"
+
+    datatype sse2Operations = SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div
+    
+    fun sse2OpRepr SSE2Move = "SSE2Move"
+    |   sse2OpRepr SSE2Comp = "SSE2Comp"
+    |   sse2OpRepr SSE2Add  = "SSE2Add"
+    |   sse2OpRepr SSE2Sub  = "SSE2Sub"
+    |   sse2OpRepr SSE2Mul  = "SSE2Mul"
+    |   sse2OpRepr SSE2Div  = "SSE2Div"
 
     (* Primary opCodes.  N.B. only opCodes actually used are listed here.
        If new instruction are added check they will be handled by the
@@ -790,10 +802,9 @@ struct
     |   REP (* Rep prefix *)
     |   MOVZX (* Needs escape code. *)
     |   IMUL (* Needs escape code. *)
-    |   SSE2Load (* movsd with register destination - needs escape sequence. *)
     |   SSE2Store (* movsd with memory destination - needs escape sequence. *)
     |   CQO_CDQ (* Sign extend before divide.. *)
-
+    |   SSE2Ops of sse2Operations (* SSE2 instructions. *)
 
     fun opToInt Group1_8_A    =  0wx83
     |   opToInt Group1_32_A   =  0wx81
@@ -830,12 +841,17 @@ struct
     |   opToInt REP           = 0wxf3
     |   opToInt MOVZX         = 0wxb6 (* Needs escape code. *)
     |   opToInt IMUL          = 0wxaf (* Needs escape code. *)
-    |   opToInt SSE2Load      = 0wx10 (* Needs F2 0F escape. *)
     |   opToInt SSE2Store     = 0wx11 (* Needs F2 0F escape. *)
     |   opToInt CQO_CDQ       = 0wx99
+    |   opToInt (SSE2Ops SSE2Move) = 0wx10 (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2Comp) = 0wx2E (* Needs 66 0F escape. *)
+    |   opToInt (SSE2Ops SSE2Add)  = 0wx58 (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2Sub)  = 0wx5c (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2Mul)  = 0wx59 (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2Div)  = 0wx5e (* Needs F2 0F escape. *)
 
     datatype mode =
-        Based0    (* mod = 0 *)
+        Based0   (* mod = 0 *)
     |   Based8   (* mod = 1 *)
     |   Based32  (* mod = 2 *)
     |   Register (* mod = 3 *) ;
@@ -1171,8 +1187,9 @@ struct
     fun genEscape(MOVZX, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(IMUL, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2Load, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Store, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(SSE2Ops SSE2Comp, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(SSE2Ops _, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape _ = ()
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -1872,7 +1889,7 @@ struct
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
-    |   FPLoadFromGenReg of genReg
+    |   FPLoadFromMemory of { base: genReg, offset: int }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
@@ -1886,7 +1903,7 @@ struct
     |   FPFree of fpReg
     |   MultiplyRR of { source: genReg, output: genReg }
     |   MultiplyRM of { base: genReg, offset: int,output: genReg }
-    |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
+    |   XMMArithRMem of { opc: sse2Operations, base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
     |   SignExtendForDivide
 
@@ -2090,7 +2107,7 @@ struct
         |   DivideAccR{arg, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printGReg arg)
         |   DivideAccM{base, offset, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printBaseOffset(base, NoIndex, offset))
         |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printGReg base; stream ") <=> "; printGReg output)
-        |   FPLoadFromGenReg reg => (stream "FPLoad "; printGReg reg)
+        |   FPLoadFromMemory{ base: genReg, offset: int } => (stream "FPLoad "; printBaseOffset(base, NoIndex, offset))
         |   FPLoadFromFPReg {source, lastRef} =>
                 (stream "FPLoad "; printFPReg source; if lastRef then stream " (LAST)" else())
         |   FPLoadFromConst const => (stream "FPLoad "; stream(Real.toString const) )
@@ -2110,9 +2127,9 @@ struct
         |   FPFree reg => (stream "FPFree "; printFPReg reg)
         |   MultiplyRR {source, output } => (stream "MultiplyRR"; stream " "; printGReg source; stream " *=>"; printGReg output)
         |   MultiplyRM {base, offset, output } => (stream "MultiplyRM"; stream " "; printBaseOffset(base, NoIndex, offset); stream " *=>"; printGReg output)
-        |   XMMLoadFromMemory { base, offset, output } =>
+        |   XMMArithRMem { opc, base, offset, output } =>
             (
-                stream "MoveMR "; printBaseOffset(base, NoIndex, offset); stream " => "; printXMMReg output
+                stream (sse2OpRepr opc ^ "RM "); printXMMReg output; stream " <= "; printBaseOffset(base, NoIndex, offset)
             )
         |   XMMStoreToMemory { toStore, base, offset } =>
             (
@@ -2941,12 +2958,12 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp (FPLoadFromGenReg source :: remainder) =
+        |   cgOp (FPLoadFromMemory { base, offset } :: remainder) =
             (
-                checkSources[source];
+                checkSources[base];
                 (* The "value" in the general register is actually the address of
                    the memory containing the FP value. *)
-                genOpPlus2(FPESC 0w5, 0, source, 0wx0, code); (* FLD [r1] *)
+                genOpPlus2(FPESC 0w5, LargeInt.fromInt offset, base, 0wx0, code); (* FLD [r1] *)
                 cgOp remainder
             )
 
@@ -3097,10 +3114,10 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp (XMMLoadFromMemory { base, offset, output } :: remainder) =
+        |   cgOp (XMMArithRMem { opc, base, offset, output } :: remainder) =
             (
                 checkSources[base]; addDests[output];
-                genMMXEA(SSE2Load, LargeInt.fromInt offset, base, output, code);
+                genMMXEA(SSE2Ops opc, LargeInt.fromInt offset, base, output, code);
                 cgOp remainder
             )
 
@@ -3110,6 +3127,7 @@ struct
                 genMMXEA(SSE2Store, LargeInt.fromInt offset, base, toStore, code);
                 cgOp remainder
             )
+
         |   cgOp (SignExtendForDivide :: remainder) =
             (
                 genop(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE, code);
@@ -3413,16 +3431,21 @@ struct
                         print(
                             case opByte2 of
                                 0x80 => "jo  \t"
+                            |   0x81 => "jno \t"
+                            |   0x82 => "jb  \t"
+                            |   0x83 => "jnb \t"
                             |   0x84 => "je  \t"
                             |   0x85 => "jne \t"
+                            |   0x86 => "jna \t"
+                            |   0x87 => "ja  \t" 
+                            |   0x88 => "js  \t"
+                            |   0x89 => "jns  \t" 
+                            |   0x8a => "jp  \t"
+                            |   0x8b => "jnp  \t" 
                             |   0x8c => "jl  \t"
                             |   0x8d => "jge \t"
                             |   0x8e => "jle \t"
                             |   0x8f => "jg  \t" 
-                            |   0x82 => "jb  \t"
-                            |   0x83 => "jnb \t"
-                            |   0x86 => "jna \t"
-                            |   0x87 => "ja  \t" 
                             |   _ => "???\t"
                             );
                         print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
@@ -3463,6 +3486,21 @@ struct
             |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
             |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
 
+            |   0wx66 => (* On its own this is the OPSIZE prefix but we don't use that. *)
+                if get8u (!ptr, seg) = 0wx0f
+                then (* SSE2 instruction *)
+                let
+                    val () = ptr +:= 0w1
+                    val op2 = get8u (!ptr, seg) before ptr +:= 0w1
+                    val nb = csegGet (seg, !ptr)
+                    val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                in
+                    case op2 of
+                        0wx2e => ( print "ucomisd\t"; print(xmmRegRepr reg); print ","; printEA(rex, SZQWord) )
+                    |   b => (print "66\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
+                end
+                else print "opsize:\t"
+
             |   0wx68 =>(print "push\t"; print32 ())
          
             |   0wx6a =>(print "push\t"; print8 ())
@@ -3475,7 +3513,10 @@ struct
             |   0wx75 => (print "jne \t"; printJmp())
             |   0wx76 => (print "jna \t"; printJmp())
             |   0wx77 => (print "ja  \t"; printJmp())
-
+            |   0wx78 => (print "js  \t"; printJmp())
+            |   0wx79 => (print "jns \t"; printJmp())
+            |   0wx7a => (print "jp  \t"; printJmp())
+            |   0wx7b => (print "jnp \t"; printJmp())
             |   0wx7c => (print "jl  \t"; printJmp())
             |   0wx7d => (print "jge \t"; printJmp())
             |   0wx7e => (print "jle \t"; printJmp())
@@ -3653,7 +3694,7 @@ struct
                 end
 
             |   0wxeb => (print "jmp \t"; printJmp())
-            
+
             |   0wxf2 => (* On its own this is REPNE but we don't use that. *)
                 if get8u (!ptr, seg) = 0wx0f
                 then (* SSE2 instruction *)
@@ -3666,6 +3707,10 @@ struct
                     case op2 of
                         0wx10 => ( print "movsd\t"; print(xmmRegRepr reg); print ","; printEA(rex, SZQWord) )
                     |   0wx11 => ( print "movsd\t"; printEA(rex, SZQWord); print ","; print(xmmRegRepr reg)  )
+                    |   0wx58 => ( print "addsd\t"; print(xmmRegRepr reg); print ","; printEA(rex, SZQWord) )
+                    |   0wx59 => ( print "mulsd\t"; print(xmmRegRepr reg); print ","; printEA(rex, SZQWord) )
+                    |   0wx5c => ( print "subsd\t"; print(xmmRegRepr reg); print ","; printEA(rex, SZQWord) )
+                    |   0wx5e => ( print "divsd\t"; print(xmmRegRepr reg); print ","; printEA(rex, SZQWord) )
                     |   b => (print "F2\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
                 end
                 else print "repne\t"

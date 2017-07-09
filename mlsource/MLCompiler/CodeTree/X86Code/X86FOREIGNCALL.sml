@@ -358,12 +358,12 @@ struct
                 case abi of
                     (* X64 on both Windows and Unix take the first arg in xmm0.  We need to
                        unbox the value pointed at by rax. *)
-                    X64Unix => [ XMMLoadFromMemory { base=eax, offset=0, output=xmm0 } ]
-                |   X64Win => [ XMMLoadFromMemory { base=eax, offset=0, output=xmm0 } ]
+                    X64Unix => [ XMMArithRMem { opc= SSE2Move, base=eax, offset=0, output=xmm0 } ]
+                |   X64Win => [ XMMArithRMem { opc= SSE2Move, base=eax, offset=0, output=xmm0 } ]
                 |   X86_32 =>
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [
-                        FPLoadFromGenReg eax,
+                        FPLoadFromMemory{base=eax, offset=0},
                         ArithRConst{ opc=SUB, output=esp, source=8},
                         FPStoreToMemory{ base=esp, offset=0, andPop=true }
                     ]

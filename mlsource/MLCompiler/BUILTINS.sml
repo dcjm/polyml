@@ -20,8 +20,7 @@
 signature BUILTINS =
 sig
     datatype testConditions =
-        TestEqual
-    |   TestNotEqual
+        TestEqual (* No TestNotEqual because that is always generated with "not" *)
     |   TestLess
     |   TestLessEqual
     |   TestGreater
@@ -33,6 +32,8 @@ sig
     |   ArithMult
     |   ArithQuot
     |   ArithRem
+    |   ArithDiv
+    |   ArithMod
 
     datatype logicalOperations =
         LogicalAnd
@@ -60,6 +61,8 @@ sig
     |   LongWordToTagged (* Convert a LargeWord.word to a Word.word or FixedInt.int. *)
     |   SignedToLongWord (* Convert a tagged value to a LargeWord with sign extension. *)
     |   UnsignedToLongWord (* Convert a tagged value to a LargeWord without sign extension. *)
+    |   RealAbs     (* Set the sign bit of a real to positive. *)
+    |   RealNeg     (* Invert the sign bit of a real. *)
 
     and builtIn2Ops =
         (* Compare two words and return the result.  This is used for both
@@ -86,6 +89,8 @@ sig
     |   LargeWordArith of arithmeticOperations
     |   LargeWordLogical of logicalOperations
     |   LargeWordShift of shiftOperations
+    |   RealComparison of testConditions
+    |   RealArith of arithmeticOperations
 
     and builtIn3Ops =
          (* Allocate a heap cell for word data.  The first argument is the number of words needed.

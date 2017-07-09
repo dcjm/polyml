@@ -87,8 +87,6 @@ struct
         in
             fun testAsBranch(TestEqual,         _,      true)       = JE
             |   testAsBranch(TestEqual,         _,      false)      = JNE
-            |   testAsBranch(TestNotEqual,      _,      true)       = JNE
-            |   testAsBranch(TestNotEqual,      _,      false)      = JE
                 (* Signed tests *)
             |   testAsBranch(TestLess,          true,   true)       = JL
             |   testAsBranch(TestLess,          true,   false)      = JGE
@@ -343,6 +341,8 @@ struct
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.NotBoolean, arg1}, context, _, destination) =
             let
+                (* TODO: If the argument is something that will be a conditional we would be better off
+                   generating a conditional here. *)
                 val target = asTarget destination
                 val tReg = newPReg() and ccRef = newCCRef()
             in
@@ -467,6 +467,20 @@ struct
                      BoxLargeWord{ source=untagArg, dest=addrReg}]
             in
                 moveIfNotAllowed(destination, code, addrReg)
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.RealNeg, arg1}, context, _, destination) =
+            let
+                val target = asTarget destination
+            in
+                raise InternalError "codeToICode: RealNeg"
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
+            let
+                val target = asTarget destination
+            in
+                raise InternalError "codeToICode: RealAbs"
             end
 
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
@@ -600,6 +614,9 @@ struct
                      TagValue { source=remainder, dest=target }], target)
             end
 
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith _, ...}, _, _, _) =
+                raise InternalError "codeToICode: FixedPrecisionArith - unimplemented operation"
+
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
                 val target = asTarget destination
@@ -682,7 +699,7 @@ struct
                      ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithQuot, arg1, arg2}, context, _, destination) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -698,7 +715,7 @@ struct
                      TagValue { source=quotient, dest=target }], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithRem, arg1, arg2}, context, _, destination) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
             let
                 (* Identical to Quot except that the result is the remainder. *)
                 val target = asTarget destination
@@ -714,6 +731,9 @@ struct
                                 quotient=quotient, remainder=remainder },
                      TagValue { source=remainder, dest=target }], target)
             end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
+                raise InternalError "codeToICode: WordArith - unimplemented operation"
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.SetStringLengthWord, arg1, arg2}, context, _, destination) =
             let
@@ -822,7 +842,7 @@ struct
                      BoxLargeWord{source=resValue, dest=target}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, arg1, arg2}, context, _, destination) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -835,7 +855,7 @@ struct
                      BoxLargeWord{source=quotient, dest=target}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, arg1, arg2}, context, _, destination) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -848,6 +868,8 @@ struct
                      BoxLargeWord{source=remainder, dest=target}], target)
             end
 
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith _, ...}, _, _, _) =
+                raise InternalError "codeToICode: LargeWordArith - unimplemented operation"
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
             let
@@ -894,6 +916,36 @@ struct
                   ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=wordAt aReg1, shiftAmount=aReg2Untagged, ccRef=newCCRef() },
                   BoxLargeWord{source=aReg3, dest=target}], target)
             end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
+            let
+            in
+                raise InternalError "codeToICode: RealArith ArithAdd"
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
+            let
+            in
+                raise InternalError "codeToICode: RealArith ArithSub"
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
+            let
+            in
+                raise InternalError "codeToICode: RealArith ArithMult"
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
+            let
+            in
+                raise InternalError "codeToICode: RealArith ArithDiv"
+            end
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith _, ...}, _, _, _) =
+                raise InternalError "codeToICode: RealArith - unimplemented operation"
+
+        |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
+                codeAsConditional(instr, context, isTail, destination)
 
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.AllocateWordMemory, arg1 as BICConstnt(length, _), arg2 as BICConstnt(flags, _), arg3}, context, _, destination) =
             (* Constant length and flags is used for ref.  We could handle other cases. *)
@@ -1654,6 +1706,148 @@ struct
                     [WordComparison{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef},
                      ConditionalForwardJump{ccRef=ccRef,
                            condition=testAsBranch(test, false, jumpOn), label=jumpLabel}]
+            end
+
+           (* Floating point comparison.  This is complicated because we have different
+              instruction sequences for SSE2 and X87.  We also have to get the handling
+              of unordered (NaN) values right.  All the tests are treated as false
+              if either argument is a NaN.  To combine that test with the other tests
+              we sometimes have to reverse the comparison. *)
+
+        |   codeCondition(BICBuiltIn2{oper=BuiltIns.RealComparison BuiltIns.TestEqual, arg1, arg2},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg()
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val testReg1 = newUReg() and testReg2 = newUReg() and testReg3 = newUReg()
+                val testCode =
+                    codeToICodeTarget(arg1, context, false, arg1Reg) @
+                    codeToICodeTarget(arg2, context, false, arg2Reg)
+                (* If this is X87 we get the condition into RAX and test it there.  If
+                   it is SSE2 we have to treat the unordered result (parity set) specially. *)
+                val getResultCode =
+                    case (fpMode, jumpOn) of
+                        (FPModeX87, _) =>
+                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                             ArithmeticFunction{
+                                oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() },
+                             ArithmeticFunction{
+                                oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2 },
+                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                    |   (FPModeSSE2, true) =>
+                        let
+                            val lab = newLabel()
+                        in
+                            [
+                                ConditionalForwardJump{ccRef=ccRef1, condition=JP, label=lab},
+                                ConditionalForwardJump{ccRef=ccRef1, condition=JE, label=jumpLabel},
+                                ForwardJumpLabel{ label=lab, result=NONE }
+                            ]
+                        end
+                   |    (FPModeSSE2, false) =>
+                        [
+                            ConditionalForwardJump{ccRef=ccRef1, condition=JP, label=jumpLabel},
+                            ConditionalForwardJump{ccRef=ccRef1, condition=JNE, label=jumpLabel}
+                        ]
+            in
+                testCode @
+                    (CompareFloatingPt{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: getResultCode)
+            end
+
+        |   codeCondition(BICBuiltIn2{oper=BuiltIns.RealComparison BuiltIns.TestLess, arg1, arg2},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg()
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val testReg1 = newUReg() and testReg2 = newUReg()
+                val testCode =
+                    codeToICodeTarget(arg1, context, false, arg1Reg) @
+                    codeToICodeTarget(arg2, context, false, arg2Reg)
+                val getResultCode =
+                    case fpMode of
+                        FPModeX87 =>
+                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                             ArithmeticFunction{
+                                oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 },
+                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                    |   FPModeSSE2 =>
+                            [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel}]
+            in
+                testCode @
+                    [CompareFloatingPt{arg1=wordAt arg2Reg, arg2=wordAt arg1Reg, ccRef=ccRef1}] @ (* Reverse *)
+                        getResultCode
+            end
+
+        |   codeCondition(BICBuiltIn2{oper=BuiltIns.RealComparison BuiltIns.TestGreater, arg1, arg2},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg()
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val testReg1 = newUReg() and testReg2 = newUReg()
+                val testCode =
+                    codeToICodeTarget(arg1, context, false, arg1Reg) @
+                    codeToICodeTarget(arg2, context, false, arg2Reg)
+                val getResultCode =
+                    case fpMode of
+                        FPModeX87 =>
+                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                             ArithmeticFunction{
+                                oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 },
+                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                    |   FPModeSSE2 =>
+                            [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel}]
+            in
+                testCode @
+                    [CompareFloatingPt{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef1}] @ (* Not reversed. *)
+                     getResultCode
+            end
+
+        |   codeCondition(BICBuiltIn2{oper=BuiltIns.RealComparison BuiltIns.TestLessEqual, arg1, arg2},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg()
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val testReg1 = newUReg() and testReg2 = newUReg()
+                val testCode =
+                    codeToICodeTarget(arg1, context, false, arg1Reg) @
+                    codeToICodeTarget(arg2, context, false, arg2Reg)
+                val getResultCode =
+                    case fpMode of
+                        FPModeX87 =>
+                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                             ArithmeticFunction{
+                                oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 },
+                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                    |   FPModeSSE2 =>
+                            [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel}]
+            in
+                testCode @
+                    [CompareFloatingPt{arg1=wordAt arg2Reg, arg2=wordAt arg1Reg, ccRef=ccRef1}] @ (* Reverse *)
+                     getResultCode
+            end
+
+        |   codeCondition(BICBuiltIn2{oper=BuiltIns.RealComparison BuiltIns.TestGreaterEqual, arg1, arg2},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg()
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val testReg1 = newUReg() and testReg2 = newUReg()
+                val testCode =
+                    codeToICodeTarget(arg1, context, false, arg1Reg) @
+                    codeToICodeTarget(arg2, context, false, arg2Reg)
+                val getResultCode =
+                    case fpMode of
+                        FPModeX87 =>
+                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                             ArithmeticFunction{
+                                oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 },
+                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                    |   FPModeSSE2 =>
+                            [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel}]
+            in
+                testCode @
+                    [CompareFloatingPt{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef1}] @ (* Not reversed. *)
+                     getResultCode
             end
 
         |   codeCondition(

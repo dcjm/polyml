@@ -166,6 +166,7 @@ sig
    val genRTSCallFast:    int * code -> unit
    val genRTSCallFull:    int * code -> unit
    val genRTSCallFastFloatFloat: code -> unit
+   val genRTSCallFastGeneralFloat: code -> unit
    
    val genOpcode: opcode * code -> unit
 

@@ -121,6 +121,8 @@ struct
                 |   reverseTest JGE = JL
                 |   reverseTest JO  = JNO
                 |   reverseTest JNO = JO
+                |   reverseTest JP  = JNP
+                |   reverseTest JNP = JP
 
                 fun reversePrediction PredictNeutral = PredictNeutral
                 |   reversePrediction PredictTaken = PredictNotTaken

@@ -41,6 +41,11 @@ functor X86ICodeToX86Code(
 struct
     open X86CODE
 
+    datatype fpMode = FPModeSSE2 | FPModeX87
+
+    (* For the moment use SSE2 only on X86/64. Not all 32-bit processors support SSE2. *)
+    val fpMode: fpMode = if isX64 then FPModeSSE2 else FPModeX87
+
     open Address
 
     datatype pregKind =
@@ -208,6 +213,12 @@ struct
            number of items (bytes or words) to move. *)
     |   BlockMove of { srcAddr: argument, destAddr: argument, length: argument, isByteMove: bool }
 
+        (* Floating point comparison. *)
+    |   CompareFloatingPt of { arg1: argument, arg2: argument, ccRef: ccRef }
+
+        (* The X87 FP unit does not generate condition codes directly.  We have to
+           load the cc into RAX and test it there. *)
+    |   GetFloatingPtCondition of { ccRef: ccRef, dest: argument }
     
     exception InternalError = Misc.InternalError
 
@@ -322,6 +333,19 @@ struct
                 MoveArgument{ source=AddressConstant srcValue, dest=MemoryLocation mLoc, kind=WordToWord} :: rest, code) =
                 codeGenICode(rest,
                     StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset mLoc} :: code)
+
+                (* Load a floating point value. *)
+        |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex},
+                                dest=RealRegister(FPReg fpReg), kind=WordToWord} :: rest, code) =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
+            in
+                codeGenICode(rest, FPLoadFromMemory{ base=baseReg, offset=offset } :: code)
+            end
+
+        |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex},
+                                dest=RealRegister(XMMReg xmmRegReg), kind=WordToWord} :: rest, code) =
+                codeGenICode(rest, XMMArithRMem { opc= SSE2Move, base=baseReg, offset=offset, output=xmmRegReg } :: code)
 
         |   codeGenICode(MoveArgument _ :: _, _) =
                 raise InternalError "codeGenICode: TODO MoveArgument"
@@ -655,6 +679,39 @@ struct
                 val _ = asGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
             in
                 codeGenICode(rest, RepeatOperation(if isByteMove then MOVSB else MOVSL) :: code)
+            end
+
+        |   codeGenICode(
+                CompareFloatingPt {
+                    arg1=RealRegister(FPReg fpReg),
+                    arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, ... } :: rest, code) =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
+                (* This currently pops the value. *)
+                (*val _ = fpMode = FPModeX87 orelse raise InternalError "codeGenICode: FCOMP in SSE2 mode"*)
+            in
+                codeGenICode(rest, FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code)
+            end
+
+        |   codeGenICode(
+                CompareFloatingPt {
+                    arg1=RealRegister(XMMReg xmmReg),
+                    arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, ... } :: rest, code) =
+            let
+            in
+                codeGenICode(rest, XMMArithRMem { opc= SSE2Comp, output=xmmReg, base=baseReg, offset=offset} :: code)
+            end
+
+        |   codeGenICode(CompareFloatingPt _ :: _, _) =
+                raise InternalError "codeGenICode: CompareFloatingPt: TODO"
+
+        |   codeGenICode(GetFloatingPtCondition { dest, ... } :: rest, code) =
+            let
+                val _ = asGenReg dest = eax orelse raise InternalError "codeGenICode: GetFloatingPtCondition not eax"
+                (* This currently pops the value. *)
+                (*val _ = fpMode = FPModeX87 orelse raise InternalError "codeGenICode: FPStatusToEAX in SSE2 mode"*)
+            in
+                codeGenICode(rest, FPStatusToEAX :: code)
             end
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)
