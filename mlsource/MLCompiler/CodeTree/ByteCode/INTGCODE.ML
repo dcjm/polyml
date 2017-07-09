@@ -496,8 +496,9 @@ struct
                 |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
                 |   SignedToLongWord => genOpcode(opcode_signedToLongW, cvec)
                 |   UnsignedToLongWord => genOpcode(opcode_unsignedToLongW, cvec)
-                |   RealAbs => raise InternalError "TODO: RealAbs"
-                |   RealNeg => raise InternalError "TODO: RealNeg"
+                |   RealAbs => genOpcode(opcode_realAbs, cvec)
+                |   RealNeg => genOpcode(opcode_realNeg, cvec)
+                |   FloatFixedInt => genOpcode(opcode_floatFixedInt, cvec)
             end
 
         |   BICBuiltIn2 { oper, arg1, arg2 } =>
@@ -569,13 +570,11 @@ struct
                 |   RealComparison TestGreater => genOpcode(opcode_realGreater, cvec)
                 |   RealComparison TestGreaterEqual => genOpcode(opcode_realGreaterEq, cvec)
 
-                |   RealArith ArithAdd => raise InternalError "TODO: RealArith ArithAdd"
-                |   RealArith ArithSub => raise InternalError "TODO: RealArith ArithSub"
-                |   RealArith ArithMult => raise InternalError "TODO: RealArith ArithMult"
-                |   RealArith ArithQuot => raise InternalError "TODO: RealArith ArithQuot"
-                |   RealArith ArithRem => raise InternalError "TODO: RealArith ArithRem"
-                |   RealArith ArithDiv => raise InternalError "TODO: RealArith ArithDiv"
-                |   RealArith ArithMod => raise InternalError "TODO: RealArith ArithMod"
+                |   RealArith ArithAdd => genOpcode(opcode_realAdd, cvec)
+                |   RealArith ArithSub => genOpcode(opcode_realSub, cvec)
+                |   RealArith ArithMult => genOpcode(opcode_realMult, cvec)
+                |   RealArith ArithDiv => genOpcode(opcode_realDiv, cvec)
+                |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
                  ;
                 decsp() (* Removes one item from the stack. *)
             end

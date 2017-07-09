@@ -52,8 +52,12 @@ sig
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
-    datatype floatingPtOps = FPOpAdd | FPOpSub | FPOpMul | FPOpDiv
-    and boxKind = BoxLargeWord | BoxFloat
+    datatype boxKind = BoxLargeWord | BoxFloat
+
+    and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
+    and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
+    and      sse2Operations =
+        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And
 
     val argThreadSelf: int (* Copied from X86CodeSgig *)
 
@@ -234,12 +238,19 @@ sig
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
-    |   GetFloatingPtCondition of { ccRef: ccRef, dest: argument }
+    |   X87FPGetCondition of { ccRef: ccRef, dest: argument }
 
-        (* Floating point arithmetic.  These are different depending on whether we're
-           using X87 FP or SSE2. *)
-    |   FloatingPointArith of
-            { opc: floatingPtOps, resultReg: argument, arg1: argument, arg2: argument }
+        (* Binary floating point operations on the X87. *)
+    |   X87FPArith of { opc: fpOps, resultReg: argument, arg1: argument, arg2: argument }
+
+        (* Floating point operations: negate and set sign positive. *)
+    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: argument, source: argument }
+
+        (* Load a fixed point value as a floating point value. *)
+    |   FloatFixedInt of { dest: argument, source: argument }
+
+        (* Binary floating point operations using SSE2 instructions. *)
+    |   SSE2FPArith of { opc: sse2Operations, resultReg: argument, arg1: argument, arg2: argument }
 
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address

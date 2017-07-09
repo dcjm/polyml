@@ -628,7 +628,10 @@ void GCSharingPhase(void)
     for (unsigned j = 0; j < gMem.ncSpaces; j++)
     {
         CodeSpace *space = gMem.cSpaces[j];
-        sharer.ScanAddressesInRegion(space->bottom, space->top);
+        // N.B.  We must not scan beyond topPointer here.  Above that is a byte
+        // filler "cell" and the code here will attempt to share that possibly
+        // replacing its length word with a forwarding pointer.
+        sharer.ScanAddressesInRegion(space->bottom, space->topPointer);
     }
 
     // Process the RTS roots.

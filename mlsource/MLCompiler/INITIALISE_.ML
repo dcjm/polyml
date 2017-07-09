@@ -845,6 +845,7 @@ struct
             val () = enterBinaryOp("/",     ArithDiv)
             val () = enterUnary("~",   RealNeg, unaryType)
             val () = enterUnary("abs", RealAbs, unaryType)
+            val () = enterUnary("fromFixedInt", FloatFixedInt, fixedIntType ->> Real)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")

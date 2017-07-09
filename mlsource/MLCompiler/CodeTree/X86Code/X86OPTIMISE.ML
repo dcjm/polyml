@@ -143,8 +143,8 @@ struct
                 (* Combine adjacent resets. *)
                 forward(ResetStack(count1+count2) :: tl, list, true)
 
-        |   forward((a as ArithRConst{ opc=opA, output=outA, source=constA }) ::
-                    (b as ArithRConst{ opc=opB, output=outB, source=constB }) :: tl, list, rep) =
+        |   forward((a as ArithToGenReg{ opc=opA, output=outA, source=ShortConstArg constA }) ::
+                    (b as ArithToGenReg{ opc=opB, output=outB, source=ShortConstArg constB }) :: tl, list, rep) =
             if outA = outB andalso (opA = ADD orelse opA = SUB) andalso (opB = ADD orelse opB = SUB)
             then
             let
@@ -162,7 +162,7 @@ struct
             in
                 (* We could extract the case where the result is zero but that
                    doesn't seem to occur. *)
-                forward(ArithRConst{ opc=opc, output=outA, source=result } :: tl, list, true)
+                forward(ArithToGenReg{ opc=opc, output=outA, source=ShortConstArg result } :: tl, list, true)
             end
             else forward(b :: tl, a :: list, rep)
 
@@ -296,10 +296,7 @@ struct
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 *)
 
-        |   reverse((r as FreeRegisters _) :: (f as MakeSafe _) :: tl, list, _) =
-                reverse(f :: r :: tl, list, true) (* Push it back *)
-
-        |   reverse((r as FreeRegisters _) :: (f as ArithRConst _) :: tl, list, _) =
+        |   reverse((r as FreeRegisters _) :: (f as ArithToGenReg{source=ShortConstArg _, ...}) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 
         |   reverse((r as FreeRegisters _) :: (f as FPStatusToEAX) :: tl, list, _) =
@@ -308,7 +305,7 @@ struct
         |   reverse((r as FreeRegisters _) :: (f as FPLoadFromConst _) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 
-        |   reverse((r as FreeRegisters _) :: (f as MoveRR _) :: tl, list, _) =
+        |   reverse((r as FreeRegisters _) :: (f as MoveToRegister{source=RegisterArg _, ...}) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 
         |   reverse((r as FreeRegisters regs) :: (f as FPArithR{source, ...}) :: tl, list, rep) =

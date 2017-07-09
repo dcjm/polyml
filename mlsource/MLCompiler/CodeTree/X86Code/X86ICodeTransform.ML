@@ -1669,7 +1669,7 @@ struct
                 raise InternalError "codeICode: CompareFloatingPt"
 
         |   codeICode{
-                icode=GetFloatingPtCondition{ ccRef, dest } :: rest, state=NormalState state, code, context=context} =
+                icode=X87FPGetCondition{ ccRef, dest } :: rest, state=NormalState state, code, context=context} =
             let
                 val destReg = argToUReg dest
                 (* Check we have the condition. *)
@@ -1685,14 +1685,13 @@ struct
                     {valueStack=valueStack, ccState=ccState, untaggedRegs=[{ureg=destReg, reg=GenReg eax}]}
             in
                 codeICode{icode=rest, state=NormalState resultState,
-                    code= GetFloatingPtCondition{ ccRef=ccRef, dest=raxAsArg } :: pushCode @ code,
+                    code= X87FPGetCondition{ ccRef=ccRef, dest=raxAsArg } :: pushCode @ code,
                     context=context}
             end
 
         |   codeICode{
-                icode=FloatingPointArith{
-                        opc,
-                        resultReg,
+                icode=X87FPArith{
+                        opc, resultReg,
                         arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
                         arg2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}} :: rest,
                       state=NormalState state, code, context=context} =
@@ -1702,17 +1701,14 @@ struct
                 val startState as {valueStack, ...} = checkTopInRax(state, argToPReg bReg2)
                 val loadArgAddr = loadSource(bReg1, ebx, startState)
 
-                val floatingPointReg =
-                    case fpMode of
-                        FPModeX87 => FPReg fp0
-                    |   FPModeSSE2 => XMMReg xmm0
+                val floatingPointReg = FPReg fp0
                 val destReg = argToUReg resultReg
                 val resultState =
                     {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
             in
                 codeICode{icode=rest, state=NormalState resultState,
                           code=
-                            FloatingPointArith{
+                            X87FPArith{
                                 opc=opc, resultReg=RealRegister floatingPointReg, arg1=RealRegister floatingPointReg,
                                 arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}} ::
                             MoveArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
@@ -1721,8 +1717,137 @@ struct
                           context=context}
             end
 
-        |   codeICode{icode=FloatingPointArith _ :: _, ...} =
-                raise InternalError "codeICode: FloatingPointArith"
+        |   codeICode{icode=X87FPArith _ :: _, ...} =
+                raise InternalError "codeICode: X87FPArith"
+
+        |   codeICode{
+                icode=SSE2FPArith{
+                        opc, resultReg,
+                        arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
+                        arg2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}} :: rest,
+                      state=NormalState state, code, context=context} =
+            let
+                (* The address of the first argument will be on the stack.  The second
+                   will be in Rax. *)
+                val startState as {valueStack, ...} = checkTopInRax(state, argToPReg bReg2)
+                val loadArgAddr = loadSource(bReg1, ebx, startState)
+
+                val floatingPointReg = XMMReg xmm0
+                val destReg = argToUReg resultReg
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+                (* We can't use this for the logical operations since they require 128-bit args. *)
+                val () =
+                    case opc of
+                        SSE2Xor => raise InternalError "codeICode: SSE2FPArith - SSE2Xor"
+                    |   SSE2And => raise InternalError "codeICode: SSE2FPArith - SSE2And"
+                    |   _ => ()
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                          code=
+                            SSE2FPArith{
+                                opc=opc, resultReg=RealRegister floatingPointReg, arg1=RealRegister floatingPointReg,
+                                arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}} ::
+                            MoveArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
+                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                            loadArgAddr @ code,
+                          context=context}
+            end
+
+        |   codeICode{
+                icode=SSE2FPArith{
+                        opc, resultReg,
+                        arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
+                        arg2 as AddressConstant _} :: rest,
+                      state=NormalState state, code, context=context} =
+            let
+                (* This is used for the logical operations to invert or mask the sign bit.
+                   Both arguments need to be loaded into registers because any memory
+                   argument must be a 128-bit value. *)
+                val {valueStack, ...} = checkTopInRax(state, argToPReg bReg1)
+                val floatingPointReg0 = XMMReg xmm0
+                val floatingPointReg1 = XMMReg xmm1
+                val destReg = argToUReg resultReg
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg0}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                          code=
+                            SSE2FPArith{
+                                opc=opc, resultReg=RealRegister floatingPointReg0, arg1=RealRegister floatingPointReg0,
+                                arg2=RealRegister floatingPointReg1} ::
+                            MoveArgument{source=arg2, dest=RealRegister floatingPointReg1, kind=WordToWord} ::
+                            MoveArgument{source=MemoryLocation{offset=offset1, base=raxAsArg, index=NoMemIndex},
+                                dest=RealRegister floatingPointReg0, kind=WordToWord} ::
+                            code,
+                          context=context}
+            end
+
+        |   codeICode{icode=SSE2FPArith _ :: _, ...} =
+                raise InternalError "codeICode: SSE2FPArith"
+
+        |   codeICode{
+                icode=X87FPUnaryOps{ fpOp, dest, source=MemoryLocation{offset=offset, base=bReg, index=NoMemIndex}} :: rest,
+                      state=NormalState state, code, context=context} =
+            let
+                (* The address of the argument will be on the stack. *)
+                val {valueStack, ...} = checkTopInRax(state, argToPReg bReg)
+
+                val floatingPointReg = FPReg fp0
+                val destReg = argToUReg dest
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                          code=
+                            X87FPUnaryOps{fpOp=fpOp, dest=RealRegister floatingPointReg, source=RealRegister floatingPointReg} ::
+                            MoveArgument{source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex},
+                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                            code,
+                          context=context}
+            end
+
+        |   codeICode{icode=X87FPUnaryOps _ :: _, ...} =
+                raise InternalError "codeICode: X87FPUnaryOps"
+
+        |   codeICode{icode=FloatFixedInt{ dest, source} :: rest, state=NormalState ({untaggedRegs, valueStack, ...}), code, context=context} =
+            let
+                (* The fixed point value should be in an untagged register. *)
+                val op1Reg = argToUReg source
+                val realOpReg =
+                    case List.find (fn {ureg, ...} => ureg = op1Reg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: Multiplication"
+                val (floatingPointReg, floatCode) =
+                    case fpMode of
+                        FPModeX87 => 
+                        let
+                            (* This is complicated.  The integer value has to be in memory not in a
+                               register so we have to push it to the stack and then make sure it is
+                               popped afterwards.  Because it is untagged it is unsafe to leave it. *)
+                            val fpReg = FPReg fp0
+                            val fpCode =
+                                [
+                                    ResetStackPtr {numWords=1},
+                                    FloatFixedInt{dest=RealRegister fpReg, source=wordOffsetAddress(0, esp)},
+                                    PushValue{arg=RealRegister realOpReg}
+                                ]
+                        in
+                            (fpReg, fpCode)
+                        end
+                    |   FPModeSSE2 =>
+                        let
+                            val fpReg = XMMReg xmm0
+                        in
+                            (fpReg, [FloatFixedInt{dest=RealRegister fpReg, source=RealRegister realOpReg}])
+                        end
+                val destReg = argToUReg dest
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState, code=floatCode @ code,context=context}
+            end
+
 
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"

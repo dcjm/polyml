@@ -78,8 +78,7 @@ struct
     (* The reference to a condition code. *)
     and ccRef = CcRef of int
 
-    datatype floatingPtOps = FPOpAdd | FPOpSub | FPOpMul | FPOpDiv
-    and boxKind = BoxLargeWord | BoxFloat
+    datatype boxKind = BoxLargeWord | BoxFloat
 
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
@@ -221,12 +220,20 @@ struct
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
-    |   GetFloatingPtCondition of { ccRef: ccRef, dest: argument }
+    |   X87FPGetCondition of { ccRef: ccRef, dest: argument }
 
-        (* Floating point arithmetic.  These are different depending on whether we're
-           using X87 FP or SSE2. *)
-    |   FloatingPointArith of
-            { opc: floatingPtOps, resultReg: argument, arg1: argument, arg2: argument }
+        (* Binary floating point operations on the X87. *)
+    |   X87FPArith of
+            { opc: fpOps, resultReg: argument, arg1: argument, arg2: argument }
+
+        (* Floating point operations: negate and set sign positive. *)
+    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: argument, source: argument }
+
+        (* Load a fixed point value as a floating point value. *)
+    |   FloatFixedInt of { dest: argument, source: argument }
+
+        (* Binary floating point operations using SSE2 instructions. *)
+    |   SSE2FPArith of { opc: sse2Operations, resultReg: argument, arg1: argument, arg2: argument }
     
     exception InternalError = Misc.InternalError
 
@@ -293,18 +300,27 @@ struct
         |   memoryIndexAsIndex(MemIndex8(RealRegister(GenReg iReg))) = Index8 iReg
         |   memoryIndexAsIndex _ = raise InternalError "memoryIndexAsIndex"
 
+        and sourceAsGenRegOrMem(RealRegister(GenReg r)) = RegisterArg r
+        |   sourceAsGenRegOrMem(MemoryLocation{offset, base=RealRegister(GenReg baseReg), index}) =
+                MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
+        |   sourceAsGenRegOrMem(IntegerConstant v) = ShortConstArg v
+        |   sourceAsGenRegOrMem(AddressConstant v) = LongConstArg v
+        |   sourceAsGenRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
+
+        and sourceAsXMMRegOrMem(RealRegister(XMMReg r)) = RegisterArg r
+        |   sourceAsXMMRegOrMem(MemoryLocation{offset, base=RealRegister(GenReg baseReg), index}) =
+                MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
+        |   sourceAsXMMRegOrMem(IntegerConstant v) = ShortConstArg v
+        |   sourceAsXMMRegOrMem(AddressConstant v) = LongConstArg v
+        |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
+
         (* Turn the icode into machine code.  This produces the code in reverse. *)
         fun codeGenICode([], code) = code
 
         |   codeGenICode(
-                (* Register-register move. *)
-                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
-                    codeGenICode(rest, MoveRR { source=sourceReg, output=destReg } :: code)
-
-        |   codeGenICode(
-                (* Load from memory. *)
-                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
-                codeGenICode(rest, LoadMemR{source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
+                (* Load to a general register or move to a general register. *)
+                MoveArgument{ source, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
+                    codeGenICode(rest, MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg } :: code)
 
         |   codeGenICode(
                 (* Load from memory. *)
@@ -321,14 +337,6 @@ struct
                 MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=ByteToByte} :: rest, code) =
                 codeGenICode(rest,
                     StoreByteRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
-
-                (* Move a short constant to a register *)
-        |   codeGenICode(MoveArgument {source=IntegerConstant srcValue, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
-                codeGenICode(rest, MoveConstR{source=srcValue, output=destReg} :: code)
-
-                (* Move a long constant to a register *)
-        |   codeGenICode(MoveArgument {source=AddressConstant srcValue, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
-                codeGenICode(rest, MoveLongConstR{source=srcValue, output=destReg} :: code)
 
                 (* Store a short constant to memory *)
         |   codeGenICode(
@@ -351,9 +359,9 @@ struct
                 codeGenICode(rest, FPLoadFromMemory{ base=baseReg, offset=offset } :: code)
             end
 
-        |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex},
-                                dest=RealRegister(XMMReg xmmRegReg), kind=WordToWord} :: rest, code) =
-                codeGenICode(rest, XMMArithRMem { opc= SSE2Move, base=baseReg, offset=offset, output=xmmRegReg } :: code)
+                (* Load or move from an XMM reg. *)
+        |   codeGenICode(MoveArgument{source, dest=RealRegister(XMMReg xmmRegReg), kind=WordToWord} :: rest, code) =
+                codeGenICode(rest, XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
 
                 (* Store a floating point value. *)
         |   codeGenICode(MoveArgument{source=RealRegister(FPReg fpReg),
@@ -449,7 +457,7 @@ struct
                                 (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and edi is free. *)
                                 RepeatOperation STOSL,
                                 (* Move the base address to edi.  It will be updated by the move. *)
-                                MoveRR { source=dReg, output=edi }
+                                MoveToRegister { source=RegisterArg dReg, output=edi }
                             ]
                         end
             in
@@ -491,17 +499,11 @@ struct
         |   codeGenICode(ConditionalForwardJump {condition, label, ...} :: rest, code) =
                 codeGenICode(rest, ConditionalBranch{test=condition, predict=PredictNeutral, label=findLabelRef label} :: code)
 
-        |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=IntegerConstant testVal, ...} :: rest, code) =
-                codeGenICode(rest, ArithRConst {opc=CMP, output=asGenReg arg1, source=testVal} :: code)
-
-        |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=AddressConstant testVal, ...} :: rest, code) =
-                codeGenICode(rest, ArithRLongConst {opc=CMP, output=asGenReg arg1, source=testVal} :: code)
-
-        |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=MemoryLocation{offset, base, index=NoMemIndex}, ...} :: rest, code) =
-                codeGenICode(rest, ArithRMem {opc=CMP, output=asGenReg arg1, offset=offset, base=asGenReg base} :: code)
+        |   codeGenICode(WordComparison {arg1=RealRegister(GenReg r), arg2, ...} :: rest, code) =
+                codeGenICode(rest, ArithToGenReg {opc=CMP, output=r, source=sourceAsGenRegOrMem arg2} :: code)
 
         |   codeGenICode(WordComparison _ :: _, _) =
-                raise InternalError "codeGenICode: TODO JumpOnWordComparison"
+                raise InternalError "codeGenICode: TODO WordComparison"
 
         |   codeGenICode(PushExceptionHandler { handlerAddr, handleStart=ILabel hStart, ... } :: rest, code) =
             let (* Set up an exception handler. *)
@@ -516,9 +518,9 @@ struct
                 codeGenICode(rest,
                     StoreRegToMemory{
                         toStore=esp, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
-                    PushR handleReg ::
+                    PushToStack(RegisterArg handleReg) ::
                     LoadHandlerAddress{ handlerLab=labelRef, output=handleReg} ::
-                    PushMem{base=ebp, offset=memRegHandlerRegister} :: code)
+                    PushToStack(MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}) :: code)
             end
 
         |   codeGenICode(PopExceptionHandler { workReg, ... } :: rest, code) =
@@ -550,7 +552,7 @@ struct
                     StoreRegToMemory{
                         toStore=wReg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
                     PopR wReg :: ResetStack 1 ::
-                    LoadMemR{ source=BaseOffset{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp } ::
+                    MoveToRegister{ source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp } ::
                     StartHandler{handlerLab=labelRef} :: code)
             end
 
@@ -560,31 +562,11 @@ struct
         |   codeGenICode(
                 ArithmeticFunction{
                     oper, resultReg=RealRegister(GenReg resReg), operand1=RealRegister(GenReg op1Reg),
-                    operand2=IntegerConstant op2Value, ...} :: rest, code) =
+                    operand2, ...} :: rest, code) =
             let
                 val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
             in
-                codeGenICode(rest, ArithRConst { opc=oper, output=resReg, source=op2Value } :: code)
-            end
-
-        |   codeGenICode(
-                ArithmeticFunction{
-                    oper, resultReg=RealRegister(GenReg resReg), operand1=RealRegister(GenReg op1Reg),
-                    operand2=RealRegister(GenReg op2Reg), ...} :: rest, code) =
-            let
-                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
-            in
-                codeGenICode(rest, ArithRR { opc=oper, output=resReg, source=op2Reg } :: code)
-            end
-
-        |   codeGenICode(
-                ArithmeticFunction{
-                    oper, resultReg=RealRegister(GenReg resReg), operand1=RealRegister(GenReg op1Reg),
-                    operand2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, ...} :: rest, code) =
-            let
-                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
-            in
-                codeGenICode(rest, ArithRMem { opc=oper, output=resReg, offset=offset, base=baseReg } :: code)
+                codeGenICode(rest, ArithToGenReg { opc=oper, output=resReg, source=sourceAsGenRegOrMem operand2 } :: code)
             end
 
         |   codeGenICode(ArithmeticFunction _ :: _, _) =
@@ -594,10 +576,10 @@ struct
                 codeGenICode(rest, TestTagR(asGenReg arg) :: code)
 
         |   codeGenICode(PushValue { arg = RealRegister(GenReg r) } :: rest, code) =
-                codeGenICode(rest, PushR r :: code)
+                codeGenICode(rest, PushToStack(RegisterArg r) :: code)
 
         |   codeGenICode(PushValue { arg = IntegerConstant v } :: rest, code) =
-                codeGenICode(rest, PushConst v :: code)
+                codeGenICode(rest, PushToStack(ShortConstArg v) :: code)
 
         |   codeGenICode(PushValue _ :: _, _) =
                 raise InternalError "codeGenICode: TODO PushValue"
@@ -670,7 +652,7 @@ struct
                    division that means sign-extending rdx, for unsigned division we clear it. *)
                 val setRDX =
                     if isSigned then SignExtendForDivide
-                    else ArithRR{ opc=XOR, output=edx, source=edx }
+                    else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx }
             in
                 codeGenICode(rest, DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX :: code)
             end
@@ -714,16 +696,13 @@ struct
                 codeGenICode(rest, FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code)
             end
 
-        |   codeGenICode(
-                CompareFloatingPt {
-                    arg1=RealRegister(XMMReg xmmReg),
-                    arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, ... } :: rest, code) =
-                codeGenICode(rest, XMMArithRMem { opc= SSE2Comp, output=xmmReg, base=baseReg, offset=offset} :: code)
+        |   codeGenICode(CompareFloatingPt {arg1=RealRegister(XMMReg xmmReg), arg2, ... } :: rest, code) =
+                codeGenICode(rest, XMMArith { opc= SSE2Comp, output=xmmReg, source=sourceAsXMMRegOrMem arg2} :: code)
 
         |   codeGenICode(CompareFloatingPt _ :: _, _) =
                 raise InternalError "codeGenICode: CompareFloatingPt: TODO"
 
-        |   codeGenICode(GetFloatingPtCondition { dest, ... } :: rest, code) =
+        |   codeGenICode(X87FPGetCondition { dest, ... } :: rest, code) =
             let
                 val _ = asGenReg dest = eax orelse raise InternalError "codeGenICode: GetFloatingPtCondition not eax"
                 (* This currently pops the value. *)
@@ -733,40 +712,54 @@ struct
             end
 
         |   codeGenICode(
-                FloatingPointArith {
+                X87FPArith {
                     opc, resultReg=RealRegister(FPReg fpResReg), arg1=RealRegister(FPReg fpArgReg),
                     arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex} } :: rest, code) =
             let
-                val fpOp =
-                    case opc of
-                        FPOpAdd => FADD
-                    |   FPOpSub => FSUB
-                    |   FPOpMul => FMUL
-                    |   FPOpDiv => FDIV
                 val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
                 val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
             in
-                codeGenICode(rest, FPArithMemory{opc=fpOp, base=baseReg, offset=offset} :: code)
+                codeGenICode(rest, FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code)
             end
+
+        |   codeGenICode(X87FPArith _ :: _, _) =
+                raise InternalError "codeGenICode: X87FPArith: TODO"
 
         |   codeGenICode(
-                FloatingPointArith {
-                    opc, resultReg=RealRegister(XMMReg xmmResReg), arg1=RealRegister(XMMReg xmmArgReg),
-                    arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex} } :: rest, code) =
+                SSE2FPArith {
+                    opc, resultReg=RealRegister(XMMReg xmmResReg), arg1=RealRegister(XMMReg xmmArgReg), arg2 } :: rest, code) =
             let
-                val fpOp =
-                    case opc of
-                        FPOpAdd => SSE2Add
-                    |   FPOpSub => SSE2Sub
-                    |   FPOpMul => SSE2Mul
-                    |   FPOpDiv => SSE2Div
                 val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
             in
-                codeGenICode(rest, XMMArithRMem{ opc=fpOp, output=xmmResReg, base=baseReg, offset=offset} :: code)
+                codeGenICode(rest, XMMArith{ opc=opc, output=xmmResReg, source=sourceAsXMMRegOrMem arg2} :: code)
             end
 
-        |   codeGenICode(FloatingPointArith _ :: _, _) =
-                raise InternalError "codeGenICode: FloatingPointArith: TODO"
+        |   codeGenICode(SSE2FPArith _ :: _, _) =
+                raise InternalError "codeGenICode: SSE2FPArith: TODO"
+
+        |   codeGenICode(X87FPUnaryOps {fpOp, dest=RealRegister(FPReg fpResReg), source=RealRegister(FPReg fpArgReg)} :: rest, code) =
+            let
+                val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
+                val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
+            in
+                codeGenICode(rest, FPUnary fpOp :: code)
+            end
+
+        |   codeGenICode(X87FPUnaryOps _ :: _, _) =
+                raise InternalError "codeGenICode: FloatingPointNeg: TODO"
+
+        |   codeGenICode(FloatFixedInt { dest=RealRegister(XMMReg xmmResReg), source=RealRegister(GenReg srcReg) } :: rest, code) =
+                codeGenICode(rest, XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code)
+
+        |   codeGenICode(FloatFixedInt { dest=RealRegister(FPReg fpReg), source=MemoryLocation{base, offset, index=NoMemIndex} } :: rest, code) =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: FloatFixedInt not fp0"
+            in
+                codeGenICode(rest, FPLoadInt{ base=asGenReg base, offset=offset} :: code)
+            end
+
+        |   codeGenICode(FloatFixedInt _ :: _, _) =
+                raise InternalError "codeGenICode: FloatFixedInt: TODO"
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)
         |   codeGenICode(MoveStackArgToPreg _ :: _, _) =
@@ -798,7 +791,7 @@ struct
                across the trap. *)
             val saveRegs = inputRegisters
             fun pushThenPop [] = [CallRTS entryPt]
-            |   pushThenPop (aReg::regs) = PushR aReg :: (pushThenPop regs @ [PopR aReg])
+            |   pushThenPop (aReg::regs) = PushToStack(RegisterArg aReg) :: (pushThenPop regs @ [PopR aReg])
             (* Normally we won't have a stack overflow so we will skip the check. *)
             fun condBranch(test, predict) =
             let
@@ -809,7 +802,7 @@ struct
             end
             val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
         in
-            [ArithRMem{ opc=CMP, output=reg, offset=memRegStackLimit, base=ebp }] @
+            [ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }] @
             skipCheck @ pushThenPop saveRegs @ [JumpLabel skipCheckLab]
         end
         val preludeCode =

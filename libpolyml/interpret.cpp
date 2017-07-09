@@ -44,6 +44,14 @@
 #include <string.h>
 #endif
 
+#ifdef HAVE_FLOAT_H
+#include <float.h>
+#endif
+
+#ifdef HAVE_MATH_H
+#include <math.h>
+#endif
+
 #include "globals.h"
 #include "int_opcodes.h"
 #include "machine_dep.h"
@@ -1448,6 +1456,31 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_realAbs:
+        {
+            PolyObject *t = this->boxDouble(fabs(unboxDouble(*sp)));
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_realNeg:
+        {
+            PolyObject *t = this->boxDouble(-(unboxDouble(*sp)));
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_floatFixedInt:
+        {
+            POLYSIGNED u = UNTAGGED(*sp);
+            PolyObject *t = this->boxDouble((double)u);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
         case INSTR_equalWord:
         {
             PolyWord u = *sp++;
@@ -1902,6 +1935,46 @@ int IntTaskData::SwitchToPoly()
         {
             double u = unboxDouble(*sp++);
             *sp =  unboxDouble(*sp) >= u ? True: False;
+            break;
+        }
+
+        case INSTR_realAdd:
+        {
+            double u = unboxDouble(*sp++);
+            double v = unboxDouble(*sp);
+            PolyObject *t = this->boxDouble(v+u);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_realSub:
+        {
+            double u = unboxDouble(*sp++);
+            double v = unboxDouble(*sp);
+            PolyObject *t = this->boxDouble(v-u);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_realMult:
+        {
+            double u = unboxDouble(*sp++);
+            double v = unboxDouble(*sp);
+            PolyObject *t = this->boxDouble(v*u);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_realDiv:
+        {
+            double u = unboxDouble(*sp++);
+            double v = unboxDouble(*sp);
+            PolyObject *t = this->boxDouble(v/u);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
             break;
         }
 

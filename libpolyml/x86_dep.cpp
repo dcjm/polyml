@@ -1542,6 +1542,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         // We've finished when this is word aligned and points to a zero word.
         if (((POLYUNSIGNED)pt & (0-sizeof(POLYUNSIGNED))) && ((PolyWord*)pt)->AsUnsigned() == 0)
             break;
+        // Escape prefixes come before any Rex byte
+        byte escPrefix = 0;
+        if (*pt == 0xf2 || *pt == 0x66)
+            escPrefix = *pt++;
 #ifdef HOSTARCHITECTURE_X86_64
         // REX prefixes.  Set this first.
         byte lastRex;
@@ -1736,6 +1740,11 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                     /* Conditional branches with 32-bit displacement. */
                     pt += 5; break;
 
+                // These are SSE2 instructions
+                case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
+                case 0x2e: case 0x2a: case 0x54: case 0x57:
+                    pt++; skipea(&pt, process, false); break;
+
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);
                 }
                 break;
@@ -1747,23 +1756,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 if ((*pt & 0xe0) == 0xe0) pt++;
                 else skipea(&pt, process, false);
-                break;
-            }
-
-        case 0xf2: // Beginning of SSE2 sequence.  Can also be RETNE but we don't use that.
-        case 0x66: // Beginning of ucompisd sequence.  Can be OPSIZE but we don't use that.
-            {
-                pt++;
-                if (*pt != 0x0f) Crash("Unknown opcode 0xf2/66:%d at %p\n", *pt, pt);
-                pt++;
-                switch (*pt)
-                {
-                case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
-                case 0x2e:
-                    pt++; skipea(&pt, process, false); break;
-
-                default: Crash("Unknown opcode 0xf2:0x0f:%d at %p\n", *pt, pt);
-                }
                 break;
             }
 

@@ -22,6 +22,14 @@ infix  4  = <> > >= < <=
 infix  3  := o
 infix  0  before
 
+(* Include this for the moment.  TODO: Check why Real, at any rate, requires
+   the "redundant" structure binding in order for the built-ins to be
+   properly inlined. *)
+structure RunCall =
+struct
+    open RunCall
+end;
+
 (* Types and values from the initial Bool structure. *)
 datatype bool = datatype Bool.bool
 val not = Bool.not;
@@ -212,7 +220,8 @@ struct
     end
 end;
 
-
+(* We seem to need to have these apparently redundant structures to
+   make sure the built-ins are inlined.  *)
 structure Char =
 struct
     open Char
@@ -234,13 +243,6 @@ end;
 structure Real =
 struct
     open Real
-
-    val ~ : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Neg_real
-    val abs : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Abs_real
-
-    (* fromFixedInt is used internally and not exported from the final version of Real. *)
-    val fromFixedInt: FixedInt.int -> real = RunCall.run_call1 RuntimeCalls.POLY_SYS_fixed_to_real
-
 end;
 
 val () = RunCall.addOverload Real.>= ">="
