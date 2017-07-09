@@ -475,7 +475,7 @@ struct
         [MoveRR{source=source, output=output}]
 
     |   moveRegisterToRegister(GenReg source, FPReg output) =
-        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromGenReg source]
+        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromMemory{base=source, offset=0}]
 
     |   moveRegisterToRegister(FPReg source, FPReg output) =
         [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromFPReg{source=source, lastRef=false}]
@@ -4604,7 +4604,7 @@ struct
                     val loadToStack =
                         case stackArg of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromGenReg reg
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "testActions"
                     val fpOperation =
@@ -4675,7 +4675,7 @@ struct
                     val loadToStack =
                         case stackArg of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromGenReg reg
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genBinaryFP"
                     val fpOperation =
@@ -4698,7 +4698,7 @@ struct
                     val loadToStack =
                         case opn of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromGenReg reg
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genUnaryFP"
                 in

@@ -1094,30 +1094,14 @@ struct
             List.app loads expList
         end
       
-    (* code-generates code from the tree *)
-    (* SPF 2/5/95 - primBoolOps added to prevent loop when
-       trying to inline unsupported boolean primitives. We might
-       get the calling sequence:
-       
-         genEval -> genCond -> genTest -> genOtherTests -> gencde -> genEval
-         
-       where both versions of genEval are for the same (unsupported)
-       boolean comparison. If this occurs, the second call will have
-       primBoolOps set to false, and will generate a call to the RTS.
-       
-       Note that "whereto" is only a HINT. There is no guarantee that specifying
-       "UseReg r" will actually get the value loaded into that register. For example,
-       the code that handles constants completely ignores this hint.
-       SPF 15/8/96
-     *)
-    fun gencde (pt, primBoolOps, whereto, tailKind, loopAddr) : mergeResult =
+    fun gencde (pt, whereto, tailKind, loopAddr) : mergeResult =
     let 
       val needsResult : bool = not (isNoResult whereto)
       
       val result : mergeResult = 
         case pt of
           OGCEval {function, argList, resultType, ...} =>
-            genEval (function, argList, resultType, primBoolOps, whereto, tailKind)
+            genEval (function, argList, resultType, whereto, tailKind)
             
         |   OGCBuiltIn0{oper=BuiltIns.CurrentThreadId} => cgAndRes(threadSelf(transtable, whereto))
 
@@ -1151,6 +1135,10 @@ struct
         |   OGCBuiltIn1{oper=BuiltIns.UnsignedToLongWord, arg1} =>
                 cgAndRes(wordToLargeWord(false, genToStack arg1, transtable, whereto))
 
+        |   OGCBuiltIn1{oper=BuiltIns.RealAbs, ...} => raise InternalError "TODO-: OGCBuiltIn1 - RealAbs"
+
+        |   OGCBuiltIn1{oper=BuiltIns.RealNeg, ...} => raise InternalError "TODO-: OGCBuiltIn1 - RealNeg"
+
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
         |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
@@ -1167,6 +1155,10 @@ struct
 
         |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, arg1, arg2} =>
                 cgAndRes(remFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithDiv, ...} => raise InternalError "TODO - Fixed ArithDiv"
+
+        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMod, ...} => raise InternalError "TODO - Fixed ArithMod"
 
         |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2} =>
                 cgAndRes(addWord(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -1189,7 +1181,7 @@ struct
                 |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
             end
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithQuot, arg1, arg2} =>
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2} =>
             (
                 (* Use a right shift if it's a power of two. *)
                 case arg2 of
@@ -1202,7 +1194,7 @@ struct
                 |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
             )
  
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithRem, arg1, arg2} =>
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2} =>
             (
                 (* Use a mask if it's a power of two. *)
                 case arg2 of
@@ -1220,6 +1212,10 @@ struct
                     )
                 |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
             )
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
+
+        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
 
         |   OGCBuiltIn2{oper=BuiltIns.SetStringLengthWord, arg1, arg2} =>
                 cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -1272,13 +1268,17 @@ struct
                 (* TODO: We could use a shift as with Word but N.B. the constants are addresses. *)
                 cgAndRes(multiplyLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, arg1, arg2} =>
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2} =>
                 (* TODO: Use shifts. *)
                 cgAndRes(divideLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
  
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, arg1, arg2} =>
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2} =>
                 (* TODO: Use shifts. *)
                 cgAndRes(modulusLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
+
+        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
 
         |   OGCBuiltIn2{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
                 cgAndRes(andLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -1312,6 +1312,10 @@ struct
                         cgAndRes(downShiftLargeWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
                 |   _ => cgAndRes(downShiftLargeWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
+
+        |   instr as OGCBuiltIn2{oper=BuiltIns.RealComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+        
+        |   OGCBuiltIn2{oper=BuiltIns.RealArith _, ...} => raise InternalError "TODO-RealArith"
 
         |   OGCBuiltIn3{oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3} =>
             let
@@ -1470,7 +1474,7 @@ struct
                     |   _ => NONE
 
                 val () = List.app (codeBinding specificLoc) decs
-                val resultPosn = gencde (exp, true, whereto, tailKind, loopAddr)
+                val resultPosn = gencde (exp, whereto, tailKind, loopAddr)
                 val () = checkBlockResult(transtable, resultPosn)
                 val () = unmarkStack(transtable, startMark)
             in
@@ -1566,7 +1570,7 @@ struct
                 end
                 (* Compile the loop with the jumps back to the start. *)
                 val runLoop =
-                    gencde (body, true, whereto, tailKind,
+                    gencde (body, whereto, tailKind,
                         SOME(startLoop, onLoop, argDestList))
                 (* The state we have here is the state when we haven't taken the loop. *)
             in
@@ -1598,7 +1602,7 @@ struct
                             ArgToRegister reg => UseReg (singleton reg)
                         |   ArgToStack _ => NoHint
                         |   ArgDiscard => NoHint
-                    val res = gencde (arg, true, whereto, NotEnd, NONE)
+                    val res = gencde (arg, whereto, NotEnd, NONE)
                 in
                     case res of
                         MergeIndex index => index
@@ -2045,18 +2049,18 @@ struct
                 (* This is inserted by the higher level code to get the use-counts
                    correct.  Kill entries are OGCExtract entries with lastRef true. *)
                 fun cgKill toKill =
-                    (gencde(toKill, true, NoResult, NotEnd, loopAddr); ())
+                    (gencde(toKill, NoResult, NotEnd, loopAddr); ())
             in
                 if killBefore
                 then (* Process the kill set before the expression. *)
                 (
                     List.app cgKill killSet;
-                    gencde (expression, primBoolOps, whereto, tailKind, loopAddr)
+                    gencde (expression, whereto, tailKind, loopAddr)
                 )
                 else (* Process the expression first, then kill the items *)
                 let
                     val result =
-                        gencde (expression, primBoolOps, whereto, tailKind, loopAddr)
+                        gencde (expression, whereto, tailKind, loopAddr)
                 in
                     List.app cgKill killSet;
                     result
@@ -2075,7 +2079,7 @@ struct
        the location of it on the stack. *)
     and genToStack (pt : oldGenCodeIC) : stackIndex =
         let
-            val res = gencde (pt, true, NoHint, NotEnd, NONE)
+            val res = gencde (pt, NoHint, NotEnd, NONE)
         in
             case res of
                 MergeIndex index => index
@@ -2090,7 +2094,7 @@ struct
        object. *)
     and genToStackOrGeneralRegister(pt : oldGenCodeIC) : stackIndex =
         let
-            val res = gencde (pt, true, NoHint, NotEnd, NONE)
+            val res = gencde (pt, NoHint, NotEnd, NONE)
         in
             case res of
                 MergeIndex index =>
@@ -2102,29 +2106,11 @@ struct
                 end
               | NoMerge => raise InternalError "genToStack: no result"
         end
-(* ...
-   (* Used when the result must be put in a register. *)
-   and genToResult (pt, whereto, tailKind, loopAddr) : unit =
-   let
-     (* Stack results are forced into result register *)
-     val toWhere = if isToPstack whereto then UseReg regResult else whereto;
-     
-     val result = gencde (pt, true, toWhere, tailKind, loopAddr);
-   in
-     (* If we need a result put it in the result reg.  We request exclusive use
-    of it because otherwise there is a problem when merging the results
-    of an if-then-else if the result register is somewhere else on the
-    pstack (e.g. let a == ...; if ... then a else ...) *)
-      case toWhere of
-        UseReg rr => loadToSpecificReg (cvec, transtable, rr, result, true)
-      | _        => ()
-   end (* genToResult *)
-... *)
 
    (* Used when the result must be put in a register. *)
     and genToRegister (pt, whereto, tailKind, loopAddr) : mergeResult =
     let
-        val result = gencde (pt, true, whereto, tailKind, loopAddr)
+        val result = gencde (pt, whereto, tailKind, loopAddr)
     in
         case (whereto, result) of
             (NoResult, _) => NoMerge
@@ -2384,7 +2370,7 @@ struct
         let
             (* We can't use genToStack here because we need primBoolOps to be false. *)
             val arg1Locn =
-                case gencde (pt, false (* primBoolOps *), NoHint, NotEnd, NONE) of
+                case gencde (pt, NoHint, NotEnd, NONE) of
                     MergeIndex index => index
                 |   NoMerge => raise InternalError "genTest: no result"
             val arg2Locn = pushConst (transtable, False)
@@ -2519,6 +2505,8 @@ struct
                 |   BuiltIns.LongWordToTagged => raise InternalError "TODO-genTest: OGCBuiltIn1 - LongWordToTagged"
                 |   BuiltIns.SignedToLongWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - SignedToLongWord"
                 |   BuiltIns.UnsignedToLongWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - UnsignedToLongWord"
+                |   BuiltIns.RealAbs => raise InternalError "TODO-genTest: OGCBuiltIn1 - RealAbs"
+                |   BuiltIns.RealNeg => raise InternalError "TODO-genTest: OGCBuiltIn1 - RealNeg"
            )
 
         |   OGCBuiltIn2{oper, arg1, arg2} =>
@@ -2533,8 +2521,6 @@ struct
                                 (* Equality and inequality are the same for signed and unsigned. *)
                                 (TestEqual, true, _) => equalWord(arg1Locn, arg2Locn, transtable)
                             |   (TestEqual, false, _) => notEqualWord(arg1Locn, arg2Locn, transtable)
-                            |   (TestNotEqual, true, _) => notEqualWord(arg1Locn, arg2Locn, transtable)
-                            |   (TestNotEqual, false, _) => equalWord(arg1Locn, arg2Locn, transtable)
                                 (* Unsigned (Word.word) comparisons. *)
                             |   (TestLess, true, false) => lessThanWord(arg1Locn, arg2Locn, transtable)
                             |   (TestLess, false, false) => greaterOrEqualWord(arg1Locn, arg2Locn, transtable)
@@ -2566,8 +2552,6 @@ struct
                             case (test, jumpOn) of
                                 (TestEqual, true) => equalLargeWord(arg1Locn, arg2Locn, transtable)
                             |   (TestEqual, false) => notEqualLargeWord(arg1Locn, arg2Locn, transtable)
-                            |   (TestNotEqual, true) => notEqualLargeWord(arg1Locn, arg2Locn, transtable)
-                            |   (TestNotEqual, false) => equalLargeWord(arg1Locn, arg2Locn, transtable)
                             |   (TestLess, true) => lessThanLargeWord(arg1Locn, arg2Locn, transtable)
                             |   (TestLess, false) => greaterOrEqualLargeWord(arg1Locn, arg2Locn, transtable)
                             |   (TestGreater, true) => greaterThanLargeWord(arg1Locn, arg2Locn, transtable)
@@ -2598,6 +2582,29 @@ struct
                 |   BuiltIns.LargeWordLogical _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LargeWordLogical"
 
                 |   BuiltIns.LargeWordShift _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LargeWordShift"
+
+                |   BuiltIns.RealComparison test =>
+                    let
+                        open BuiltIns
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            case (test, jumpOn) of
+                                (TestEqual, true) => equalReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestEqual, false) => notEqualReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestLess, true) => lessThanReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestLess, false) => greaterOrEqualReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreater, true) => greaterThanReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreater, false) => lessOrEqualReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestLessEqual, true) => lessOrEqualReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestLessEqual, false) => greaterThanReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreaterEqual, true) => greaterOrEqualReal(arg1Locn, arg2Locn, transtable)
+                            |   (TestGreaterEqual, false) => lessThanReal(arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                |   BuiltIns.RealArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-RealArith"
             )
 
         |   OGCBuiltIn3{oper, ...} =>
@@ -2625,90 +2632,6 @@ struct
             in
                 label
             end
-
-        |   OGCEval {function = OGCConstnt(oper, _), argList = args, ...} =>
-            (* May be an interface operation which can be put in line. *)
-            let
-            in
-                case args of
-                    [] => genOtherTests () (* We don't currently have any nullary special cases *)
-
-                |   [_] => genOtherTests () (* Non-special unary function.*)
-
-                |   [(arg1, _), (arg2, _)] =>
-                    (* binary special cases *)
-
-                    if wordEq (oper,ioOp POLY_SYS_Real_eq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then equalReal else notEqualReal) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-         
-                    else if wordEq (oper,ioOp POLY_SYS_Real_neq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then notEqualReal else equalReal) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_Real_geq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then greaterOrEqualReal else lessThanReal) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_Real_leq)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then lessOrEqualReal else greaterThanReal) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_Real_gtr)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then greaterThanReal else lessOrEqualReal) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_Real_lss)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then lessThanReal else greaterOrEqualReal) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else genOtherTests () (* Non-special binary function. *)
-
-                | _ => (* Functions with more than 2 arguments. *)
-                    genOtherTests ()
-                end (* constant functions *)
 
         |   _ => genOtherTests ()(* Anything else *)
     end
@@ -2747,14 +2670,14 @@ struct
             then
             ( (* Only the "then" part will be executed.  Don't generate the else-part. *)
                 unmarkStack(transtable, mark);
-                gencde (thenExp, true, whereto, tailKind, loopAddr)
+                gencde (thenExp, whereto, tailKind, loopAddr)
             )
             else if haveExited transtable
             then
             ( (* Jump was unconditional - just generate the else-part. *)
                 unmarkStack(transtable, mark);
                 codeGenerate(fixup (lab, transtable), cvec);
-                gencde (elseExp, true, whereto, tailKind, loopAddr)
+                gencde (elseExp, whereto, tailKind, loopAddr)
             )
             else
             let
@@ -2768,7 +2691,7 @@ struct
                         let
                             (* We don't have any preferences. *)
                             val initialThenResult =
-                                gencde(thenExp, true, whereto, tailKind, loopAddr)
+                                gencde(thenExp, whereto, tailKind, loopAddr)
                         in
                             if haveExited transtable (* If we've raised an exception we can ignore this. *)
                             then (initialThenResult, NoHint)
@@ -2825,7 +2748,7 @@ struct
                 val elseResult =
                     case whereto of
                         NoHint => (* Only if the then-part raised an exception *)
-                            gencde(elseExp, true, whereto, tailKind, loopAddr)
+                            gencde(elseExp, whereto, tailKind, loopAddr)
                     |   _ => genToRegister (elseExp, whereto, tailKind, loopAddr)
                 val (mergeRes, mergeCode) = merge (lab1, transtable, elseResult, mark)
                 val () = codeGenerate(mergeCode, cvec)
@@ -2842,7 +2765,7 @@ struct
            to do simple operations such as int arithmetic and generates the
            instructions directly. For ordinary calls it has to distinguish between
            those called with a static-link and those called with a closure. *) 
-        and genEval (evalFun, argList: (oldGenCodeIC * argumentType) list, resultType, primBoolOps, whereto, tailKind) : mergeResult =
+        and genEval (evalFun, argList: (oldGenCodeIC * argumentType) list, resultType, whereto, tailKind) : mergeResult =
         let
 
             (* Call a closure function. *)
@@ -2994,7 +2917,7 @@ struct
                                      don't put constants in yet. *)
                                   val whereto = case arg of OGCConstnt _ => NoHint | _ => UseReg(singleton argReg)
                                 in
-                                    case gencde (arg, true, whereto, NotEnd, NONE) of
+                                    case gencde (arg, whereto, NotEnd, NONE) of
                                         MergeIndex index => index
                                      |  NoMerge => raise InternalError "ldArgs: No result"
                                 end
@@ -3214,22 +3137,6 @@ struct
                             else if wordEq (oper,ioOp POLY_SYS_Div_real)
                             then cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                            (* The point of the following code is to call genCond, which will call genTest
-                               which will hopefully use machine instructions for these operations.
-                               We could avoid this by duplicating most of the body of genTest
-                               (the "jumping" boolean code generator) here, but we would like to
-                               avoid that. *)
-                            else if primBoolOps andalso
-                            (wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
-                             wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
-                             wordEq (oper,ioOp POLY_SYS_Real_geq) orelse
-                             wordEq (oper,ioOp POLY_SYS_Real_leq) orelse
-                             wordEq (oper,ioOp POLY_SYS_Real_gtr) orelse
-                             wordEq (oper,ioOp POLY_SYS_Real_lss))
-                            then genCond
-                                    (OGCEval {function = evalFun, argList = argList, resultType=resultType},
-                                     constntTrue, constntFalse, whereto, tailKind, NONE)
-
                             else callClosure (SOME evalFun, true)
 
                         |  _ => callClosure (SOME evalFun, true)
@@ -3294,7 +3201,7 @@ struct
                     end
                 |   _ =>
                     let
-                        val res = gencde (value, true, dest, NotEnd, NONE)
+                        val res = gencde (value, dest, NotEnd, NONE)
                         val decl =
                             case res of
                                 MergeIndex index => index
@@ -3340,7 +3247,7 @@ struct
 
         |   codeBinding _ (OGCNullBinding valu) = (* Expression in a sequence. *)
             (
-                gencde (valu, true, NoResult, NotEnd, NONE);
+                gencde (valu, NoResult, NotEnd, NONE);
                 ()
             )
 
