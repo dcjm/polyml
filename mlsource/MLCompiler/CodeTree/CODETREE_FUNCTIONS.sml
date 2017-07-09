@@ -130,6 +130,9 @@ struct
                     |   UnsignedToLongWord => applicative
                     |   RealAbs => applicative (* Does not depend on rounding setting. *)
                     |   RealNeg => applicative (* Does not depend on rounding setting. *)
+                        (* If we float a 64-bit int to a 64-bit floating point value we may
+                           lose precision so this depends on the current rounding mode. *)
+                    |   FloatFixedInt => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1
             end

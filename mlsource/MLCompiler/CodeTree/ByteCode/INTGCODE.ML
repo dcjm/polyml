@@ -496,6 +496,8 @@ struct
                 |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
                 |   SignedToLongWord => genOpcode(opcode_signedToLongW, cvec)
                 |   UnsignedToLongWord => genOpcode(opcode_unsignedToLongW, cvec)
+                |   RealAbs => raise InternalError "TODO: RealAbs"
+                |   RealNeg => raise InternalError "TODO: RealNeg"
             end
 
         |   BICBuiltIn2 { oper, arg1, arg2 } =>
@@ -514,19 +516,21 @@ struct
                 |   WordComparison{test=TestLessEqual, isSigned=false} => genOpcode(opcode_lessEqUnsigned, cvec)
                 |   WordComparison{test=TestGreater, isSigned=false} => genOpcode(opcode_greaterUnsigned, cvec)
                 |   WordComparison{test=TestGreaterEqual, isSigned=false} => genOpcode(opcode_greaterEqUnsigned, cvec)
-                |   WordComparison{test=BuiltIns.TestNotEqual, ...} => raise InternalError "TestNotEqual" (* Temporary. *)
 
                 |   FixedPrecisionArith ArithAdd => genOpcode(opcode_fixedAdd, cvec)
                 |   FixedPrecisionArith ArithSub => genOpcode(opcode_fixedSub, cvec)
                 |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)
                 |   FixedPrecisionArith ArithQuot => genOpcode(opcode_fixedQuot, cvec)
                 |   FixedPrecisionArith ArithRem => genOpcode(opcode_fixedRem, cvec)
+                |   FixedPrecisionArith ArithDiv => raise InternalError "TODO: FixedPrecisionArith ArithDiv"
+                |   FixedPrecisionArith ArithMod => raise InternalError "TODO: FixedPrecisionArith ArithMod"
 
                 |   WordArith ArithAdd => genOpcode(opcode_wordAdd, cvec)
                 |   WordArith ArithSub => genOpcode(opcode_wordSub, cvec)
                 |   WordArith ArithMult => genOpcode(opcode_wordMult, cvec)
-                |   WordArith ArithQuot => genOpcode(opcode_wordDiv, cvec)
-                |   WordArith ArithRem => genOpcode(opcode_wordMod, cvec)
+                |   WordArith ArithDiv => genOpcode(opcode_wordDiv, cvec)
+                |   WordArith ArithMod => genOpcode(opcode_wordMod, cvec)
+                |   WordArith _ => raise InternalError "WordArith - unimplemented instruction"
                 
                 |   WordLogical LogicalAnd => genOpcode(opcode_wordAnd, cvec)
                 |   WordLogical LogicalOr => genOpcode(opcode_wordOr, cvec)
@@ -544,18 +548,34 @@ struct
                 |   LargeWordComparison TestLessEqual => genOpcode(opcode_lgWordLessEq, cvec)
                 |   LargeWordComparison TestGreater => genOpcode(opcode_lgWordGreater, cvec)
                 |   LargeWordComparison TestGreaterEqual => genOpcode(opcode_lgWordGreaterEq, cvec)
-                |   LargeWordComparison BuiltIns.TestNotEqual => raise InternalError "TODO: LargeWordComparison - TestNotEqual"
+                
                 |   LargeWordArith ArithAdd => genOpcode(opcode_lgWordAdd, cvec)
                 |   LargeWordArith ArithSub => genOpcode(opcode_lgWordSub, cvec)
                 |   LargeWordArith ArithMult => genOpcode(opcode_lgWordMult, cvec)
-                |   LargeWordArith ArithQuot => genOpcode(opcode_lgWordDiv, cvec)
-                |   LargeWordArith ArithRem => genOpcode(opcode_lgWordMod, cvec)
+                |   LargeWordArith ArithDiv => genOpcode(opcode_lgWordDiv, cvec)
+                |   LargeWordArith ArithMod => genOpcode(opcode_lgWordMod, cvec)
+                |   LargeWordArith _ => raise InternalError "LargeWordArith - unimplemented instruction"
+
                 |   LargeWordLogical LogicalAnd => genOpcode(opcode_lgWordAnd, cvec)
                 |   LargeWordLogical LogicalOr => genOpcode(opcode_lgWordOr, cvec)
                 |   LargeWordLogical LogicalXor => genOpcode(opcode_lgWordXor, cvec)
                 |   LargeWordShift ShiftLeft => genOpcode(opcode_lgWordShiftLeft, cvec)
                 |   LargeWordShift ShiftRightLogical => genOpcode(opcode_lgWordShiftRLog, cvec)
                 |   LargeWordShift ShiftRightArithmetic => genOpcode(opcode_lgWordShiftRArith, cvec)
+                
+                |   RealComparison TestEqual => genOpcode(opcode_realEqual, cvec)
+                |   RealComparison TestLess => genOpcode(opcode_realLess, cvec)
+                |   RealComparison TestLessEqual => genOpcode(opcode_realLessEq, cvec)
+                |   RealComparison TestGreater => genOpcode(opcode_realGreater, cvec)
+                |   RealComparison TestGreaterEqual => genOpcode(opcode_realGreaterEq, cvec)
+
+                |   RealArith ArithAdd => raise InternalError "TODO: RealArith ArithAdd"
+                |   RealArith ArithSub => raise InternalError "TODO: RealArith ArithSub"
+                |   RealArith ArithMult => raise InternalError "TODO: RealArith ArithMult"
+                |   RealArith ArithQuot => raise InternalError "TODO: RealArith ArithQuot"
+                |   RealArith ArithRem => raise InternalError "TODO: RealArith ArithRem"
+                |   RealArith ArithDiv => raise InternalError "TODO: RealArith ArithDiv"
+                |   RealArith ArithMod => raise InternalError "TODO: RealArith ArithMod"
                  ;
                 decsp() (* Removes one item from the stack. *)
             end

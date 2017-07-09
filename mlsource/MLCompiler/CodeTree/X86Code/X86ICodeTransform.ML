@@ -180,6 +180,12 @@ struct
                 SOME {reg as GenReg _, ...} => RealRegister reg
             |   _ => raise InternalError "getUreg"
 
+        fun getFPreg(iReg, {untaggedRegs, ...}: normalState) =
+            case List.find (fn {ureg, ...} => ureg = iReg) untaggedRegs of
+                SOME {reg as XMMReg _, ...} => RealRegister reg
+            |   SOME {reg as FPReg _, ...} => RealRegister reg
+            |   _ => raise InternalError "getFPreg"
+
         (* Get a new untagged register.  We only handle three at the moment. *)
         fun newUreg (iReg, {valueStack, untaggedRegs, ccState}: normalState) =
         let
@@ -1506,7 +1512,7 @@ struct
                     code=AtomicExchangeAndAdd{destAddr=raxAsArg, source=srcReg} :: load @ code, context=context}
             end
 
-        |   codeICode{icode=BoxLargeWord{ dest, source } :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=BoxValue{ boxKind=BoxLargeWord, dest, source } :: rest, state=NormalState state, code, context} =
             let
                 (* Allocate a one word cell and store the untagged value into it. *)
                 val destReg = argToPReg dest
@@ -1539,6 +1545,23 @@ struct
                         InitialisationComplete{dest=raxAsArg} ::
                         MoveArgument{ source=newSrcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
                         AllocateMemoryOperation{ size=1, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
+            end
+
+        |   codeICode{icode=BoxValue{ boxKind=BoxFloat, dest, source } :: rest, state=NormalState state, code, context} =
+            let
+                (* Allocate a one or two word cell and store the untagged value into it. *)
+                val destReg = argToPReg dest
+                val srcReg = getFPreg(argToUReg source, state)
+                val (pushedState, pushCode) = pushRax state
+                val resultState = removeAfterTag(clearCC(addRaxToState(pushedState, destReg)) (* Affects CC *), srcReg)
+                val boxSize = Int.quot(8, wordSize)
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code=
+                        InitialisationComplete{dest=raxAsArg} ::
+                        MoveArgument{ source=srcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
+                        AllocateMemoryOperation{ size=boxSize, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
             end
 
         |   codeICode{icode=CompareByteVectors { vec1Addr, vec2Addr, length, ccRef } :: rest, state=NormalState state, code, context} =
@@ -1665,6 +1688,41 @@ struct
                     code= GetFloatingPtCondition{ ccRef=ccRef, dest=raxAsArg } :: pushCode @ code,
                     context=context}
             end
+
+        |   codeICode{
+                icode=FloatingPointArith{
+                        opc,
+                        resultReg,
+                        arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
+                        arg2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}} :: rest,
+                      state=NormalState state, code, context=context} =
+            let
+                (* The address of the first argument will be on the stack.  The second
+                   will be in Rax. *)
+                val startState as {valueStack, ...} = checkTopInRax(state, argToPReg bReg2)
+                val loadArgAddr = loadSource(bReg1, ebx, startState)
+
+                val floatingPointReg =
+                    case fpMode of
+                        FPModeX87 => FPReg fp0
+                    |   FPModeSSE2 => XMMReg xmm0
+                val destReg = argToUReg resultReg
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                          code=
+                            FloatingPointArith{
+                                opc=opc, resultReg=RealRegister floatingPointReg, arg1=RealRegister floatingPointReg,
+                                arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}} ::
+                            MoveArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
+                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                            loadArgAddr @ code,
+                          context=context}
+            end
+
+        |   codeICode{icode=FloatingPointArith _ :: _, ...} =
+                raise InternalError "codeICode: FloatingPointArith"
 
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"

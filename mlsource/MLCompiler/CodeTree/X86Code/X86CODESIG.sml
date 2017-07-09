@@ -78,7 +78,7 @@ sig
     and      shiftType = SHL | SHR | SAR
     and      repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
-    and      fpUnaryOps = FABS | FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
+    and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
     and      branchOps =
                 JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
     and      sse2Operations = SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div

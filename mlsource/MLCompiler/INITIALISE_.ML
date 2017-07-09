@@ -821,7 +821,7 @@ struct
             end
             
             val compareType = Real ** Real ->> Bool
-            and binaryType  = Real ** Real ->> Word
+            and binaryType  = Real ** Real ->> Real
             and unaryType   = Real ->> Real
 
             open BuiltIns

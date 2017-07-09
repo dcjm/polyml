@@ -63,6 +63,7 @@ sig
     |   UnsignedToLongWord (* Convert a tagged value to a LargeWord without sign extension. *)
     |   RealAbs     (* Set the sign bit of a real to positive. *)
     |   RealNeg     (* Invert the sign bit of a real. *)
+    |   FloatFixedInt (* Convert an integer value into a floating point value. *)
 
     and builtIn2Ops =
         (* Compare two words and return the result.  This is used for both

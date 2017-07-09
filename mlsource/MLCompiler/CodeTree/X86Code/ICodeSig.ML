@@ -52,6 +52,9 @@ sig
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
+    datatype floatingPtOps = FPOpAdd | FPOpSub | FPOpMul | FPOpDiv
+    and boxKind = BoxLargeWord | BoxFloat
+
     val argThreadSelf: int (* Copied from X86CodeSgig *)
 
     datatype callKinds =
@@ -214,7 +217,7 @@ sig
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and
            then unboxed and remove unnecessary allocation. *)
-    |   BoxLargeWord of { source: argument, dest: argument }
+    |   BoxValue of { boxKind: boxKind, source: argument, dest: argument }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            In general vec1Addr and vec2Addr will be pointers inside memory cells
@@ -232,6 +235,11 @@ sig
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
     |   GetFloatingPtCondition of { ccRef: ccRef, dest: argument }
+
+        (* Floating point arithmetic.  These are different depending on whether we're
+           using X87 FP or SSE2. *)
+    |   FloatingPointArith of
+            { opc: floatingPtOps, resultReg: argument, arg1: argument, arg2: argument }
 
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address

@@ -78,6 +78,9 @@ struct
     (* The reference to a condition code. *)
     and ccRef = CcRef of int
 
+    datatype floatingPtOps = FPOpAdd | FPOpSub | FPOpMul | FPOpDiv
+    and boxKind = BoxLargeWord | BoxFloat
+
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
@@ -201,7 +204,7 @@ struct
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and
            then unboxed and remove unnecessary allocation. *)
-    |   BoxLargeWord of { source: argument, dest: argument }
+    |   BoxValue of { boxKind: boxKind, source: argument, dest: argument }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            In general vec1Addr and vec2Addr will be pointers inside memory cells
@@ -219,6 +222,11 @@ struct
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
     |   GetFloatingPtCondition of { ccRef: ccRef, dest: argument }
+
+        (* Floating point arithmetic.  These are different depending on whether we're
+           using X87 FP or SSE2. *)
+    |   FloatingPointArith of
+            { opc: floatingPtOps, resultReg: argument, arg1: argument, arg2: argument }
     
     exception InternalError = Misc.InternalError
 
@@ -346,6 +354,19 @@ struct
         |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex},
                                 dest=RealRegister(XMMReg xmmRegReg), kind=WordToWord} :: rest, code) =
                 codeGenICode(rest, XMMArithRMem { opc= SSE2Move, base=baseReg, offset=offset, output=xmmRegReg } :: code)
+
+                (* Store a floating point value. *)
+        |   codeGenICode(MoveArgument{source=RealRegister(FPReg fpReg),
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=WordToWord} :: rest, code) =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
+            in
+                codeGenICode(rest, FPStoreToMemory{ base=baseReg, offset=offset, andPop=true } :: code)
+            end
+
+        |   codeGenICode(MoveArgument{source=RealRegister(XMMReg xmmRegReg),
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=WordToWord} :: rest, code) =
+                codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, base=baseReg, offset=offset } :: code)
 
         |   codeGenICode(MoveArgument _ :: _, _) =
                 raise InternalError "codeGenICode: TODO MoveArgument"
@@ -697,10 +718,7 @@ struct
                 CompareFloatingPt {
                     arg1=RealRegister(XMMReg xmmReg),
                     arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, ... } :: rest, code) =
-            let
-            in
                 codeGenICode(rest, XMMArithRMem { opc= SSE2Comp, output=xmmReg, base=baseReg, offset=offset} :: code)
-            end
 
         |   codeGenICode(CompareFloatingPt _ :: _, _) =
                 raise InternalError "codeGenICode: CompareFloatingPt: TODO"
@@ -714,6 +732,42 @@ struct
                 codeGenICode(rest, FPStatusToEAX :: code)
             end
 
+        |   codeGenICode(
+                FloatingPointArith {
+                    opc, resultReg=RealRegister(FPReg fpResReg), arg1=RealRegister(FPReg fpArgReg),
+                    arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex} } :: rest, code) =
+            let
+                val fpOp =
+                    case opc of
+                        FPOpAdd => FADD
+                    |   FPOpSub => FSUB
+                    |   FPOpMul => FMUL
+                    |   FPOpDiv => FDIV
+                val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
+                val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
+            in
+                codeGenICode(rest, FPArithMemory{opc=fpOp, base=baseReg, offset=offset} :: code)
+            end
+
+        |   codeGenICode(
+                FloatingPointArith {
+                    opc, resultReg=RealRegister(XMMReg xmmResReg), arg1=RealRegister(XMMReg xmmArgReg),
+                    arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex} } :: rest, code) =
+            let
+                val fpOp =
+                    case opc of
+                        FPOpAdd => SSE2Add
+                    |   FPOpSub => SSE2Sub
+                    |   FPOpMul => SSE2Mul
+                    |   FPOpDiv => SSE2Div
+                val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
+            in
+                codeGenICode(rest, XMMArithRMem{ opc=fpOp, output=xmmResReg, base=baseReg, offset=offset} :: code)
+            end
+
+        |   codeGenICode(FloatingPointArith _ :: _, _) =
+                raise InternalError "codeGenICode: FloatingPointArith: TODO"
+
             (* MoveStackArgToPreg should have been removed by earlier passes. *)
         |   codeGenICode(MoveStackArgToPreg _ :: _, _) =
                 raise InternalError "codeGenICode: MoveStackArgToPreg"
@@ -722,9 +776,9 @@ struct
         |   codeGenICode(ReserveContainer _ :: _, _) =
                 raise InternalError "codeGenICode: ReserveContainer"
                 
-            (* BoxLargeWord should have been removed by earlier passes. *)
-        |   codeGenICode(BoxLargeWord _ :: _, _) =
-                raise InternalError "codeGenICode: BoxLargeWord"
+            (* BoxValue should have been removed by earlier passes. *)
+        |   codeGenICode(BoxValue _ :: _, _) =
+                raise InternalError "codeGenICode: BoxValue"
 
         (* The stack limit register is set at least twice this far from the
            end of the stack so we can simply compare the stack pointer with

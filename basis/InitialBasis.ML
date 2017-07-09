@@ -235,11 +235,6 @@ structure Real =
 struct
     open Real
 
-    val op + : real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Add_real
-    and op - : real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Sub_real
-    and op * : real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Mul_real
-    and op / : real * real -> real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Div_real
-
     val ~ : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Neg_real
     val abs : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Abs_real
 

@@ -293,8 +293,6 @@ int IntTaskData::SwitchToPoly()
     POLYUNSIGNED    storeWords;
     int             instrBytes;
 
-    RESTART: /* Load or reload the registers and run the code. */
-
     sl = (PolyWord*)this->stack->stack()+OVERFLOW_STACK_SIZE;
 
     if (lastInstr != 256) goto RETRY; /* Re-execute instruction if necessary. */
@@ -1869,6 +1867,41 @@ int IntTaskData::SwitchToPoly()
             t->SetLengthWord(1, F_BYTE_OBJ);
             t->Set(0, PolyWord::FromSigned(wy >> wx));
             *sp = t;
+            break;
+        }
+
+        case INSTR_realEqual:
+        {
+            double u = unboxDouble(*sp++);
+            *sp = u == unboxDouble(*sp) ? True: False;
+            break;
+        }
+
+        case INSTR_realLess:
+        {
+            double u = unboxDouble(*sp++);
+            *sp =  unboxDouble(*sp) < u ? True: False;
+            break;
+        }
+
+        case INSTR_realLessEq:
+        {
+            double u = unboxDouble(*sp++);
+            *sp =  unboxDouble(*sp) <= u ? True: False;
+            break;
+        }
+
+        case INSTR_realGreater:
+        {
+            double u = unboxDouble(*sp++);
+            *sp =  unboxDouble(*sp) > u ? True: False;
+            break;
+        }
+
+        case INSTR_realGreaterEq:
+        {
+            double u = unboxDouble(*sp++);
+            *sp =  unboxDouble(*sp) >= u ? True: False;
             break;
         }
 

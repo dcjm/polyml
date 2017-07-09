@@ -65,8 +65,9 @@ struct
         |   LongWordToTagged
         |   SignedToLongWord
         |   UnsignedToLongWord
-        |   RealAbs     (* Set the sign bit of a real to positive. *)
-        |   RealNeg     (* Invert the sign bit of a real. *)
+        |   RealAbs
+        |   RealNeg
+        |   FloatFixedInt
 
         and builtIn2Ops =
             WordComparison of { test: testConditions, isSigned: bool }
@@ -102,6 +103,7 @@ struct
         |   builtIn1Repr UnsignedToLongWord = "UnsignedToLongWord"
         |   builtIn1Repr RealAbs = "RealAbs"
         |   builtIn1Repr RealNeg = "RealNeg"
+        |   builtIn1Repr FloatFixedInt = "FloatFixedInt"
 
         and builtIn2Repr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
