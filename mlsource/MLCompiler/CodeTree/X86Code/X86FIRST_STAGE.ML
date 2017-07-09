@@ -4702,24 +4702,9 @@ struct
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genUnaryFP"
                 in
-                    case opc of
-                        FPATAN =>
-                            (* The FPATAN function takes two arguments so we need to push 1.0.
-                               We must invalidate FP7 before we push the second argument otherwise
-                               we may get a stack overflow. *)
-                            [FPStoreToFPReg{output=output, andPop=true},
-                            FPUnary FPATAN,
-                            (* Because we have pushed an extra value this appears as
-                               modifying fp6. *)
-                            FreeRegisters(singleton(FPReg fp6)),
-                            FPUnary FLD1,
-                            FPFree fp7,
-                            loadToStack
-                            ]
-                    |   _ => (* The rest are much simpler. *)
-                        [FPStoreToFPReg{output=output, andPop=true},
-                         FPUnary opc,
-                         loadToStack]
+                    [FPStoreToFPReg{output=output, andPop=true},
+                     FPUnary opc,
+                     loadToStack]
                 end
             |   genUnaryFP _ _ = raise InternalError "genUnaryFP"
         in

@@ -1139,6 +1139,8 @@ struct
 
         |   OGCBuiltIn1{oper=BuiltIns.RealNeg, ...} => raise InternalError "TODO-: OGCBuiltIn1 - RealNeg"
 
+        |   OGCBuiltIn1{oper=BuiltIns.FloatFixedInt, ...} => raise InternalError "TODO-: OGCBuiltIn1 - FloatFixedInt"
+
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
         |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
@@ -1314,8 +1316,24 @@ struct
             )
 
         |   instr as OGCBuiltIn2{oper=BuiltIns.RealComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
-        
-        |   OGCBuiltIn2{oper=BuiltIns.RealArith _, ...} => raise InternalError "TODO-RealArith"
+
+        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithAdd, arg1, arg2} =>
+                cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithSub, arg1, arg2} =>
+                cgAndRes(subtractReal(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithMult, arg1, arg2} =>
+                cgAndRes(multiplyReal(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO-RealArith-ArithQuot"
+
+        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithRem, ...} => raise InternalError "TODO-RealArith-ArithRem"
+
+        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithDiv, arg1, arg2} =>
+                cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
+
+        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithMod, ...} => raise InternalError "TODO-RealArith-ArithMod"
 
         |   OGCBuiltIn3{oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3} =>
             let
@@ -2507,6 +2525,7 @@ struct
                 |   BuiltIns.UnsignedToLongWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - UnsignedToLongWord"
                 |   BuiltIns.RealAbs => raise InternalError "TODO-genTest: OGCBuiltIn1 - RealAbs"
                 |   BuiltIns.RealNeg => raise InternalError "TODO-genTest: OGCBuiltIn1 - RealNeg"
+                |   BuiltIns.FloatFixedInt => raise InternalError "TODO-genTest: OGCBuiltIn1 - FloatFixedInt"
            )
 
         |   OGCBuiltIn2{oper, arg1, arg2} =>
@@ -3121,21 +3140,6 @@ struct
 
                             else if wordEq (oper,ioOp POLY_SYS_fixed_to_real)
                             then cgAndRes(integerToReal(genToStack arg, transtable, whereto))
-
-                            else callClosure (SOME evalFun, true)
-
-                        |   [arg1, arg2] => (* Binary *)
-                            if wordEq (oper,ioOp POLY_SYS_Add_real)
-                            then cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_Sub_real)
-                            then cgAndRes(subtractReal(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_Mul_real)
-                            then cgAndRes(multiplyReal(genToStack arg1, genToStack arg2, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_Div_real)
-                            then cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
                             else callClosure (SOME evalFun, true)
 
