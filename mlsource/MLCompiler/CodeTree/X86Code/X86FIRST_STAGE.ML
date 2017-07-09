@@ -446,10 +446,10 @@ struct
                 (* Range checks. *)
                 val range1 =
                     [ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab},
-                     ArithRConst{ opc=CMP, output=testR, source=tag(Word.toLargeInt minCase) }]
+                     ArithToGenReg{ opc=CMP, output=testR, source=ShortConstArg(tag(Word.toLargeInt minCase)) }]
                 val range2 =
                     [ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLab},
-                     ArithRConst{ opc=CMP, output=testR, source=tag(Word.toLargeInt maxCase) }]
+                     ArithToGenReg{ opc=CMP, output=testR, source=ShortConstArg(tag(Word.toLargeInt maxCase)) }]
             in
                 range2 @ range1 @ testTag
             end
@@ -472,7 +472,7 @@ struct
         if r ins floatingPtRegisters then [FreeRegisters(singleton r)] else []
 
     and moveRegisterToRegister(GenReg source, GenReg output) =
-        [MoveRR{source=source, output=output}]
+        [MoveToRegister{source=RegisterArg source, output=output}]
 
     |   moveRegisterToRegister(GenReg source, FPReg output) =
         [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromMemory{base=source, offset=0}]
@@ -484,12 +484,12 @@ struct
 
     and moveMemoryToRegister(base, offset, output) =
         (* Destination can only be a general register not a FP reg. *)
-        [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=output}]
+        [MoveToRegister{source=MemoryArg{base=base, offset=offset, index=NoIndex}, output=output}]
 
     and moveConstantToRegister(lit, GenReg output) =
         if isShort lit
-        then [MoveConstR{source=tag(Word.toLargeIntX(toShort lit)), output=output}]
-        else [MoveLongConstR{source=lit, output=output}]
+        then [MoveToRegister{source=ShortConstArg(tag(Word.toLargeIntX(toShort lit))), output=output}]
+        else [MoveToRegister{source=LongConstArg lit, output=output}]
 
     |   moveConstantToRegister(source, FPReg output) =
         (* Real constants are the addresses of 64-bit quantities on the heap. *)
@@ -500,7 +500,7 @@ struct
     (* Set a register to an address in the stack.  Just a reg-reg move if
        offset is zero otherwise a load-address. *)
     and moveStackAddress(0, output) =
-            [MoveRR{source=esp, output=output}]
+            [MoveToRegister{source=RegisterArg esp, output=output}]
     |   moveStackAddress(stackAddr, output) =
             [LoadAddress{base=SOME esp, offset=stackAddr*wordSize, index=NoIndex, output=output}]
 
@@ -526,13 +526,13 @@ struct
             @ allocStore{size=8 div wordSize, flags=F_bytes, output=output,
                 saveRegs=saveRegs}
  
-    fun pushRegisterToStack v = [PushR v]
-    and pushMemoryToStack(reg, offset) = [PushMem{base=reg, offset=offset}]
+    fun pushRegisterToStack v = [PushToStack(RegisterArg v)]
+    and pushMemoryToStack(reg, offset) = [PushToStack(MemoryArg{base=reg, offset=offset, index=NoIndex})]
     
     fun pushConstantToStack lit =
         if is31bitSigned lit (* Push only allows a 32-bit literal *)
-        then [PushConst(tag(Word.toLargeIntX(toShort lit)))]
-        else [PushLongConst lit]
+        then [PushToStack(ShortConstArg(tag(Word.toLargeIntX(toShort lit))))]
+        else [PushToStack(LongConstArg lit)]
 
     fun resetStack 0 = []
     |   resetStack n =
@@ -567,12 +567,12 @@ struct
     end
 
     fun loadCurrentHandler output =
-        [LoadMemR{ source=BaseOffset{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=output }]
+        [MoveToRegister{source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=output }]
     and storeToHandler reg =
         [StoreRegToMemory{
             toStore=reg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}}]
     
-    val pushCurrentHandler = [PushMem{base=ebp, offset=memRegHandlerRegister}]
+    val pushCurrentHandler = [PushToStack(MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex})]
 
     fun loadHandlerAddress v = [LoadHandlerAddress v]
 
@@ -580,7 +580,7 @@ struct
        address and restore old handler. *)
     and startHandler v =
         storeToHandler ebx @
-        [ ResetStack 2, LoadMemR{ source=BaseOffset{base=esp, offset=wordSize, index=NoIndex}, output=ebx }]
+        [ ResetStack 2, MoveToRegister{source=MemoryArg{base=esp, offset=wordSize, index=NoIndex}, output=ebx }]
         @ loadCurrentHandler esp @ [StartHandler v]
 
     fun isPushI _ = true
@@ -594,7 +594,7 @@ struct
         [
             JumpLabel label,
             RaiseException,
-            MoveLongConstR{source=toMachineWord Overflow, output=eax},
+            MoveToRegister{source=LongConstArg(toMachineWord Overflow), output=eax},
             ConditionalBranch{test=JNO, label=label, predict=PredictTaken}
         ]
     end
@@ -620,9 +620,9 @@ struct
                 (* Normally we won't have a stack overflow so we will skip the check. *)
                 val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
                 fun pushThenPop [] = [CallRTS entryPt]
-                |   pushThenPop (aReg::regs) = PushR aReg :: (pushThenPop regs @ [PopR aReg])
+                |   pushThenPop (aReg::regs) = PushToStack(RegisterArg aReg) :: (pushThenPop regs @ [PopR aReg])
             in
-                [ArithRMem{ opc=CMP, output=reg, offset=memRegStackLimit, base=ebp }] @
+                [ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex }}] @
                 skipCheck @ pushThenPop saveGenRegs @ forwardJumpLabel skipCheckLab
             end
         in
@@ -1227,9 +1227,9 @@ struct
                                     then
                                         [PopR eax] @
                                         storeRegisterToStack(eax, wordSize) @
-                                        doBox @ [PushR eax, PushR eax]
+                                        doBox @ [PushToStack(RegisterArg eax), PushToStack(RegisterArg eax)]
                                     else
-                                        [PushR eax] @ doBox
+                                        [PushToStack(RegisterArg eax)] @ doBox
                                 end
                             |   _ => raise InternalError "saveRegOnStack" 
 
@@ -3822,8 +3822,8 @@ struct
                         |   2 => (*X64Win*) 16
                         |   _ => (*X86_32*) 8
                 in
-                    [LoadMemR{source=BaseOffset{base=output, offset=argThreadSelf, index=NoIndex}, output=output},
-                     LoadMemR{source=BaseOffset{base=ebp, offset=memRegArgumentPtr, index=NoIndex}, output=output}]
+                    [MoveToRegister{source=MemoryArg{base=output, offset=argThreadSelf, index=NoIndex}, output=output},
+                     MoveToRegister{source=MemoryArg{base=ebp, offset=memRegArgumentPtr, index=NoIndex}, output=output}]
                 end
             |   threadSelfI _ = raise InternalError "threadSelf"
         in
@@ -3841,8 +3841,8 @@ struct
 
             fun vecLen([InRegister(GenReg base)], SOME(GenReg output)) =
                 [tagValue{source=output, output=output},
-                 ArithRMem{opc=AND, output=output, base=base, offset= ~ wordSize },
-                 MoveConstR{source= mask, output=output }]
+                 ArithToGenReg{opc=AND, output=output, source=MemoryArg{base=base, offset= ~ wordSize, index=NoIndex} },
+                 MoveToRegister{source=ShortConstArg mask, output=output }]
             |   vecLen _ = raise InternalError "vecLen"
         in
             fun vectorLength(argLocn, transtable, whereto) =
@@ -3909,8 +3909,8 @@ struct
                                         next=loadIndex (isWord, whenDone) opAndResults } tArgs
 
             fun genLoadInstr (true (*Word*), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
-                    [LoadMemR{
-                            source=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset)*wordSize, index=NoIndex},
+                    [MoveToRegister{
+                            source=MemoryArg{base=base, offset=byteOffset+Word.toInt(toShort offset)*wordSize, index=NoIndex},
                             output=destReg}]
 
             |   genLoadInstr (false (*Byte*), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
@@ -3927,20 +3927,13 @@ struct
                         then (~2, Index2 indexR)
                         else (~4, Index4 indexR)
                 in
-                    [LoadMemR{source=BaseOffset{base=base, offset=byteOffset+offset, index=scale}, output=destReg}]
+                    [MoveToRegister{source=MemoryArg{base=base, offset=byteOffset+offset, index=scale}, output=destReg}]
                 end
 
             |   genLoadInstr (false (*Byte*), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
-                    (* The index needs to be made safe unless it's actually the result. *)
-                let
-                    val safeIndex =
-                        if indexR = destReg then [] else [MakeSafe indexR] (* Retag the index. *)
-                in
-                    safeIndex @
-                        [tagValue{source=destReg, output=destReg},
-                         LoadByteR{source=BaseOffset{base=base, offset=byteOffset, index=Index1 indexR}, output=destReg},
-                         ShiftConstant{shiftType=SHR, output=indexR, shift=0w1} (* Untag. *)]
-                end
+                    [tagValue{source=destReg, output=destReg},
+                     LoadByteR{source=BaseOffset{base=base, offset=byteOffset, index=Index1 indexR}, output=destReg},
+                     ShiftConstant{shiftType=SHR, output=indexR, shift=0w1} (* Untag. *)]
 
             |   genLoadInstr _ _ = raise InternalError "genLoadInstr"
 
@@ -4043,9 +4036,9 @@ struct
             fun atomicOp incr ([InRegister(GenReg rs)], SOME(GenReg rd)) =
                 [
                     (* Since xadd returns the original value we have to add in the value again. *)
-                    ArithRConst{opc=ADD, output=rd, source=semitag incr},
+                    ArithToGenReg{opc=ADD, output=rd, source=ShortConstArg(semitag incr)},
                     AtomicXAdd{base=rs, output=rd},
-                    MoveConstR{source=semitag incr, output=rd}
+                    MoveToRegister{source=ShortConstArg(semitag incr), output=rd}
                 ]
             |   atomicOp _ _ = raise InternalError "atomicOp"
         in
@@ -4094,11 +4087,11 @@ struct
                                 val fullOffset = Word.toLargeInt(toShort lit) + LargeInt.fromInt bOffset
                             in
                                 if fullOffset = 0 then [] else
-                                [ArithRConst{opc=ADD, output=baseReg, source=fullOffset}]
+                                [ArithToGenReg{opc=ADD, output=baseReg, source=ShortConstArg fullOffset}]
                             end
                         |   getOffset _ = raise InternalError "getOffset"
                 in
-                    [MakeSafe ecx, MakeSafe esi, MakeSafe edi, RepeatOperation MOVSB] @
+                    [RepeatOperation MOVSB] @
                     getOffset(destOffset, edi, bOffsetD) @ getOffset(sourceOffset, esi, bOffsetS) @
                     (* Untag the length. *)
                     [ShiftConstant{ shiftType=SHR, output=ecx, shift=0w1}]
@@ -4120,11 +4113,11 @@ struct
                                 Word.toLargeInt(toShort lit) * LargeInt.fromInt wordSize + LargeInt.fromInt bOffset
                         in
                             if fullOffset = 0 then [] else
-                            [ArithRConst{opc=ADD, output=baseReg, source=fullOffset}]
+                            [ArithToGenReg{opc=ADD, output=baseReg, source=ShortConstArg fullOffset}]
                         end
                     |   getOffset _ = raise InternalError "getOffset"
                 in
-                    [MakeSafe ecx, MakeSafe esi, MakeSafe edi, RepeatOperation MOVSL] @
+                    [RepeatOperation MOVSL] @
                     getOffset(destOffset, edi, bOffsetD) @ getOffset(sourceOffset, esi, bOffsetS) @
                     (* Untag the length. *)
                     [ShiftConstant{ shiftType=SHR, output=ecx, shift=0w1}]
@@ -4208,7 +4201,7 @@ struct
                         actionDone{ outReg=NONE,
                                     operation=
                                         [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral},
-                                         ArithRR{opc=CMP, output=reg1, source=reg2}] } tArgs
+                                         ArithToGenReg{opc=CMP, output=reg1, source=RegisterArg reg2}] } tArgs
                     end
 
                 |   (ActInRegisterSet s1, ActLiteralSource constnt) =>
@@ -4220,10 +4213,10 @@ struct
                         actionDone{ outReg=NONE,
                                     operation=
                                         [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
-                                        if isShort constnt
-                                        then ArithRConst{opc=CMP, output=reg1,
-                                                            source=tag(Word.toLargeIntX(toShort constnt))}
-                                        else ArithRLongConst{opc=CMP, output=reg1, source=constnt}] } tArgs
+                                         ArithToGenReg{opc=CMP, output=reg1,
+                                            source=if isShort constnt
+                                                then ShortConstArg(tag(Word.toLargeIntX(toShort constnt))) else LongConstArg constnt}
+                                        ] } tArgs
                     end
 
                 |   (ActLiteralSource constnt, ActInRegisterSet s2) =>
@@ -4237,10 +4230,10 @@ struct
                                     operation=
                                        [ConditionalBranch
                                             { test=revTest, label=destLabel, predict=PredictNeutral },
-                                       if isShort constnt
-                                       then ArithRConst{opc=CMP, output=reg2,
-                                                        source=tag(Word.toLargeIntX(toShort constnt))}
-                                       else ArithRLongConst{opc=CMP, output=reg2, source=constnt}] } tArgs
+                                        ArithToGenReg{opc=CMP, output=reg2,
+                                            source=if isShort constnt
+                                                then ShortConstArg(tag(Word.toLargeIntX(toShort constnt))) else LongConstArg constnt}
+                                       ] } tArgs
                     end
 
                 |   (ActInRegisterSet s1, ActBaseOffset(base, offset)) =>
@@ -4252,7 +4245,7 @@ struct
                         actionDone{ outReg=NONE,
                                     operation=
                                         [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
-                                         ArithRMem{opc=CMP, output=reg1, base=base, offset=offset}]} tArgs
+                                         ArithToGenReg{opc=CMP, output=reg1, source=MemoryArg{base=base, offset=offset, index=NoIndex}}]} tArgs
                     end
 
                 |   (ActBaseOffset(base, offset), ActInRegisterSet s2) =>
@@ -4265,7 +4258,7 @@ struct
                         actionDone{ outReg=NONE,
                                     operation=
                                         [ConditionalBranch { test=revTest, label=destLabel, predict=PredictNeutral },
-                                         ArithRMem{opc=CMP, output=reg2, base=base, offset=offset}]} tArgs
+                                         ArithToGenReg{opc=CMP, output=reg2, source=MemoryArg{base=base, offset=offset, index=NoIndex}}]} tArgs
                     end
 
                 |   (ActBaseOffset(base, offset), ActLiteralSource constnt) =>
@@ -4402,17 +4395,14 @@ struct
                         val fullOffset = Word.toLargeInt(toShort lit) + LargeInt.fromInt cOffset
                     in
                         if fullOffset = 0 then []
-                        else [ArithRConst{opc=ADD, output=baseReg, source=fullOffset}]
+                        else [ArithToGenReg{opc=ADD, output=baseReg, source=ShortConstArg fullOffset}]
                     end
                 |   getOffset _ = raise InternalError "getOffset"
             in
                 doTest () @
                 [
-                    MakeSafe ecx, (* These will now be invalid *)
-                    MakeSafe esi,
-                    MakeSafe edi,
                     RepeatOperation CMPSB, (* Compare the bytes. *)
-                    ArithRR{opc=CMP, output=ecx, source=ecx}, (* Set the Z flag before we start. *)
+                    ArithToGenReg{opc=CMP, output=ecx, source=RegisterArg ecx}, (* Set the Z flag before we start. *)
                     ShiftConstant{shiftType=SHR, output=ecx, shift=0w1} (* Untag the length. *)
                 ] @ getOffset(offset2, edi, bOffsetR) @ getOffset(offset1, esi, bOffsetL)
             end
@@ -4464,13 +4454,13 @@ struct
                     in
                         [
                             JumpLabel labExit,
-                            MoveConstR{source=tag 1, output=resultReg},
+                            MoveToRegister{source=ShortConstArg(tag 1), output=resultReg},
                             JumpLabel labGtr,       (* If greater. *)
                             UncondBranch labExit,
-                            MoveConstR{source=tag ~1, output=resultReg},
+                            MoveToRegister{source=ShortConstArg(tag ~1), output=resultReg},
                             JumpLabel labLess,      (* If less. *)
                             UncondBranch labExit,
-                            MoveConstR{source=tag 0, output=resultReg}, (* If equal. *)
+                            MoveToRegister{source=ShortConstArg(tag 0), output=resultReg}, (* If equal. *)
                             ConditionalBranch{test=JG, label=labGtr, predict=PredictNeutral},
                             ConditionalBranch{test=JL, label=labLess, predict=PredictNeutral}
                         ]
@@ -4528,8 +4518,8 @@ struct
                            actual value into that reg and compare with the contents of the second arg. *)
                         [
                             ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
-                            ArithRMem{opc=CMP, output=arg1Reg, base=arg2Reg, offset=0},
-                            LoadMemR{ source=BaseOffset{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
+                            ArithToGenReg{opc=CMP, output=arg1Reg, source=MemoryArg{base=arg2Reg, offset=0, index=NoIndex}},
+                            MoveToRegister{source=MemoryArg{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
                         ]
                     end
                 |   genLargeWordCompare _ = raise InternalError "genLargeWordCompare"
@@ -4627,19 +4617,16 @@ struct
 
                     val () = uses := !uses+1
                 in
-                    [
-                        ConditionalBranch { test=if opc = JNE then JNE else JE, label=destLabel, predict=PredictNeutral },
-                        MakeSafe eax (* Has an unsafe value in it. *)
-                    ] @
+                    [ConditionalBranch { test=if opc = JNE then JNE else JE, label=destLabel, predict=PredictNeutral }] @
                     (* We use these operations to set the condition codes.
                        Do we need to put something in to indicate to an optimiser
                        that we're using the condition code "result" here? *)
                     (if opc = JE orelse opc = JNE
-                    then [ArithRConst{ opc=XOR, output=eax, source=Word.toLargeInt c3 }]
+                    then [ArithToGenReg{ opc=XOR, output=eax, source=ShortConstArg(Word.toLargeInt c3)}]
                     else []) @
                     [
                         (* Mask and set the condition codes. *)
-                        ArithRConst{ opc=AND, output=eax, source=Word.toLargeInt mask },
+                        ArithToGenReg{ opc=AND, output=eax, source=ShortConstArg(Word.toLargeInt mask)},
                         FPStatusToEAX,
                         fpOperation, (* Compare and pop. *)
                         loadToStack (* First arg to stack*)
@@ -4756,8 +4743,11 @@ struct
                     in
                         [
                             FPStoreToFPReg{output=output, andPop=true}, (* Store into dest. *)
-                            FPLoadIntAndPop ,(* Do instr.  This shifts the value on the stack and pops it.*)
-                            PushR source (* Push to the stack. *) ]
+                            ResetStack 1, (* Remove - it's not an address. *)
+                            FPLoadInt{base=regStackPtr, offset=0},
+                            PushToStack(RegisterArg source), (* Push to the stack. *)
+                            ShiftConstant{shiftType=SAR, output=source, shift=0w1} (* Untag *)
+                        ]
                     end
                 |   genIntToFPInstr _ = raise InternalError "genIntToFPInstr"
             in
@@ -4791,7 +4781,7 @@ struct
             fun genStringLength([InRegister(GenReg rs)], SOME(GenReg rd)) =
                 [
                     tagValue{source=rd, output=rd},
-                    LoadMemR{source=BaseOffset{base=rs, offset=0, index=NoIndex}, output=rd}
+                    MoveToRegister{source=MemoryArg{base=rs, offset=0, index=NoIndex}, output=rd}
                 ]
             |   genStringLength _ = raise InternalError "genStringLength"
 
@@ -4827,10 +4817,10 @@ struct
             (* Various instructions also affect the tag and that has to be reinstated after
                the operation. *)
             fun postTagAdjust(ADD, _) = [] (* Dealt with before the operation. *)
-            |   postTagAdjust(SUB, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
+            |   postTagAdjust(SUB, reg) = [ArithToGenReg{opc=ADD, source=ShortConstArg 1, output=reg}]
             |   postTagAdjust(OR, _) = [] (* Doesn't affect the tag. *)
             |   postTagAdjust(AND, _) = [] (* Doesn't affect the tag. *)
-            |   postTagAdjust(XOR, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
+            |   postTagAdjust(XOR, reg) = [ArithToGenReg{opc=ADD, source=ShortConstArg 1, output=reg}]
             |   postTagAdjust(CMP, _) = raise InternalError "postTagAdjust"
         
             (* Subtract the tag before an ADD instruction.  This is
@@ -4913,7 +4903,7 @@ struct
                     in
                         actionDone{ outReg=SOME result,
                                     operation=postTagAdjust(opcode, resultReg) @
-                                        tagTest(ArithRR{opc=opcode, source=asGenReg argReg, output=resultReg} ::
+                                        tagTest(ArithToGenReg{opc=opcode, source=RegisterArg(asGenReg argReg), output=resultReg} ::
                                                      preTagAdjust(opcode, resultReg),
                                                 InRegister result, InRegister argReg)} tArgs
                     end
@@ -4934,7 +4924,7 @@ struct
                     in
                         actionDone{ outReg=SOME result,
                                     operation=if intArg = 0 andalso opcode <> AND then [] (* Discard *)
-                                              else tagTest([ArithRConst{opc=opcode, source=source, output=resultReg}],
+                                              else tagTest([ArithToGenReg{opc=opcode, source=ShortConstArg source, output=resultReg}],
                                                       InRegister result, LiteralSource lit)} tArgs
                     end
                     else (* Long literal - put it into a register. We'd have been better not code-generating
@@ -4945,7 +4935,7 @@ struct
                 |   [_, ActBaseOffset(base, offset)] =>
                         actionDone{ outReg=SOME result,
                                 operation=postTagAdjust(opcode, resultReg) @
-                                          tagTest(ArithRMem{opc=opcode, base=base, offset=offset, output=resultReg} ::
+                                          tagTest(ArithToGenReg{opc=opcode, output=resultReg, source=MemoryArg{base=base, offset=offset, index=NoIndex}} ::
                                                        preTagAdjust(opcode, resultReg),
                                                   InRegister result, BaseOffsetSource{base=base, offset=offset})} tArgs
 
@@ -5077,23 +5067,23 @@ struct
                         |   _ =>
                             if shift < 0w32
                             then (* Can remove the shifted tag and set the new tag. *)
-                                [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
+                                [ArithToGenReg{opc=SUB, output=reg, source=ShortConstArg(IntInf.<<(1, shift) -1) },
                                  ShiftConstant{shiftType=SHL, output=reg, shift=wordToWord8 shift}]
                             else (* 64-bit only.  If the shift is more than 32 bits we remove the
                                     tag beforehand and put it back afterwards. *)
-                                [ArithRConst{opc=OR, output=reg, source=1 },
+                                [ArithToGenReg{opc=OR, output=reg, source=ShortConstArg 1 },
                                  ShiftConstant{shiftType=SHL, output=reg, shift=wordToWord8 shift},
-                                 ArithRConst{opc=SUB, output=reg, source=1 }]
+                                 ArithToGenReg{opc=SUB, output=reg, source=ShortConstArg 1 }]
                     )
 
             |   genConstShift(SHR, shift) (_, SOME(GenReg reg)) = (* Right logical shift. *)
                     (* The original tag will have been shifted out but we have to
                             set the bottom bit as the tag. *)
-                        [ArithRConst{opc=OR, output=reg, source=1 },
+                        [ArithToGenReg{opc=OR, output=reg, source=ShortConstArg 1 },
                           ShiftConstant{shiftType=SHR, output=reg, shift=wordToWord8 shift}]
 
             |   genConstShift(SAR, shift) (_, SOME(GenReg reg)) = (* Right shifts absorb the tag. *)
-                    [ArithRConst{opc=OR, output=reg, source=1 },
+                    [ArithToGenReg{opc=OR, output=reg, source=ShortConstArg 1 },
                      ShiftConstant{shiftType=SAR, output=reg, shift=wordToWord8 shift}]
 
             |   genConstShift _ _ = raise InternalError "genConstShift"
@@ -5107,8 +5097,7 @@ struct
                     val _ = shiftR = ecx orelse raise InternalError "genVarShift: shift not in ecx"
                 in
                     [
-                        MakeSafe ecx, (* ecx may be invalid. *)
-                        ArithRConst{ opc=OR, output=reg, source= 1 }, (* Set dest tag. *)
+                        ArithToGenReg{ opc=OR, output=reg, source=ShortConstArg 1 }, (* Set dest tag. *)
                         ShiftVariable { shiftType=shift, output=reg }, (* Do the shift *)
                         ShiftConstant{shiftType=SHR, output=ecx, shift=0w1}(* Untag ecx *)
                     ] @
@@ -5116,7 +5105,7 @@ struct
                         (* If this is a left shift we have to remove the tag.  That isn't needed
                            for right shifts.  Use a subtraction because we may be able to merge
                            this with preceding operations. *)
-                        case shift of SHL => [ArithRConst{ opc=SUB, output=reg, source= 1}]
+                        case shift of SHL => [ArithToGenReg{ opc=SUB, output=reg, source=ShortConstArg 1}]
                         |   _ => []
                     )
                 end
@@ -5171,14 +5160,13 @@ struct
 
             fun genMultiplyUnsigned _ = (* The arguments are in eax and edx and result in eax. *)
             [
-                MakeSafe edx, (* Could just copy eax in here *)
                 (* Add back the tag, but don't shift. *)
-                ArithRConst{opc=ADD, output=eax, source=1},
+                ArithToGenReg{opc=ADD, output=eax, source=ShortConstArg 1},
                 MultiplyRR{source=edx, output=eax},
                 (* Shift down the multiplier. *)
                 ShiftConstant{shiftType=SHR, output=edx, shift=0w1 },
                 (* Untag, but don't shift the multiplicand. *)
-                ArithRConst{opc=SUB, output=eax, source=1}
+                ArithToGenReg{opc=SUB, output=eax, source=ShortConstArg 1}
             ]
          in
             fun upShiftWordConstant(arg, shift, transtable, whereto) =
@@ -5243,17 +5231,14 @@ struct
                     let
                         val _ = outReg = GenReg m1 orelse raise InternalError "genMultiplySigned"
                     in
-                        [
-                            MakeSafe m2,
-                            (* Add back the tag, but don't shift. *)
-                            ArithRConst{opc=ADD, output=m1, source=1}
-                        ] @ testOverflow() @
+                        (* Add back the tag, but don't shift. *)
+                        [ ArithToGenReg{opc=ADD, output=m1, source=ShortConstArg 1}] @ testOverflow() @
                         [
                             MultiplyRR{source=m2, output=m1},
                             (* Shift down the multiplier. *)
                             ShiftConstant{shiftType=SAR, output=m2, shift=0w1 },
                             (* Untag, but don't shift the multiplicand. *)
-                            ArithRConst{opc=SUB, output=m1, source=1}
+                            ArithToGenReg{opc=SUB, output=m1, source=ShortConstArg 1}
                         ]
                     end
                 |   genMultiplySigned _ = raise InternalError "genMultiplySigned"
@@ -5321,17 +5306,17 @@ struct
                            to shift and tag the quotient.  Either way we have to make the
                            other register safe. *)
                         (if isDiv
-                        then [MakeSafe edx, tagValue{source=eax, output=eax}]
-                        else [MakeSafe eax, ArithRConst{opc=ADD, output=edx, source=1}]) @
+                        then [tagValue{source=eax, output=eax}]
+                        else [ArithToGenReg{opc=ADD, output=edx, source=ShortConstArg 1}]) @
                         [
-                            ArithRConst{opc=ADD, source=1, output=dividend},
+                            ArithToGenReg{opc=ADD, source=ShortConstArg 1, output=dividend},
                             (* Clear the high order of the accumulator and do the division. *)
                             DivideAccR{arg=dividend, isSigned=isSigned},
-                            ArithRR{opc=XOR, source=edx, output=edx},
+                            ArithToGenReg{opc=XOR, source=RegisterArg edx, output=edx},
                             (* Untag, but don't shift, the divisor and dividend.
                                Checking for zero is done in ML code. *)
-                            ArithRConst{opc=SUB, source=1, output=eax},
-                            ArithRConst{opc=SUB, source=1, output=dividend}
+                            ArithToGenReg{opc=SUB, source=ShortConstArg 1, output=eax},
+                            ArithToGenReg{opc=SUB, source=ShortConstArg 1, output=dividend}
                         ]
                     end
 
@@ -5444,7 +5429,7 @@ struct
                         PopR edi,
                         StoreInitialised, (* Pop the saved edi; initialisation done *)
                         RepeatOperation STOSL,
-                        PushR edi (* Save edi, the result reg, while we initialise the data. *)
+                        PushToStack(RegisterArg edi) (* Save edi, the result reg, while we initialise the data. *)
                         (* Now initialise the memory. *)
                     ] @ flagsCode @
                     [
@@ -5590,7 +5575,7 @@ struct
                         StoreInitialised,
                         StoreRegToMemory { toStore=srcReg, address=BaseOffset{base=output, offset=0, index=NoIndex}}
                     ] @ shiftCode @
-                    LoadMemR{ source=BaseOffset{base=srcReg, offset=0, index=NoIndex}, output=srcReg } ::
+                    MoveToRegister{source=MemoryArg{base=srcReg, offset=0, index=NoIndex}, output=srcReg } ::
                     allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
                 end
             |   genConstLargeShift _ _ = raise InternalError "genConstLargeShift"
@@ -5609,7 +5594,7 @@ struct
                         StoreRegToMemory { toStore=srcReg, address=BaseOffset{base=output, offset=0, index=NoIndex}},
                         ShiftVariable { shiftType=opc, output=srcReg },
                         ShiftConstant{shiftType=SHR, output=ecx, shift=0w1}(* Untag ecx *),
-                        LoadMemR{ source=BaseOffset{base=srcReg, offset=0, index=NoIndex}, output=srcReg }
+                        MoveToRegister{source=MemoryArg{base=srcReg, offset=0, index=NoIndex}, output=srcReg }
                     ] @
                     allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
                 end
@@ -5687,8 +5672,8 @@ struct
                     [
                         StoreInitialised,
                         StoreRegToMemory { toStore=arg1Reg, address=BaseOffset{base=output, offset=0, index=NoIndex}},
-                        ArithRMem{ opc=opc, output=arg1Reg, offset=0, base=arg2Reg },
-                        LoadMemR{ source=BaseOffset{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
+                        ArithToGenReg{ opc=opc, output=arg1Reg, source=MemoryArg{offset=0, base=arg2Reg, index=NoIndex} },
+                        MoveToRegister{source=MemoryArg{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
                     ] @
                     allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
                 end
@@ -5711,7 +5696,7 @@ struct
                         StoreInitialised,
                         StoreRegToMemory { toStore=arg1Reg, address=BaseOffset{base=output, offset=0, index=NoIndex}},
                         MultiplyRM{ output=arg1Reg, offset=0, base=arg2Reg },
-                        LoadMemR{ source=BaseOffset{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
+                        MoveToRegister{source=MemoryArg{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
                     ] @
                     allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
                 end
@@ -5729,8 +5714,8 @@ struct
                         StoreRegToMemory { toStore=if isDiv then eax else edx,
                             address=BaseOffset{base=output, offset=0, index=NoIndex}},
                         DivideAccM{ offset=0, base=arg2Reg, isSigned=false },
-                        ArithRR{opc=XOR, source=edx, output=edx},
-                        LoadMemR{ source=BaseOffset{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
+                        ArithToGenReg{opc=XOR, source=RegisterArg edx, output=edx},
+                        MoveToRegister{source=MemoryArg{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
                     ] @
                     allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
                 end

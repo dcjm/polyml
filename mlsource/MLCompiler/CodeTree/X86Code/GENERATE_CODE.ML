@@ -782,10 +782,6 @@ struct
         val True  : machineWord = word1     (* true *)
     end
 
-    (* gets a value from the run-time system; 
-       usually this is a closure, but sometimes it's an int.  *)
-    val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
-
     val constntTrue  = OGCConstnt(True, [])
     val constntFalse = OGCConstnt(False, [])
     val consntZero   = OGCConstnt(word0, [])
@@ -1135,11 +1131,14 @@ struct
         |   OGCBuiltIn1{oper=BuiltIns.UnsignedToLongWord, arg1} =>
                 cgAndRes(wordToLargeWord(false, genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.RealAbs, ...} => raise InternalError "TODO-: OGCBuiltIn1 - RealAbs"
+        |   OGCBuiltIn1{oper=BuiltIns.RealAbs, arg1} =>
+                cgAndRes(absoluteReal(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.RealNeg, ...} => raise InternalError "TODO-: OGCBuiltIn1 - RealNeg"
+        |   OGCBuiltIn1{oper=BuiltIns.RealNeg, arg1} =>
+                cgAndRes(negativeReal(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.FloatFixedInt, ...} => raise InternalError "TODO-: OGCBuiltIn1 - FloatFixedInt"
+        |   OGCBuiltIn1{oper=BuiltIns.FloatFixedInt, arg1} =>
+                cgAndRes(integerToReal(genToStack arg1, transtable, whereto))
 
         |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
@@ -3122,34 +3121,8 @@ struct
 
         in (* body of genEval *)
             case evalFun of
-                OGCConstnt (oper, _) =>
-                let
-                    val args = List.map #1 argList
-                    val addr = Address.toAddress oper
-                in
-                    if Address.isIoAddress addr
-                    then
-                    (
-                        case args of
-                            [arg] => (* Unary *)
-                            if wordEq (oper,ioOp POLY_SYS_Abs_real)
-                            then cgAndRes(absoluteReal(genToStack arg, transtable, whereto))
 
-                            else if wordEq (oper,ioOp POLY_SYS_Neg_real)
-                            then cgAndRes(negativeReal(genToStack arg, transtable, whereto))
-
-                            else if wordEq (oper,ioOp POLY_SYS_fixed_to_real)
-                            then cgAndRes(integerToReal(genToStack arg, transtable, whereto))
-
-                            else callClosure (SOME evalFun, true)
-
-                        |  _ => callClosure (SOME evalFun, true)
-                    )
-  
-                    else (* All other constant functions. *) callClosure (SOME evalFun, true)
-                end
-
-            |   OGCExtract (ext, lastRef) =>
+                OGCExtract (ext, lastRef) =>
                 let (* Local function with non-empty closure. *)
                     val selfCall =
                         case ext of OGCLoadRecursive => true | _ => false
@@ -3168,8 +3141,7 @@ struct
                 in 
                     (* Set the use count on the closure register if this is a
                        recursive call.  We have to do that for the recursive case
-                       because we don't pass the OGCExtract entry in to callClosure.
-                       DCJM 1/12/99. *)
+                       because we don't pass the OGCExtract entry in to callClosure. *)
                     if selfCall andalso not lastRef andalso closureLifetime <>0 
                     then codeGenerate(incrUseCount(transtable, closureOrSlAddr, 1), cvec)
                     else ();
