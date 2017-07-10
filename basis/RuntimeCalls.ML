@@ -23,8 +23,6 @@
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
-  val POLY_SYS_cmem_load_float     = 164
-  val POLY_SYS_cmem_load_double    = 165
   val POLY_SYS_cmem_store_float    = 170
   val POLY_SYS_cmem_store_double   = 171
 

@@ -57,7 +57,7 @@ sig
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
     and      sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And
+        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And | SSE2MoveSingle
 
     val argThreadSelf: int (* Copied from X86CodeSgig *)
 
@@ -82,16 +82,14 @@ sig
         NoMemIndex | MemIndex1 of argument | MemIndex2 of argument | MemIndex4 of argument | MemIndex8 of argument
 
     (* Kinds of moves.
-       WordToWord copies the whole value.  This is the "normal" move.
-       ByteToByte overwrites only a byte.  This is used to store a byte.
-       ByteToWordZeroExtend loads a byte and zero extends it to fill the
-       destination.  This is used when loading a byte.
-       Bit16ToWordZeroExtend is used when loading a 16-bit word from C-memory.
-       Bit32ToWordZeroExtend is used in 64-bit mode to load a 32-bit word from C-memory.
-       WordTo16Bit and WordTo32Bit are used for the corresponding stores. *)
+       MoveWord - Move a whole word - 64-bits in 64-bit mode, 32-bits in 32-bit mode.
+       MoveByte - When loading, load a byte and zero extend.
+       Move16Bit - Used for C-memory loads and stores.  Zero extends on load.
+       Move32Bit - Used for C-memory loads and stores in 64-bit mode.
+       MoveFloat - Load and store a single-precision value
+       MoveDouble - Load and store a double-precision value. *)
     datatype moveKind =
-        WordToWord | ByteToByte | ByteToWordZeroExtend |
-        Bit16ToWordZeroExtend | Bit32ToWordZeroExtend | WordTo16Bit | WordTo32Bit
+        MoveWord | MoveByte | Move16Bit | Move32Bit | MoveFloat | MoveDouble
 
     datatype iLabel = ILabel of int
     

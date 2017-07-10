@@ -82,7 +82,7 @@ sig
     and      branchOps =
                 JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
     and      sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And
+        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And | SSE2MoveSingle
 
     datatype callKinds =
         Recursive
@@ -105,13 +105,13 @@ sig
     datatype indexType =
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
 
-    datatype memoryAddress = BaseOffset of { base: genReg, offset: int, index: indexType }
+    type memoryAddress = { base: genReg, offset: int, index: indexType }
 
     datatype branchPrediction = PredictNeutral | PredictTaken | PredictNotTaken
 
     datatype 'reg regOrMemoryArg =
         RegisterArg of 'reg
-    |   MemoryArg of { base: genReg, offset: int, index: indexType }
+    |   MemoryArg of memoryAddress
     |   ShortConstArg of LargeInt.int
     |   LongConstArg of machineWord
     
@@ -158,7 +158,8 @@ sig
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
-    |   FPLoadFromMemory of { base: genReg, offset: int }
+    |   FPLoadFromMemory of memoryAddress
+    |   FPLoadFromMemorySingle of memoryAddress
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }

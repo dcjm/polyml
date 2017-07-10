@@ -261,11 +261,6 @@ struct
     open ForeignMemory
     type voidStar = LargeWord.word
 
-    fun getFloat(s: voidStar, i: Word.word): real =
-        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_float (s, 0w0, i)
-    fun getDouble(s: voidStar, i: Word.word): real =
-        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_double (s, 0w0, i)
-
     fun setFloat (s: voidStar, i: Word.word, v: real): unit =
         RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
     fun setDouble (s: voidStar, i: Word.word, v: real): unit =

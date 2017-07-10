@@ -63,16 +63,14 @@ struct
         NoMemIndex | MemIndex1 of argument | MemIndex2 of argument | MemIndex4 of argument | MemIndex8 of argument
 
     (* Kinds of moves.
-       WordToWord copies the whole value.  This is the "normal" move.
-       ByteToByte overwrites only a byte.  This is used to store a byte.
-       ByteToWordZeroExtend loads a byte and zero extends it to fill the
-       destination.  This is used when loading a byte.
-       Bit16ToWordZeroExtend is used when loading a 16-bit word from C-memory.
-       Bit32ToWordZeroExtend is used in 64-bit mode to load a 32-bit word from C-memory.
-       WordTo16Bit and WordTo32Bit are used for the corresponding stores. *)
+       MoveWord - Move a whole word - 64-bits in 64-bit mode, 32-bits in 32-bit mode.
+       MoveByte - When loading, load a byte and zero extend.
+       Move16Bit - Used for C-memory loads and stores.  Zero extends on load.
+       Move32Bit - Used for C-memory loads and stores in 64-bit mode.
+       MoveFloat - Load and store a single-precision value
+       MoveDouble - Load and store a double-precision value. *)
     datatype moveKind =
-        WordToWord | ByteToByte | ByteToWordZeroExtend |
-        Bit16ToWordZeroExtend | Bit32ToWordZeroExtend | WordTo16Bit | WordTo32Bit
+        MoveWord | MoveByte | Move16Bit | Move32Bit | MoveFloat | MoveDouble
 
     datatype iLabel = ILabel of int
     (* The reference to a condition code. *)
@@ -290,7 +288,7 @@ struct
             case findLabelDef lab of l as Labels{uses, ...} => (uses := !uses + 1; l)
 
         fun memoryAddressAsBaseOffset({offset, base=RealRegister(GenReg baseReg), index}) =
-            BaseOffset{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
+            {base=baseReg, offset=offset, index=memoryIndexAsIndex index}
         |   memoryAddressAsBaseOffset _ = raise InternalError "memoryAddressAsBaseOffset"
 
         and memoryIndexAsIndex NoMemIndex = NoIndex
@@ -319,73 +317,73 @@ struct
 
         |   codeGenICode(
                 (* Load to a general register or move to a general register. *)
-                MoveArgument{ source, dest=RealRegister(GenReg destReg), kind=WordToWord} :: rest, code) =
+                MoveArgument{ source, dest=RealRegister(GenReg destReg), kind=MoveWord} :: rest, code) =
                     codeGenICode(rest, MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg } :: code)
 
         |   codeGenICode(
                 (* Load from memory. *)
-                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=ByteToWordZeroExtend} :: rest, code) =
+                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=MoveByte} :: rest, code) =
                 codeGenICode(rest, LoadNonWord{size=Size8Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
         |   codeGenICode(
                 (* Load from memory. *)
-                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=Bit16ToWordZeroExtend} :: rest, code) =
+                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=Move16Bit} :: rest, code) =
                 codeGenICode(rest, LoadNonWord{size=Size16Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
         |   codeGenICode(
                 (* Load from memory. *)
-                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=Bit32ToWordZeroExtend} :: rest, code) =
+                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=Move32Bit} :: rest, code) =
                 codeGenICode(rest, LoadNonWord{size=Size32Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
                 (* Store to memory *)
         |   codeGenICode(
-                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=WordToWord} :: rest, code) =
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=MoveWord} :: rest, code) =
                 codeGenICode(rest,
                     StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
 
         |   codeGenICode(
-                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=ByteToByte} :: rest, code) =
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=MoveByte} :: rest, code) =
                 codeGenICode(rest,
                     StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
 
         |   codeGenICode(
-                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=WordTo16Bit} :: rest, code) =
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=Move16Bit} :: rest, code) =
                 codeGenICode(rest,
                     StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
 
         |   codeGenICode(
-                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=WordTo32Bit} :: rest, code) =
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=Move32Bit} :: rest, code) =
                 codeGenICode(rest,
                     StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
 
                 (* Store a short constant to memory *)
         |   codeGenICode(
-                MoveArgument{ source=IntegerConstant srcValue, dest=MemoryLocation mLoc, kind=WordToWord} :: rest, code) =
+                MoveArgument{ source=IntegerConstant srcValue, dest=MemoryLocation mLoc, kind=MoveWord} :: rest, code) =
                 codeGenICode(rest,
                     StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset mLoc} :: code)
 
                 (* Store a long constant to memory *)
         |   codeGenICode(
-                MoveArgument{ source=AddressConstant srcValue, dest=MemoryLocation mLoc, kind=WordToWord} :: rest, code) =
+                MoveArgument{ source=AddressConstant srcValue, dest=MemoryLocation mLoc, kind=MoveWord} :: rest, code) =
                 codeGenICode(rest,
                     StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset mLoc} :: code)
 
                 (* Load a floating point value. *)
-        |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex},
-                                dest=RealRegister(FPReg fpReg), kind=WordToWord} :: rest, code) =
+        |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index},
+                                dest=RealRegister(FPReg fpReg), kind=MoveDouble} :: rest, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
             in
-                codeGenICode(rest, FPLoadFromMemory{ base=baseReg, offset=offset } :: code)
+                codeGenICode(rest, FPLoadFromMemory{ base=baseReg, offset=offset, index=memoryIndexAsIndex index } :: code)
             end
 
                 (* Load or move from an XMM reg. *)
-        |   codeGenICode(MoveArgument{source, dest=RealRegister(XMMReg xmmRegReg), kind=WordToWord} :: rest, code) =
+        |   codeGenICode(MoveArgument{source, dest=RealRegister(XMMReg xmmRegReg), kind=MoveDouble} :: rest, code) =
                 codeGenICode(rest, XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
 
                 (* Store a floating point value. *)
         |   codeGenICode(MoveArgument{source=RealRegister(FPReg fpReg),
-                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=WordToWord} :: rest, code) =
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=MoveDouble} :: rest, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
             in
@@ -393,8 +391,38 @@ struct
             end
 
         |   codeGenICode(MoveArgument{source=RealRegister(XMMReg xmmRegReg),
-                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=WordToWord} :: rest, code) =
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=MoveDouble} :: rest, code) =
                 codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, base=baseReg, offset=offset } :: code)
+
+                (* Load a floating point value. *)
+        |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index},
+                                dest=RealRegister(FPReg fpReg), kind=MoveFloat} :: rest, code) =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
+            in
+                codeGenICode(rest, FPLoadFromMemorySingle{ base=baseReg, offset=offset, index=memoryIndexAsIndex index } :: code)
+            end
+
+                (* Load or move from an XMM reg. *)
+        |   codeGenICode(MoveArgument{source, dest=RealRegister(XMMReg xmmRegReg), kind=MoveFloat} :: rest, code) =
+                codeGenICode(rest, XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
+
+                (* Store a floating point value. *)
+        |   codeGenICode(MoveArgument{source=RealRegister(FPReg fpReg),
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=MoveFloat} :: rest, code) =
+            let
+                val _ = raise InternalError "codeGenICode: Store single precision"
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
+            in
+                codeGenICode(rest, FPStoreToMemory{ base=baseReg, offset=offset, andPop=true } :: code)
+            end
+
+        |   codeGenICode(MoveArgument{source=RealRegister(XMMReg xmmRegReg),
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=MoveFloat} :: rest, code) =
+                (raise InternalError "codeGenICode: Store single precision";
+                codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, base=baseReg, offset=offset } :: code)
+                )
+
 
         |   codeGenICode(MoveArgument _ :: _, _) =
                 raise InternalError "codeGenICode: TODO MoveArgument"
@@ -413,14 +441,14 @@ struct
                 fun allocStore{size, flags, output, preserve} =
                 if isX64 andalso flags <> 0w0
                 then
-                    [StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
-                     StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+                    [StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt flags, address={offset= ~1, base=output, index=NoIndex}},
+                     StoreConstToMemory{toStore=LargeInt.fromInt size, address={offset= ~wordSize, base=output, index=NoIndex}},
                      AllocStore{size=size, output=output, saveRegs=preserve}]
                 else
                 let
                     val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
                 in
-                    [StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+                    [StoreConstToMemory{toStore=lengthWord, address={offset= ~wordSize, base=output, index=NoIndex}},
                      AllocStore{size=size, output=output, saveRegs=preserve}]
                 end
 
@@ -429,7 +457,7 @@ struct
                     if addAllocatingFunction
                     then
                         allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=[]} @
-                            [StoreLongConstToMemory{ toStore=profileObject, address=BaseOffset{base=toReg, offset=size*wordSize, index=NoIndex}}]
+                            [StoreLongConstToMemory{ toStore=profileObject, address={base=toReg, offset=size*wordSize, index=NoIndex}}]
                     else allocStore {size=size, flags=flags, output=toReg, preserve=[]}
             in
                 codeGenICode(rest, allocCode @ code)
@@ -444,12 +472,12 @@ struct
                 val allocCode =
                 [
                     (* Store in the top byte *)
-                    StoreNonWord{size=Size8Bit, toStore=fReg, address=BaseOffset{base=dReg, offset= ~1, index=NoIndex}},
+                    StoreNonWord{size=Size8Bit, toStore=fReg, address={base=dReg, offset= ~1, index=NoIndex}},
                     (* Untag the flags. *)
                     ShiftConstant{ shiftType=SHR, output=fReg, shift=0w1},
                     (* Store it as the length field. *)
                     StoreRegToMemory{toStore=sReg,
-                        address=BaseOffset{base=dReg, offset= ~wordSize, index=NoIndex}},
+                        address={base=dReg, offset= ~wordSize, index=NoIndex}},
                     (* Untag the length *)
                     ShiftConstant{ shiftType=SHR, output=sReg, shift=0w1},
                     (* Allocate the memory *)
@@ -537,7 +565,7 @@ struct
             in
                 codeGenICode(rest,
                     StoreRegToMemory{
-                        toStore=esp, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
+                        toStore=esp, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
                     PushToStack(RegisterArg handleReg) ::
                     LoadHandlerAddress{ handlerLab=labelRef, output=handleReg} ::
                     PushToStack(MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}) :: code)
@@ -551,7 +579,7 @@ struct
                    in PushExceptionHandler. *)
                 codeGenICode(rest,
                     StoreRegToMemory{
-                        toStore=wReg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
+                        toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
                     PopR wReg ::
                     ResetStack 1 :: code)
             end
@@ -570,7 +598,7 @@ struct
                    and that is always in rax. *)
                 codeGenICode(rest,
                     StoreRegToMemory{
-                        toStore=wReg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
+                        toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
                     PopR wReg :: ResetStack 1 ::
                     MoveToRegister{ source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp } ::
                     StartHandler{handlerLab=labelRef} :: code)

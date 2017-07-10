@@ -1544,7 +1544,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             break;
         // Escape prefixes come before any Rex byte
         byte escPrefix = 0;
-        if (*pt == 0xf2 || *pt == 0x66)
+        if (*pt == 0xf2 || *pt == 0xf3 || *pt == 0x66)
             escPrefix = *pt++;
 #ifdef HOSTARCHITECTURE_X86_64
         // REX prefixes.  Set this first.
@@ -1743,7 +1743,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
                 // These are SSE2 instructions
                 case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
-                case 0x2e: case 0x2a: case 0x54: case 0x57:
+                case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a: case 0xfa:
                     pt++; skipea(&pt, process, false); break;
 
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);
