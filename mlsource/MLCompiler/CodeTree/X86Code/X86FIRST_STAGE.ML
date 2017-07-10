@@ -475,7 +475,8 @@ struct
         [MoveToRegister{source=RegisterArg source, output=output}]
 
     |   moveRegisterToRegister(GenReg source, FPReg output) =
-        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromMemory{base=source, offset=0, index=NoIndex}]
+        [FPStoreToFPReg{output=output, andPop=true},
+         FPLoadFromMemory{address={base=source, offset=0, index=NoIndex}, precision=DoublePrecision}]
 
     |   moveRegisterToRegister(FPReg source, FPReg output) =
         [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromFPReg{source=source, lastRef=false}]
@@ -521,7 +522,7 @@ struct
     fun boxFloatingPoint(source: fpReg, output: genReg, saveRegs) =
         (* We need to allocate memory to contain the value. *)
         [StoreInitialised,
-         FPStoreToMemory{ base=output, offset=0, andPop=true },
+         FPStoreToMemory{ address={base=output, offset=0, index=NoIndex}, andPop=true, precision=DoublePrecision },
          FPLoadFromFPReg{source=source, lastRef=false}]
             @ allocStore{size=8 div wordSize, flags=F_bytes, output=output,
                 saveRegs=saveRegs}
@@ -4097,22 +4098,22 @@ struct
         local
             fun genLoadCFloatInstr (true (*Double*), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(FPReg destReg)) =
                     [FPStoreToFPReg{output=destReg, andPop=true},
-                     FPLoadFromMemory{base=base, offset=byteOffset+Word.toInt(toShort offset)*8, index=NoIndex},
+                     FPLoadFromMemory{address={base=base, offset=byteOffset+Word.toInt(toShort offset)*8, index=NoIndex}, precision=DoublePrecision},
                      MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
 
             |   genLoadCFloatInstr (false (* Single. *), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(FPReg destReg)) =
                     [FPStoreToFPReg{output=destReg, andPop=true},
-                     FPLoadFromMemorySingle{base=base, offset=byteOffset+Word.toInt(toShort offset)*4, index=NoIndex},
+                     FPLoadFromMemory{address={base=base, offset=byteOffset+Word.toInt(toShort offset)*4, index=NoIndex}, precision=SinglePrecision},
                      MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
 
             |   genLoadCFloatInstr (true (* Double. *), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(FPReg destReg)) =
                     [FPStoreToFPReg{output=destReg, andPop=true},
-                     FPLoadFromMemory{base=base, offset=byteOffset-4, index=Index4 indexR},
+                     FPLoadFromMemory{address={base=base, offset=byteOffset-4, index=Index4 indexR}, precision=DoublePrecision},
                      MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
 
             |   genLoadCFloatInstr (false (* Single. *), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(FPReg destReg)) =
                     [FPStoreToFPReg{output=destReg, andPop=true},
-                     FPLoadFromMemorySingle{base=base, offset=byteOffset-2, index=Index2 indexR},
+                     FPLoadFromMemory{address={base=base, offset=byteOffset-2, index=Index2 indexR}, precision=SinglePrecision},
                      MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
             
             |   genLoadCFloatInstr _ _ = raise InternalError "genLoadCFloatInstr"
@@ -4335,11 +4336,56 @@ struct
             else raise InternalError "storeC64 in 32-bit mode"
         
         local
+            fun genStoreFloating(precision, byteOffset) ([InRegister(GenReg base), indexSource, InRegister(FPReg toStore)], NONE) =
+                let
+                    val memStore =
+                        case indexSource of
+                            InRegister(GenReg indexR) =>
+                            let
+                                val (offset, scale) =
+                                    case precision of
+                                        DoublePrecision => (~4, Index4 indexR)
+                                    |   SinglePrecision => (~2, Index2 indexR)
+                            in
+                                {base=base, offset=byteOffset+offset, index=scale}
+                            end
+                        |   LiteralSource offset =>
+                            let
+                                val factor = case precision of DoublePrecision => 8 | SinglePrecision => 4
+                            in
+                                {base=base, offset=byteOffset + Word.toInt(toShort offset)*factor, index=NoIndex}
+                            end
+                        |   _ => raise InternalError "genStoreFloating"
+                in
+                    [
+                        FPStoreToMemory { address=memStore, precision=precision, andPop=true},
+                        FPLoadFromFPReg { source=toStore, lastRef=false },
+                        MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}
+                    ]
+                end
+            |   genStoreFloating _ _ = raise InternalError "genStoreFloating"
+
+            fun storeCflt (precision, byteOffset, transtable, args, whereto) =
+            let
+                val (_, opCode) =
+                   loadToOneOf(floatingPtRegisters, false, 2, (* Value to store. *)
+                        loadToOneOf(generalRegisters, true, 0, (* Base address - need to unbox. *)
+                            loadToRegOrLiteral(generalRegisters, false, 1, (* Index if necessary. *)
+                                generateInstruction(genStoreFloating(precision, Word.toInt byteOffset))))) ([NONE, NONE, NONE], NONE)
+                                    (transtable, args, NoResult)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex(pushConst (transtable, toMachineWord 0))
+            in
+                (opCode, result)
+            end
         in
             fun storeCfloat{base, index, byteOffset, toStore, transtable, whereto} =
-                raise InternalError "storeCfloat"
+                storeCflt (SinglePrecision, byteOffset, transtable, [base, index, toStore], whereto)
+
             and storeCdouble{base, index, byteOffset, toStore, transtable, whereto} =
-                raise InternalError "storeCdouble"
+                storeCflt (DoublePrecision, byteOffset, transtable, [base, index, toStore], whereto)
         end
 
         local
@@ -4904,7 +4950,7 @@ struct
                     val loadToStack =
                         case stackArg of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0, index=NoIndex}
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{address={base=reg, offset=0, index=NoIndex}, precision=DoublePrecision}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "testActions"
                     val fpOperation =
@@ -4972,7 +5018,7 @@ struct
                     val loadToStack =
                         case stackArg of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0, index=NoIndex}
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{address={base=reg, offset=0, index=NoIndex}, precision=DoublePrecision}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genBinaryFP"
                     val fpOperation =
@@ -4995,7 +5041,7 @@ struct
                     val loadToStack =
                         case opn of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0, index=NoIndex}
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{address={base=reg, offset=0, index=NoIndex}, precision=DoublePrecision}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genUnaryFP"
                 in
