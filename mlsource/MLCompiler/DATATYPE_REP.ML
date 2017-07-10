@@ -87,7 +87,7 @@ struct
 
     (* allocate 1 mutable word, initialise to "v" *)
     fun refApplyCode v =
-        mkBuiltIn3(BuiltIns.AllocateWordMemory, mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v)
+        mkAllocateWordMemory(mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v)
 
     local
         fun mkTag (tag:word) : codetree = mkConst (toMachineWord tag);

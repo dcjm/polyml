@@ -296,26 +296,26 @@ struct
                             mkEqualWord(mkLoadArgument 0, mkLoadArgument 1), (* Then they must be the same value. *)
                                 (* Otherwise the length of the second argument must be one and the first character of the
                                    string must match. *)
-                            mkCand(mkEqualWord(mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 1), mkConst(toMachineWord 1)),
+                            mkCand(mkEqualWord(mkUnary(BuiltIns.StringLengthWord, mkLoadArgument 1), mkConst(toMachineWord 1)),
                                 mkEqualWord(mkLoadArgument 0, mkLoadOperation(LoadStoreMLByte{isImmutable=true}, mkLoadArgument 1, mkConst(toMachineWord wordSize))))
                             ),
                         (* First argument is long. *)
                         mkIf(
                             mkIsShort(mkLoadArgument 1), (* Is the second arg short? *)
-                            mkCand(mkEqualWord(mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 0), mkConst(toMachineWord 1)),
+                            mkCand(mkEqualWord(mkUnary(BuiltIns.StringLengthWord, mkLoadArgument 0), mkConst(toMachineWord 1)),
                                 mkEqualWord(mkLoadOperation(LoadStoreMLByte{isImmutable=true}, mkLoadArgument 0, mkConst(toMachineWord wordSize)), mkLoadArgument 1)),
                             (* Both long.  Because the first word contains the
                                length if we include this in the test we will have tested the length
                                as well and will stop immediately if the lengths are different.*)
                             mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
                                     leftIndex=CodeZero, rightIndex=CodeZero,
-                                    length=mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithAdd,
+                                    length=mkBinary(BuiltIns.WordArith BuiltIns.ArithAdd,
                                         mkConst(toMachineWord wordSize),
                                         (* Use argument 1 here rather than 0.  We could use either but this works
                                            better when we're using equality for pattern matching since it
                                            gets the length of the constant string.  It also works better
                                            for the, to me, more natural ordering of variable=constant. *)
-                                        mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 1)
+                                        mkUnary(BuiltIns.StringLengthWord, mkLoadArgument 1)
                                    )
                             }
                         )
@@ -341,21 +341,21 @@ struct
                             (* Equal if  signs are the same ... *)
                             mkCand(
                                 mkEqualWord(
-                                    mkBuiltIn1(BuiltIns.MemoryCellFlags, mkLoadArgument 0),
-                                    mkBuiltIn1(BuiltIns.MemoryCellFlags, mkLoadArgument 1)
+                                    mkUnary(BuiltIns.MemoryCellFlags, mkLoadArgument 0),
+                                    mkUnary(BuiltIns.MemoryCellFlags, mkLoadArgument 1)
                                 ),
                                 mkEnv(
-                                    [mkDec(0, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 1))],
+                                    [mkDec(0, mkUnary(BuiltIns.MemoryCellLength, mkLoadArgument 1))],
                                     mkCand(
                                         (* ... and the lengths are equal ... *)
                                         mkEqualWord(
-                                            mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 0),
+                                            mkUnary(BuiltIns.MemoryCellLength, mkLoadArgument 0),
                                             mkLoadLocal 0
                                         ),
                                         (* ... and they're byte-wise equal .*)
                                         mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
                                             leftIndex=CodeZero, rightIndex=CodeZero,
-                                            length=mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
+                                            length=mkBinary(BuiltIns.WordArith BuiltIns.ArithMult,
                                                 mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0)}
                                     )
                                 )

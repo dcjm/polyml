@@ -204,8 +204,8 @@ struct
                             List.app processGenAndSpec closureItems
                         end
 
-                    |   findDecs (EnvSpecBuiltIn1 _) = ()
-                    |   findDecs (EnvSpecBuiltIn2 _) = ()
+                    |   findDecs (EnvSpecUnary _) = ()
+                    |   findDecs (EnvSpecBinary _) = ()
 
                     and processGenAndSpec (gen, spec) =
                         (* The spec part needs only to be processed if this entry has
@@ -312,8 +312,8 @@ struct
                         and mapSpec EnvSpecNone = EnvSpecNone
                         |   mapSpec (EnvSpecTuple(size, env)) = EnvSpecTuple(size, newEnviron env)
                         |   mapSpec (EnvSpecInlineFunction(spec, env)) = EnvSpecInlineFunction(spec, (newEnviron env))
-                        |   mapSpec (EnvSpecBuiltIn1 _) = EnvSpecNone
-                        |   mapSpec (EnvSpecBuiltIn2 _) = EnvSpecNone
+                        |   mapSpec (EnvSpecUnary _) = EnvSpecNone
+                        |   mapSpec (EnvSpecBinary _) = EnvSpecNone
                     in 
                         (* and return the whole lot as a global value. *)
                         Constnt(generalVal, setInline(mapSpec simpleSpec) generalProps)
@@ -391,36 +391,38 @@ struct
     }
 
     (* Basic built-in operations. *)
-    fun mkBuiltIn0 oper = BuiltIn0 { oper = oper }
-    and mkBuiltIn1 (oper, arg1) = BuiltIn1 { oper = oper, arg1 = arg1 }
-    and mkBuiltIn2 (oper, arg1, arg2) =
-        BuiltIn2 { oper = oper, arg1 = arg1, arg2 = arg2 }
-    and mkBuiltIn3 (oper, arg1, arg2, arg3) =
-        BuiltIn3 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3 }
+    fun mkUnary (oper, arg1) = Unary { oper = oper, arg1 = arg1 }
+    and mkBinary (oper, arg1, arg2) =
+        Binary { oper = oper, arg1 = arg1, arg2 = arg2 }
+
+    val getCurrentThreadId = GetThreadId
+    and getCurrentThreadIdFn =
+        mkInlproc(GetThreadId, 1 (* Ignores argument *), "GetThreadId()", [], 0)
+
+    fun mkAllocateWordMemory (numWords, flags, initial) =
+        AllocateWordMemory { numWords = numWords, flags = flags, initial = initial }
+    val mkAllocateWordMemoryFn =
+        mkInlproc(
+            mkAllocateWordMemory(mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0)),
+            1, "AllocateWordMemory()", [], 0)
 
     (* Builtins wrapped as functions.  N.B.  These all take a single argument which may be a tuple. *)
-    fun mkBuiltIn0Fn oper =
-        mkInlproc(mkBuiltIn0 oper, 1 (* Ignores argument *), BuiltIns.builtIn0Repr oper ^ "()", [], 0)
-    and mkBuiltIn1Fn oper =
-        mkInlproc(mkBuiltIn1(oper, mkLoadArgument 0), 1, BuiltIns.builtIn1Repr oper ^ "()", [], 0)
-    and mkBuiltIn2Fn oper =
-        mkInlproc(mkBuiltIn2(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)), 1, BuiltIns.builtIn2Repr oper ^ "()", [], 0)
-    and mkBuiltIn3Fn oper =
-        mkInlproc(
-            mkBuiltIn3(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0)),
-            1, BuiltIns.builtIn3Repr oper ^ "()", [], 0)
+    fun mkUnaryFn oper =
+        mkInlproc(mkUnary(oper, mkLoadArgument 0), 1, BuiltIns.unaryRepr oper ^ "()", [], 0)
+    and mkBinaryFn oper =
+        mkInlproc(mkBinary(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)), 1, BuiltIns.binaryRepr oper ^ "()", [], 0)
 
     local
         open BuiltIns
         (* Word equality.  The value of isSigned doesn't matter. *)
         val eqWord = WordComparison{test=TestEqual, isSigned=false}
     in
-        fun mkNot arg = BuiltIn1{oper=NotBoolean, arg1=arg}
-        and mkIsShort arg = BuiltIn1{oper=IsTaggedValue, arg1=arg}
+        fun mkNot arg = Unary{oper=NotBoolean, arg1=arg}
+        and mkIsShort arg = Unary{oper=IsTaggedValue, arg1=arg}
         and mkEqualWord (arg1, arg2) =
-            BuiltIn2{oper=eqWord, arg1=arg1, arg2=arg2}
+            Binary{oper=eqWord, arg1=arg1, arg2=arg2}
         val equalWordFn = (* This takes two words, not a tuple. *)
-            mkInlproc(mkBuiltIn2(eqWord, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualWord()", [], 0)
+            mkInlproc(mkBinary(eqWord, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualWord()", [], 0)
     end
 
     fun mkLoadOperation(oper, base, index) =

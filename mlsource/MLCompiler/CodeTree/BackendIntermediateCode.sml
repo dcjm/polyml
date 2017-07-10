@@ -49,10 +49,7 @@ struct
         |   ShiftRightLogical
         |   ShiftRightArithmetic
 
-        datatype builtIn0Ops =
-            CurrentThreadId
-
-        and builtIn1Ops =
+        datatype unaryOps =
             NotBoolean
         |   IsTaggedValue
         |   MemoryCellLength
@@ -69,7 +66,7 @@ struct
         |   RealNeg
         |   FloatFixedInt
 
-        and builtIn2Ops =
+        and binaryOps =
             WordComparison of { test: testConditions, isSigned: bool }
         |   FixedPrecisionArith of arithmeticOperations
         |   WordArith of arithmeticOperations
@@ -83,42 +80,37 @@ struct
         |   LargeWordShift of shiftOperations
         |   RealComparison of testConditions
         |   RealArith of arithmeticOperations
-
-        and builtIn3Ops =
-            AllocateWordMemory
         
-        fun builtIn0Repr CurrentThreadId = "CurrentThreadId"
+        fun unaryRepr NotBoolean = "NotBoolean"
+        |   unaryRepr IsTaggedValue = "IsTaggedValue"
+        |   unaryRepr MemoryCellLength = "MemoryCellLength"
+        |   unaryRepr MemoryCellFlags = "MemoryCellFlags"
+        |   unaryRepr ClearMutableFlag = "ClearMutableFlag"
+        |   unaryRepr StringLengthWord = "StringLengthWord"
+        |   unaryRepr AtomicIncrement = "AtomicIncrement"
+        |   unaryRepr AtomicDecrement = "AtomicDecrement"
+        |   unaryRepr AtomicReset = "AtomicReset"
+        |   unaryRepr LongWordToTagged = "LongWordToTagged"
+        |   unaryRepr SignedToLongWord = "SignedToLongWord"
+        |   unaryRepr UnsignedToLongWord = "UnsignedToLongWord"
+        |   unaryRepr RealAbs = "RealAbs"
+        |   unaryRepr RealNeg = "RealNeg"
+        |   unaryRepr FloatFixedInt = "FloatFixedInt"
 
-        and builtIn1Repr NotBoolean = "NotBoolean"
-        |   builtIn1Repr IsTaggedValue = "IsTaggedValue"
-        |   builtIn1Repr MemoryCellLength = "MemoryCellLength"
-        |   builtIn1Repr MemoryCellFlags = "MemoryCellFlags"
-        |   builtIn1Repr ClearMutableFlag = "ClearMutableFlag"
-        |   builtIn1Repr StringLengthWord = "StringLengthWord"
-        |   builtIn1Repr AtomicIncrement = "AtomicIncrement"
-        |   builtIn1Repr AtomicDecrement = "AtomicDecrement"
-        |   builtIn1Repr AtomicReset = "AtomicReset"
-        |   builtIn1Repr LongWordToTagged = "LongWordToTagged"
-        |   builtIn1Repr SignedToLongWord = "SignedToLongWord"
-        |   builtIn1Repr UnsignedToLongWord = "UnsignedToLongWord"
-        |   builtIn1Repr RealAbs = "RealAbs"
-        |   builtIn1Repr RealNeg = "RealNeg"
-        |   builtIn1Repr FloatFixedInt = "FloatFixedInt"
-
-        and builtIn2Repr (WordComparison{test, isSigned}) =
+        and binaryRepr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
-        |   builtIn2Repr (FixedPrecisionArith arithOp) = (arithRepr arithOp) ^ "Fixed"
-        |   builtIn2Repr (WordArith arithOp) =  (arithRepr arithOp) ^ "Word"
-        |   builtIn2Repr SetStringLengthWord = "SetStringLengthWord"
-        |   builtIn2Repr (WordLogical logOp) =  (logicRepr logOp) ^ "Word"
-        |   builtIn2Repr (WordShift shiftOp) =  (shiftRepr shiftOp) ^ "Word"
-        |   builtIn2Repr AllocateByteMemory = "AllocateByteMemory"
-        |   builtIn2Repr (LargeWordComparison test) = "Test" ^ (testRepr test) ^ "LargeWord"
-        |   builtIn2Repr (LargeWordArith arithOp) =  (arithRepr arithOp) ^ "LargeWord"
-        |   builtIn2Repr (LargeWordLogical logOp) =  (logicRepr logOp) ^ "LargeWord"
-        |   builtIn2Repr (LargeWordShift shiftOp) =  (shiftRepr shiftOp) ^ "LargeWord"
-        |   builtIn2Repr (RealComparison test) = "Test" ^ (testRepr test) ^ "Real"
-        |   builtIn2Repr (RealArith arithOp) = (arithRepr arithOp) ^ "Real"
+        |   binaryRepr (FixedPrecisionArith arithOp) = (arithRepr arithOp) ^ "Fixed"
+        |   binaryRepr (WordArith arithOp) =  (arithRepr arithOp) ^ "Word"
+        |   binaryRepr SetStringLengthWord = "SetStringLengthWord"
+        |   binaryRepr (WordLogical logOp) =  (logicRepr logOp) ^ "Word"
+        |   binaryRepr (WordShift shiftOp) =  (shiftRepr shiftOp) ^ "Word"
+        |   binaryRepr AllocateByteMemory = "AllocateByteMemory"
+        |   binaryRepr (LargeWordComparison test) = "Test" ^ (testRepr test) ^ "LargeWord"
+        |   binaryRepr (LargeWordArith arithOp) =  (arithRepr arithOp) ^ "LargeWord"
+        |   binaryRepr (LargeWordLogical logOp) =  (logicRepr logOp) ^ "LargeWord"
+        |   binaryRepr (LargeWordShift shiftOp) =  (shiftRepr shiftOp) ^ "LargeWord"
+        |   binaryRepr (RealComparison test) = "Test" ^ (testRepr test) ^ "Real"
+        |   binaryRepr (RealArith arithOp) = (arithRepr arithOp) ^ "Real"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestLess           = "Less"
@@ -142,7 +134,6 @@ struct
         |   shiftRepr ShiftRightLogical = "RightLogical"
         |   shiftRepr ShiftRightArithmetic = "RightArithmetic"
 
-        and builtIn3Repr AllocateWordMemory = "AllocateWordMemory"
     end
 
     datatype argumentType =
@@ -167,10 +158,8 @@ struct
         }
 
         (* Built-in functions. *)
-    |   BICBuiltIn0 of {oper: BuiltIns.builtIn0Ops}
-    |   BICBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: backendIC}
-    |   BICBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: backendIC, arg2: backendIC}
-    |   BICBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC}
+    |   BICUnary of {oper: BuiltIns.unaryOps, arg1: backendIC}
+    |   BICBinary of {oper: BuiltIns.binaryOps, arg1: backendIC, arg2: backendIC}
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
@@ -214,6 +203,10 @@ struct
     
     |   BICBlockOperation of
             { kind: blockOpKind, sourceLeft: bicAddress, destRight: bicAddress, length: backendIC }
+
+    |   BICGetThreadId
+    
+    |   BICAllocateWordMemory of {numWords: backendIC, flags: backendIC, initial: backendIC}
 
     and bicCodeBinding =
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
@@ -382,24 +375,21 @@ struct
                 )
             end
 
-        |   BICBuiltIn0 { oper } =>
+        |   BICGetThreadId => PrettyString "GetThreadId"
+
+        |   BICUnary { oper, arg1 } =>
                 PrettyBlock (3, false, [],
-                    [ PrettyString(BuiltIns.builtIn0Repr oper), PrettyBreak(1, 0), printList("", [], ",") ]
+                    [ PrettyString(BuiltIns.unaryRepr oper), PrettyBreak(1, 0), printList("", [arg1], ",") ]
                 )
 
-        |   BICBuiltIn1 { oper, arg1 } =>
+        |   BICBinary { oper, arg1, arg2 } =>
                 PrettyBlock (3, false, [],
-                    [ PrettyString(BuiltIns.builtIn1Repr oper), PrettyBreak(1, 0), printList("", [arg1], ",") ]
+                    [ PrettyString(BuiltIns.binaryRepr oper), PrettyBreak(1, 0), printList("", [arg1, arg2], ",") ]
                 )
 
-        |   BICBuiltIn2 { oper, arg1, arg2 } =>
+        |   BICAllocateWordMemory { numWords, flags, initial } =>
                 PrettyBlock (3, false, [],
-                    [ PrettyString(BuiltIns.builtIn2Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2], ",") ]
-                )
-
-        |   BICBuiltIn3 { oper, arg1, arg2, arg3 } =>
-                PrettyBlock (3, false, [],
-                    [ PrettyString(BuiltIns.builtIn3Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2, arg3], ",") ]
+                    [ PrettyString "AllocateWordMemory", PrettyBreak(1, 0), printList("", [numWords, flags, initial], ",") ]
                 )
 
         |   BICExtract (BICLoadLocal addr) =>
@@ -691,10 +681,8 @@ struct
         and  bicSimpleBinding = bicSimpleBinding
         and  loadStoreKind = loadStoreKind
         and  blockOpKind = blockOpKind
-        and  builtIn0Ops = BuiltIns.builtIn0Ops
-        and  builtIn1Ops = BuiltIns.builtIn1Ops
-        and  builtIn2Ops = BuiltIns.builtIn2Ops
-        and  builtIn3Ops = BuiltIns.builtIn3Ops
+        and  unaryOps = BuiltIns.unaryOps
+        and  binaryOps = BuiltIns.binaryOps
     end
 
 end;

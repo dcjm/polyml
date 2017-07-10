@@ -142,7 +142,7 @@ struct
 
         val code =
             [
-                MoveToRegister{source=LongConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 loadMemory(argPtrReg, ebp, memRegArgumentPtr) (* Get argument data ptr  - use r12 to save reloading after the call *)
             ] @
@@ -157,7 +157,7 @@ struct
                 storeMemory(esp, argPtrReg, argStackPointer), (* Save ML stack and switch to C stack. *)
                 moveRR{source=ebp, output=esp},
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithToGenReg{opc=SUB, output=esp, source=ShortConstArg(LargeInt.fromInt stackSpace)}
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
             (
                 case (abi, nArgs) of  (* Set the argument registers. *)
@@ -251,12 +251,12 @@ struct
 
         val code =
             [
-                MoveToRegister{source=LongConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 moveRR{source=ebp, output=esp},
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithToGenReg{opc=SUB, output=esp, source=ShortConstArg(LargeInt.fromInt stackSpace)}
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
             (
                 case (abi, nArgs) of  (* Set the argument registers. *)
@@ -351,12 +351,12 @@ struct
 
         val code =
             [
-                MoveToRegister{source=LongConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 moveRR{source=ebp, output=esp},
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithToGenReg{opc=SUB, output=esp, source=ShortConstArg(LargeInt.fromInt stackSpace)}
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
             (
                 case abi of
@@ -368,7 +368,7 @@ struct
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [
                         FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=ShortConstArg 8},
+                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8},
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
                     ]
             ) @
@@ -455,12 +455,12 @@ struct
 
         val code =
             [
-                MoveToRegister{source=LongConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 moveRR{source=ebp, output=esp},
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithToGenReg{opc=SUB, output=esp, source=ShortConstArg(LargeInt.fromInt stackSpace)}
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
             (
                 case abi of

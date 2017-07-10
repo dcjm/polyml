@@ -75,10 +75,8 @@ sig
         }
 
         (* Built-in functions. *)
-    |   BuiltIn0 of {oper: BuiltIns.builtIn0Ops}
-    |   BuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: codetree}
-    |   BuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: codetree, arg2: codetree}
-    |   BuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: codetree, arg2: codetree, arg3: codetree}
+    |   Unary of {oper: BuiltIns.unaryOps, arg1: codetree}
+    |   Binary of {oper: BuiltIns.binaryOps, arg1: codetree, arg2: codetree}
 
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
@@ -109,6 +107,10 @@ sig
     |   BlockOperation of
             { kind: blockOpKind, sourceLeft: codeAddress, destRight: codeAddress, length: codetree }
 
+    |   GetThreadId
+    
+    |   AllocateWordMemory of {numWords: codetree, flags: codetree, initial: codetree}
+
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
@@ -134,8 +136,8 @@ sig
         EnvSpecNone
     |   EnvSpecTuple of int * (int -> envGeneral * envSpecial)
     |   EnvSpecInlineFunction of lambdaForm * (int -> envGeneral * envSpecial)
-    |   EnvSpecBuiltIn1 of BuiltIns.builtIn1Ops * codetree
-    |   EnvSpecBuiltIn2 of BuiltIns.builtIn2Ops * codetree * codetree
+    |   EnvSpecUnary of BuiltIns.unaryOps * codetree
+    |   EnvSpecBinary of BuiltIns.binaryOps * codetree * codetree
 
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
@@ -190,10 +192,8 @@ sig
         and  envSpecial = envSpecial
         and  codeUse = codeUse
         and  foldControl = foldControl
-        and  builtIn0Ops = BuiltIns.builtIn0Ops
-        and  builtIn1Ops = BuiltIns.builtIn1Ops
-        and  builtIn2Ops = BuiltIns.builtIn2Ops
-        and  builtIn3Ops = BuiltIns.builtIn3Ops
+        and  unaryOps = BuiltIns.unaryOps
+        and  binaryOps = BuiltIns.binaryOps
     end
 
 end;

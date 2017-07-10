@@ -301,15 +301,15 @@ struct
         and sourceAsGenRegOrMem(RealRegister(GenReg r)) = RegisterArg r
         |   sourceAsGenRegOrMem(MemoryLocation{offset, base=RealRegister(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsGenRegOrMem(IntegerConstant v) = ShortConstArg v
-        |   sourceAsGenRegOrMem(AddressConstant v) = LongConstArg v
+        |   sourceAsGenRegOrMem(IntegerConstant v) = NonAddressConstArg v
+        |   sourceAsGenRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsGenRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
 
         and sourceAsXMMRegOrMem(RealRegister(XMMReg r)) = RegisterArg r
         |   sourceAsXMMRegOrMem(MemoryLocation{offset, base=RealRegister(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsXMMRegOrMem(IntegerConstant v) = ShortConstArg v
-        |   sourceAsXMMRegOrMem(AddressConstant v) = LongConstArg v
+        |   sourceAsXMMRegOrMem(IntegerConstant v) = NonAddressConstArg v
+        |   sourceAsXMMRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
 
         (* Turn the icode into machine code.  This produces the code in reverse. *)
@@ -623,7 +623,7 @@ struct
                 codeGenICode(rest, PushToStack(RegisterArg r) :: code)
 
         |   codeGenICode(PushValue { arg = IntegerConstant v } :: rest, code) =
-                codeGenICode(rest, PushToStack(ShortConstArg v) :: code)
+                codeGenICode(rest, PushToStack(NonAddressConstArg v) :: code)
 
         |   codeGenICode(PushValue _ :: _, _) =
                 raise InternalError "codeGenICode: TODO PushValue"

@@ -113,8 +113,8 @@ sig
     datatype 'reg regOrMemoryArg =
         RegisterArg of 'reg
     |   MemoryArg of memoryAddress
-    |   ShortConstArg of LargeInt.int
-    |   LongConstArg of machineWord
+    |   NonAddressConstArg of LargeInt.int
+    |   AddressConstArg of machineWord
     
     datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
     and fpSize = SinglePrecision | DoublePrecision

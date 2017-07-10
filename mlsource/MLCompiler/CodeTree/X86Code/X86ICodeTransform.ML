@@ -1816,7 +1816,7 @@ struct
         |   codeICode{icode=CompareByteVectors { vec1Addr, vec2Addr, length, ccRef } :: rest, state=NormalState state, code, context} =
             let
                 val {untaggedRegs, ...} = state
-                val vec1Reg = argToUReg vec1Addr and vec2Reg = argToUReg vec2Addr and lenReg = argToUReg length
+                val vec1Reg = argToUReg vec1Addr and vec2Reg = argToUReg vec2Addr
                 val realVec1Reg =
                     case List.find (fn {ureg, ...} => ureg = vec1Reg) untaggedRegs of
                         SOME {reg as GenReg _, ...} => reg
@@ -1825,14 +1825,38 @@ struct
                     case List.find (fn {ureg, ...} => ureg = vec2Reg) untaggedRegs of
                         SOME {reg as GenReg _, ...} => reg
                     |   _ => raise InternalError "codeICode: CompareByteVectors"
-                val realLenReg =
-                    case List.find (fn {ureg, ...} => ureg = lenReg) untaggedRegs of
-                        SOME {reg as GenReg _, ...} => reg
-                    |   _ => raise InternalError "codeICode: CompareByteVectors"
+                (* Put the length into RCX. *)
+                (* There's a complication here.  CompareByteVectors generates REPE CMPSB to compare
+                   the vectors but the condition code is only set if CMPSB is executed at least
+                   once.  If the value in RCX/ECX is zero it will never be executed and the
+                   condition code will be unchanged.  We want the result to be "equal" in that
+                   case so we need to ensure that is the case.  It's quite possible that the
+                   condition code has just been set by shifting RCX/ECX to remove the tag in which
+                   case it will have set "equal" if the value was zero.  We use CMP R/ECX,R/ECX which
+                   is two bytes in 32-bit but three in 64-bit. *)
+                val (lengthCode, setZeroFlag) =
+                    case length of
+                        len as IntegerConstant l =>
+                            (MoveArgument{ source=len, dest=rcxAsArg, kind=MoveWord},
+                             (* We don't need this except if the length is zero.  Really if we know
+                                the length is zero we don't need this at all. *)
+                             if l = 0 then [WordComparison {arg1=rcxAsArg, arg2=rcxAsArg, ccRef=ccRef}] else [])
+                    |   length =>
+                        let
+                            val lenReg = argToUReg length
+                            val realLenReg =
+                                case List.find (fn {ureg, ...} => ureg = lenReg) untaggedRegs of
+                                    SOME {reg as GenReg _, ...} => reg
+                                |   _ => raise InternalError "codeICode: CompareByteVectors"
+                            val _ = realLenReg = GenReg esi orelse raise InternalError "codeICode: lenReg"
+                        in
+                            (MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=MoveWord},
+                             [WordComparison {arg1=rcxAsArg, arg2=rcxAsArg, ccRef=ccRef}]) (* Set CC - any reg will do. *)
+                        end
                 (* These aren't in the registers we want so we have to shuffle them. *)
                 val _ = realVec1Reg = GenReg edx orelse raise InternalError "codeICode: vec1Reg"
                 val _ = realVec2Reg = GenReg ecx orelse raise InternalError "codeICode: vec2Reg"
-                val _ = realLenReg = GenReg esi orelse raise InternalError "codeICode: lenReg"
+                
                 val resultState =
                     {valueStack= #valueStack state, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
             in
@@ -1840,9 +1864,10 @@ struct
                     icode=rest, state=NormalState resultState,
                     code =
                         CompareByteVectors{vec1Addr=rsiAsArg, vec2Addr=rdiAsArg, length=rcxAsArg, ccRef=ccRef} ::
+                        setZeroFlag @ (
                         MoveArgument{source=RealRegister realVec1Reg, dest=rsiAsArg, kind=MoveWord} ::
-                        MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=MoveWord} ::
-                        MoveArgument{source=RealRegister realVec2Reg, dest=rdiAsArg, kind=MoveWord} :: code, context=context}
+                        lengthCode ::
+                        MoveArgument{source=RealRegister realVec2Reg, dest=rdiAsArg, kind=MoveWord} :: code), context=context}
             end
 
         |   codeICode{icode=BlockMove { srcAddr, destAddr, length, isByteMove } :: rest, state=NormalState state, code, context} =

@@ -150,14 +150,14 @@ struct
 
         (* BuiltIn0 functions can't be processed specially. *)
 
-    |   simpGeneral context (BuiltIn1{oper, arg1}) =
-            SOME(specialToGeneral(simpBuiltIn1(oper, arg1, context)))
+    |   simpGeneral context (Unary{oper, arg1}) =
+            SOME(specialToGeneral(simpUnary(oper, arg1, context)))
 
-    |   simpGeneral context (BuiltIn2{oper, arg1, arg2}) =
-            SOME(specialToGeneral(simpBuiltIn2(oper, arg1, arg2, context)))
+    |   simpGeneral context (Binary{oper, arg1, arg2}) =
+            SOME(specialToGeneral(simpBinary(oper, arg1, arg2, context)))
 
-    |   simpGeneral context (BuiltIn3{oper, arg1, arg2, arg3}) =
-            SOME(specialToGeneral(simpBuiltIn3(oper, arg1, arg2, arg3, context)))
+    |   simpGeneral context (AllocateWordMemory {numWords, flags, initial}) =
+            SOME(specialToGeneral(simpAllocateWordMemory(numWords, flags, initial, context)))
 
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
             SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
@@ -330,14 +330,14 @@ struct
     |   simpSpecial (Eval {function, argList, resultType}, context) =
             simpFunctionCall(function, argList, resultType, context)
 
-    |   simpSpecial (BuiltIn1{oper, arg1}, context) =
-            simpBuiltIn1(oper, arg1, context)
+    |   simpSpecial (Unary{oper, arg1}, context) =
+            simpUnary(oper, arg1, context)
 
-    |   simpSpecial (BuiltIn2{oper, arg1, arg2}, context) =
-            simpBuiltIn2(oper, arg1, arg2, context)
+    |   simpSpecial (Binary{oper, arg1, arg2}, context) =
+            simpBinary(oper, arg1, arg2, context)
 
-    |   simpSpecial (BuiltIn3{oper, arg1, arg2, arg3}, context) =
-            simpBuiltIn3(oper, arg1, arg2, arg3, context)
+    |   simpSpecial (AllocateWordMemory{numWords, flags, initial}, context) =
+            simpAllocateWordMemory(numWords, flags, initial, context)
 
     |   simpSpecial (Cond(condTest, condThen, condElse), context) =
             simpIfThenElse(condTest, condThen, condElse, context)
@@ -564,8 +564,8 @@ struct
                                         case specEntry of
                                             EnvSpecTuple(size, env) => EnvSpecTuple(size, convertEnv env)
                                         |   EnvSpecInlineFunction(spec, env) => EnvSpecInlineFunction(spec, convertEnv env)
-                                        |   EnvSpecBuiltIn1 _ => EnvSpecNone (* Don't pass this in *)
-                                        |   EnvSpecBuiltIn2 _ => EnvSpecNone (* Don't pass this in *)
+                                        |   EnvSpecUnary _ => EnvSpecNone (* Don't pass this in *)
+                                        |   EnvSpecBinary _ => EnvSpecNone (* Don't pass this in *)
                                         |   EnvSpecNone => EnvSpecNone
                                 in
                                     (newGeneral, newSpecial)
@@ -750,7 +750,7 @@ struct
        If c is a constant then we may try to fold both the shortOp and the longOp and one
        of these will be type-incorrect although never executed at run-time. *)
 
-    and simpBuiltIn1(oper, arg1, context as { reprocess, ...}) =
+    and simpUnary(oper, arg1, context as { reprocess, ...}) =
     let
         val (genArg1, decArg1, specArg1) = simpSpecial(arg1, context)
     in
@@ -796,12 +796,12 @@ struct
                 (* If we apply LongWordToTagged to an argument we have created with UnsignedToLongWord
                    we can return the original argument. *)
                 case specArg1 of
-                    EnvSpecBuiltIn1(UnsignedToLongWord, originalArg) =>
+                    EnvSpecUnary(UnsignedToLongWord, originalArg) =>
                     (
                         reprocess := true;
                         (originalArg, decArg1, EnvSpecNone)
                     )
-                 |  _ => (BuiltIn1{oper=LongWordToTagged, arg1=genArg1}, decArg1, EnvSpecNone)
+                 |  _ => (Unary{oper=LongWordToTagged, arg1=genArg1}, decArg1, EnvSpecNone)
             )
 
         |   (SignedToLongWord, Constnt(v, _)) =>
@@ -818,12 +818,12 @@ struct
 
         |   (UnsignedToLongWord, genArg1) =>
                 (* Add the operation as the special entry.  It can then be recognised by LongWordToTagged. *)
-                (BuiltIn1{oper=oper, arg1=genArg1}, decArg1, EnvSpecBuiltIn1(UnsignedToLongWord, genArg1))
+                (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecUnary(UnsignedToLongWord, genArg1))
 
-        |   _ => (BuiltIn1{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
+        |   _ => (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
     end
 
-    and simpBuiltIn2(oper, arg1, arg2, context as {reprocess, ...}) =
+    and simpBinary(oper, arg1, arg2, context as {reprocess, ...}) =
     let
         val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
         val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
@@ -832,7 +832,7 @@ struct
         case (oper, genArg1, genArg2) of
             (WordComparison{test, isSigned}, Constnt(v1, _), Constnt(v2, _)) =>
             if (case test of TestEqual => false | _ => not(isShort v1) orelse not(isShort v2))
-            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             else
             let
                 val () = reprocess := true
@@ -854,7 +854,7 @@ struct
 
         |   (FixedPrecisionArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
             if not(isShort v1) orelse not(isShort v2)
-            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             else
             let
                 val () = reprocess := true
@@ -878,7 +878,7 @@ struct
 
         |   (WordArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
             if not(isShort v1) orelse not(isShort v2)
-            then (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             else
             let
                 val () = reprocess := true
@@ -898,16 +898,16 @@ struct
                (resultCode, decArgs, EnvSpecNone)
             end
 
-        |   _ => (BuiltIn2{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+        |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
     end
 
-    and simpBuiltIn3(oper, arg1, arg2, arg3, context) =
+    and simpAllocateWordMemory(numWords, flags, initial, context) =
     let
-        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
-        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
-        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(arg3, context)
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(numWords, context)
+        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(flags, context)
+        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(initial, context)
     in 
-        (BuiltIn3{oper=oper, arg1=genArg1, arg2=genArg2, arg3=genArg3}, decArg1 @ decArg2 @ decArg3, EnvSpecNone)
+        (AllocateWordMemory{numWords=genArg1, flags=genArg2, initial=genArg3}, decArg1 @ decArg2 @ decArg3, EnvSpecNone)
     end
 
     (* Loads, stores and block operations use address values.  The index value is initially
@@ -1094,7 +1094,7 @@ struct
         |   test =>
             let
                 val simpTest = specialToGeneral test
-                fun mkNot arg = BuiltIn1{oper=BuiltIns.NotBoolean, arg1=arg}
+                fun mkNot arg = Unary{oper=BuiltIns.NotBoolean, arg1=arg}
             in
                 case (simpSpecial(condThen, context), simpSpecial(condElse, context)) of
                     ((thenConst as Constnt(thenVal, _), [], _), (elseConst as Constnt(elseVal, _), [], _)) =>

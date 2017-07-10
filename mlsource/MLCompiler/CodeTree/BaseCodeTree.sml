@@ -62,10 +62,8 @@ struct
         }
 
         (* Built-in functions. *)
-    |   BuiltIn0 of {oper: BuiltIns.builtIn0Ops}
-    |   BuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: codetree}
-    |   BuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: codetree, arg2: codetree}
-    |   BuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: codetree, arg2: codetree, arg3: codetree}
+    |   Unary of {oper: BuiltIns.unaryOps, arg1: codetree}
+    |   Binary of {oper: BuiltIns.binaryOps, arg1: codetree, arg2: codetree}
 
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
@@ -99,6 +97,10 @@ struct
     
     |   BlockOperation of
             { kind: blockOpKind, sourceLeft: codeAddress, destRight: codeAddress, length: codetree }
+
+    |   GetThreadId
+    
+    |   AllocateWordMemory of {numWords: codetree, flags: codetree, initial: codetree}
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
@@ -137,8 +139,8 @@ struct
         EnvSpecNone
     |   EnvSpecTuple of int * (int -> envGeneral * envSpecial)
     |   EnvSpecInlineFunction of lambdaForm * (int -> envGeneral * envSpecial)
-    |   EnvSpecBuiltIn1 of BuiltIns.builtIn1Ops * codetree
-    |   EnvSpecBuiltIn2 of BuiltIns.builtIn2Ops * codetree * codetree
+    |   EnvSpecUnary of BuiltIns.unaryOps * codetree
+    |   EnvSpecBinary of BuiltIns.binaryOps * codetree * codetree
     
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
@@ -267,17 +269,16 @@ struct
                     ]
                 )
 
-        |   BuiltIn0 { oper } =>
-                prettyBuiltin(BuiltIns.builtIn0Repr oper, [])
+        |   GetThreadId => prettyBuiltin("GetThreadId", [])
 
-        |   BuiltIn1 { oper, arg1 } =>
-                prettyBuiltin(BuiltIns.builtIn1Repr oper, [arg1])
+        |   Unary { oper, arg1 } =>
+                prettyBuiltin(BuiltIns.unaryRepr oper, [arg1])
 
-        |   BuiltIn2 { oper, arg1, arg2 } =>
-                prettyBuiltin(BuiltIns.builtIn2Repr oper, [arg1, arg2])
+        |   Binary { oper, arg1, arg2 } =>
+                prettyBuiltin(BuiltIns.binaryRepr oper, [arg1, arg2])
 
-        |   BuiltIn3 { oper, arg1, arg2, arg3 } =>
-                prettyBuiltin(BuiltIns.builtIn3Repr oper, [arg1, arg2, arg3])
+        |   AllocateWordMemory { numWords, flags, initial } =>
+                prettyBuiltin("AllocateWordMemory", [numWords, flags, initial])
 
         |   Extract(LoadArgument addr) => string ("Arg" ^ Int.toString addr)
         |   Extract(LoadLocal addr) => string ("Local" ^ Int.toString addr)
@@ -620,13 +621,13 @@ struct
                     argList = map (fn(c, a) => (mapCodetree f c, a)) argList,
                     resultType = resultType
                 }
-        |   mapt(b as BuiltIn0 _) = b
-        |   mapt(BuiltIn1 { oper, arg1 }) =
-                BuiltIn1 { oper = oper, arg1 = mapCodetree f arg1 }
-        |   mapt(BuiltIn2 { oper, arg1, arg2 }) =
-                BuiltIn2 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2 }
-        |   mapt(BuiltIn3 { oper, arg1, arg2, arg3 }) =
-                BuiltIn3 { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2, arg3 = mapCodetree f arg3 }
+        |   mapt GetThreadId = GetThreadId
+        |   mapt(Unary { oper, arg1 }) =
+                Unary { oper = oper, arg1 = mapCodetree f arg1 }
+        |   mapt(Binary { oper, arg1, arg2 }) =
+                Binary { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2 }
+        |   mapt(AllocateWordMemory { numWords, flags, initial }) =
+                AllocateWordMemory { numWords = mapCodetree f numWords, flags = mapCodetree f flags, initial = mapCodetree f initial }
         |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
                 Lambda {
                     body = mapCodetree f body, isInline = isInline, name = name,
@@ -691,10 +692,10 @@ struct
         |   ftree (Indirect{base, ...}, v) = foldtree f v base
         |   ftree (Eval { function, argList, ...}, v) =
                 foldl(fn((c, _), w) => foldtree f w c) (foldtree f v function) argList
-        |   ftree (BuiltIn0 _, v) = v
-        |   ftree (BuiltIn1 {arg1, ...}, v) = foldtree f v arg1
-        |   ftree (BuiltIn2 {arg1, arg2, ...}, v) = foldtree f (foldtree f v arg1) arg2
-        |   ftree (BuiltIn3 {arg1, arg2, arg3, ...}, v) = foldtree f (foldtree f (foldtree f v arg1) arg2) arg3
+        |   ftree (GetThreadId, v) = v
+        |   ftree (Unary {arg1, ...}, v) = foldtree f v arg1
+        |   ftree (Binary {arg1, arg2, ...}, v) = foldtree f (foldtree f v arg1) arg2
+        |   ftree (AllocateWordMemory {numWords, flags, initial}, v) = foldtree f (foldtree f (foldtree f v numWords) flags) initial
         |   ftree (Lambda { body, closure, ...}, v) =
                 foldtree f (foldl (fn (c, w) => foldtree f w (Extract c)) v closure) body
         |   ftree (Cond(i, t, e), v) = foldtree f (foldtree f (foldtree f v i) t) e
@@ -736,10 +737,8 @@ struct
         and  envSpecial = envSpecial
         and  codeUse = codeUse
         and  foldControl = foldControl
-        and  builtIn0Ops = BuiltIns.builtIn0Ops
-        and  builtIn1Ops = BuiltIns.builtIn1Ops
-        and  builtIn2Ops = BuiltIns.builtIn2Ops
-        and  builtIn3Ops = BuiltIns.builtIn3Ops
+        and  unaryOps = BuiltIns.unaryOps
+        and  binaryOps = BuiltIns.binaryOps
     end
 
 end;

@@ -101,13 +101,13 @@ struct
     (* Generate code to check that the depth is not less than the allowedDepth
        and if it is to print "..." rather than the given code. *)
     and checkDepth(depthCode: codetree, allowedDepth: int, codeOk, codeFail) =
-        mkIf(mkBuiltIn2(BuiltIns.WordComparison{test=BuiltIns.TestLess, isSigned=true},
+        mkIf(mkBinary(BuiltIns.WordComparison{test=BuiltIns.TestLess, isSigned=true},
                 depthCode, mkConst(toMachineWord allowedDepth)),
              codeFail, codeOk)
 
     (* Subtract one from the current depth to produce the depth for sub-elements. *)
     and decDepth depthCode =
-        mkBuiltIn2(BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, depthCode, mkConst(toMachineWord 1))
+        mkBinary(BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, depthCode, mkConst(toMachineWord 1))
 
     val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default", [], 0)
 
@@ -1092,7 +1092,7 @@ struct
                 createTypeValue {
                     eqCode = eqCode, boxedCode = boxedCode, sizeCode = sizeCode,
                     printCode =
-                    mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                    mkAllocateWordMemory(
                         mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                          codePrintDefault)
                 })
@@ -1143,7 +1143,7 @@ struct
                 createTypeValue {
                     eqCode = eqCode, boxedCode = boxedCode,
                     printCode =
-                    mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                    mkAllocateWordMemory(
                         mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                         printCode),
                     sizeCode = sizeCode
@@ -1172,7 +1172,7 @@ struct
                 else mkProc(codePrintDefault, arity, "print-helper()", [], 0)
                 
             val printCode =
-                    mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                    mkAllocateWordMemory(
                         mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printFn)
         in
             mkEnv(
@@ -1221,7 +1221,7 @@ struct
                     {
                         eqCode=mkLoadLocal eqAddr,
                         printCode=
-                            mkBuiltIn3(BuiltIns.AllocateWordMemory,
+                            mkAllocateWordMemory(
                                 mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                                  CodeZero (* Temporary - replaced by setPrinter. *)),
                         boxedCode = boxedCode,
@@ -1283,7 +1283,7 @@ struct
         open TypeValue
         val alwaysTrue = mkProc(CodeTrue, 2, "codeForUniqueId-equal", [], 0)
         val printCode =
-            mkBuiltIn3(BuiltIns.AllocateWordMemory,
+            mkAllocateWordMemory(
                 mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), codePrintDefault)
     in
         createTypeValue{

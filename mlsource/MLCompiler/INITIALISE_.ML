@@ -205,7 +205,7 @@ struct
                     createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, [], "true"), true, 2, declInBasis)
             val boolEnv = makeStructure(globalEnv, "Bool") (* Bool structure *)
             val notFn =
-                mkGvar("not", Bool ->> Bool, mkBuiltIn1Fn BuiltIns.NotBoolean, declInBasis)
+                mkGvar("not", Bool ->> Bool, mkUnaryFn BuiltIns.NotBoolean, declInBasis)
         in
             val () = #enterType boolEnv ("bool",  TypeConstrSet(boolConstr, [trueCons, falseCons]))
             val () = #enterVal boolEnv ("true",  trueCons)
@@ -272,11 +272,11 @@ struct
         in
             (* isShort - test if a value is tagged rather than being an address. *)
             val () =
-                enterRunCall ("isShort", makePolymorphic([a], mkBuiltIn1Fn IsTaggedValue), a ->> Bool)
+                enterRunCall ("isShort", makePolymorphic([a], mkUnaryFn IsTaggedValue), a ->> Bool)
             (* pointer equality *)
             val () =
                 enterRunCall ("pointerEq",
-                    makePolymorphic([a], mkBuiltIn2Fn(WordComparison{test=TestEqual, isSigned=false})), a ** a ->> Bool)
+                    makePolymorphic([a], mkBinaryFn(WordComparison{test=TestEqual, isSigned=false})), a ** a ->> Bool)
             (* load a word. The index is in words and is always zero or positive. *)
             val () = enterRunCall ("loadWord",
                     makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLWord{isImmutable=false})), a ** Word ->> b)
@@ -291,9 +291,9 @@ struct
             val () = enterRunCall ("loadByteFromImmutable",
                     makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLByte{isImmutable=true})), a ** Word ->> b)
             (* Get the length of a heap cell. *)
-            val () = enterRunCall ("memoryCellLength", makePolymorphic([a], mkBuiltIn1Fn MemoryCellLength), a ->> Word)
+            val () = enterRunCall ("memoryCellLength", makePolymorphic([a], mkUnaryFn MemoryCellLength), a ->> Word)
             (* Return the flags.  Perhaps this could return a Word8.word value instead of a word. *)
-            val () = enterRunCall ("memoryCellFlags", makePolymorphic([a], mkBuiltIn1Fn MemoryCellFlags), a ->> Word)
+            val () = enterRunCall ("memoryCellFlags", makePolymorphic([a], mkUnaryFn MemoryCellFlags), a ->> Word)
             (* Return the number of bytes per word.  This is a constant since we have separate pre-built
                compilers for 32-bit and 64-bit.  N.B. The byte order is not a constant since we
                only have a single pre-built compiler for little-endian and big-endian interpreted code. *)
@@ -306,14 +306,14 @@ struct
                     makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=false})), mkProductType[a, Word, b] ->> Unit)
             (* Lock a mutable cell. *)
             val () = enterRunCall ("clearMutableBit",
-                    makePolymorphic([a], mkBuiltIn1Fn ClearMutableFlag), a ->> Unit)
+                    makePolymorphic([a], mkUnaryFn ClearMutableFlag), a ->> Unit)
             (* Allocate a byte cell.  The second argument is the flags byte.  It might be better
                if this were a Word8.word value.  *)
             val () = enterRunCall ("allocateByteMemory",
-                    makePolymorphic([a], mkBuiltIn2Fn AllocateByteMemory), Word ** Word ->> a)
+                    makePolymorphic([a], mkBinaryFn AllocateByteMemory), Word ** Word ->> a)
             (* Allocate a word cell. *)
             val () = enterRunCall ("allocateWordMemory",
-                    makePolymorphic([a, b], mkBuiltIn3Fn AllocateWordMemory), mkProductType[Word, Word, a] ->> b)
+                    makePolymorphic([a, b], mkAllocateWordMemoryFn), mkProductType[Word, Word, a] ->> b)
             (* Byte vector operations. *)
             val () = enterRunCall ("byteVectorEqual",
                     makePolymorphic([a], mkBlockOperationFn BlockOpEqualByte), mkProductType[a, a, Word, Word, Word] ->> Bool)
@@ -525,7 +525,7 @@ struct
 
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
+                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal fixedIntEnv (name, value)
             end
@@ -561,7 +561,7 @@ struct
                     open TypeValue
                     val equalLongWordFn =
                         mkInlproc(
-                            mkBuiltIn2(LargeWordComparison TestEqual, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualLargeWord()", [], 0)
+                            mkBinary(LargeWordComparison TestEqual, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualLargeWord()", [], 0)
                     val code =
                         createTypeValue{
                             eqCode=equalLongWordFn,
@@ -580,7 +580,7 @@ struct
 
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
+                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal largeWordEnv (name, value)
             end
@@ -623,7 +623,7 @@ struct
 
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
+                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal wordStructEnv (name, value)
             end
@@ -640,9 +640,9 @@ struct
             and enterBinaryShift(name, oper) =
                 enterBinary(name, WordShift oper, binaryType)
                 
-            val toLargeWordFn = mkGvar ("toLargeWord", Word ->> LargeWord, mkBuiltIn1Fn UnsignedToLongWord, declInBasis)
-            and toLargeWordXFn = mkGvar ("toLargeWordX", Word ->> LargeWord, mkBuiltIn1Fn SignedToLongWord, declInBasis)
-            and fromLargeWordFn = mkGvar ("fromLargeWord", LargeWord ->> Word, mkBuiltIn1Fn LongWordToTagged, declInBasis)
+            val toLargeWordFn = mkGvar ("toLargeWord", Word ->> LargeWord, mkUnaryFn UnsignedToLongWord, declInBasis)
+            and toLargeWordXFn = mkGvar ("toLargeWordX", Word ->> LargeWord, mkUnaryFn SignedToLongWord, declInBasis)
+            and fromLargeWordFn = mkGvar ("fromLargeWord", LargeWord ->> Word, mkUnaryFn LongWordToTagged, declInBasis)
         in
             val () = #enterType wordStructEnv ("word", TypeConstrSet(wordConstr, []))
             val () = enterComparison("<",   TestLess)
@@ -672,7 +672,7 @@ struct
             fun enterComparison(name, test) =
             let
                 val typ = Char ** Char ->> Bool
-                val entry = mkBuiltIn2Fn(WordComparison{test=test, isSigned=false})
+                val entry = mkBinaryFn(WordComparison{test=test, isSigned=false})
                 val value = mkGvar (name, typ, entry, declInBasis)
             in
                 #enterVal charEnv (name, value)
@@ -689,9 +689,9 @@ struct
             val stringEnv = makeStructure(globalEnv, "String")
             (* This isn't exactly "size" because it doesn't check for single character strings. *)
             val lengthWordAsWord =
-                mkGvar ("lengthWordAsWord", String ->> Word, mkBuiltIn1Fn BuiltIns.StringLengthWord, declInBasis)
+                mkGvar ("lengthWordAsWord", String ->> Word, mkUnaryFn BuiltIns.StringLengthWord, declInBasis)
             val setLengthWord =
-                mkGvar ("setLengthWord", String ** Word ->> Unit, mkBuiltIn2Fn BuiltIns.SetStringLengthWord, declInBasis)
+                mkGvar ("setLengthWord", String ** Word ->> Unit, mkBinaryFn BuiltIns.SetStringLengthWord, declInBasis)
         in
             val () = #enterType stringEnv ("string", TypeConstrSet(stringConstr, []))
             val () = #enterVal stringEnv ("lengthWordAsWord", lengthWordAsWord)
@@ -720,14 +720,14 @@ struct
 
             fun enterUnary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBuiltIn1Fn oper, declInBasis)
+                val value = mkGvar (name, typ, mkUnaryFn oper, declInBasis)
             in
                 #enterVal realEnv (name, value)
             end
 
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
+                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal realEnv (name, value)
             end
@@ -787,10 +787,10 @@ struct
                     "thread", makeFreeId(0, Global (genCode(code, [], 0) ()), true, basisDescription "thread"),
                     [DeclaredAt inBasis])
             val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
-            val selfFunction = mkGvar ("self", Unit ->> threadType, mkBuiltIn0Fn BuiltIns.CurrentThreadId, declInBasis)
-            val atIncrFunction = mkGvar("atomicIncr", Ref Word ->> Word, mkBuiltIn1Fn BuiltIns.AtomicIncrement, declInBasis)
-            val atDecrFunction = mkGvar("atomicDecr", Ref Word ->> Word, mkBuiltIn1Fn BuiltIns.AtomicDecrement, declInBasis)
-            val atResetFunction = mkGvar("atomicReset", Ref Word ->> Unit, mkBuiltIn1Fn BuiltIns.AtomicReset, declInBasis)
+            val selfFunction = mkGvar ("self", Unit ->> threadType, getCurrentThreadIdFn, declInBasis)
+            val atIncrFunction = mkGvar("atomicIncr", Ref Word ->> Word, mkUnaryFn BuiltIns.AtomicIncrement, declInBasis)
+            val atDecrFunction = mkGvar("atomicDecr", Ref Word ->> Word, mkUnaryFn BuiltIns.AtomicDecrement, declInBasis)
+            val atResetFunction = mkGvar("atomicReset", Ref Word ->> Unit, mkUnaryFn BuiltIns.AtomicReset, declInBasis)
         in
             val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
             val () = #enterVal threadEnv ("self", selfFunction)
@@ -917,8 +917,8 @@ struct
                     mkProc(
                         mkEnv([
                             (* Length of the items. *)
-                            mkDec(0, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 0)),
-                            mkDec(1, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 1)),
+                            mkDec(0, mkUnary(BuiltIns.MemoryCellLength, mkLoadArgument 0)),
+                            mkDec(1, mkUnary(BuiltIns.MemoryCellLength, mkLoadArgument 1)),
                             mkMutualDecs[(2, (* Loop function. *)
                                 mkProc(
                                     mkIf(
@@ -936,7 +936,7 @@ struct
                                                 ]),
                                             mkEval(mkLoadClosure 1, (* Recursive call with index+1. *)
                                                 [
-                                                    mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithAdd,
+                                                    mkBinary(BuiltIns.WordArith BuiltIns.ArithAdd,
                                                         mkLoadArgument 0, mkConst(toMachineWord 1))
                                                 ]),
                                             CodeFalse (* Not equal elements - result false *)
@@ -986,8 +986,8 @@ struct
                 mkProc(
                     mkEnv([
                         (* Length of the items. *)
-                        mkDec(0, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 0)),
-                        mkDec(1, mkBuiltIn1(BuiltIns.MemoryCellLength, mkLoadArgument 1))
+                        mkDec(0, mkUnary(BuiltIns.MemoryCellLength, mkLoadArgument 0)),
+                        mkDec(1, mkUnary(BuiltIns.MemoryCellLength, mkLoadArgument 1))
                         ],
                         mkIf(
                             (* Test the lengths. *)
@@ -997,7 +997,7 @@ struct
                                 (* ByteVecEqual takes a byte length so we have to multiply by
                                    the number of bytes per word. *)
                                 mkDec(2,
-                                    mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
+                                    mkBinary(BuiltIns.WordArith BuiltIns.ArithMult,
                                         mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0))
                                 ],
                                 mkBlockOperation{kind=BlockOpEqualByte,

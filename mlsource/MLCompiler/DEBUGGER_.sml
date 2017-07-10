@@ -246,7 +246,7 @@ struct
     fun updateState (level, mkAddr) (decs, debugEnv: debuggerStatus as {staticEnv, dynEnv, ...}) =
     let
         open ADDRESS
-        val threadId = multipleUses(mkBuiltIn0 BuiltIns.CurrentThreadId, fn () => mkAddr 1, level)
+        val threadId = multipleUses(getCurrentThreadId, fn () => mkAddr 1, level)
         fun assignItem(offset, value) =
             mkNullDec(mkStoreOperation(LoadStoreMLWord{isImmutable=false}, #load threadId level, offset, value))
         val newDecs =
@@ -381,7 +381,7 @@ struct
         open ADDRESS
         val setLocation =
             mkStoreOperation(LoadStoreMLWord{isImmutable=false},
-                mkBuiltIn0 BuiltIns.CurrentThreadId, threadIdCurrentLocation, mkConst(toMachineWord location))
+                getCurrentThreadId, threadIdCurrentLocation, mkConst(toMachineWord location))
     in
         ([mkNullDec setLocation], {staticEnv=staticEnv, dynEnv=dynEnv, lastLoc=location})
     end
@@ -409,7 +409,7 @@ struct
             (* All the "on" functions take this as an argument. *)
             val onArgs = [mkConst(toMachineWord(functionName, location))]
 
-            val threadId = multipleUses(mkBuiltIn0 BuiltIns.CurrentThreadId, fn () => mkAddr 1, level)
+            val threadId = multipleUses(getCurrentThreadId, fn () => mkAddr 1, level)
             fun loadIdEntry offset =
                 multipleUses(mkLoadOperation(LoadStoreMLWord{isImmutable=false}, #load threadId level, offset), fn () => mkAddr 1, level)
             val currStatic = loadIdEntry threadIdCurrentStatic

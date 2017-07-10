@@ -115,15 +115,16 @@ sig
     val getClosure:         level -> codetree list
     val multipleUses: codetree * (unit -> int) * level -> {load: level -> codetree, dec: codeBinding list}
     
-    val mkBuiltIn0: BuiltIns.builtIn0Ops -> codetree
-    and mkBuiltIn1: BuiltIns.builtIn1Ops * codetree -> codetree
-    and mkBuiltIn2: BuiltIns.builtIn2Ops * codetree * codetree -> codetree
-    and mkBuiltIn3: BuiltIns.builtIn3Ops * codetree * codetree * codetree -> codetree
+    val mkUnary: BuiltIns.unaryOps * codetree -> codetree
+    and mkBinary: BuiltIns.binaryOps * codetree * codetree -> codetree
 
-    val mkBuiltIn0Fn: BuiltIns.builtIn0Ops -> codetree
-    and mkBuiltIn1Fn: BuiltIns.builtIn1Ops -> codetree
-    and mkBuiltIn2Fn: BuiltIns.builtIn2Ops -> codetree
-    and mkBuiltIn3Fn: BuiltIns.builtIn3Ops -> codetree
+    val mkUnaryFn: BuiltIns.unaryOps -> codetree
+    and mkBinaryFn: BuiltIns.binaryOps -> codetree
+    
+    val getCurrentThreadId: codetree
+    and getCurrentThreadIdFn: codetree
+    val mkAllocateWordMemory: codetree * codetree * codetree -> codetree
+    and mkAllocateWordMemoryFn: codetree
 
     (* Load and store operations.  At this level the first operand is the base address and
        the second is an index. *)

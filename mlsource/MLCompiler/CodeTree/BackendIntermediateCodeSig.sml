@@ -45,10 +45,8 @@ sig
         }
 
         (* Built-in functions. *)
-    |   BICBuiltIn0 of {oper: BuiltIns.builtIn0Ops}
-    |   BICBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: backendIC}
-    |   BICBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: backendIC, arg2: backendIC}
-    |   BICBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC}
+    |   BICUnary of {oper: BuiltIns.unaryOps, arg1: backendIC}
+    |   BICBinary of {oper: BuiltIns.binaryOps, arg1: backendIC, arg2: backendIC}
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
@@ -92,6 +90,11 @@ sig
     
     |   BICBlockOperation of
             { kind: blockOpKind, sourceLeft: bicAddress, destRight: bicAddress, length: backendIC }
+
+    |   BICGetThreadId
+    
+    |   BICAllocateWordMemory of {numWords: backendIC, flags: backendIC, initial: backendIC}
+
 
     and bicCodeBinding =
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
@@ -172,10 +175,8 @@ sig
         and  bicSimpleBinding = bicSimpleBinding
         and  loadStoreKind = loadStoreKind
         and  blockOpKind = blockOpKind
-        and  builtIn0Ops = BuiltIns.builtIn0Ops
-        and  builtIn1Ops = BuiltIns.builtIn1Ops
-        and  builtIn2Ops = BuiltIns.builtIn2Ops
-        and  builtIn3Ops = BuiltIns.builtIn3Ops
+        and  unaryOps = BuiltIns.unaryOps
+        and  binaryOps = BuiltIns.binaryOps
     end
 
 end;

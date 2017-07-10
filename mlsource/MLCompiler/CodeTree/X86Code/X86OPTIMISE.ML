@@ -143,8 +143,8 @@ struct
                 (* Combine adjacent resets. *)
                 forward(ResetStack(count1+count2) :: tl, list, true)
 
-        |   forward((a as ArithToGenReg{ opc=opA, output=outA, source=ShortConstArg constA }) ::
-                    (b as ArithToGenReg{ opc=opB, output=outB, source=ShortConstArg constB }) :: tl, list, rep) =
+        |   forward((a as ArithToGenReg{ opc=opA, output=outA, source=NonAddressConstArg constA }) ::
+                    (b as ArithToGenReg{ opc=opB, output=outB, source=NonAddressConstArg constB }) :: tl, list, rep) =
             if outA = outB andalso (opA = ADD orelse opA = SUB) andalso (opB = ADD orelse opB = SUB)
             then
             let
@@ -162,7 +162,7 @@ struct
             in
                 (* We could extract the case where the result is zero but that
                    doesn't seem to occur. *)
-                forward(ArithToGenReg{ opc=opc, output=outA, source=ShortConstArg result } :: tl, list, true)
+                forward(ArithToGenReg{ opc=opc, output=outA, source=NonAddressConstArg result } :: tl, list, true)
             end
             else forward(b :: tl, a :: list, rep)
 
@@ -296,7 +296,7 @@ struct
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 *)
 
-        |   reverse((r as FreeRegisters _) :: (f as ArithToGenReg{source=ShortConstArg _, ...}) :: tl, list, _) =
+        |   reverse((r as FreeRegisters _) :: (f as ArithToGenReg{source=NonAddressConstArg _, ...}) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 
         |   reverse((r as FreeRegisters _) :: (f as FPStatusToEAX) :: tl, list, _) =

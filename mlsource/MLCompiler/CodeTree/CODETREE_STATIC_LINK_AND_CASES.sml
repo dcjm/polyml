@@ -174,16 +174,14 @@ struct
                     BICEval {function = func, argList = newargs, resultType=resultType}
                 end
 
-            |   insert(BuiltIn0 { oper }) = BICBuiltIn0 { oper = oper }
+            |   insert GetThreadId = BICGetThreadId
 
-            |   insert(BuiltIn1 { oper, arg1 }) =
-                    BICBuiltIn1 { oper = oper, arg1 = insert arg1 }
+            |   insert(Unary { oper, arg1 }) = BICUnary { oper = oper, arg1 = insert arg1 }
 
-            |   insert(BuiltIn2 { oper, arg1, arg2 }) =
-                    BICBuiltIn2 { oper = oper, arg1 = insert arg1, arg2 = insert arg2 }
+            |   insert(Binary { oper, arg1, arg2 }) = BICBinary { oper = oper, arg1 = insert arg1, arg2 = insert arg2 }
 
-            |   insert(BuiltIn3 { oper, arg1, arg2, arg3 }) =
-                    BICBuiltIn3 { oper = oper, arg1 = insert arg1, arg2 = insert arg2, arg3 = insert arg3 }
+            |   insert(AllocateWordMemory {numWords, flags, initial}) =
+                    BICAllocateWordMemory { numWords = insert numWords, flags = insert flags, initial = insert initial }
 
             |   insert(Extract ext) =
                     (* Load the value bound to an identifier. The closure flag is
@@ -589,7 +587,7 @@ struct
                                             (*mkEval(BICConstnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
                                                    [test, BICConstnt(toMachineWord t, [])])*)
                                     |   CaseWord =>
-                                            BICBuiltIn2{
+                                            BICBinary{
                                                 oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
                                                 arg1=test, arg2=BICConstnt(toMachineWord t, [])}
                                     |   CaseTag maxTag => BICTagTest { test=test, tag=t, maxTag=maxTag }

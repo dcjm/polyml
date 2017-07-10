@@ -45,10 +45,7 @@ sig
     |   ShiftRightLogical   (* Logical shift - zero added bits. *)
     |   ShiftRightArithmetic (* Arithmetic shift - add the sign bit. *)
 
-    datatype builtIn0Ops =
-        CurrentThreadId
-
-    and builtIn1Ops =
+    datatype unaryOps =
         NotBoolean (* true => false; false => true - XOR *)
     |   IsTaggedValue (* Test the tag bit. *)
     |   MemoryCellLength (* Return the length of a memory cell (heap object) *)
@@ -65,7 +62,7 @@ sig
     |   RealNeg     (* Invert the sign bit of a real. *)
     |   FloatFixedInt (* Convert an integer value into a floating point value. *)
 
-    and builtIn2Ops =
+    and binaryOps =
         (* Compare two words and return the result.  This is used for both
            word values (isSigned=false) and fixed precision integer (isSigned=true).
            Tests for (in)equality can also be done on pointers in which case
@@ -92,16 +89,7 @@ sig
     |   LargeWordShift of shiftOperations
     |   RealComparison of testConditions
     |   RealArith of arithmeticOperations
-
-    and builtIn3Ops =
-         (* Allocate a heap cell for word data.  The first argument is the number of words needed.
-            The second argument is the "flags" byte which will nearly always include F_mutable.
-            The third argument is the initialiser.  Each word of the cell is initialised with this.
-            There is no check that the size is valid. *)
-        AllocateWordMemory
         
-    val builtIn0Repr: builtIn0Ops -> string
-    and builtIn1Repr: builtIn1Ops -> string
-    and builtIn2Repr: builtIn2Ops -> string
-    and builtIn3Repr: builtIn3Ops -> string
+    val unaryRepr: unaryOps -> string
+    and binaryRepr: binaryOps -> string
 end;

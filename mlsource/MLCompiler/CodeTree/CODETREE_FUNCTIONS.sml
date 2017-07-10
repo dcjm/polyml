@@ -91,13 +91,9 @@ struct
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        |   codeProps (BuiltIn0{oper}) =
-            (
-                case oper of
-                    BuiltIns.CurrentThreadId => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
-            )
+        |   codeProps GetThreadId = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
 
-        |   codeProps (BuiltIn1{oper, arg1}) =
+        |   codeProps (Unary{oper, arg1}) =
             let
                 open BuiltIns
                 val operProps =
@@ -124,7 +120,7 @@ struct
                 operProps andb codeProps arg1
             end
 
-        |   codeProps (BuiltIn2{oper, arg1, arg2}) =
+        |   codeProps (Binary{oper, arg1, arg2}) =
             let
                 open BuiltIns
                 val mayRaise = PROPWORD_NOUPDATE orb PROPWORD_NODEREF
@@ -150,14 +146,11 @@ struct
                 operProps andb codeProps arg1 andb codeProps arg2
             end
 
-        |   codeProps (BuiltIn3{oper, arg1, arg2, arg3}) =
+        |   codeProps (AllocateWordMemory {numWords, flags, initial}) =
             let
-                open BuiltIns
-                val operProps =
-                    case oper of
-                        AllocateWordMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                val operProps = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             in
-                operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3
+                operProps andb codeProps numWords andb codeProps flags andb codeProps initial
             end
 
         |   codeProps (Eval _) = 0w0
