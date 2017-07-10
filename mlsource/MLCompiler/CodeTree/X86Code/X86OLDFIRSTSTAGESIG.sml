@@ -233,9 +233,33 @@ sig
             (operation list * mergeResult)
     and loadWord: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
             (operation list * mergeResult)
+    and loadC8: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and loadC16: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and loadC32: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and loadC64: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and loadCfloat: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and loadCdouble: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
     and storeByte: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
             (operation list * mergeResult)
     and storeWord: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and storeC8: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and storeC16: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and storeC32: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and storeC64: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and storeCfloat: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and storeCdouble: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
             (operation list * mergeResult)
 
     val allocateStoreSmallFixedSize: int * Word8.word * stackIndex * ttab * regHint -> operation list * mergeResult

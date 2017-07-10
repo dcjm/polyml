@@ -3857,7 +3857,7 @@ struct
             (* We could reuse the base register for the output. *)
             fun genVecFlags([InRegister(GenReg baseReg)], SOME(GenReg outReg)) =
                 [tagValue{source=outReg, output=outReg},
-                 LoadByteR{source=BaseOffset{base=baseReg, offset= ~1, index=NoIndex}, output=outReg}]
+                 LoadNonWord{size=Size8Bit, source=BaseOffset{base=baseReg, offset= ~1, index=NoIndex}, output=outReg}]
             |   genVecFlags _ = raise InternalError "genVecFlags"
         in
             fun vectorFlags(arg, transtable, whereto) =
@@ -3870,9 +3870,10 @@ struct
 
         local
             (* Load word or load byte.  Load word with a constant offset is very common since it's used
-               for refs.  Load byte is more likely to be with an index and since we have to untag the
-               index it's better to reuse it for the result if we can. *)
-            fun loadIndex (isWord, whenDone) (opAndResults as (ops, resReg)) (tArgs as (table, args, pref)) =
+               for refs.  We try to reuse the index register as the result if it is modifiable i.e. no
+               longer required after this instruction.  It doesn't affect this instruction but
+               may avoid a register spill. *)
+            fun loadIndex (isByteIndex, whenDone) (opAndResults as (ops, resReg)) (tArgs as (table, args, pref)) =
                 case map (argAsSource table) args of
                     (_ :: ActInRegisterSet{modifiable, readable} ::_) =>
                     if modifiable ** generalRegisters <> noRegisters
@@ -3885,7 +3886,7 @@ struct
                         actionLockRegister { reg=reg, willOverwrite=true,
                             next=whenDone (replaceOperand(1, InRegister reg) (ops, outReg)) } tArgs
                     end
-                    else if isWord andalso readable ** generalRegisters <> noRegisters
+                    else if not isByteIndex andalso readable ** generalRegisters <> noRegisters
                         (* We don't have a writable index register. If this is a word operation we
                             can use a readable one but if it's a byte operation we need to use a
                             writable one. *)
@@ -3897,7 +3898,7 @@ struct
                             next=whenDone (replaceOperand(1, InRegister reg) opAndResults) } tArgs
                     end
                     else actionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
-                                        next=loadIndex (isWord, whenDone) opAndResults } tArgs
+                                        next=loadIndex (isByteIndex, whenDone) opAndResults } tArgs
 
                 |   ([_, ActLiteralSource offset]) =>
                         (* Constant index - record it and go on to the base register *)
@@ -3906,20 +3907,13 @@ struct
                 |   _ =>
                         (* Not in a register or a literal.  Load it. *)
                         actionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
-                                        next=loadIndex (isWord, whenDone) opAndResults } tArgs
-
-            fun genLoadInstr (true (*Word*), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
+                                        next=loadIndex (isByteIndex, whenDone) opAndResults } tArgs
+            fun genLoadWordInstr byteOffset ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
                     [MoveToRegister{
                             source=MemoryArg{base=base, offset=byteOffset+Word.toInt(toShort offset)*wordSize, index=NoIndex},
                             output=destReg}]
 
-            |   genLoadInstr (false (*Byte*), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
-                    (* Byte values need to be tagged.  The offset is a byte offset. *)
-                    [tagValue{source=destReg, output=destReg},
-                     LoadByteR{source=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset), index=NoIndex},
-                               output=destReg}]
-
-            |   genLoadInstr (true (*Word*), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
+            |   genLoadWordInstr byteOffset ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
                 let
                     val (offset, scale) =
                     (* The index is tagged: Multiply by the wordSize/2 and subtract the scaled tag. *)
@@ -3930,35 +3924,194 @@ struct
                     [MoveToRegister{source=MemoryArg{base=base, offset=byteOffset+offset, index=scale}, output=destReg}]
                 end
 
-            |   genLoadInstr (false (*Byte*), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
+            |   genLoadWordInstr _ _ = raise InternalError "genLoadWordInstr"
+
+            (* Byte values need to be tagged.  The index needs to be untagged if it is in a register. *)
+            fun genLoadByteInstr byteOffset ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
+                    (* Byte values need to be tagged.  The offset is a byte offset. *)
                     [tagValue{source=destReg, output=destReg},
-                     LoadByteR{source=BaseOffset{base=base, offset=byteOffset, index=Index1 indexR}, output=destReg},
+                     LoadNonWord{size=Size8Bit, output=destReg,
+                            source=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset), index=NoIndex}}]
+
+            |   genLoadByteInstr byteOffset ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
+                    [tagValue{source=destReg, output=destReg},
+                     LoadNonWord{size=Size8Bit, source=BaseOffset{base=base, offset=byteOffset, index=Index1 indexR}, output=destReg},
                      ShiftConstant{shiftType=SHR, output=indexR, shift=0w1} (* Untag. *)]
 
-            |   genLoadInstr _ _ = raise InternalError "genLoadInstr"
+            |   genLoadByteInstr _ _ = raise InternalError "genLoadByteInstr"
 
-            fun genLoadWord (isWord, byteOffset) =
-                loadIndex(isWord,
+            (* The value to be loaded needs to be tagged if it is smaller than a word.  That includes
+               32-bit values in 64-bit but not in 32-bit. *)
+            fun genLoadCTaggedInstr (size, byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
+                let
+                    val scale =
+                        case size of
+                            Size8Bit => 1
+                        |   Size16Bit => 2
+                        |   Size32Bit => 4
+                in
+                    [tagValue{source=destReg, output=destReg},
+                     LoadNonWord{size=size, output=destReg,
+                            source=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset)*scale, index=NoIndex}},
+                     MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
+                end
+
+            |   genLoadCTaggedInstr (size, byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
+                let
+                    (* If this is a single byte we have to untag the index.  Otherwise we can
+                       use s suitable index scale and subtract the tag as part of the offset. *)
+                    val (offset, scale, untagIndex) =
+                        case size of
+                            Size8Bit => (0, Index1 indexR, [ShiftConstant{shiftType=SHR, output=indexR, shift=0w1}])
+                        |   Size16Bit => (~1, Index1 indexR, [])
+                        |   Size32Bit => (~2, Index2 indexR, [])
+                in
+                    [tagValue{source=destReg, output=destReg},
+                     LoadNonWord{size=size, source=BaseOffset{base=base, offset=byteOffset+offset, index=scale}, output=destReg}
+                     ] @ untagIndex @
+                     [MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
+                end
+
+            |   genLoadCTaggedInstr _ _ = raise InternalError "genLoadCTaggedInstr"
+
+            fun loadCTagged (size, byteOffset) =
+                (* Load the index if necessary but don't try to use this for the result. *)
+                loadToRegOrLiteral(generalRegisters, size <> Size8Bit, 1,
+                    (* We can use the base register for the result. *)
                     loadBaseAddress(
                         getResultRegister(generalRegisters,
-                            generateInstruction(genLoadInstr (isWord, byteOffset)))
+                            generateInstruction(genLoadCTaggedInstr (size, byteOffset)))
                         )
-                    ) ([NONE, NONE], NONE)
+                    ) ([NONE, NONE], NONE) 
         in
             fun loadWord{base, index, byteOffset, transtable, whereto} =
             let
-                val (opRes, opCode) = genLoadWord (true, Word.toInt byteOffset) (transtable, [base, index], whereto)
+                val genLoad =
+                    loadIndex(false,
+                        loadBaseAddress(
+                            getResultRegister(generalRegisters,
+                                generateInstruction(genLoadWordInstr (Word.toInt byteOffset)))
+                            )
+                        ) ([NONE, NONE], NONE)
+                val (opRes, opCode) = genLoad (transtable, [base, index], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and loadByte{base, index, byteOffset, transtable, whereto} =
             let
-                val (opRes, opCode) = genLoadWord (false, Word.toInt byteOffset) (transtable, [base, index], whereto)
+                val genLoad =
+                    loadIndex(true,
+                        loadBaseAddress(
+                            getResultRegister(generalRegisters,
+                                generateInstruction(genLoadByteInstr (Word.toInt byteOffset)))
+                            )
+                        ) ([NONE, NONE], NONE)
+                val (opRes, opCode) = genLoad (transtable, [base, index], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
-         end
+            
+            fun loadC8{base, index, byteOffset, transtable, whereto} =
+            let
+                val (opRes, opCode) = loadCTagged (Size8Bit, Word.toInt byteOffset) (transtable, [base, index], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+
+            and loadC16{base, index, byteOffset, transtable, whereto} =
+            let
+                val (opRes, opCode) = loadCTagged (Size16Bit, Word.toInt byteOffset) (transtable, [base, index], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+
+            and loadC32Tagged{base, index, byteOffset, transtable, whereto} =
+            let
+                val (opRes, opCode) = loadCTagged (Size32Bit, Word.toInt byteOffset) (transtable, [base, index], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+        end
+        
+        local
+            (* If the value to be load is a full word i.e. 4 bytes in 32-bit or 8 bytes in
+               64-bit it will need to be boxed. *)
+            fun genLoadAndBoxInstr (byteOffset, transtable) ([InRegister(GenReg base), indexSource], SOME(GenReg destReg)) =
+                let
+                    val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) (setToList(findActiveRegisters transtable))
+                    val memLoad =
+                        case indexSource of
+                            InRegister(GenReg indexR) =>
+                            let
+                                val (offset, scale) =
+                                    if wordSize = 4
+                                    then (~2, Index2 indexR)
+                                    else (~4, Index4 indexR)
+                            in
+                                MemoryArg{base=base, offset=byteOffset+offset, index=scale}
+                            end
+                        |   LiteralSource offset =>
+                                MemoryArg{base=base, offset=byteOffset + Word.toInt(toShort offset)*wordSize, index=NoIndex}
+                        |   _ => raise InternalError "genLoadAndBoxInstr"
+                in
+                    [
+                        StoreInitialised,
+                        StoreRegToMemory { toStore=base, address=BaseOffset{base=destReg, offset=0, index=NoIndex}},
+                        MoveToRegister{source=memLoad, output=base}, (* Use the base register as a temporary. *)
+                        (* The "base" address is a SystemWord.word value - we have to load it. *)
+                        MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}
+                    ] @
+                    allocStore{size=1, flags=F_bytes, output=destReg, saveRegs=saveRegs}
+                end
+            |   genLoadAndBoxInstr _ _ = raise InternalError "genLoadAndBoxInstr"
+        in
+            fun loadCAndBox{base, index, byteOffset, transtable, whereto} =
+            let
+                val genLoad =
+                    (* Get the index register if necessary, get the base register and
+                       make sure it's modifiable - we're going to use it for the intermediate
+                       result.  Get the result register and generate the code. *)
+                    loadToRegOrLiteral(generalRegisters, false, 1,
+                        loadToOneOf(generalRegisters, true, 0,
+                            getResultRegister(generalRegisters,
+                                generateInstruction(genLoadAndBoxInstr(Word.toInt byteOffset, transtable)))
+                            )
+                        ) ([NONE, NONE], NONE)
+                val (opRes, opCode) = genLoad (transtable, [base, index], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+        end
+        
+        fun loadC32 args =
+            if wordSize = 8
+            then loadC32Tagged args
+            else loadCAndBox args
+        
+        fun loadC64 args =
+            if wordSize = 8
+            then loadCAndBox args
+            else raise InternalError "loadC64 in 32-bit mode"
+        
+        local
+            fun loadCflt _ = raise InternalError "loadCflt"
+            and loadCdbl _ = raise InternalError "loadCdbl"
+        in
+            fun loadCfloat{base, index, byteOffset, transtable, whereto} =
+            let
+                val (opRes, opCode) = loadCflt (Word.toInt byteOffset) (transtable, [base, index], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+
+            and loadCdouble{base, index, byteOffset, transtable, whereto} =
+            let
+                val (opRes, opCode) = loadCdbl (Word.toInt byteOffset) (transtable, [base, index], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+        end
 
         fun reverseTestOp JE = JE
         |   reverseTestOp JNE = JNE
@@ -3975,16 +4128,14 @@ struct
         fun noTagTest (operations, _, _) = operations (* When we don't need a test. *)
 
         local
-            (* If the source or the index are in registers they have to be untagged first and
-               then retagged afterwards. *)
+            (* If the source or the index are in registers they have to be untagged first. *)
             fun genStoreByte byteOffset ([base, index, toStore], NONE) =
                 let
-                    val (untagIndex, retagIndex) =
+                    val untagIndex =
                         case index of
                             InRegister indexReg =>
-                                ([ShiftConstant{shiftType=SHR, output=asGenReg indexReg, shift=0w1}],
-                                 [tagValue{source=asGenReg indexReg, output=asGenReg indexReg }])
-                        |   _ => ([], [])
+                                [ShiftConstant{shiftType=SHR, output=asGenReg indexReg, shift=0w1}]
+                        |   _ => []
                     val address =
                         case (base, index) of
                             (InRegister(GenReg address), InRegister(GenReg index)) =>
@@ -3995,15 +4146,13 @@ struct
                 in
                     case toStore of
                         InRegister(GenReg toStore) =>
-                            retagIndex @
                             [
                                 tagValue{source=toStore, output=toStore },
                                 StoreByteRegToMemory{ toStore=toStore, address=address },
                                 ShiftConstant{shiftType=SHR, output=toStore, shift=0w1}(* Untag value to store *)
                             ] @ untagIndex
                     |   LiteralSource toStore =>
-                            retagIndex @
-                                [ StoreByteConstToMemory{ toStore=wordToWord8(toShort toStore), address=address}] @
+                            [ StoreByteConstToMemory{ toStore=wordToWord8(toShort toStore), address=address}] @
                             untagIndex
                     |   _ => raise InternalError "genStoreByte"
                             
@@ -4020,7 +4169,7 @@ struct
                 val (_, opCode) =
                    loadToRegOrLiteral(listToSet[GenReg eax, GenReg ebx, GenReg ecx, GenReg edx], true, 2,
                         loadBaseAddress(
-                            loadToRegOrLiteral(generalRegisters, false, 1,
+                            loadToRegOrLiteral(generalRegisters, true (* Will untag *), 1,
                                 generateInstruction(genStoreByte(Word.toInt byteOffset))))) ([NONE, NONE, NONE], NONE)
                                     (transtable, [base, index, toStore], NoResult)
                 val result =
@@ -4030,6 +4179,35 @@ struct
             in
                 (opCode, result)
             end
+        end
+
+        local
+            fun storeCBoxed _ = raise InternalError "TODO storeCBoxed"
+            and storeCTagged _ = raise InternalError "TODO storeCTagged"
+        in
+            fun storeC8{base, index, byteOffset, toStore, transtable, whereto} =
+                storeCTagged (Size8Bit, byteOffset, transtable, [base, index], whereto)
+
+            and storeC16{base, index, byteOffset, toStore, transtable, whereto} =
+                storeCTagged (Size16Bit, byteOffset, transtable, [base, index], whereto)
+
+            and storeC32{base, index, byteOffset, toStore, transtable, whereto} =
+                if wordSize = 4
+                then storeCBoxed(byteOffset, transtable, [base, index], whereto)
+                else storeCTagged (Size16Bit, byteOffset, transtable, [base, index], whereto)
+            
+            and storeC64{base, index, byteOffset, toStore, transtable, whereto} =
+                if wordSize = 4
+                then raise InternalError "storeC64 in 32-bit"
+                else storeCBoxed (byteOffset, transtable, [base, index], whereto)
+        end
+        
+        local
+        in
+            fun storeCfloat{base, index, byteOffset, toStore, transtable, whereto} =
+                raise InternalError "storeCfloat"
+            and storeCdouble{base, index, byteOffset, toStore, transtable, whereto} =
+                raise InternalError "storeCdouble"
         end
 
         local

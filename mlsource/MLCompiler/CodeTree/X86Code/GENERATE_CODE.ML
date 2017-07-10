@@ -1386,17 +1386,35 @@ struct
                     loadByte{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCLoadOperation{ kind=LoadStoreC8, ... } => raise InternalError "TODO-LoadStoreC8"
+        |   OGCLoadOperation{ kind=LoadStoreC8, address={base, index, offset} } =>
+                cgAndRes(
+                    loadC8{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCLoadOperation{ kind=LoadStoreC16, ... } => raise InternalError "TODO-LoadStoreC16"
+        |   OGCLoadOperation{ kind=LoadStoreC16, address={base, index, offset} } =>
+                cgAndRes(
+                    loadC16{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCLoadOperation{ kind=LoadStoreC32, ... } => raise InternalError "TODO-LoadStoreC32"
+        |   OGCLoadOperation{ kind=LoadStoreC32, address={base, index, offset} } =>
+                cgAndRes(
+                    loadC32{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCLoadOperation{ kind=LoadStoreC64, ... } => raise InternalError "TODO-LoadStoreC64"
+        |   OGCLoadOperation{ kind=LoadStoreC64, address={base, index, offset} } =>
+                cgAndRes(
+                    loadC64{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCLoadOperation{ kind=LoadStoreCFloat, ... } => raise InternalError "TODO-LoadStoreCFloat"
+        |   OGCLoadOperation{ kind=LoadStoreCFloat, address={base, index, offset} } =>
+                cgAndRes(
+                    loadCfloat{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCLoadOperation{ kind=LoadStoreCDouble, ... } => raise InternalError "TODO-LoadStoreCDouble"
+        |   OGCLoadOperation{ kind=LoadStoreCDouble, address={base, index, offset} } =>
+                cgAndRes(
+                    loadCdouble{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
 
         |   OGCStoreOperation{ kind=LoadStoreMLWord _, address={base, index, offset}, value} =>
                 cgAndRes(
@@ -1408,17 +1426,35 @@ struct
                     storeByte{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
                               byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCStoreOperation{ kind=LoadStoreC8, ...} => raise InternalError "TODO-Store LoadStoreC8"
+        |   OGCStoreOperation{ kind=LoadStoreC8, address={base, index, offset}, value} =>
+                cgAndRes(
+                    storeC8{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCStoreOperation{ kind=LoadStoreC16, ...} => raise InternalError "TODO-Store LoadStoreC16"
+        |   OGCStoreOperation{ kind=LoadStoreC16, address={base, index, offset}, value} =>
+                cgAndRes(
+                    storeC16{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCStoreOperation{ kind=LoadStoreC32, ...} => raise InternalError "TODO-Store LoadStoreC32"
+        |   OGCStoreOperation{ kind=LoadStoreC32, address={base, index, offset}, value} =>
+                cgAndRes(
+                    storeC32{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCStoreOperation{ kind=LoadStoreC64, ...} => raise InternalError "TODO-Store LoadStoreC64"
+        |   OGCStoreOperation{ kind=LoadStoreC64, address={base, index, offset}, value} =>
+                cgAndRes(
+                    storeC64{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCStoreOperation{ kind=LoadStoreCFloat, ...} => raise InternalError "TODO-Store LoadStoreCFloat"
+        |   OGCStoreOperation{ kind=LoadStoreCFloat, address={base, index, offset}, value} =>
+                cgAndRes(
+                    storeCfloat{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
-        |   OGCStoreOperation{ kind=LoadStoreCDouble, ...} => raise InternalError "TODO-Store LoadStoreCDouble"
+        |   OGCStoreOperation{ kind=LoadStoreCDouble, address={base, index, offset}, value} =>
+                cgAndRes(
+                    storeCdouble{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
         |   OGCBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
                                destRight={base=bRight, index=iRight, offset=oRight}, length } =>
