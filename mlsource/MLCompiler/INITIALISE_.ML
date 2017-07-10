@@ -573,6 +573,20 @@ struct
             in
                 #enterVal runCallEnv (name, exc)
             end
+            (* Exception numbers.  Most of these are hard-coded in the RTS. *)
+            val EXC_interrupt   = 1
+            val EXC_syserr      = 2
+            val EXC_size        = 4
+            val EXC_overflow    = 5
+            val EXC_divide      = 7
+            val EXC_conversion  = 8
+            val EXC_XWindows    = 10
+            val EXC_subscript   = 11
+            val EXC_thread      = 12
+            val EXC_foreign     = 23
+            val EXC_Bind        = 100 (* In Match compiler. *)
+            val EXC_Match       = 101
+            val EXC_Fail        = 103
         in
             val () = List.app makeException0
                 [
@@ -885,6 +899,58 @@ struct
             val () = #enterVal threadEnv ("atomicIncr", atIncrFunction)
             val () = #enterVal threadEnv ("atomicDecr", atDecrFunction)
             val () = #enterVal threadEnv ("atomicReset", atResetFunction)
+        end
+
+        local
+            val fmemEnv = makeStructure(globalEnv, "ForeignMemory")
+            val a = makeTV()
+            (* We don't have Word8.word or Word32.word at this point so the easiest way to
+               deal with this is to make them polymorphic. *)
+            val get8Function =
+                mkGvar("get8", LargeWord ** Word ->> a, makePolymorphic([a], mkLoadOperationFn LoadStoreC8), declInBasis)
+            val get16Function =
+                mkGvar("get16", LargeWord ** Word ->> Word, mkLoadOperationFn LoadStoreC16, declInBasis)
+            val get32Function =
+                mkGvar("get32", LargeWord ** Word ->> a, makePolymorphic([a], mkLoadOperationFn LoadStoreC32), declInBasis)
+            val get64Function =
+                mkGvar("get64", LargeWord ** Word ->> LargeWord, mkLoadOperationFn LoadStoreC64, declInBasis)
+            val getFloatFunction =
+                mkGvar("getFloat", LargeWord ** Word ->> Real, mkLoadOperationFn LoadStoreCFloat, declInBasis)
+            val getDoubleFunction =
+                mkGvar("getDouble", LargeWord ** Word ->> Real, mkLoadOperationFn LoadStoreCDouble, declInBasis)
+            val set8Function =
+                mkGvar("set8",
+                    mkProductType[LargeWord, Word, a] ->> Unit, makePolymorphic([a], mkStoreOperationFn LoadStoreC8),
+                    declInBasis)
+            val set16Function =
+                mkGvar("set16",
+                    mkProductType[LargeWord, Word, Word] ->> Unit, mkStoreOperationFn LoadStoreC16, declInBasis)
+            val set32Function =
+                mkGvar("set32",
+                    mkProductType[LargeWord, Word, a] ->> Unit, makePolymorphic([a], mkStoreOperationFn LoadStoreC32),
+                    declInBasis)
+            val set64Function =
+                mkGvar("set64",
+                    mkProductType[LargeWord, Word, LargeWord] ->> Unit, mkStoreOperationFn LoadStoreC64, declInBasis)
+            val setFloatFunction =
+                mkGvar("setFloat",
+                    mkProductType[LargeWord, Word, Real] ->> Unit, mkStoreOperationFn LoadStoreCFloat, declInBasis)
+            val setDoubleFunction =
+                mkGvar("setDouble",
+                    mkProductType[LargeWord, Word, Real] ->> Unit, mkStoreOperationFn LoadStoreCDouble, declInBasis)
+        in
+            val () = #enterVal fmemEnv ("get8", get8Function)
+            val () = #enterVal fmemEnv ("get16", get16Function)
+            val () = #enterVal fmemEnv ("get32", get32Function)
+            val () = #enterVal fmemEnv ("get64", get64Function)
+            val () = #enterVal fmemEnv ("getFloat", getFloatFunction)
+            val () = #enterVal fmemEnv ("getDouble", getDoubleFunction)
+            val () = #enterVal fmemEnv ("set8", set8Function)
+            val () = #enterVal fmemEnv ("set16", set16Function)
+            val () = #enterVal fmemEnv ("set32", set32Function)
+            val () = #enterVal fmemEnv ("set64", set64Function)
+            val () = #enterVal fmemEnv ("setFloat", setFloatFunction)
+            val () = #enterVal fmemEnv ("setDouble", setDoubleFunction)
         end
 
         local

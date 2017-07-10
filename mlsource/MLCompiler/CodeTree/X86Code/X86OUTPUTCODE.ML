@@ -794,7 +794,9 @@ struct
     |   LOCK_XADD
     |   FPESC of Word8.word
     |   REP (* Rep prefix *)
-    |   MOVZX (* Needs escape code. *)
+    |   MOVZB (* Needs escape code. *)
+    |   MOVZW (* Needs escape code. *)
+    |   MOVL_A_R32 (* As MOVL_A_R but without RAX.W *)
     |   IMUL (* Needs escape code. *)
     |   SSE2Store (* movsd with memory destination - needs escape sequence. *)
     |   CQO_CDQ (* Sign extend before divide.. *)
@@ -834,7 +836,9 @@ struct
     |   opToInt LOCK_XADD     = 0wxC1 (* Needs lock and escape prefixes. *)
     |   opToInt (FPESC n)     = 0wxD8 orb8 n
     |   opToInt REP           = 0wxf3
-    |   opToInt MOVZX         = 0wxb6 (* Needs escape code. *)
+    |   opToInt MOVZB         = 0wxb6 (* Needs escape code. *)
+    |   opToInt MOVZW         = 0wxb7 (* Needs escape code. *)
+    |   opToInt MOVL_A_R32    = 0wx8b
     |   opToInt IMUL          = 0wxaf (* Needs escape code. *)
     |   opToInt SSE2Store     = 0wx11 (* Needs F2 0F escape. *)
     |   opToInt CQO_CDQ       = 0wx99
@@ -1182,7 +1186,8 @@ struct
     val maxInstrSize = if isX64 then 15 else 12
     
     (* A few instructions require an escape. *)
-    fun genEscape(MOVZX, cvec) = gen8u(0wx0f, cvec)
+    fun genEscape(MOVZB, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(MOVZW, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(IMUL, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(SSE2Store, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
@@ -1316,7 +1321,8 @@ struct
             |   MOVL_A_R => isX64 (* Needed *)
             |   MOVL_R_A => isX64 (* Needed *)
             |   LEAL => isX64 (* Needed to ensure the result is 64-bits *)
-            |   MOVZX => isX64 (* Needed to ensure the result is 64-bits *)
+            |   MOVZB => isX64 (* Needed to ensure the result is 64-bits *)
+            |   MOVZW => isX64 (* Needed to ensure the result is 64-bits *)
             |   MOVL_32_64_R _ => isX64 (* Needed *)
             |   MOVL_32_A => isX64 (* Needed *)
             |   IMUL => isX64 (* Needed to ensure the result is 64-bits *)
@@ -1835,10 +1841,12 @@ struct
     |   MemoryArg of { base: genReg, offset: int, index: indexType }
     |   ShortConstArg of LargeInt.int
     |   LongConstArg of machineWord
+    
+    datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
 
     datatype operation =
         MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
-    |   LoadByteR of { source: memoryAddress, output: genReg }
+    |   LoadNonWord of { size: nonWordSize, source: memoryAddress, output: genReg }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
     |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg }
@@ -1924,13 +1932,17 @@ struct
         |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
         |   printCallKind FullCall = stream "via ClosureReg"
         |   printCallKind (DirectReg reg) = printGReg reg
+        
+        fun printSize Size8Bit = "Byte"
+        |   printSize Size16Bit = "16Bit"
+        |   printSize Size32Bit = "32Bit"
      in
         case operation of
             MoveToRegister { source, output } =>
                 (stream "MoveRR "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source)
 
-        |   LoadByteR { source, output } =>
-                (stream "MoveByteR "; printGReg output; stream " <= "; printMemAddress source )
+        |   LoadNonWord { size, source, output } =>
+                (stream "Move"; printSize size; stream " "; printGReg output; stream " <= "; printMemAddress source )
 
         |   ArithToGenReg { opc, output, source } =>
                 (stream (arithOpRepr opc ^ "RR "); printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
@@ -2350,11 +2362,27 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(LoadByteR{source=BaseOffset{base, offset, index}, output } :: remainder) =
+        |   cgOp(LoadNonWord{size=Size8Bit, source=BaseOffset{base, offset, index}, output } :: remainder) =
             (
                 case index of
-                    NoIndex => genOpEA (MOVZX (* 2 byte opcode *), LargeInt.fromInt offset, base, output, code)
-                |   _ => genOpIndexed (MOVZX, 0, SOME base, index, output, code);
+                    NoIndex => genOpEA (MOVZB (* 2 byte opcode *), LargeInt.fromInt offset, base, output, code)
+                |   _ => genOpIndexed (MOVZB, LargeInt.fromInt offset, SOME base, index, output, code);
+                cgOp remainder
+            )
+
+        |   cgOp(LoadNonWord{size=Size16Bit, source=BaseOffset{base, offset, index}, output } :: remainder) =
+            (
+                case index of
+                    NoIndex => genOpEA (MOVZW (* 2 byte opcode *), LargeInt.fromInt offset, base, output, code)
+                |   _ => genOpIndexed (MOVZW, LargeInt.fromInt offset, SOME base, index, output, code);
+                cgOp remainder
+            )
+
+        |   cgOp(LoadNonWord{size=Size32Bit, source=BaseOffset{base, offset, index}, output } :: remainder) =
+            (
+                case index of
+                    NoIndex => genOpEA (MOVL_A_R32, LargeInt.fromInt offset, base, output, code)
+                |   _ => genOpIndexed (MOVL_A_R32, LargeInt.fromInt offset, SOME base, index, output, code);
                 cgOp remainder
             )
 
@@ -3276,14 +3304,14 @@ struct
                         print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
                     end
                     
-                    else if havePrefix = 0w0 andalso (opByte2 = 0wxB6 orelse opByte2 = 0wxAF)
+                    else if havePrefix = 0w0 andalso (opByte2 = 0wxB6 orelse opByte2 = 0wxB7 orelse opByte2 = 0wxAF)
                     then
                     let
                         val nb = csegGet (seg, !ptr);
                         val reg = (nb >>- 0w3) andb8 0w7
                     in
                         (* The register argument comes first. *)
-                        print (if opByte2 = 0wxB6 then "movzx\t" else "imul\t");
+                        print (if opByte2 = 0wxB6 orelse opByte2 = 0wxB7 then "movzx\t" else "imul\t");
                         print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
                         print ",";
                         printEA (rex, if opByte2 = 0wxB6 then SZByte else sizeFromRexW)

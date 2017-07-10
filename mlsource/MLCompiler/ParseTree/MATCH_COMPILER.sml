@@ -932,6 +932,8 @@ struct
     end
 
     local
+        val EXC_Bind        = 100
+        val EXC_Match       = 101
          (* Raises an exception. *)
         fun raiseException(exName, exIden, line) =
             mkRaise (mkTuple [exIden, mkStr exName, CodeZero, codeLocation line]);

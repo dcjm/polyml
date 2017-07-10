@@ -23,10 +23,6 @@
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
-  val POLY_SYS_cmem_load_8         = 160
-  val POLY_SYS_cmem_load_16        = 161
-  val POLY_SYS_cmem_load_32        = 162
-  val POLY_SYS_cmem_load_64        = 163
   val POLY_SYS_cmem_load_float     = 164
   val POLY_SYS_cmem_load_double    = 165
   val POLY_SYS_cmem_store_8        = 166
@@ -37,25 +33,4 @@ struct
   val POLY_SYS_cmem_store_double   = 171
   val POLY_SYS_io_operation        = 189
 
-  (* val POLY_SYS_vecsize = 256 *)
-
-(* Exception identifiers *)
-  val EXC_interrupt   = 1
-  val EXC_syserr      = 2
-  val EXC_size        = 4
-  val EXC_overflow    = 5
-  val EXC_underflow   = 6
-  val EXC_divide      = 7
-  val EXC_conversion  = 8
-  val EXC_XWindows    = 10
-  val EXC_subscript   = 11
-  val EXC_thread      = 12 (* DCJM 13/3/07. *)
-
-  val EXC_foreign     = 23  (* nic 4/5/94 *)
-  
-  (* The following numbers are hard-coded into the ML compiler
-     rather than the run-time system, but they're still hard to change. *)
-  val EXC_Bind        = 100; (* SPF 17/11/94 *)
-  val EXC_Match       = 101; (* SPF 17/11/94 *)
-  val EXC_Fail        = 103; (* Added DCJM 23/7/00 *) (* Now also in the RTS. *)
 end;

@@ -393,6 +393,41 @@ struct
         RunCall.run_call5 RuntimeCalls.POLY_SYS_move_words(src, srcOffset, dst, dstOffset, length)
 end;
 
+structure ForeignMemory =
+struct
+    type voidStar = LargeWord.word
+
+    fun get8 (s: voidStar, i: Word.word): 'a =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_8 (s, 0w0, i)
+    and get16(s: voidStar, i: Word.word): Word.word =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_16 (s, 0w0, i)
+    and get32(s: voidStar, i: Word.word): 'a =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_32 (s, 0w0, i)
+    and get64(s: voidStar, i: Word.word): LargeWord.word =
+        if RunCall.bytesPerWord = 0w4
+        then raise RunCall.Foreign "64-bit operations not available"
+        else RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_64 (s, 0w0, i)
+    and getFloat(s: voidStar, i: Word.word): real =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_float (s, 0w0, i)
+    and getDouble(s: voidStar, i: Word.word): real =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_double (s, 0w0, i)
+
+    fun set8 (s: voidStar, i: Word.word, v: 'a): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_8 (s, 0w0, i, v)
+    and set16 (s: voidStar, i: Word.word, v: Word.word): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_16 (s, 0w0, i, v)
+    and set32 (s: voidStar, i: Word.word, v: 'a): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_32 (s, 0w0, i, v)
+    and set64 (s: voidStar, i: Word.word, v: LargeWord.word): unit =
+        if RunCall.bytesPerWord = 0w4
+        then raise RunCall.Foreign "64-bit operations not available"
+        else RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_64 (s, 0w0, i, v)
+    and setFloat (s: voidStar, i: Word.word, v: real): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
+    and setDouble (s: voidStar, i: Word.word, v: real): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_double (s, 0w0, i, v)
+end;
+
 (* This is used to provide compatibility between 5.6.0 and 5.6.1. *)
 structure Compat560 =
 struct

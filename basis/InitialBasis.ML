@@ -256,6 +256,42 @@ and () = RunCall.addOverload Real.~ "~"
 and () = RunCall.addOverload Real.abs "abs"
 and () = RunCall.addOverload Real./ "/";
 
+structure ForeignMemory =
+struct
+    open ForeignMemory
+    type voidStar = LargeWord.word
+
+    fun getFloat(s: voidStar, i: Word.word): real =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_float (s, 0w0, i)
+    fun getDouble(s: voidStar, i: Word.word): real =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_double (s, 0w0, i)
+
+    fun set8 (s: voidStar, i: Word.word, v: 'a): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_8 (s, 0w0, i, v)
+    fun set16 (s: voidStar, i: Word.word, v: Word.word): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_16 (s, 0w0, i, v)
+    fun set32 (s: voidStar, i: Word.word, v: 'a): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_32 (s, 0w0, i, v)
+    fun set64 (s: voidStar, i: Word.word, v: LargeWord.word): unit =
+        if RunCall.bytesPerWord = 0w4
+        then raise RunCall.Foreign "64-bit operations not available"
+        else RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_64 (s, 0w0, i, v)
+    fun setFloat (s: voidStar, i: Word.word, v: real): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
+    fun setDouble (s: voidStar, i: Word.word, v: real): unit =
+        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_double (s, 0w0, i, v)
+    
+    (* Add wrappers to these functions so that they raise exceptions if they are called. *)
+    val get64 =
+        fn (s, i) =>
+            if RunCall.bytesPerWord = 0w4
+            then raise RunCall.Foreign "64-bit operations not available" else get64(s, i)
+    and set64 =
+        fn (s, i, v) =>
+            if RunCall.bytesPerWord = 0w4
+            then raise RunCall.Foreign "64-bit operations not available" else set64(s, i, v)
+end;
+
 (* This needs to be defined for StringSignatures but must not be defined in
    that file because that conflicts with building the IntAsIntInf module. *)
 structure StringCvt = struct type  ('a, 'b) reader = 'b -> ('a * 'b) option end;

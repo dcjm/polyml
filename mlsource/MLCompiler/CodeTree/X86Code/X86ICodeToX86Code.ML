@@ -325,7 +325,17 @@ struct
         |   codeGenICode(
                 (* Load from memory. *)
                 MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=ByteToWordZeroExtend} :: rest, code) =
-                codeGenICode(rest, LoadByteR{source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
+                codeGenICode(rest, LoadNonWord{size=Size8Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
+
+        |   codeGenICode(
+                (* Load from memory. *)
+                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=Bit16ToWordZeroExtend} :: rest, code) =
+                codeGenICode(rest, LoadNonWord{size=Size16Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
+
+        |   codeGenICode(
+                (* Load from memory. *)
+                MoveArgument{ source=MemoryLocation mLoc, dest=RealRegister(GenReg destReg), kind=Bit32ToWordZeroExtend} :: rest, code) =
+                codeGenICode(rest, LoadNonWord{size=Size32Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
                 (* Store to memory *)
         |   codeGenICode(

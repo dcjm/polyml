@@ -114,10 +114,12 @@ sig
     |   MemoryArg of { base: genReg, offset: int, index: indexType }
     |   ShortConstArg of LargeInt.int
     |   LongConstArg of machineWord
+    
+    datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
 
     datatype operation =
         MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
-    |   LoadByteR of { source: memoryAddress, output: genReg }
+    |   LoadNonWord of { size: nonWordSize, source: memoryAddress, output: genReg }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
     |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg }
