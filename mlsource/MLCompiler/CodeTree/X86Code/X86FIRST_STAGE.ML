@@ -290,7 +290,7 @@ struct
     in
         if isX64 andalso flags <> 0w0
         then
-            [StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
+            [StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
              StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
              AllocStore{size=size, output=output, saveRegs=regsToSave}]
         else
@@ -4148,11 +4148,11 @@ struct
                         InRegister(GenReg toStore) =>
                             [
                                 tagValue{source=toStore, output=toStore },
-                                StoreByteRegToMemory{ toStore=toStore, address=address },
+                                StoreNonWord{ size=Size8Bit, toStore=toStore, address=address },
                                 ShiftConstant{shiftType=SHR, output=toStore, shift=0w1}(* Untag value to store *)
                             ] @ untagIndex
                     |   LiteralSource toStore =>
-                            [ StoreByteConstToMemory{ toStore=wordToWord8(toShort toStore), address=address}] @
+                            [ StoreNonWordConst{ size=Size8Bit, toStore=Word.toLargeInt(toShort toStore), address=address}] @
                             untagIndex
                     |   _ => raise InternalError "genStoreByte"
                             
@@ -4182,25 +4182,124 @@ struct
         end
 
         local
-            fun storeCBoxed _ = raise InternalError "TODO storeCBoxed"
-            and storeCTagged _ = raise InternalError "TODO storeCTagged"
+            fun genStoreTagged (size, byteOffset) ([InRegister(GenReg base), LiteralSource offset, InRegister(GenReg toStore)], NONE) =
+                let
+                    val scale =
+                        case size of
+                            Size8Bit => 1
+                        |   Size16Bit => 2
+                        |   Size32Bit => 4
+                in
+                    [
+                        StoreNonWord { toStore=toStore, size=size,
+                            address=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset)*scale, index=NoIndex}},
+                        ShiftConstant{shiftType=SHR, output=toStore, shift=0w1},
+                        MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}
+                    ]
+                end
+
+            |   genStoreTagged (size, byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR), InRegister(GenReg toStore)], NONE) =
+                let
+                    (* If this is a single byte we have to untag the index.  Otherwise we can
+                       use s suitable index scale and subtract the tag as part of the offset. *)
+                    val (offset, scale, untagIndex) =
+                        case size of
+                            Size8Bit => (0, Index1 indexR, [ShiftConstant{shiftType=SHR, output=indexR, shift=0w1}])
+                        |   Size16Bit => (~1, Index1 indexR, [])
+                        |   Size32Bit => (~2, Index2 indexR, [])
+                in
+                    [
+                        StoreNonWord { toStore=toStore, size=size,
+                            address=BaseOffset{base=base, offset=byteOffset+offset, index=scale}},
+                        ShiftConstant{shiftType=SHR, output=toStore, shift=0w1}
+                    ] @ untagIndex @
+                        [MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
+                end
+
+            |   genStoreTagged _ _ = raise InternalError "genStoreTagged"
+
+            fun storeCTagged(size, byteOffset, transtable, args, whereto) =
+            let
+                (* TODO: We could allow a literal for the value to store but N.B. the constant value is
+                   the address of the value to store. *)
+                val (_, opCode) =
+                    loadToRegOrLiteral(generalRegisters, size <> Size8Bit, 1, (* Index - modifiable if single byte. *)
+                        loadToOneOf(generalRegisters, true, 2, (* Value to store - need to unbox.  This COULD be a literal. *)
+                            loadToOneOf(generalRegisters, true, 0, (* Base address - need to unbox. *)
+                                generateInstruction(genStoreTagged(size, Word.toInt byteOffset))))) ([NONE, NONE, NONE], NONE)
+                                    (transtable, args, NoResult)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex(pushConst (transtable, toMachineWord 0))
+            in
+                (opCode, result)
+            end
         in
             fun storeC8{base, index, byteOffset, toStore, transtable, whereto} =
-                storeCTagged (Size8Bit, byteOffset, transtable, [base, index], whereto)
+                storeCTagged (Size8Bit, byteOffset, transtable, [base, index, toStore], whereto)
 
             and storeC16{base, index, byteOffset, toStore, transtable, whereto} =
-                storeCTagged (Size16Bit, byteOffset, transtable, [base, index], whereto)
+                storeCTagged (Size16Bit, byteOffset, transtable, [base, index, toStore], whereto)
 
-            and storeC32{base, index, byteOffset, toStore, transtable, whereto} =
-                if wordSize = 4
-                then storeCBoxed(byteOffset, transtable, [base, index], whereto)
-                else storeCTagged (Size16Bit, byteOffset, transtable, [base, index], whereto)
-            
-            and storeC64{base, index, byteOffset, toStore, transtable, whereto} =
-                if wordSize = 4
-                then raise InternalError "storeC64 in 32-bit"
-                else storeCBoxed (byteOffset, transtable, [base, index], whereto)
+            and storeC32Tagged{base, index, byteOffset, toStore, transtable, whereto} =
+                storeCTagged (Size32Bit, byteOffset, transtable, [base, index, toStore], whereto)
         end
+        
+        local
+            fun genStoreAndUnbox byteOffset ([InRegister(GenReg base), indexSource, InRegister(GenReg toStore)], NONE) =
+                let
+                    val memStore =
+                        case indexSource of
+                            InRegister(GenReg indexR) =>
+                            let
+                                val (offset, scale) =
+                                    if wordSize = 4
+                                    then (~2, Index2 indexR)
+                                    else (~4, Index4 indexR)
+                            in
+                                BaseOffset{base=base, offset=byteOffset+offset, index=scale}
+                            end
+                        |   LiteralSource offset =>
+                                BaseOffset{base=base, offset=byteOffset + Word.toInt(toShort offset)*wordSize, index=NoIndex}
+                        |   _ => raise InternalError "genStoreAndBox"
+                in
+                    [
+                        StoreRegToMemory { toStore=toStore, address=memStore},
+                        MoveToRegister{source=MemoryArg{base=toStore, offset=0, index=NoIndex}, output=toStore},
+                        MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}
+                    ]
+                end
+            |   genStoreAndUnbox _ _ = raise InternalError "genStoreAndBox"
+        in
+            fun storeCBoxed{base, index, byteOffset, toStore, transtable, whereto} =
+            let
+                (* TODO: We could allow a literal for the value to store but N.B. the constant value is
+                   the address of the value to store. *)
+                val (_, opCode) =
+                   loadToOneOf(generalRegisters, true, 2, (* Value to store - need to unbox.  We COULD allow a literal here. *)
+                        loadToOneOf(generalRegisters, true, 0, (* Base address - need to unbox. *)
+                            loadToRegOrLiteral(generalRegisters, false, 1, (* Index if necessary. *)
+                                generateInstruction(genStoreAndUnbox(Word.toInt byteOffset))))) ([NONE, NONE, NONE], NONE)
+                                    (transtable, [base, index, toStore], NoResult)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex(pushConst (transtable, toMachineWord 0))
+            in
+                (opCode, result)
+            end
+        end
+        
+        fun storeC32 args =
+            if wordSize = 8
+            then storeC32Tagged args
+            else storeCBoxed args
+            
+        fun storeC64 args =
+            if wordSize = 8
+            then storeCBoxed args
+            else raise InternalError "storeC64 in 32-bit mode"
         
         local
         in
@@ -5593,15 +5692,15 @@ struct
                             InRegister (GenReg flags) =>
                             [
                                 (* Set the flags.  At least the mutable bit should be set. *)
-                                StoreByteRegToMemory{
-                                    toStore=flags,
+                                StoreNonWord{
+                                    size=Size8Bit, toStore=flags,
                                     address=BaseOffset{offset= ~1, base=edi, index=NoIndex}},
                                 (* It's now safe to untag the flags *)
                                 ShiftConstant{ shiftType=SHR, output=flags, shift=0w1}
                             ]
                         |   LiteralSource flags =>
-                                [StoreByteConstToMemory{
-                                    toStore=wordToWord8(toShort flags),
+                                [StoreNonWordConst{
+                                    size=Size8Bit, toStore=Word.toLargeInt(toShort flags),
                                     address=BaseOffset{offset= ~1, base=edi, index=NoIndex}}]
                         |   _ => raise InternalError "genAllocAndInit-flags"
                 in
@@ -5662,8 +5761,8 @@ struct
                             InRegister (GenReg flags) =>
                             [
                                 (* Set the flags.  At least the mutable bit should be set. *)
-                                StoreByteRegToMemory{
-                                    toStore=flags,
+                                StoreNonWord{
+                                    size=Size8Bit, toStore=flags,
                                     address=BaseOffset{offset= ~1, base=resultReg, index=NoIndex}},
                                 (* It's now safe to untag the flags *)
                                 ShiftConstant{ shiftType=SHR, output=flags, shift=0w1}
@@ -5672,8 +5771,8 @@ struct
                                 if Word.andb(toShort flags, 0w1) <> 0w1
                                 then raise InternalError "flags value"
                                 else
-                                [StoreByteConstToMemory{
-                                    toStore=wordToWord8(toShort flags),
+                                [StoreNonWordConst{
+                                    size=Size8Bit, toStore=Word.toLargeInt(toShort flags),
                                     address=BaseOffset{offset= ~1, base=resultReg, index=NoIndex}}]
                         |   _ => raise InternalError "genAllocAndInit-flags"
                 in
