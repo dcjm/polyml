@@ -5490,7 +5490,9 @@ struct
                             ArithToGenReg{opc=ADD, source=ShortConstArg 1, output=dividend},
                             (* Clear the high order of the accumulator and do the division. *)
                             DivideAccR{arg=dividend, isSigned=isSigned},
-                            ArithToGenReg{opc=XOR, source=RegisterArg edx, output=edx},
+                            if isSigned
+                            then SignExtendForDivide
+                            else ArithToGenReg{opc=XOR, source=RegisterArg edx, output=edx},
                             (* Untag, but don't shift, the divisor and dividend.
                                Checking for zero is done in ML code. *)
                             ArithToGenReg{opc=SUB, source=ShortConstArg 1, output=eax},
