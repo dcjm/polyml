@@ -41,7 +41,6 @@ struct
     (*open Misc;*) (* after address, so we get Misc.length, not Address.length *)
     exception InternalError = Misc.InternalError
     val wordEq = Address.wordEq
-    open RuntimeCalls; (* for POLY_SYS numbers *)
     open BACKENDTREE;
     
     open RegSet
@@ -67,10 +66,8 @@ struct
         }
 
         (* Built-in functions. *)
-    |   OGCBuiltIn0 of {oper: BuiltIns.builtIn0Ops}
-    |   OGCBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: oldGenCodeIC}
-    |   OGCBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC}
-    |   OGCBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: oldGenCodeIC, arg2: oldGenCodeIC, arg3: oldGenCodeIC}
+    |   OGCUnary of {oper: BuiltIns.unaryOps, arg1: oldGenCodeIC}
+    |   OGCBinary of {oper: BuiltIns.binaryOps, arg1: oldGenCodeIC, arg2: oldGenCodeIC}
 
     |   OGCLambda of oldGenCodeLambdaForm (* Lambda expressions. *)
 
@@ -120,6 +117,11 @@ struct
     
     |   OGCBlockOperation of
             { kind: blockOpKind, sourceLeft: oldGenCodeAddress, destRight: oldGenCodeAddress, length: oldGenCodeIC }
+
+    |   OGCGetThreadId
+    
+    |   OGCAllocateWordMemory of {numWords: oldGenCodeIC, flags: oldGenCodeIC, initial: oldGenCodeIC}
+
 
     and oldGenCodeBinding =
         OGCDeclar  of oldGenCodeSimpleBinding (* Make a local declaration or push an argument *)
@@ -185,10 +187,8 @@ struct
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        | sideEffectFree (BICBuiltIn0 _) = false
-        | sideEffectFree (BICBuiltIn1 _) = false
-        | sideEffectFree (BICBuiltIn2 _) = false
-        | sideEffectFree (BICBuiltIn3 _) = false
+        | sideEffectFree (BICUnary _) = false
+        | sideEffectFree (BICBinary _) = false
 
         | sideEffectFree(BICContainer _) = true
             (* But since SetContainer has a side-effect we'll always create the
@@ -376,13 +376,13 @@ struct
                         OGCEval {function = func, argList = newargs, resultType=resultType}
                     end
 
-                |   insert(BICBuiltIn0 {oper}) = OGCBuiltIn0 {oper=oper}
-                |   insert(BICBuiltIn1 {oper, arg1}) = OGCBuiltIn1{oper=oper, arg1=insert arg1}
+                |   insert BICGetThreadId = OGCGetThreadId
+                |   insert(BICUnary {oper, arg1}) = OGCUnary{oper=oper, arg1=insert arg1}
                     (* These must be processed in reverse order so the order of the arguments is
                        significant. *)
-                |   insert(BICBuiltIn2 {oper, arg1, arg2}) = OGCBuiltIn2{oper=oper, arg2=insert arg2, arg1=insert arg1}
-                |   insert(BICBuiltIn3 {oper, arg1, arg2, arg3}) =
-                        OGCBuiltIn3{oper=oper, arg3=insert arg3, arg2=insert arg2, arg1=insert arg1}
+                |   insert(BICBinary {oper, arg1, arg2}) = OGCBinary{oper=oper, arg2=insert arg2, arg1=insert arg1}
+                |   insert(BICAllocateWordMemory {numWords, flags, initial}) =
+                        OGCAllocateWordMemory{initial=insert initial, flags=insert flags, numWords=insert numWords}
 
                 |   insert(BICExtract ext) = locaddr ext
 
@@ -1099,75 +1099,75 @@ struct
           OGCEval {function, argList, resultType, ...} =>
             genEval (function, argList, resultType, whereto, tailKind)
             
-        |   OGCBuiltIn0{oper=BuiltIns.CurrentThreadId} => cgAndRes(threadSelf(transtable, whereto))
+        |   OGCGetThreadId => cgAndRes(threadSelf(transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.NotBoolean, arg1} =>
+        |   OGCUnary{oper=BuiltIns.NotBoolean, arg1} =>
                 (* Boolean "not" is coded as xor with "true" *)
                 cgAndRes(xorWord(genToStack arg1, pushConst (transtable, True), transtable, whereto))
 
-        |   instr as OGCBuiltIn1{oper=BuiltIns.IsTaggedValue, ...} => codeAsConditional(instr, whereto, tailKind)
+        |   instr as OGCUnary{oper=BuiltIns.IsTaggedValue, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBuiltIn1{oper=BuiltIns.MemoryCellLength, arg1} => cgAndRes(vectorLength(genToStack arg1, transtable, whereto))
+        |   OGCUnary{oper=BuiltIns.MemoryCellLength, arg1} => cgAndRes(vectorLength(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.MemoryCellFlags, arg1} => cgAndRes(vectorFlags(genToStack arg1, transtable, whereto))
+        |   OGCUnary{oper=BuiltIns.MemoryCellFlags, arg1} => cgAndRes(vectorFlags(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.ClearMutableFlag, arg1} => cgAndRes(lockVector(genToStack arg1, transtable, whereto))
+        |   OGCUnary{oper=BuiltIns.ClearMutableFlag, arg1} => cgAndRes(lockVector(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.StringLengthWord, arg1} => cgAndRes(stringLength(genToStack arg1, transtable, whereto))
+        |   OGCUnary{oper=BuiltIns.StringLengthWord, arg1} => cgAndRes(stringLength(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.AtomicIncrement, arg1} => cgAndRes(atomicIncrement(genToStack arg1, transtable, whereto))
+        |   OGCUnary{oper=BuiltIns.AtomicIncrement, arg1} => cgAndRes(atomicIncrement(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.AtomicDecrement, arg1} => cgAndRes(atomicDecrement(genToStack arg1, transtable, whereto))
+        |   OGCUnary{oper=BuiltIns.AtomicDecrement, arg1} => cgAndRes(atomicDecrement(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.AtomicReset, arg1} => cgAndRes(atomicReset(genToStack arg1, transtable, whereto))
+        |   OGCUnary{oper=BuiltIns.AtomicReset, arg1} => cgAndRes(atomicReset(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.LongWordToTagged, arg1} =>
+        |   OGCUnary{oper=BuiltIns.LongWordToTagged, arg1} =>
                 (* We can use the same operation as loading the length word of a string. *)
                 cgAndRes(stringLength(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.SignedToLongWord, arg1} =>
+        |   OGCUnary{oper=BuiltIns.SignedToLongWord, arg1} =>
                 cgAndRes(wordToLargeWord(true, genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.UnsignedToLongWord, arg1} =>
+        |   OGCUnary{oper=BuiltIns.UnsignedToLongWord, arg1} =>
                 cgAndRes(wordToLargeWord(false, genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.RealAbs, arg1} =>
+        |   OGCUnary{oper=BuiltIns.RealAbs, arg1} =>
                 cgAndRes(absoluteReal(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.RealNeg, arg1} =>
+        |   OGCUnary{oper=BuiltIns.RealNeg, arg1} =>
                 cgAndRes(negativeReal(genToStack arg1, transtable, whereto))
 
-        |   OGCBuiltIn1{oper=BuiltIns.FloatFixedInt, arg1} =>
+        |   OGCUnary{oper=BuiltIns.FloatFixedInt, arg1} =>
                 cgAndRes(integerToReal(genToStack arg1, transtable, whereto))
 
-        |   instr as OGCBuiltIn2{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+        |   instr as OGCBinary{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
                 cgAndRes(addFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2} =>
                 cgAndRes(subtractFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2} =>
                 cgAndRes(multiplyFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, arg1, arg2} =>
                 cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, arg1, arg2} =>
                 cgAndRes(remFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithDiv, ...} => raise InternalError "TODO - Fixed ArithDiv"
+        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithDiv, ...} => raise InternalError "TODO - Fixed ArithDiv"
 
-        |   OGCBuiltIn2{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMod, ...} => raise InternalError "TODO - Fixed ArithMod"
+        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMod, ...} => raise InternalError "TODO - Fixed ArithMod"
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2} =>
                 cgAndRes(addWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2} =>
                 cgAndRes(subtractWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2} =>
             let
                 open Address
                 (* If the value is a power of two we use a shift *)
@@ -1182,7 +1182,7 @@ struct
                 |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
             end
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2} =>
             (
                 (* Use a right shift if it's a power of two. *)
                 case arg2 of
@@ -1195,7 +1195,7 @@ struct
                 |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
             )
  
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2} =>
             (
                 (* Use a mask if it's a power of two. *)
                 case arg2 of
@@ -1214,23 +1214,23 @@ struct
                 |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
+        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
+        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
 
-        |   OGCBuiltIn2{oper=BuiltIns.SetStringLengthWord, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.SetStringLengthWord, arg1, arg2} =>
                 cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
                 cgAndRes(andWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2} =>
                 cgAndRes(orWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2} =>
                 cgAndRes(xorWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2} =>
             (
                 case arg2 of
                     OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
@@ -1238,7 +1238,7 @@ struct
                 |   _ => cgAndRes(upShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
             (
                 case arg2 of
                     OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
@@ -1246,7 +1246,7 @@ struct
                 |   _ => cgAndRes(downShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   OGCBuiltIn2{oper=BuiltIns.WordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
             (
                 case arg2 of
                     OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
@@ -1254,43 +1254,43 @@ struct
                 |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   OGCBuiltIn2{oper=BuiltIns.AllocateByteMemory, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.AllocateByteMemory, arg1, arg2} =>
                 cgAndRes(allocStoreUninitialised(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   instr as OGCBuiltIn2{oper=BuiltIns.LargeWordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+        |   instr as OGCBinary{oper=BuiltIns.LargeWordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2} =>
                 cgAndRes(addLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2} =>
                 cgAndRes(subtractLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2} =>
                 (* TODO: We could use a shift as with Word but N.B. the constants are addresses. *)
                 cgAndRes(multiplyLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2} =>
                 (* TODO: Use shifts. *)
                 cgAndRes(divideLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
  
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2} =>
                 (* TODO: Use shifts. *)
                 cgAndRes(modulusLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
+        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
+        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
                 cgAndRes(andLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2} =>
                 cgAndRes(orLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2} =>
                 cgAndRes(xorLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordShift BuiltIns.ShiftLeft, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftLeft, arg1, arg2} =>
             (
                 case arg2 of
                     OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
@@ -1298,7 +1298,7 @@ struct
                 |   _ => cgAndRes(upShiftLargeWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
             (
                 case arg2 of
                     OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
@@ -1306,7 +1306,7 @@ struct
                 |   _ => cgAndRes(downShiftLargeWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   OGCBuiltIn2{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
             (
                 case arg2 of
                     OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
@@ -1314,34 +1314,34 @@ struct
                 |   _ => cgAndRes(downShiftLargeWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
             )
 
-        |   instr as OGCBuiltIn2{oper=BuiltIns.RealComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+        |   instr as OGCBinary{oper=BuiltIns.RealComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithAdd, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithAdd, arg1, arg2} =>
                 cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithSub, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithSub, arg1, arg2} =>
                 cgAndRes(subtractReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithMult, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithMult, arg1, arg2} =>
                 cgAndRes(multiplyReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO-RealArith-ArithQuot"
+        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO-RealArith-ArithQuot"
 
-        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithRem, ...} => raise InternalError "TODO-RealArith-ArithRem"
+        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithRem, ...} => raise InternalError "TODO-RealArith-ArithRem"
 
-        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithDiv, arg1, arg2} =>
+        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithDiv, arg1, arg2} =>
                 cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBuiltIn2{oper=BuiltIns.RealArith BuiltIns.ArithMod, ...} => raise InternalError "TODO-RealArith-ArithMod"
+        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithMod, ...} => raise InternalError "TODO-RealArith-ArithMod"
 
-        |   OGCBuiltIn3{oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3} =>
+        |   OGCAllocateWordMemory{numWords, flags=flagValue, initial} =>
             let
                 (* This is used to allocate all memory apart from tuples and
                    closures.  We particularly want to be able to profile the
                    allocation of refs so we consider them specially. *)
                 open Address
             in
-                case (arg1, arg2) of
+                case (numWords, flagValue) of
                     (OGCConstnt(len, _), OGCConstnt(flag, _)) =>
                         (* Both the length and the flags are constants *)
                         if not(isShort len andalso isShort flag andalso toShort flag <= 0w255)
@@ -1354,7 +1354,7 @@ struct
                             if sLen = 0w1 andalso sFlag = F_mutable
                             then
                             let
-                                val initLoc = genToStackOrGeneralRegister arg3
+                                val initLoc = genToStackOrGeneralRegister initial
                                 val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
                                 val () = codeGenerate(vecCode, cvec)
                                 val moveCode = moveToVec (vec, initLoc, 0, transtable)
@@ -1367,12 +1367,12 @@ struct
                             end
                             else if sLen < 0w5 andalso (Word8.andb(sFlag, 0w3)) = F_words
                                 (* Small fixed size allocations of words. *)
-                            then cgAndRes(allocateStoreSmallFixedSize(Word.toInt sLen, sFlag, genToStack arg3, transtable, whereto))
-                            else cgAndRes(allocStoreAndInitialise(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
+                            then cgAndRes(allocateStoreSmallFixedSize(Word.toInt sLen, sFlag, genToStack initial, transtable, whereto))
+                            else cgAndRes(allocStoreAndInitialise(genToStack numWords, genToStack flagValue, genToStack initial, transtable, whereto))
                         end
 
                 |  _ => (* Variable flags. *)
-                    cgAndRes(allocStoreAndInitialise(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
+                    cgAndRes(allocStoreAndInitialise(genToStack numWords, genToStack flagValue, genToStack initial, transtable, whereto))
 
             end
 
@@ -2520,20 +2520,16 @@ struct
             let
                 (* Convert this into a simple equality function. *)
                 val code =
-                    OGCBuiltIn2{oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
+                    OGCBinary{oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
                         arg1=test, arg2=OGCConstnt(Address.toMachineWord tag, [])}
             in
                 genTest(code, jumpOn)
             end
 
             
-        |   OGCBuiltIn0{oper} =>
-            (
-                case oper of
-                    BuiltIns.CurrentThreadId => raise InternalError "TODO-genTest: OGCBuiltIn0-CurrentThreadId"
-            )
+        |   OGCGetThreadId => raise InternalError "TODO-genTest: OGCBuiltIn0-CurrentThreadId"
 
-        |   OGCBuiltIn1{oper, arg1} =>
+        |   OGCUnary{oper, arg1} =>
             (
                 case oper of
                     BuiltIns.NotBoolean => genTest(arg1, not jumpOn)
@@ -2548,22 +2544,22 @@ struct
                         label
                     end
 
-                |   BuiltIns.MemoryCellLength => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellLength"
-                |   BuiltIns.MemoryCellFlags => raise InternalError "TODO-genTest: OGCBuiltIn1 - MemoryCellFlags"
-                |   BuiltIns.ClearMutableFlag => raise InternalError "TODO-genTest: OGCBuiltIn1 - ClearMutableFlag"
-                |   BuiltIns.StringLengthWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - StringLengthWord"
-                |   BuiltIns.AtomicIncrement => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicIncrement"
-                |   BuiltIns.AtomicDecrement => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicDecrement"
-                |   BuiltIns.AtomicReset => raise InternalError "TODO-genTest: OGCBuiltIn1 - AtomicReset"
-                |   BuiltIns.LongWordToTagged => raise InternalError "TODO-genTest: OGCBuiltIn1 - LongWordToTagged"
-                |   BuiltIns.SignedToLongWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - SignedToLongWord"
-                |   BuiltIns.UnsignedToLongWord => raise InternalError "TODO-genTest: OGCBuiltIn1 - UnsignedToLongWord"
-                |   BuiltIns.RealAbs => raise InternalError "TODO-genTest: OGCBuiltIn1 - RealAbs"
-                |   BuiltIns.RealNeg => raise InternalError "TODO-genTest: OGCBuiltIn1 - RealNeg"
-                |   BuiltIns.FloatFixedInt => raise InternalError "TODO-genTest: OGCBuiltIn1 - FloatFixedInt"
+                |   BuiltIns.MemoryCellLength => raise InternalError "TODO-genTest: OGCUnary - MemoryCellLength"
+                |   BuiltIns.MemoryCellFlags => raise InternalError "TODO-genTest: OGCUnary - MemoryCellFlags"
+                |   BuiltIns.ClearMutableFlag => raise InternalError "TODO-genTest: OGCUnary - ClearMutableFlag"
+                |   BuiltIns.StringLengthWord => raise InternalError "TODO-genTest: OGCUnary - StringLengthWord"
+                |   BuiltIns.AtomicIncrement => raise InternalError "TODO-genTest: OGCUnary - AtomicIncrement"
+                |   BuiltIns.AtomicDecrement => raise InternalError "TODO-genTest: OGCUnary - AtomicDecrement"
+                |   BuiltIns.AtomicReset => raise InternalError "TODO-genTest: OGCUnary - AtomicReset"
+                |   BuiltIns.LongWordToTagged => raise InternalError "TODO-genTest: OGCUnary - LongWordToTagged"
+                |   BuiltIns.SignedToLongWord => raise InternalError "TODO-genTest: OGCUnary - SignedToLongWord"
+                |   BuiltIns.UnsignedToLongWord => raise InternalError "TODO-genTest: OGCUnary - UnsignedToLongWord"
+                |   BuiltIns.RealAbs => raise InternalError "TODO-genTest: OGCUnary - RealAbs"
+                |   BuiltIns.RealNeg => raise InternalError "TODO-genTest: OGCUnary - RealNeg"
+                |   BuiltIns.FloatFixedInt => raise InternalError "TODO-genTest: OGCUnary - FloatFixedInt"
            )
 
-        |   OGCBuiltIn2{oper, arg1, arg2} =>
+        |   OGCBinary{oper, arg1, arg2} =>
             (
                 case oper of
                     BuiltIns.WordComparison{test, isSigned} =>
@@ -2619,23 +2615,23 @@ struct
                         label
                     end
 
-                |   BuiltIns.FixedPrecisionArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-FixedPrecisionArith"
+                |   BuiltIns.FixedPrecisionArith _ => raise InternalError "TODO-genTest: OGCBinary-FixedPrecisionArith"
 
-                |   BuiltIns.WordArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordArith"
+                |   BuiltIns.WordArith _ => raise InternalError "TODO-genTest: OGCBinary-WordArith"
 
-                |   BuiltIns.SetStringLengthWord => raise InternalError "TODO-genTest: OGCBuiltIn2-SetStringLengthWord"
+                |   BuiltIns.SetStringLengthWord => raise InternalError "TODO-genTest: OGCBinary-SetStringLengthWord"
 
-                |   BuiltIns.WordLogical _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordLogical"
+                |   BuiltIns.WordLogical _ => raise InternalError "TODO-genTest: OGCBinary-WordLogical"
 
-                |   BuiltIns.WordShift _ => raise InternalError "TODO-genTest: OGCBuiltIn2-WordShift"
+                |   BuiltIns.WordShift _ => raise InternalError "TODO-genTest: OGCBinary-WordShift"
 
-                |   BuiltIns.AllocateByteMemory => raise InternalError "TODO-genTest: OGCBuiltIn2-AllocateByteMemory"
+                |   BuiltIns.AllocateByteMemory => raise InternalError "TODO-genTest: OGCBinary-AllocateByteMemory"
 
-                |   BuiltIns.LargeWordArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LargeWordArith"
+                |   BuiltIns.LargeWordArith _ => raise InternalError "TODO-genTest: OGCBinary-LargeWordArith"
 
-                |   BuiltIns.LargeWordLogical _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LargeWordLogical"
+                |   BuiltIns.LargeWordLogical _ => raise InternalError "TODO-genTest: OGCBinary-LargeWordLogical"
 
-                |   BuiltIns.LargeWordShift _ => raise InternalError "TODO-genTest: OGCBuiltIn2-LargeWordShift"
+                |   BuiltIns.LargeWordShift _ => raise InternalError "TODO-genTest: OGCBinary-LargeWordShift"
 
                 |   BuiltIns.RealComparison test =>
                     let
@@ -2658,14 +2654,10 @@ struct
                         label
                     end
 
-                |   BuiltIns.RealArith _ => raise InternalError "TODO-genTest: OGCBuiltIn2-RealArith"
+                |   BuiltIns.RealArith _ => raise InternalError "TODO-genTest: OGCBinary-RealArith"
             )
 
-        |   OGCBuiltIn3{oper, ...} =>
-            (
-                case oper of
-                    BuiltIns.AllocateWordMemory => raise InternalError "TODO-genTest: OGCBuiltIn3-AllocateWordMemory"
-            )
+        |   OGCAllocateWordMemory _ =>raise InternalError "TODO-genTest: OGCBuiltIn3-AllocateWordMemory"
 
         |   OGCLoadOperation { kind=LoadStoreMLWord _, ... } =>
                  (* TODO - This is "if !b then ...". We could use TEST instruction here. *)
