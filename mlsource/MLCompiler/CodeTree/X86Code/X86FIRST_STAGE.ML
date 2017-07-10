@@ -290,14 +290,14 @@ struct
     in
         if isX64 andalso flags <> 0w0
         then
-            [StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
-             StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+            [StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt flags, address={offset= ~1, base=output, index=NoIndex}},
+             StoreConstToMemory{toStore=LargeInt.fromInt size, address={offset= ~wordSize, base=output, index=NoIndex}},
              AllocStore{size=size, output=output, saveRegs=regsToSave}]
         else
         let
             val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
         in
-            [StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+            [StoreConstToMemory{toStore=lengthWord, address={offset= ~wordSize, base=output, index=NoIndex}},
              AllocStore{size=size, output=output, saveRegs=regsToSave}]
         end
     end
@@ -355,7 +355,7 @@ struct
     datatype actionSource =
         ActLiteralSource of machineWord
     |   ActInRegisterSet of { modifiable: RegSet.regSet, readable: RegSet.regSet}
-    |   ActBaseOffset of genReg * int
+    |   Act of genReg * int
     |   ActOther (* Containers. *)
 
     type argAction = ttab * stackIndex list * regHint -> reg option * operation list
@@ -402,10 +402,10 @@ struct
 
         |   Literal m => ActLiteralSource m
 
-        |   Direct{base, offset} => ActBaseOffset(base, offset)
+        |   Direct{base, offset} => Act(base, offset)
 
         |   StackW index =>
-                ActBaseOffset(regStackPtr, (! realstackptr - 1 - index) * wordSize)
+                Act(regStackPtr, (! realstackptr - 1 - index) * wordSize)
 
         |   Container _ => ActOther (* This can be used as the address in a moveToVec *)
     end
@@ -475,7 +475,7 @@ struct
         [MoveToRegister{source=RegisterArg source, output=output}]
 
     |   moveRegisterToRegister(GenReg source, FPReg output) =
-        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromMemory{base=source, offset=0}]
+        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromMemory{base=source, offset=0, index=NoIndex}]
 
     |   moveRegisterToRegister(FPReg source, FPReg output) =
         [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromFPReg{source=source, lastRef=false}]
@@ -506,11 +506,11 @@ struct
 
     and storeRegisterToStack(reg, loc) =
         if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
-        else [StoreRegToMemory{toStore=reg, address=BaseOffset{offset=loc, base=esp, index=NoIndex}}]
+        else [StoreRegToMemory{toStore=reg, address={offset=loc, base=esp, index=NoIndex}}]
 
     and storeConstantToStack(lit, loc) =
     let
-        val addr = BaseOffset{offset=loc, base=regStackPtr, index=NoIndex}
+        val addr = {offset=loc, base=regStackPtr, index=NoIndex}
     in
         if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
         else if isShort lit
@@ -570,7 +570,7 @@ struct
         [MoveToRegister{source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=output }]
     and storeToHandler reg =
         [StoreRegToMemory{
-            toStore=reg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}}]
+            toStore=reg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}}]
     
     val pushCurrentHandler = [PushToStack(MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex})]
 
@@ -3549,7 +3549,7 @@ struct
         datatype source =
             InRegister of reg
         |   LiteralSource of machineWord
-        |   BaseOffsetSource of { base: genReg, offset: int }
+        |   Source of { base: genReg, offset: int }
 
         (* Replace an entry in the operand list, which should be NONE, with SOME operand. *)
         fun replaceOperand(n, repWith) (operands, results) =
@@ -3738,10 +3738,10 @@ struct
                     case (base, index) of
                         (InRegister(GenReg address), InRegister(GenReg indexR)) =>
                             if wordSize = 4
-                            then BaseOffset{offset= byteOffset-2, base=address, index=Index2 indexR} (* Index is tagged so double *)
-                            else (*8*) BaseOffset{offset= byteOffset-4, base=address, index=Index4 indexR}
+                            then {offset= byteOffset-2, base=address, index=Index2 indexR} (* Index is tagged so double *)
+                            else (*8*) {offset= byteOffset-4, base=address, index=Index4 indexR}
                     |   (InRegister(GenReg address), LiteralSource offset) =>
-                            BaseOffset{offset=byteOffset+Word.toInt(toShort offset)*wordSize, base=address, index=NoIndex}
+                            {offset=byteOffset+Word.toInt(toShort offset)*wordSize, base=address, index=NoIndex}
                     |   _ => raise InternalError "genStoreWord"
             in
                 case value of
@@ -3857,7 +3857,7 @@ struct
             (* We could reuse the base register for the output. *)
             fun genVecFlags([InRegister(GenReg baseReg)], SOME(GenReg outReg)) =
                 [tagValue{source=outReg, output=outReg},
-                 LoadNonWord{size=Size8Bit, source=BaseOffset{base=baseReg, offset= ~1, index=NoIndex}, output=outReg}]
+                 LoadNonWord{size=Size8Bit, source={base=baseReg, offset= ~1, index=NoIndex}, output=outReg}]
             |   genVecFlags _ = raise InternalError "genVecFlags"
         in
             fun vectorFlags(arg, transtable, whereto) =
@@ -3931,11 +3931,11 @@ struct
                     (* Byte values need to be tagged.  The offset is a byte offset. *)
                     [tagValue{source=destReg, output=destReg},
                      LoadNonWord{size=Size8Bit, output=destReg,
-                            source=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset), index=NoIndex}}]
+                            source={base=base, offset=byteOffset+Word.toInt(toShort offset), index=NoIndex}}]
 
             |   genLoadByteInstr byteOffset ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
                     [tagValue{source=destReg, output=destReg},
-                     LoadNonWord{size=Size8Bit, source=BaseOffset{base=base, offset=byteOffset, index=Index1 indexR}, output=destReg},
+                     LoadNonWord{size=Size8Bit, source={base=base, offset=byteOffset, index=Index1 indexR}, output=destReg},
                      ShiftConstant{shiftType=SHR, output=indexR, shift=0w1} (* Untag. *)]
 
             |   genLoadByteInstr _ _ = raise InternalError "genLoadByteInstr"
@@ -3952,7 +3952,7 @@ struct
                 in
                     [tagValue{source=destReg, output=destReg},
                      LoadNonWord{size=size, output=destReg,
-                            source=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset)*scale, index=NoIndex}},
+                            source={base=base, offset=byteOffset+Word.toInt(toShort offset)*scale, index=NoIndex}},
                      MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
                 end
 
@@ -3967,7 +3967,7 @@ struct
                         |   Size32Bit => (~2, Index2 indexR, [])
                 in
                     [tagValue{source=destReg, output=destReg},
-                     LoadNonWord{size=size, source=BaseOffset{base=base, offset=byteOffset+offset, index=scale}, output=destReg}
+                     LoadNonWord{size=size, source={base=base, offset=byteOffset+offset, index=scale}, output=destReg}
                      ] @ untagIndex @
                      [MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
                 end
@@ -4057,7 +4057,7 @@ struct
                 in
                     [
                         StoreInitialised,
-                        StoreRegToMemory { toStore=base, address=BaseOffset{base=destReg, offset=0, index=NoIndex}},
+                        StoreRegToMemory { toStore=base, address={base=destReg, offset=0, index=NoIndex}},
                         MoveToRegister{source=memLoad, output=base}, (* Use the base register as a temporary. *)
                         (* The "base" address is a SystemWord.word value - we have to load it. *)
                         MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}
@@ -4095,19 +4095,52 @@ struct
             else raise InternalError "loadC64 in 32-bit mode"
         
         local
-            fun loadCflt _ = raise InternalError "loadCflt"
-            and loadCdbl _ = raise InternalError "loadCdbl"
+            fun genLoadCFloatInstr (true (*Double*), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(FPReg destReg)) =
+                    [FPStoreToFPReg{output=destReg, andPop=true},
+                     FPLoadFromMemory{base=base, offset=byteOffset+Word.toInt(toShort offset)*8, index=NoIndex},
+                     MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
+
+            |   genLoadCFloatInstr (false (* Single. *), byteOffset) ([InRegister(GenReg base), LiteralSource offset], SOME(FPReg destReg)) =
+                    [FPStoreToFPReg{output=destReg, andPop=true},
+                     FPLoadFromMemorySingle{base=base, offset=byteOffset+Word.toInt(toShort offset)*4, index=NoIndex},
+                     MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
+
+            |   genLoadCFloatInstr (true (* Double. *), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(FPReg destReg)) =
+                    [FPStoreToFPReg{output=destReg, andPop=true},
+                     FPLoadFromMemory{base=base, offset=byteOffset-4, index=Index4 indexR},
+                     MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
+
+            |   genLoadCFloatInstr (false (* Single. *), byteOffset) ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(FPReg destReg)) =
+                    [FPStoreToFPReg{output=destReg, andPop=true},
+                     FPLoadFromMemorySingle{base=base, offset=byteOffset-2, index=Index2 indexR},
+                     MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
+            
+            |   genLoadCFloatInstr _ _ = raise InternalError "genLoadCFloatInstr"
+
+            fun loadCflt(isDouble, byteOffset, transtable, args, whereto) =
+            let
+                val genLoad =
+                    (* We need the base register to be modifiable since we're going to load it. *)
+                    loadToRegOrLiteral(generalRegisters, false, 1,
+                        loadToOneOf(generalRegisters, true, 0,
+                            getResultRegister(floatingPtRegisters,
+                                generateInstruction(genLoadCFloatInstr(isDouble, Word.toInt byteOffset)))
+                            )
+                        ) ([NONE, NONE], NONE)
+            in
+                genLoad (transtable, args, whereto)
+            end
         in
             fun loadCfloat{base, index, byteOffset, transtable, whereto} =
             let
-                val (opRes, opCode) = loadCflt (Word.toInt byteOffset) (transtable, [base, index], whereto)
+                val (opRes, opCode) = loadCflt (false, byteOffset, transtable, [base, index], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and loadCdouble{base, index, byteOffset, transtable, whereto} =
             let
-                val (opRes, opCode) = loadCdbl (Word.toInt byteOffset) (transtable, [base, index], whereto)
+                val (opRes, opCode) = loadCflt (true, byteOffset, transtable, [base, index], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
@@ -4139,9 +4172,9 @@ struct
                     val address =
                         case (base, index) of
                             (InRegister(GenReg address), InRegister(GenReg index)) =>
-                                BaseOffset{offset=byteOffset, base=address, index=Index1 index}
+                                {offset=byteOffset, base=address, index=Index1 index}
                         |   (InRegister(GenReg address), LiteralSource offset) =>
-                                BaseOffset{offset=byteOffset+Word.toInt(toShort offset), base=address, index=NoIndex }
+                                {offset=byteOffset+Word.toInt(toShort offset), base=address, index=NoIndex }
                         |   _ => raise InternalError "genStoreByte"
                 in
                     case toStore of
@@ -4192,7 +4225,7 @@ struct
                 in
                     [
                         StoreNonWord { toStore=toStore, size=size,
-                            address=BaseOffset{base=base, offset=byteOffset+Word.toInt(toShort offset)*scale, index=NoIndex}},
+                            address={base=base, offset=byteOffset+Word.toInt(toShort offset)*scale, index=NoIndex}},
                         ShiftConstant{shiftType=SHR, output=toStore, shift=0w1},
                         MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}
                     ]
@@ -4210,7 +4243,7 @@ struct
                 in
                     [
                         StoreNonWord { toStore=toStore, size=size,
-                            address=BaseOffset{base=base, offset=byteOffset+offset, index=scale}},
+                            address={base=base, offset=byteOffset+offset, index=scale}},
                         ShiftConstant{shiftType=SHR, output=toStore, shift=0w1}
                     ] @ untagIndex @
                         [MoveToRegister{source=MemoryArg{base=base, offset=0, index=NoIndex}, output=base}]
@@ -4258,10 +4291,10 @@ struct
                                     then (~2, Index2 indexR)
                                     else (~4, Index4 indexR)
                             in
-                                BaseOffset{base=base, offset=byteOffset+offset, index=scale}
+                                {base=base, offset=byteOffset+offset, index=scale}
                             end
                         |   LiteralSource offset =>
-                                BaseOffset{base=base, offset=byteOffset + Word.toInt(toShort offset)*wordSize, index=NoIndex}
+                                {base=base, offset=byteOffset + Word.toInt(toShort offset)*wordSize, index=NoIndex}
                         |   _ => raise InternalError "genStoreAndBox"
                 in
                     [
@@ -4338,7 +4371,7 @@ struct
             (* Atomic reset is only really required for the interpreted version.  On the X86
                we simply need to store a tagged 1 in the mutex. *)
             fun atReset ([InRegister(GenReg rs)], NONE) =
-                [StoreConstToMemory{toStore=tag 1, address=BaseOffset{ base=rs, offset=0, index=NoIndex }}]
+                [StoreConstToMemory{toStore=tag 1, address={ base=rs, offset=0, index=NoIndex }}]
             |   atReset _ = raise InternalError "atReset"
         in
             fun atomicReset(arg, transtable, whereto) =
@@ -4459,7 +4492,7 @@ struct
             fun testActions (testType, destLabel) (tArgs as (table, [arg1, arg2], _)) =
             (
                 case (argAsSource table arg1, argAsSource table arg2) of
-                    (ActBaseOffset _, ActBaseOffset _) =>
+                    (Act _, Act _) =>
                         (* Both in memory: Load one. *)
                         actionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
                                       next=testActions(testType, destLabel)} tArgs
@@ -4513,7 +4546,7 @@ struct
                                        ] } tArgs
                     end
 
-                |   (ActInRegisterSet s1, ActBaseOffset(base, offset)) =>
+                |   (ActInRegisterSet s1, Act(base, offset)) =>
                     let
                         val reg1 = chooseGenReg s1
                         val Labels{uses, ...} = destLabel
@@ -4525,7 +4558,7 @@ struct
                                          ArithToGenReg{opc=CMP, output=reg1, source=MemoryArg{base=base, offset=offset, index=NoIndex}}]} tArgs
                     end
 
-                |   (ActBaseOffset(base, offset), ActInRegisterSet s2) =>
+                |   (Act(base, offset), ActInRegisterSet s2) =>
                     let
                         val reg2 = chooseGenReg s2
                         val Labels{uses, ...} = destLabel
@@ -4538,7 +4571,7 @@ struct
                                          ArithToGenReg{opc=CMP, output=reg2, source=MemoryArg{base=base, offset=offset, index=NoIndex}}]} tArgs
                     end
 
-                |   (ActBaseOffset(base, offset), ActLiteralSource constnt) =>
+                |   (Act(base, offset), ActLiteralSource constnt) =>
                     if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
                     then (* In 32-bit mode we can put all constants inline but in 64-bit mode anything
                             that won't fit in 32-bits as well as all addresses need to go in the
@@ -4560,7 +4593,7 @@ struct
                         actionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
                                       next=testActions(testType, destLabel)} tArgs
 
-                |   (ActLiteralSource constnt, ActBaseOffset(base, offset)) =>
+                |   (ActLiteralSource constnt, Act(base, offset)) =>
                     if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
                     then
                     let
@@ -4607,7 +4640,7 @@ struct
                                 operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
                                            TestTagR(chooseGenReg regs)]} tArgs
                         )
-                    |   ActBaseOffset(base, offset) =>
+                    |   Act(base, offset) =>
                         (
                             uses := !uses+1;
                             actionDone { outReg=NONE,
@@ -4827,16 +4860,16 @@ struct
         end
 
         local
-            fun loadBaseOffsets genInstr (ops as (_, outputReg)) (tArgs as (table, args, _)) =
+            fun loads genInstr (ops as (_, outputReg)) (tArgs as (table, args, _)) =
                 case map (argAsSource table) args of
-                    (ActBaseOffset _ :: _) => (* Unary or binary case. *)
+                    (Act _ :: _) => (* Unary or binary case. *)
                     (* Base-offset values need to be loaded into a general register because we
                        don't have a doubly indirect load, at least on X86/32. *)
                         actionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                      next=loadBaseOffsets genInstr ops} tArgs
-                |   [_, ActBaseOffset _] =>
+                                      next=loads genInstr ops} tArgs
+                |   [_, Act _] =>
                         actionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
-                                      next=loadBaseOffsets genInstr ops} tArgs
+                                      next=loads genInstr ops} tArgs
                 |   mappedArgs =>
                     let
                         fun argToSource(ActInRegisterSet { readable, modifiable }) =
@@ -4871,7 +4904,7 @@ struct
                     val loadToStack =
                         case stackArg of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0}
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0, index=NoIndex}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "testActions"
                     val fpOperation =
@@ -4917,14 +4950,14 @@ struct
             in
                 (* We need eax as a work register. *)
                 (actionGetWorkReg{regSet=singleton(GenReg eax),
-                            setReg = fn _ => loadBaseOffsets (genTest(opc, destLabel)) ([NONE, NONE], NONE)}, destLabel)
+                            setReg = fn _ => loads (genTest(opc, destLabel)) ([NONE, NONE], NONE)}, destLabel)
             end
             
             fun getFP genInstr =
-                getResultRegister(floatingPtRegisters, loadBaseOffsets genInstr)
+                getResultRegister(floatingPtRegisters, loads genInstr)
                     ([NONE, NONE], NONE)
             and getUnaryFP genInstr =
-                getResultRegister(floatingPtRegisters, loadBaseOffsets genInstr)
+                getResultRegister(floatingPtRegisters, loads genInstr)
                     ([NONE], NONE)
 
             fun genBinaryFP(forward, reverse) ([op1, op2], SOME(FPReg output)) =
@@ -4939,7 +4972,7 @@ struct
                     val loadToStack =
                         case stackArg of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0}
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0, index=NoIndex}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genBinaryFP"
                     val fpOperation =
@@ -4962,7 +4995,7 @@ struct
                     val loadToStack =
                         case opn of
                             InRegister(FPReg reg) => FPLoadFromFPReg{source=reg, lastRef=false}
-                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0}
+                        |   InRegister(GenReg reg) => FPLoadFromMemory{base=reg, offset=0, index=NoIndex}
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genUnaryFP"
                 in
@@ -5077,7 +5110,7 @@ struct
             fun genSetStringLength ([InRegister(GenReg base), InRegister(GenReg length)], NONE) =
                 [
                     tagValue{ source=length, output=length }, (* Retag it *)
-                    StoreRegToMemory{ toStore=length, address=BaseOffset{offset=0, base=base, index=NoIndex }},
+                    StoreRegToMemory{ toStore=length, address={offset=0, base=base, index=NoIndex }},
                     ShiftConstant{shiftType=SHR, output=length, shift=0w1 } (* Untag it *)
                 ]
             |   genSetStringLength _ = raise InternalError "genSetStringStringLength"
@@ -5209,12 +5242,12 @@ struct
                         actionLoadArg{ argNo=1, regSet=generalRegisters, willOverwrite=false,
                                        next = wordSelectedLeft opRes } tArgs
 
-                |   [_, ActBaseOffset(base, offset)] =>
+                |   [_, Act(base, offset)] =>
                         actionDone{ outReg=SOME result,
                                 operation=postTagAdjust(opcode, resultReg) @
                                           tagTest(ArithToGenReg{opc=opcode, output=resultReg, source=MemoryArg{base=base, offset=offset, index=NoIndex}} ::
                                                        preTagAdjust(opcode, resultReg),
-                                                  InRegister result, BaseOffsetSource{base=base, offset=offset})} tArgs
+                                                  InRegister result, Source{base=base, offset=offset})} tArgs
 
                 |   _  => raise InternalError "wordSelectedLeft"
             )
@@ -5654,7 +5687,7 @@ struct
                 let
                     fun initialiser n =
                         StoreRegToMemory{
-                            toStore=initReg, address=BaseOffset{offset=n * wordSize, base=output, index=NoIndex}}
+                            toStore=initReg, address={offset=n * wordSize, base=output, index=NoIndex}}
                     val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) (setToList(findActiveRegisters transtable))
                     val filteredSave = List.filter (fn r => r <> output) saveRegs
                     val _ = if List.exists(fn r => r = initReg) saveRegs then () else raise InternalError "genFixedAlloc - not there"
@@ -5694,14 +5727,14 @@ struct
                                 (* Set the flags.  At least the mutable bit should be set. *)
                                 StoreNonWord{
                                     size=Size8Bit, toStore=flags,
-                                    address=BaseOffset{offset= ~1, base=edi, index=NoIndex}},
+                                    address={offset= ~1, base=edi, index=NoIndex}},
                                 (* It's now safe to untag the flags *)
                                 ShiftConstant{ shiftType=SHR, output=flags, shift=0w1}
                             ]
                         |   LiteralSource flags =>
                                 [StoreNonWordConst{
                                     size=Size8Bit, toStore=Word.toLargeInt(toShort flags),
-                                    address=BaseOffset{offset= ~1, base=edi, index=NoIndex}}]
+                                    address={offset= ~1, base=edi, index=NoIndex}}]
                         |   _ => raise InternalError "genAllocAndInit-flags"
                 in
                     [
@@ -5714,7 +5747,7 @@ struct
                     [
                         (* Store it as the length field. *)
                         StoreRegToMemory{toStore=ecx,
-                            address=BaseOffset{base=edi, offset= ~wordSize, index=NoIndex}},
+                            address={base=edi, offset= ~wordSize, index=NoIndex}},
                         (* It's now safe to untag ecx *)
                         ShiftConstant{ shiftType=SHR, output=ecx, shift=0w1},
                         (* Allocate the memory *)
@@ -5763,7 +5796,7 @@ struct
                                 (* Set the flags.  At least the mutable bit should be set. *)
                                 StoreNonWord{
                                     size=Size8Bit, toStore=flags,
-                                    address=BaseOffset{offset= ~1, base=resultReg, index=NoIndex}},
+                                    address={offset= ~1, base=resultReg, index=NoIndex}},
                                 (* It's now safe to untag the flags *)
                                 ShiftConstant{ shiftType=SHR, output=flags, shift=0w1}
                             ]
@@ -5773,14 +5806,14 @@ struct
                                 else
                                 [StoreNonWordConst{
                                     size=Size8Bit, toStore=Word.toLargeInt(toShort flags),
-                                    address=BaseOffset{offset= ~1, base=resultReg, index=NoIndex}}]
+                                    address={offset= ~1, base=resultReg, index=NoIndex}}]
                         |   _ => raise InternalError "genAllocAndInit-flags"
                 in
                     [StoreInitialised ] @ flagsCode @
                     [
                         (* Store it as the length field. *)
                         StoreRegToMemory{toStore=length,
-                            address=BaseOffset{base=resultReg, offset= ~wordSize, index=NoIndex}},
+                            address={base=resultReg, offset= ~wordSize, index=NoIndex}},
                         (* It's now safe to untag the length *)
                         ShiftConstant{ shiftType=SHR, output=length, shift=0w1},
                         (* Allocate the memory *)
@@ -5820,7 +5853,7 @@ struct
                 in
                     [
                         StoreInitialised,
-                        StoreRegToMemory { toStore=srcReg, address=BaseOffset{base=output, offset=0, index=NoIndex}},
+                        StoreRegToMemory { toStore=srcReg, address={base=output, offset=0, index=NoIndex}},
                         (* Shift the source to remove the tag. *)
                         ShiftConstant { shiftType=if isSigned then SAR else SHR, output=srcReg, shift=0w1 }
                     ] @ allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
@@ -5852,7 +5885,7 @@ struct
                        shift it and store in the result. *)
                     [
                         StoreInitialised,
-                        StoreRegToMemory { toStore=srcReg, address=BaseOffset{base=output, offset=0, index=NoIndex}}
+                        StoreRegToMemory { toStore=srcReg, address={base=output, offset=0, index=NoIndex}}
                     ] @ shiftCode @
                     MoveToRegister{source=MemoryArg{base=srcReg, offset=0, index=NoIndex}, output=srcReg } ::
                     allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
@@ -5870,7 +5903,7 @@ struct
                        shift it and store in the result. *)
                     [
                         StoreInitialised,
-                        StoreRegToMemory { toStore=srcReg, address=BaseOffset{base=output, offset=0, index=NoIndex}},
+                        StoreRegToMemory { toStore=srcReg, address={base=output, offset=0, index=NoIndex}},
                         ShiftVariable { shiftType=opc, output=srcReg },
                         ShiftConstant{shiftType=SHR, output=ecx, shift=0w1}(* Untag ecx *),
                         MoveToRegister{source=MemoryArg{base=srcReg, offset=0, index=NoIndex}, output=srcReg }
@@ -5950,7 +5983,7 @@ struct
                        do the operation with the value in the second argument and store in the result. *)
                     [
                         StoreInitialised,
-                        StoreRegToMemory { toStore=arg1Reg, address=BaseOffset{base=output, offset=0, index=NoIndex}},
+                        StoreRegToMemory { toStore=arg1Reg, address={base=output, offset=0, index=NoIndex}},
                         ArithToGenReg{ opc=opc, output=arg1Reg, source=MemoryArg{offset=0, base=arg2Reg, index=NoIndex} },
                         MoveToRegister{source=MemoryArg{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
                     ] @
@@ -5973,7 +6006,7 @@ struct
                        do the operation with the value in the second argument and store in the result. *)
                     [
                         StoreInitialised,
-                        StoreRegToMemory { toStore=arg1Reg, address=BaseOffset{base=output, offset=0, index=NoIndex}},
+                        StoreRegToMemory { toStore=arg1Reg, address={base=output, offset=0, index=NoIndex}},
                         MultiplyRM{ output=arg1Reg, offset=0, base=arg2Reg },
                         MoveToRegister{source=MemoryArg{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
                     ] @
@@ -5991,7 +6024,7 @@ struct
                     [
                         StoreInitialised,
                         StoreRegToMemory { toStore=if isDiv then eax else edx,
-                            address=BaseOffset{base=output, offset=0, index=NoIndex}},
+                            address={base=output, offset=0, index=NoIndex}},
                         DivideAccM{ offset=0, base=arg2Reg, isSigned=false },
                         ArithToGenReg{opc=XOR, source=RegisterArg edx, output=edx},
                         MoveToRegister{source=MemoryArg{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
