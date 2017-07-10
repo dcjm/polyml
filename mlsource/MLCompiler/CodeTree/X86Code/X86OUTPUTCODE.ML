@@ -756,7 +756,8 @@ struct
     |   branchOpRepr JNP = "JumpNoParity"
 
     datatype sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And | SSE2MoveSingle
+        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
+        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
     
     fun sse2OpRepr SSE2Move = "SSE2Move"
     |   sse2OpRepr SSE2Comp = "SSE2Comp"
@@ -767,6 +768,7 @@ struct
     |   sse2OpRepr SSE2Xor  = "SSE2Xor"
     |   sse2OpRepr SSE2And  = "SSE2And"
     |   sse2OpRepr SSE2MoveSingle = "SSE2MoveSingle"
+    |   sse2OpRepr SSE2DoubleToFloat = "SSE2DoubleToFloat"
 
     (* Primary opCodes.  N.B. only opCodes actually used are listed here.
        If new instruction are added check they will be handled by the
@@ -811,7 +813,8 @@ struct
     |   MOVZW (* Needs escape code. *)
     |   MOVL_A_R32 (* As MOVL_A_R but without RAX.W *)
     |   IMUL (* Needs escape code. *)
-    |   SSE2Store (* movsd with memory destination - needs escape sequence. *)
+    |   SSE2StoreSingle (* movss with memory destination - needs escape sequence. *)
+    |   SSE2StoreDouble (* movsd with memory destination - needs escape sequence. *)
     |   CQO_CDQ (* Sign extend before divide.. *)
     |   SSE2Ops of sse2Operations (* SSE2 instructions. *)
     |   CVTSI2SD
@@ -855,7 +858,8 @@ struct
     |   opToInt MOVZW         = 0wxb7 (* Needs escape code. *)
     |   opToInt MOVL_A_R32    = 0wx8b
     |   opToInt IMUL          = 0wxaf (* Needs escape code. *)
-    |   opToInt SSE2Store     = 0wx11 (* Needs F2 0F escape. *)
+    |   opToInt SSE2StoreSingle     = 0wx11 (* Needs F3 0F escape. *)
+    |   opToInt SSE2StoreDouble     = 0wx11 (* Needs F2 0F escape. *)
     |   opToInt CQO_CDQ       = 0wx99
     |   opToInt (SSE2Ops SSE2Move) = 0wx10 (* Needs F2 0F escape. *)
     |   opToInt (SSE2Ops SSE2Comp) = 0wx2E (* Needs 66 0F escape. *)
@@ -866,6 +870,7 @@ struct
     |   opToInt (SSE2Ops SSE2And)  = 0wx54 (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2Xor)  = 0wx57 (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2MoveSingle)  = 0wx5A (* Needs F3 0F escape. *)
+    |   opToInt (SSE2Ops SSE2DoubleToFloat)  = 0wx5A (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD      = 0wx2a (* Needs F2 0F escape. *)
 
     datatype mode =
@@ -1206,7 +1211,8 @@ struct
     |   genEscape(MOVZW, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(IMUL, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2Store, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(SSE2StoreSingle, cvec) = (gen8u(0wxf3, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(SSE2StoreDouble, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops SSE2Comp, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops SSE2And, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops SSE2Xor, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
@@ -1850,6 +1856,7 @@ struct
     |   LongConstArg of machineWord
     
     datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
+    and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
         MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
@@ -1892,12 +1899,11 @@ struct
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
-    |   FPLoadFromMemory of memoryAddress
-    |   FPLoadFromMemorySingle of memoryAddress
+    |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
-    |   FPStoreToMemory of { base: genReg, offset: int, andPop: bool }
+    |   FPStoreToMemory of { address: memoryAddress, precision: fpSize, andPop: bool }
     |   FPArithR of { opc: fpOps, source: fpReg }
     |   FPArithConst of { opc: fpOps, source: machineWord }
     |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
@@ -1908,7 +1914,7 @@ struct
     |   MultiplyRR of { source: genReg, output: genReg }
     |   MultiplyRM of { base: genReg, offset: int,output: genReg }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
-    |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
+    |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
 
@@ -2092,17 +2098,22 @@ struct
         |   DivideAccR{arg, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printGReg arg)
         |   DivideAccM{base, offset, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printBaseOffset(base, NoIndex, offset))
         |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printGReg base; stream ") <=> "; printGReg output)
-        |   FPLoadFromMemory source => (stream "FPLoadDouble "; printMemAddress source)
-        |   FPLoadFromMemorySingle source => (stream "FPLoadSingle "; printMemAddress source)
+        |   FPLoadFromMemory{address, precision=DoublePrecision} => (stream "FPLoadDouble "; printMemAddress address)
+        |   FPLoadFromMemory{address, precision=SinglePrecision} => (stream "FPLoadSingle "; printMemAddress address)
         |   FPLoadFromFPReg {source, lastRef} =>
                 (stream "FPLoad "; printFPReg source; if lastRef then stream " (LAST)" else())
         |   FPLoadFromConst const => (stream "FPLoad "; stream(Real.toString const) )
         |   FPStoreToFPReg{ output, andPop } =>
                 (if andPop then stream "FPStoreAndPop => " else stream "FPStore => "; printFPReg output)
-        |   FPStoreToMemory{ base: genReg, offset: int, andPop: bool } =>
+        |   FPStoreToMemory{ address, precision=DoublePrecision, andPop: bool } =>
             (
-                if andPop then stream "FPStoreAndPop => " else stream "FPStore => ";
-                printBaseOffset(base, NoIndex, offset)
+                if andPop then stream "FPStoreDoubleAndPop => " else stream "FPStoreDouble => ";
+                printMemAddress address
+            )
+        |   FPStoreToMemory{ address, precision=SinglePrecision, andPop: bool } =>
+            (
+                if andPop then stream "FPStoreSingleAndPop => " else stream "FPStoreSingle => ";
+                printMemAddress address
             )
         |   FPArithR{ opc, source } => (stream(fpOpRepr opc); stream " "; printFPReg source)
         |   FPArithConst{ opc, source } => (stream(fpOpRepr opc); stream(Address.stringOfWord source))
@@ -2117,9 +2128,13 @@ struct
             (
                 stream (sse2OpRepr opc ^ "RM "); printXMMReg output; stream " <= "; printRegOrMemoryArg printXMMReg source
             )
-        |   XMMStoreToMemory { toStore, base, offset } =>
+        |   XMMStoreToMemory { toStore, address, precision=DoublePrecision } =>
             (
-                stream "MoveRM "; printXMMReg toStore; stream " => "; printBaseOffset(base, NoIndex, offset)
+                stream "MoveDouble "; printXMMReg toStore; stream " => "; printMemAddress address
+            )
+        |   XMMStoreToMemory { toStore, address, precision=SinglePrecision } =>
+            (
+                stream "MoveSingle "; printXMMReg toStore; stream " => "; printMemAddress address
             )
         |   XMMConvertFromInt { source, output } =>
             (
@@ -2845,29 +2860,18 @@ struct
 
         |   cgOp (FreeRegisters _ :: remainder) = cgOp remainder
 
-        |   cgOp (FPLoadFromMemory { base, offset, index=NoIndex } :: remainder) =
-            (
-                genOpPlus2(FPESC 0w5, LargeInt.fromInt offset, base, 0wx0, code);
+        |   cgOp (FPLoadFromMemory {address={ base, offset, index }, precision} :: remainder) =
+            let
+                val loadInstr =
+                    case precision of
+                        DoublePrecision => FPESC 0w5
+                    |   SinglePrecision => FPESC 0w1
+            in
+                case index of
+                    NoIndex => genOpPlus2(loadInstr, LargeInt.fromInt offset, base, 0wx0, code)
+                |   index => genOpIndexedPlus2(loadInstr, LargeInt.fromInt offset, base, index, 0wx0, code);
                 cgOp remainder
-            )
-
-        |   cgOp (FPLoadFromMemory { base, offset, index } :: remainder) =
-            (
-                genOpIndexedPlus2(FPESC 0w5, LargeInt.fromInt offset, base, index, 0wx0, code);
-                cgOp remainder
-            )
-
-        |   cgOp (FPLoadFromMemorySingle { base, offset, index=NoIndex } :: remainder) =
-            (
-                genOpPlus2(FPESC 0w1, LargeInt.fromInt offset, base, 0wx0, code);
-                cgOp remainder
-            )
-
-        |   cgOp (FPLoadFromMemorySingle { base, offset, index } :: remainder) =
-            (
-                genOpIndexedPlus2(FPESC 0w1, LargeInt.fromInt offset, base, index, 0wx0, code);
-                cgOp remainder
-            )
+            end
 
         |   cgOp (FPLoadFromFPReg{source, ...} :: remainder) =
             (
@@ -2921,11 +2925,19 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp (FPStoreToMemory{ base, offset, andPop } :: remainder) =
-            (
-                genOpPlus2(FPESC 0w5, LargeInt.fromInt offset, base, if andPop then 0wx3 else 0wx2, code); (* FST/FSTP [rd] *)
+        |   cgOp (FPStoreToMemory{address={ base, offset, index}, precision, andPop } :: remainder) =
+            let
+                val storeInstr =
+                    case precision of
+                        DoublePrecision => FPESC 0w5
+                    |   SinglePrecision => FPESC 0w1
+                val subInstr = if andPop then 0wx3 else 0wx2
+            in
+                case index of
+                    NoIndex => genOpPlus2(storeInstr, LargeInt.fromInt offset, base, subInstr, code)
+                |   index => genOpIndexedPlus2(storeInstr, LargeInt.fromInt offset, base, index, subInstr, code);
                 cgOp remainder 
-            )
+            end
 
         |   cgOp (FPArithR{ opc, source = FloatingPtReg src} :: remainder) =
             (
@@ -3040,11 +3052,18 @@ struct
         |   cgOp (XMMArith _ :: _) =
                 raise InternalError "cgOp: XMMArith"
 
-        |   cgOp (XMMStoreToMemory { toStore, base, offset } :: remainder) =
-            (
-                genMMXEA(SSE2Store, LargeInt.fromInt offset, base, toStore, code);
+        |   cgOp (XMMStoreToMemory { toStore, address={base, offset, index}, precision } :: remainder) =
+            let
+                val oper =
+                    case precision of
+                        DoublePrecision => SSE2StoreDouble
+                    |   SinglePrecision => SSE2StoreSingle
+            in
+                case index of
+                    NoIndex => genMMXEA(oper, LargeInt.fromInt offset, base, toStore, code)
+                |   index => genMMXIndexed(oper, LargeInt.fromInt offset, base, index, toStore, code);
                 cgOp remainder
-            )
+            end
 
         |   cgOp (XMMConvertFromInt { source, output=SSE2Reg rrC } :: remainder) =
             let
@@ -3439,6 +3458,7 @@ struct
                             |   0wx2a => ( print "cvtsi2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
                             |   0wx58 => ( print "addsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   0wx59 => ( print "mulsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx5a => ( print "cvtsd2ss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   0wx5c => ( print "subsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   0wx5e => ( print "divsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   b => (print "F2\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
@@ -3451,6 +3471,7 @@ struct
                         in
                             case opByte2 of
                                 0wx5a => ( print "cvtss2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
+                            |   0wx11 => ( print "movss\t"; printEAxmm(rex, SZDWord); print ","; print(xmmRegRepr reg)  )
                             |   b => (print "F3\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
                         end
 
@@ -3625,14 +3646,18 @@ struct
             
             |   0wx9e => print "sahf\n"
 
-            |   0wxa4 => print "movsb\n"
-            |   0wxa5 => print "movsl\n"
-            |   0wxa6 => print "cmpsb\n"
+            |   0wxa4 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsb\n")
+            |   0wxa5 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsl\n")
+            |   0wxa6 => (if legacyPrefix = 0wxf3 then print "repe " else (); print "cmpsb\n")
 
             |   0wxa8 => (print "test\tal,"; print8 ())
 
-            |   0wxaa => print "stosb\n"
-            |   0wxab => if rexW then print "stosq\n" else print "stosl\n"
+            |   0wxaa => (if legacyPrefix = 0wxf3 then print "rep " else (); print "stosb\n")
+            |   0wxab =>
+                (
+                    if legacyPrefix = 0wxf3 then print "rep " else ();
+                    if rexW then print "stosq\n" else print "stosl\n"
+                )
 
             |   0wxb8 => printMovCToR (opByte, sizeFromRexW, rexB)
             |   0wxb9 => printMovCToR (opByte, sizeFromRexW, rexB)
@@ -3694,8 +3719,6 @@ struct
                 end
 
             |   0wxeb => (print "jmp \t"; printJmp())
-
-            |   0wxf3 => print "rep\t"
         
             |   0wxf6 => (* Group3_a *)
                 let

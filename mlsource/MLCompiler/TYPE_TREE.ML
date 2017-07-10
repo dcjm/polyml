@@ -250,7 +250,7 @@ struct
 
     (* Eqtypes with built-in equality functions.  The printer functions are all replaced in the basis. *)
     local
-        open Address PRETTY RuntimeCalls TypeValue
+        open Address PRETTY TypeValue
         fun defaultMonoTypePrinter _ = PrettyString "?"
         fun defaultPolyTypePrinter _ _ = PrettyString "?"
 

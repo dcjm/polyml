@@ -17,7 +17,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 local
-    open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open LibrarySupport
 
     (* TODO: Use a single word for vectors of size <= number of bits in a word. *)

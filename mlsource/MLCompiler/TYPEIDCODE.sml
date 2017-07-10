@@ -29,8 +29,7 @@ functor TYPEIDCODE (
 ) : TYPEIDCODESIG =
 struct
     open CODETREE PRETTY ADDRESS STRUCTVALS TYPETREE
-    open RuntimeCalls
-    
+   
     (* This module deals with handling the run-time values that carry type
        information.  At the moment that's just the equality and print
        operations but that will be extended.

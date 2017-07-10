@@ -60,8 +60,6 @@ struct
     type time = LargeInt.int (* Becomes abstract *)
     exception Time
 
-    open RuntimeCalls
-
     val doTiming: int*int->time = Compat560.timingGeneral
     fun callTiming (code: int) args = doTiming (code,args);
 

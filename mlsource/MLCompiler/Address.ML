@@ -87,8 +87,6 @@ struct
     (* This is the same as word *)
     type short    = word (* a 31/63-bit int  (tag = 1) *)
 
-    open RuntimeCalls
-
     (* pointer equality *)
     val wordEq: machineWord * machineWord -> bool = PolyML.pointerEq
 
@@ -204,19 +202,8 @@ struct
         val v = toAddress w
     in
         if isIoAddress v
-        then (* RTS call - print the number. *)
-            let
-                val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
-
-                fun matchIo n =
-                    if n = 256 then raise Fail "Unknown RTS entry"
-                    else if wordEq (w, ioOp n)
-                    then Vector.sub(rtsNames, n)
-                    else matchIo (n+1)
-            in
-                matchIo 0
-            end
-
+        then "IO Address"
+        
         else if isCode v
         then "CODE \"" ^ functionName w ^ "\""
         

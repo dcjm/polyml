@@ -978,6 +978,87 @@ struct
                     context=context}
             end
 
+         |   codeICode{icode=
+                        MoveArgument{
+                            source=MemoryLocation {offset=srcOffset, base=srcBase, index=NoMemIndex},
+                            dest=MemoryLocation {offset, base=PReg(bReg, PRegUntagged), index=NoMemIndex}, kind} :: rest,
+                    state=NormalState state, code, context} =
+            let
+                (* This is used to store floating point values into C memory.  The source will be a PReg and the base will
+                   be an untagged register. *)
+                val _ = kind = MoveFloat orelse kind = MoveDouble orelse raise InternalError "Move memory to memory - not float"
+                val (pushedState as { untaggedRegs, valueStack, ccState, ...}, pushCode) = pushRax state 
+                val loadArgAddr = loadSource(srcBase, ebx, pushedState)
+                val resultReg =
+                    case fpMode of
+                        FPModeX87 => RealRegister(FPReg fp0)
+                    |   FPModeSSE2 => RealRegister(XMMReg xmm0)
+                val loadToFpReg =
+                    MoveArgument{ source=MemoryLocation{offset=srcOffset, base=rbxAsArg, index=NoMemIndex}, dest=resultReg, kind=MoveDouble}
+                (* The base address will be in an untagged register. *)
+                val realBReg =
+                    case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val storeToMem =
+                    MoveArgument { source=resultReg, dest=MemoryLocation {offset=offset, base=realBReg, index=NoMemIndex}, kind=kind}
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+                val cvtToFloat =
+                    case (fpMode, kind) of
+                        (FPModeSSE2, MoveFloat) =>
+                            [SSE2FPArith { opc=SSE2DoubleToFloat, resultReg=resultReg, arg1=resultReg, arg2=resultReg }]
+                    |   _ => []
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code =
+                        storeToMem :: cvtToFloat @ (loadToFpReg :: loadArgAddr @ pushCode @ code),
+                    context=context}
+            end
+           
+        |   codeICode{icode=
+                        MoveArgument{
+                            source=MemoryLocation {offset=srcOffset, base=srcBase, index=NoMemIndex},
+                            dest=MemoryLocation {offset, base=PReg(bReg, PRegUntagged), index}, kind} :: rest,
+                    state=NormalState state, code, context} =
+            let
+                (* This is used to store floating point values into C memory.  The source will be a PReg and the base will
+                   be an untagged register.  The index will be a tagged register. *)
+                val _ = kind = MoveFloat orelse kind = MoveDouble orelse raise InternalError "Move memory to memory - not float"
+                val (pushedState as { untaggedRegs, valueStack, ccState, ...}, pushCode) = pushRax state 
+                val loadArgAddr = loadSource(srcBase, ebx, pushedState)
+                val resultReg =
+                    case fpMode of
+                        FPModeX87 => RealRegister(FPReg fp0)
+                    |   FPModeSSE2 => RealRegister(XMMReg xmm0)
+                val loadToFpReg =
+                    MoveArgument{ source=MemoryLocation{offset=srcOffset, base=rbxAsArg, index=NoMemIndex}, dest=resultReg, kind=MoveDouble}
+                val (iReg, indexed) =
+                    case index of
+                        MemIndex1 indexArg => (indexArg, MemIndex1 raxAsArg)
+                    |   MemIndex2 indexArg => (indexArg, MemIndex2 raxAsArg)
+                    |   MemIndex4 indexArg => (indexArg, MemIndex4 raxAsArg)
+                    |   MemIndex8 indexArg => (indexArg, MemIndex8 raxAsArg)
+                    |   _ => raise InternalError "codeICode: MemIndex - move float"
+                (* The base address will be in an untagged register. *)
+                val realBReg =
+                    case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val cvtToFloat =
+                    case (fpMode, kind) of
+                        (FPModeSSE2, MoveFloat) =>
+                            [SSE2FPArith { opc=SSE2DoubleToFloat, resultReg=resultReg, arg1=resultReg, arg2=resultReg }]
+                    |   _ => []
+                val storeToMem =
+                    MoveArgument { source=resultReg, dest=MemoryLocation {offset=offset, base=realBReg, index=indexed}, kind=kind}
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code =
+                        storeToMem :: cvtToFloat @ loadSource(iReg, eax, pushedState) @ (loadToFpReg :: loadArgAddr @ pushCode @ code),
+                    context=context}
+            end
+
             (* Other combinations of move aren't used at the moment. *)
         |   codeICode{icode=MoveArgument _ :: _, ...} =
                 raise InternalError "codeICode: MoveArgument"

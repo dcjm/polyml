@@ -31,7 +31,6 @@ end;
 
 local
     open LibrarySupport
-    open RuntimeCalls
     open LibrarySupport.Word8Array
 
     val realSize: word = Compat560.realGeneral (28, ())

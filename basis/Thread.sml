@@ -181,8 +181,6 @@ end;
 
 structure Thread :> THREAD =
 struct
-    open RuntimeCalls (* for POLY_SYS and EXC numbers *)
-    
     exception Thread = RunCall.Thread
     
     (* Create non-overwritable mutables for mutexes and condition variables.
@@ -683,7 +681,7 @@ struct
     fun protect m f a =
     let
         open Thread.Thread Thread.Mutex
-        open RuntimeCalls Word
+        open Word
         (* Set this to handle interrupts synchronously except if we are blocking
            them.  We don't want to get an asynchronous interrupt while we are
            actually locking or unlocking the mutex but if we have to block to do

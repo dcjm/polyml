@@ -51,14 +51,9 @@ sharing
 =   OPTIMISER.Sharing
 
 ) : CODETREESIG =
-
-(*****************************************************************************)
-(*                  CODETREE functor body                                    *)
-(*****************************************************************************)
 struct
     open Address;
     open StretchArray;
-    open RuntimeCalls; (* for POLY_SYS numbers and EXC_nil *)
     open BASECODETREE;
     open PRETTY;
     open CODETREE_FUNCTIONS
@@ -68,13 +63,6 @@ struct
   
     infix 9 sub;
 
-    (* gets a value from the run-time system *)
-    val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
-    
-    (* since code generator relies on these representations,
-       we may as well export them *)
-    fun rtsFunction v = Constnt(ioOp v, [])
- 
     fun mkDec (laddr, res) = Declar{value = res, addr = laddr, use=[]}
 
     fun deExtract(Extract ext) = ext | deExtract _ = raise InternalError "deExtract"
@@ -401,9 +389,6 @@ struct
         argList = argsAndTypes,
         resultType=resultType
     }
-
-    (* Old version that called RTS functions. *)
-    fun mkBuiltIn(ioCall, args) = mkEval(rtsFunction ioCall, args)
 
     (* Basic built-in operations. *)
     fun mkBuiltIn0 oper = BuiltIn0 { oper = oper }

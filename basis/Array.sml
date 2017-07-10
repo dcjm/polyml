@@ -18,7 +18,6 @@
 *)
 
 local
-    open RuntimeCalls
     type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
     val arrayAsWord: 'a array -> word = RunCall.unsafeCast

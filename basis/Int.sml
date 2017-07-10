@@ -59,8 +59,6 @@ end;
 
 structure LargeInt: INTEGER =
 struct
-    open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
-
     (* Arbitrary precision int. *)
     type int = LargeInt.int
 
@@ -375,8 +373,6 @@ end;
 
 structure FixedInt: INTEGER =
 struct
-    open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
-
     (* This is now a fixed precision int.  Currently it is the same as the short
        form of an arbitrary precision int i.e. 31 bits on 32-bit machines and
        63 bits on 63-bits. *)

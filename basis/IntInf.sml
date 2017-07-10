@@ -32,7 +32,6 @@ end;
 
 structure IntInf : INT_INF =
 struct
-    open RuntimeCalls;
     type int = LargeInt.int
     
     val quotRem = LibrarySupport.quotRem

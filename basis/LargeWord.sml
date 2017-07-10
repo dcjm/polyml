@@ -27,7 +27,6 @@ hold the full machine word values for certain operating-system calls.
    That type has special status as the default for literals of the form
    0wn in the absence of any other type information. *)
 local
-    open RuntimeCalls;
     type largeword = LargeWord.word
     and shortword = Word.word
 

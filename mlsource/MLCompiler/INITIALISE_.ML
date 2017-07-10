@@ -72,7 +72,6 @@ struct
     open ADDRESS;
     open MAKE;
     open MISC;
-    open RuntimeCalls; (* for POLY_SYS calls *)
     open EXPORTTREE
     open DATATYPEREP
     
@@ -325,107 +324,6 @@ struct
                     makePolymorphic([a], mkBlockOperationFn (BlockOpMove{isByteMove=true})), mkProductType[a, a, Word, Word, Word] ->> Unit)
             val () = enterRunCall ("moveWords",
                     makePolymorphic([a], mkBlockOperationFn (BlockOpMove{isByteMove=false})), mkProductType[a, a, Word, Word, Word] ->> Unit)
-        end
-
-        local
-            val a = makeTV ();
-            val b = makeTV ();
-            val c = makeTV ();
-            val d = makeTV ();
-            val e = makeTV ();
-            val f = makeTV ();
-            val runCall0Type = Int ->> Unit ->> a;
-            val runCall1Type = Int ->> a ->> b;
-            val runCall2Type = Int ->> TYPETREE.mkProductType [a,b] ->> c;
-            val runCall3Type = Int ->> TYPETREE.mkProductType [a,b,c] ->> d;
-            val runCall4Type = Int ->> TYPETREE.mkProductType [a,b,c,d] ->> e;
-            val runCall5Type = Int ->> TYPETREE.mkProductType [a,b,c,d,e] ->> f;
-            val runCall2C2Type = Int ->> TYPETREE.mkProductType [a,b] ->> TYPETREE.mkProductType [c,d]
-
-            (* RTS calls take their arguments in registers or on the stack.  ML functions
-               take only a single argument.  We need to add a wrapper layer except in the
-               special case of an RTS call with a single argument. *)
-            val runCall1Entry : codetree =
-            let 
-                val name = "run_call1(1)";
-                val n     = mkLoadArgument 0                 (* the outer parameter *)
-                val body  = mkBuiltIn (POLY_SYS_io_operation, [n]);
-            in
-                makePolymorphic([a, b], mkInlproc (body, 1, name, [], 0))
-            end
-
-            fun makeRunCallTupled (width:int) : codetree =
-            let
-                val name = "run_call" ^ Int.toString width;
-
-                local
-                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
-                    val tuple = mkLoadArgument 0       (* the inner parameter *)
-                    val args  = List.tabulate(width, fn n => mkInd (n, tuple))
-                in
-                    val innerBody = mkEval (f, args)
-                end
-
-                local
-                    (* The closure contains the address of the RTS call. *)
-                    val f = mkBuiltIn (POLY_SYS_io_operation, [mkLoadArgument 0])
-                    val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 0)
-                in
-                    val outerBody = mkEnv([mkDec (0, f)], innerLambda)
-                end
-
-                val outerLambda  = mkInlproc (outerBody, 1, name, [], 1)
-            in
-                outerLambda
-            end
-
-            (* Versions that return the results in a container i.e. a tuple on the stack.
-               Currently this is only used for quotrem. *)
-            fun makeRunCallTupledWithContainer (width:int, containerWidth) : codetree =
-            let 
-                val name =
-                    String.concat["run_call", Int.toString width, "C", Int.toString containerWidth]
-                
-                val innerLambda : codetree =
-                let
-                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
-                    val tuple = mkLoadArgument 0       (* the inner parameter *)
-                    val ca = 0 (* Address of container *)
-                    val args  =
-                        List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoadLocal ca]
-                in
-                    mkInlproc(
-                        mkEnv([mkContainer(ca, containerWidth, mkEval (f, args))],
-                              mkTupleFromContainer(ca, containerWidth)),
-                        1, name ^ "(1)", [mkLoadLocal 0], 1)
-                end
-
-                val outerLambda =
-                let
-                    val n = mkLoadArgument 0                 (* the outer parameter *)
-                    val f = mkBuiltIn(POLY_SYS_io_operation, [n])
-                in
-                    mkInlproc(mkEnv([mkDec (0, f)], innerLambda), 1, name, [], 1)
-                end
-            in
-                outerLambda
-            end
-            
-            val runCall0Entry = makePolymorphic([a], makeRunCallTupled 0)
-            val runCall2Entry = makePolymorphic([a, b, c], makeRunCallTupled 2)
-            val runCall3Entry = makePolymorphic([a, b, c, d], makeRunCallTupled 3)
-            val runCall4Entry = makePolymorphic([a, b, c, d, e], makeRunCallTupled 4)
-            val runCall5Entry = makePolymorphic([a, b, c, d, e, f], makeRunCallTupled 5)
-            val runCall2C2Entry =
-                makePolymorphic([a, b, c, d], makeRunCallTupledWithContainer(2, 2))
-        in
-            val () = enterRunCall ("run_call0", runCall0Entry, runCall0Type)
-            val () = enterRunCall ("run_call1", runCall1Entry, runCall1Type)
-            val () = enterRunCall ("run_call2", runCall2Entry, runCall2Type)
-            val () = enterRunCall ("run_call3", runCall3Entry, runCall3Type)
-            val () = enterRunCall ("run_call4", runCall4Entry, runCall4Type)
-            val () = enterRunCall ("run_call5", runCall5Entry, runCall5Type)
-            val () = enterRunCall ("run_call2C2", runCall2C2Entry, runCall2C2Type)
         end
 
         local
@@ -1688,8 +1586,7 @@ struct
                 ("mkRaise", toMachineWord (mkRaise: codetree -> codetree), CodeTree ->> CodeTree),
                 ("mkHandle", toMachineWord (mkHandle: codetree * codetree -> codetree), CodeTree ** CodeTree ->> CodeTree),
                 ("mkNullDec", toMachineWord (mkNullDec: codetree -> codeBinding), CodeTree ->> CodeBinding),
-                ("Ldexc", toMachineWord (Ldexc: codetree), CodeTree),
-                ("rtsFunction", toMachineWord (rtsFunction: int->codetree), Int ->> CodeTree)
+                ("Ldexc", toMachineWord (Ldexc: codetree), CodeTree)
                 ]
         end
 

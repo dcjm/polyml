@@ -52,7 +52,6 @@ struct
     open Universal; (* for tag etc. *)
     open STRUCTVALS;
     open ADDRESS;
-    open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open TYPEIDCODE
     open COPIER
 

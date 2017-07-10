@@ -87,8 +87,6 @@ struct
     open TypeVarMap
     open DEBUGGER
 
-    open RuntimeCalls; (* for POLY_SYS numbers *)
-
     datatype environEntry = datatype DEBUGGER.environEntry
 
     (* To simplify passing the context it is wrapped up in this type. *)

@@ -25,7 +25,6 @@
    this point. *)
 
 local
-    open RuntimeCalls
 in
 
     structure PolyML =

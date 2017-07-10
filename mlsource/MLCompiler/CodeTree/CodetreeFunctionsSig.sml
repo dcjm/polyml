@@ -45,8 +45,6 @@ sig
     val sideEffectFree: codetree -> bool
     and reorderable: codetree -> bool
     and sideEffectFreeRTSCall: int -> bool
-    
-    val rtsCodeFromAddress: machineWord -> int
 
     val makeConstVal: codetree -> codetree
     

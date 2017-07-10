@@ -54,7 +54,7 @@ struct
     |   EnvEndFunction of string * location * types
 
     local
-        open ADDRESS RuntimeCalls
+        open ADDRESS
     in
         (* Entries in the thread data.  The RTS allocates enough space for this.
            The first entry is 5 because earlier entries are used by Thread.Thread. *)
@@ -245,7 +245,7 @@ struct
     (* Set the current state in the thread data. *)
     fun updateState (level, mkAddr) (decs, debugEnv: debuggerStatus as {staticEnv, dynEnv, ...}) =
     let
-        open ADDRESS RuntimeCalls
+        open ADDRESS
         val threadId = multipleUses(mkBuiltIn0 BuiltIns.CurrentThreadId, fn () => mkAddr 1, level)
         fun assignItem(offset, value) =
             mkNullDec(mkStoreOperation(LoadStoreMLWord{isImmutable=false}, #load threadId level, offset, value))
@@ -378,7 +378,7 @@ struct
     then ([], debuggerStatus)
     else
     let
-        open ADDRESS RuntimeCalls
+        open ADDRESS
         val setLocation =
             mkStoreOperation(LoadStoreMLWord{isImmutable=false},
                 mkBuiltIn0 BuiltIns.CurrentThreadId, threadIdCurrentLocation, mkConst(toMachineWord location))
@@ -393,7 +393,7 @@ struct
         then codeBody entryEnv (* Code-generate the body without any wrapping. *)
         else
         let
-            open ADDRESS RuntimeCalls
+            open ADDRESS
             
             val functionName = name (* TODO: munge this to get the root. *)
             
@@ -525,7 +525,7 @@ struct
         if not (getParameter debugTag (LEX.debugParams lex)) then []
         else
         let
-            open ADDRESS RuntimeCalls
+            open ADDRESS
             (* Create a new local breakpoint and assign it to the ref.
                It is possible for the ref to be already assigned a local breakpoint
                value if we are compiling a match.  In that case the same expression

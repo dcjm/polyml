@@ -47,7 +47,6 @@ signature GENERAL =
    reason for this is that we would prefer that types unit and exn
    did not capture the General structure name. *)
 local
-    open RuntimeCalls (* for POLY_SYS and EXC numbers *)
 in
     exception Bind      = RunCall.Bind
     and       Div       = RunCall.Div

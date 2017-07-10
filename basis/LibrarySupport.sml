@@ -102,7 +102,6 @@ struct
     val stringAsAddress : string -> address = RunCall.unsafeCast
     val w8vectorAsAddress = stringAsAddress o w8vectorToString
 
-    open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open MachineConstants;
 
     local

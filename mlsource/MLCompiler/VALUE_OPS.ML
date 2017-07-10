@@ -84,7 +84,6 @@ struct
   open PRINTTABLE;
   open DEBUG;
   open ADDRESS;
-  open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
   open UTILITIES;
   open TYPEIDCODE
   open COPIER

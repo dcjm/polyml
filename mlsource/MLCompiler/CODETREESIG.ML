@@ -82,7 +82,6 @@ sig
     val mkCand:             codetree * codetree -> codetree
     val mkHandle:           codetree * codetree -> codetree
     val mkEval:             codetree * codetree list -> codetree
-    val mkBuiltIn:          int * codetree list -> codetree
     val identityFunction:   string -> codetree
     val Ldexc:              codetree
 
@@ -107,8 +106,6 @@ sig
     val pretty:    codetree -> pretty
     val evalue:    codetree -> machineWord option
     val genCode:   codetree * Universal.universal list * int -> (unit -> codetree)
-    
-    val rtsFunction:        int -> codetree
 
     (* Helper functions to build closure. *)
     val mkLoad:             int * level * level -> codetree

@@ -17,7 +17,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 local
-    open RuntimeCalls
     (* Inherit the definition of vector in the initial environment.
        We have to declare vector in the initial environment in order
        for equality to work correctly. *)

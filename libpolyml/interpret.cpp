@@ -2007,7 +2007,6 @@ int IntTaskData::SwitchToPoly()
             t->Set(0, initialiser);
             *sp = t;
             break;
-
         }
 
         case INSTR_loadMLWord:
@@ -2026,6 +2025,90 @@ int IntTaskData::SwitchToPoly()
             POLYUNSIGNED index = UNTAGGED(*sp++);
             POLYCODEPTR p = (*sp).AsCodePtr();
             *sp = TAGGED(p[index]); // Have to tag the result
+            break;
+        }
+
+        case INSTR_loadC8:
+        {
+            // This is similar to loadMLByte except that the base address is a boxed large-word.
+            // Also the index is SIGNED.
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr();
+            *sp = TAGGED(p[index]); // Have to tag the result
+            break;
+        }
+
+        case INSTR_loadC16:
+        {
+            // This and the other loads are similar to loadMLWord with separate
+            // index and offset values.
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYUNSIGNED r = ((uint16_t*)p)[index];
+            *sp = TAGGED(r);
+            break;
+        }
+
+        case INSTR_loadC32:
+        {
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYUNSIGNED r = ((uint32_t*)p)[index];
+#if (SIZEOF_VOIDP == 8)
+            // This is tagged in 64-bit mode
+            *sp = TAGGED(r);
+#else
+            // But boxed in 32-bit mode.
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RAISE_EXCEPTION;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(r));
+            *sp = t;
+#endif
+            break;
+        }
+#if (SIZEOF_VOIDP == 8)
+        case INSTR_loadC64:
+        {
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYUNSIGNED r = ((uint64_t*)p)[index];
+            // This must be boxed.
+            PolyObject *t = this->allocateMemory(1);
+            if (t == 0) goto RAISE_EXCEPTION;
+            t->SetLengthWord(1, F_BYTE_OBJ);
+            t->Set(0, PolyWord::FromUnsigned(r));
+            *sp = t;
+            break;
+        }
+#endif
+
+        case INSTR_loadCFloat:
+        {
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            double r = ((float*)p)[index];
+            // This must be boxed.
+            PolyObject *t = this->boxDouble(r);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_loadCDouble:
+        {
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            double r = ((double*)p)[index];
+            // This must be boxed.
+            PolyObject *t = this->boxDouble(r);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
             break;
         }
 
@@ -2048,6 +2131,83 @@ int IntTaskData::SwitchToPoly()
             p[index] = (byte)toStore;
             *sp = Zero;
             break; 
+        }
+
+        case INSTR_storeC8: 
+        {
+            // Similar to storeMLByte except that the base address is a boxed large-word.
+            POLYUNSIGNED toStore = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr();
+            p[index] = (byte)toStore;
+            *sp = Zero;
+            break; 
+        }
+
+        case INSTR_storeC16:
+        {
+            uint16_t toStore = (uint16_t)UNTAGGED(*sp++);
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            ((uint16_t*)p)[index] = toStore;
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_storeC32:
+        {
+#if (SIZEOF_VOIDP == 8)
+            // This is a tagged value in 64-bit mode.
+            uint32_t toStore = (uint32_t)UNTAGGED(*sp++);
+#else
+            // but a boxed value in 32-bit mode.
+            uint32_t toStore = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+#endif
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            ((uint32_t*)p)[index] = toStore;
+            *sp = Zero;
+            break;
+        }
+
+#if (SIZEOF_VOIDP == 8)
+        case INSTR_storeC64:
+        {
+            // This is a boxed value.
+            uint64_t toStore = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            ((uint64_t*)p)[index] = toStore;
+            *sp = Zero;
+            break;
+        }
+#endif
+
+        case INSTR_storeCFloat:
+        {
+            // This is a boxed value.
+            float toStore = (float)unboxDouble(*sp++);
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            ((float*)p)[index] = toStore;
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_storeCDouble:
+        {
+            // This is a boxed value.
+            double toStore = unboxDouble(*sp++);
+            POLYSIGNED offset = UNTAGGED(*sp++);
+            POLYSIGNED index = UNTAGGED(*sp++);
+            POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
+            ((double*)p)[index] = toStore;
+            *sp = Zero;
+            break;
         }
 
         case INSTR_blockMoveWord:

@@ -24,7 +24,6 @@
    already been set up in the prelude.  *)
   
 local
-    open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open LibrarySupport
 
     (* Redefine these as functions on the abstract type. *)

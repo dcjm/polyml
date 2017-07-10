@@ -259,12 +259,6 @@ and () = RunCall.addOverload Real./ "/";
 structure ForeignMemory =
 struct
     open ForeignMemory
-    type voidStar = LargeWord.word
-
-    fun setFloat (s: voidStar, i: Word.word, v: real): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
-    fun setDouble (s: voidStar, i: Word.word, v: real): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_double (s, 0w0, i, v)
     
     (* Add wrappers to these functions so that they raise exceptions if they are called. *)
     val get64 =
@@ -307,8 +301,6 @@ fun length l =
 local
     (* Temporary conversion function for characters. This is replaced in
        the Char structure. *)
-    open RuntimeCalls;
-
     val isShortString   : string -> bool = RunCall.isShort
 
     fun convChar (s: string) : char =
@@ -328,7 +320,7 @@ end;
    are installed here merely so that we can get useful output if we get a failure while
    compiling it. *)
 local
-    open RuntimeCalls PolyML
+    open PolyML
 
     fun print_bool _ _ (b: bool) =
         PrettyString(if b then "true" else "false")

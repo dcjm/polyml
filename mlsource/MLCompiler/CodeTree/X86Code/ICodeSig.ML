@@ -57,7 +57,8 @@ sig
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
     and      sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And | SSE2MoveSingle
+        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
+        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
 
     val argThreadSelf: int (* Copied from X86CodeSgig *)
 

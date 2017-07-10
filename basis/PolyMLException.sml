@@ -25,7 +25,6 @@ struct
     open PolyML
 
     local
-        open RuntimeCalls
         (* This datatype is used in VALUE_OPS and FinalPolyML to define the format of a
            location in an exception packet.  It includes the possibility that the location
                    information may be missing. *)

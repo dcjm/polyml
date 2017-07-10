@@ -18,8 +18,6 @@
 *)
 
 local
-    open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
-    
     (* We can't use the segment length for the length of the vector
        as we do for "normal" arrays and vectors.  There are two ways
        of handling this.  We could  implement byte vectors in the same

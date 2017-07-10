@@ -1743,7 +1743,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
                 // These are SSE2 instructions
                 case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
-                case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a: case 0xfa:
+                case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a:
                     pt++; skipea(&pt, process, false); break;
 
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);

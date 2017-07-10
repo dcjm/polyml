@@ -47,19 +47,6 @@ struct
        (i.e. where its value depends only arguments and can safely
        be reordered). *)
 
-    val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
-
-    local
-        (* Convert the address of an RTS function into a code. *)
-        fun findNo no function =
-            if no = 256 then raise Fail "Unable to find RTS function"
-            else if wordEq(ioOp no, function)
-            then no
-            else findNo (no+1) function
-    in
-        val rtsCodeFromAddress = findNo 0
-    end
-
     (* The RTS has a table of properties for RTS functions.  The 103 call
        returns these Or-ed into the register mask. *)
     val PROPWORD_NORAISE  = 0wx40000000

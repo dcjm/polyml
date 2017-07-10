@@ -594,8 +594,6 @@ structure Posix :>
     where type FileSys.dirstream = OS.FileSys.dirstream
     =
 struct
-    open RuntimeCalls;
-
     fun getConst i : SysWord.word = Compat560.osSpecificGeneral (4, i)
 
     structure BitFlags =

@@ -82,7 +82,8 @@ sig
     and      branchOps =
                 JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
     and      sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And | SSE2MoveSingle
+        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
+        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
 
     datatype callKinds =
         Recursive
@@ -116,6 +117,7 @@ sig
     |   LongConstArg of machineWord
     
     datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
+    and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
         MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
@@ -158,12 +160,11 @@ sig
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
-    |   FPLoadFromMemory of memoryAddress
-    |   FPLoadFromMemorySingle of memoryAddress
+    |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
-    |   FPStoreToMemory of { base: genReg, offset: int, andPop: bool }
+    |   FPStoreToMemory of { address: memoryAddress, precision: fpSize, andPop: bool }
     |   FPArithR of { opc: fpOps, source: fpReg }
     |   FPArithConst of { opc: fpOps, source: machineWord }
     |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
@@ -174,7 +175,7 @@ sig
     |   MultiplyRR of { source: genReg, output: genReg }
     |   MultiplyRM of { base: genReg, offset: int,output: genReg }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
-    |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
+    |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
 

@@ -374,7 +374,7 @@ struct
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
             in
-                codeGenICode(rest, FPLoadFromMemory{ base=baseReg, offset=offset, index=memoryIndexAsIndex index } :: code)
+                codeGenICode(rest, FPLoadFromMemory{ address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision } :: code)
             end
 
                 (* Load or move from an XMM reg. *)
@@ -383,16 +383,16 @@ struct
 
                 (* Store a floating point value. *)
         |   codeGenICode(MoveArgument{source=RealRegister(FPReg fpReg),
-                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=MoveDouble} :: rest, code) =
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index}, kind=MoveDouble} :: rest, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
             in
-                codeGenICode(rest, FPStoreToMemory{ base=baseReg, offset=offset, andPop=true } :: code)
+                codeGenICode(rest, FPStoreToMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision, andPop=true } :: code)
             end
 
         |   codeGenICode(MoveArgument{source=RealRegister(XMMReg xmmRegReg),
-                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=MoveDouble} :: rest, code) =
-                codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, base=baseReg, offset=offset } :: code)
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index}, kind=MoveDouble} :: rest, code) =
+                codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision } :: code)
 
                 (* Load a floating point value. *)
         |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index},
@@ -400,7 +400,7 @@ struct
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
             in
-                codeGenICode(rest, FPLoadFromMemorySingle{ base=baseReg, offset=offset, index=memoryIndexAsIndex index } :: code)
+                codeGenICode(rest, FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index }, precision=SinglePrecision } :: code)
             end
 
                 (* Load or move from an XMM reg. *)
@@ -409,20 +409,16 @@ struct
 
                 (* Store a floating point value. *)
         |   codeGenICode(MoveArgument{source=RealRegister(FPReg fpReg),
-                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=MoveFloat} :: rest, code) =
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index}, kind=MoveFloat} :: rest, code) =
             let
-                val _ = raise InternalError "codeGenICode: Store single precision"
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
             in
-                codeGenICode(rest, FPStoreToMemory{ base=baseReg, offset=offset, andPop=true } :: code)
+                codeGenICode(rest, FPStoreToMemory{address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision, andPop=true } :: code)
             end
 
         |   codeGenICode(MoveArgument{source=RealRegister(XMMReg xmmRegReg),
-                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex}, kind=MoveFloat} :: rest, code) =
-                (raise InternalError "codeGenICode: Store single precision";
-                codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, base=baseReg, offset=offset } :: code)
-                )
-
+                         dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index}, kind=MoveFloat} :: rest, code) =
+                codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision } :: code)
 
         |   codeGenICode(MoveArgument _ :: _, _) =
                 raise InternalError "codeGenICode: TODO MoveArgument"

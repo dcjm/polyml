@@ -19,7 +19,7 @@
 
 structure Real: REAL =
 struct
-    open RuntimeCalls IEEEReal
+    open IEEEReal
     val fromLargeInt: LargeInt.int -> real = Real.rtsCallFastI_F "PolyFloatArbitraryPrecision"
     
     val fromInt: int -> real =

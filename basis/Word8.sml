@@ -38,7 +38,6 @@ struct
     (* N.B. The Byte structure contains functions which map between
        Word8.word values and Char.char.  It assumes that the underlying
        representation is the same. *)
-    open RuntimeCalls
 
     val wordSize = 8
     val maxWord = 255

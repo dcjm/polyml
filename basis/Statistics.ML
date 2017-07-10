@@ -175,7 +175,7 @@ local
         }
     end
 
-    open RunCall RuntimeCalls
+    open RunCall
 
 in
     structure PolyML =

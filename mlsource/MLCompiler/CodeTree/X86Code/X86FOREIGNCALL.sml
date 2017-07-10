@@ -367,9 +367,9 @@ struct
                 |   X86_32 =>
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [
-                        FPLoadFromMemory{base=eax, offset=0, index=NoIndex},
+                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
                         ArithToGenReg{ opc=SUB, output=esp, source=ShortConstArg 8},
-                        FPStoreToMemory{ base=esp, offset=0, andPop=true }
+                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
                     ]
             ) @
             [
@@ -384,7 +384,7 @@ struct
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
                                 address={offset= ~wordSize, base=eax, index=NoIndex}},
-                        FPStoreToMemory{ base=eax, offset=0, andPop=true },
+                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
                 |   _ => (* X64 The result is in xmm0 *)
@@ -393,7 +393,7 @@ struct
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
                             address={offset= ~wordSize, base=eax, index=NoIndex}},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
-                        XMMStoreToMemory { base=eax, offset=0, toStore=xmm0 },
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
                     ]                    
             ) @
@@ -480,7 +480,7 @@ struct
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
                                 address={offset= ~wordSize, base=eax, index=NoIndex}},
-                        FPStoreToMemory{ base=eax, offset=0, andPop=true },
+                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
                 |   _ => (* X64 The result is in xmm0 *)
@@ -489,7 +489,7 @@ struct
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
                             address={offset= ~wordSize, base=eax, index=NoIndex}},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
-                        XMMStoreToMemory { base=eax, offset=0, toStore=xmm0 },
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
                     ]                    
             ) @

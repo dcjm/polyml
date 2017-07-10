@@ -78,8 +78,6 @@ struct
      |  monthToMonthNo Nov = 10
      |  monthToMonthNo Dec = 11
 
-    open RuntimeCalls
-
     fun callTiming (code: int) args =
         Compat560.timingGeneral (code,args);
     

@@ -57,8 +57,6 @@ struct
         structure Array = Word8Array)
     open ImpIO
 
-    open RuntimeCalls;
-
     exception Interrupt = RunCall.Interrupt
 
     (* Called after any exception in the lower level reader or

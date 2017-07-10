@@ -129,7 +129,11 @@ struct
      (* Save the stack pointer value here. We may want to reset the stack. *)
      val oldsp = !realstackptr;
 
-        (* Load the address and index value for byte operations. *)
+        (* Load the address and index value for byte operations.
+           For ML memory operations the base is the address of an ML heap cell
+           whereas for C operations it is a large-word box containing an
+           address in C memory.  That doesn't affect this code but the interpreter
+           has to deal with these differently. *)
         fun genByteAddress{base, index, offset} =
         (
             gencde (base, ToStack, NotEnd, loopAddr);
@@ -145,6 +149,18 @@ struct
                     genOpcode(opcode_wordAdd, cvec)
                 )
        )
+       
+       (* Load the address, index value and offset for non-byte operations.
+          Because the offset has already been scaled by the size of the operand
+          we have to load the index and offset separately. *)
+       fun genNonByteAddress{base, index, offset} =
+        (
+            gencde (base, ToStack, NotEnd, loopAddr);
+            case index of
+                NONE => (pushConst (toMachineWord 0, cvec); incsp())
+            |   SOME indexVal => gencde (indexVal, ToStack, NotEnd, loopAddr);
+            pushConst (toMachineWord offset, cvec); incsp()
+        )
 
      val () =
        case pt of
@@ -607,7 +623,7 @@ struct
                 decsp(); decsp()
             end
 
-       |    BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}} =>
+        |   BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}} =>
             (
                 (* If the index is a constant, frequently zero, we can use indirection.
                    The offset is a byte count so has to be divided by the word size but
@@ -617,7 +633,7 @@ struct
                 genIndirect (Word.toInt(offset div Word.fromInt wordSize), cvec)
             )
 
-       |    BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}} =>
+        |   BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}} =>
             let
                 (* Variable index. *)
                 val () = gencde (base, ToStack, NotEnd, loopAddr)
@@ -628,26 +644,57 @@ struct
                 decsp(); decsp()
             end
 
-       |    BICLoadOperation { kind=LoadStoreMLByte _, address} =>
+        |   BICLoadOperation { kind=LoadStoreMLByte _, address} =>
             (
                 genByteAddress address;
                 genOpcode(opcode_loadMLByte, cvec);
                 decsp()
             )
 
-       |    BICLoadOperation { kind=LoadStoreC8, address} => raise InternalError "TODO: LoadStoreC8"
+        |   BICLoadOperation { kind=LoadStoreC8, address} =>
+            (
+                genByteAddress address;
+                genOpcode(opcode_loadC8, cvec);
+                decsp()
+            )
 
-       |    BICLoadOperation { kind=LoadStoreC16, address} => raise InternalError "TODO: LoadStoreC16"
+        |   BICLoadOperation { kind=LoadStoreC16, address} =>
+            (
+                genNonByteAddress address;
+                genOpcode(opcode_loadC16, cvec);
+                decsp(); decsp()
+            )
 
-       |    BICLoadOperation { kind=LoadStoreC32, address} => raise InternalError "TODO: LoadStoreC32"
+        |   BICLoadOperation { kind=LoadStoreC32, address} =>
+            (
+                genNonByteAddress address;
+                genOpcode(opcode_loadC32, cvec);
+                decsp(); decsp()
+            )
 
-       |    BICLoadOperation { kind=LoadStoreC64, address} => raise InternalError "TODO: LoadStoreC64"
+        |   BICLoadOperation { kind=LoadStoreC64, address} =>
+            (
+                wordSize = 8 orelse raise InternalError "LoadStoreC64 but not 64-bit mode";
+                genNonByteAddress address;
+                genOpcode(opcode_loadC64, cvec);
+                decsp(); decsp()
+            )
 
-       |    BICLoadOperation { kind=LoadStoreCFloat, address} => raise InternalError "TODO: LoadStoreCFloat"
+        |   BICLoadOperation { kind=LoadStoreCFloat, address} =>
+            (
+                genNonByteAddress address;
+                genOpcode(opcode_loadCFloat, cvec);
+                decsp(); decsp()
+            )
 
-       |    BICLoadOperation { kind=LoadStoreCDouble, address} => raise InternalError "TODO: LoadStoreCDouble"
+        |   BICLoadOperation { kind=LoadStoreCDouble, address} =>
+            (
+                genNonByteAddress address;
+                genOpcode(opcode_loadCDouble, cvec);
+                decsp(); decsp()
+            )
 
-       |    BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}, value } =>
+        |   BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}, value } =>
             let
                 (* No index.  We could almost use move_to_vec here except that it leaves
                    the destination address on the stack instead of replacing it with "unit". *)
@@ -662,7 +709,7 @@ struct
                 decsp(); decsp(); decsp()
             end
 
-       |    BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}, value } =>
+        |   BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}, value } =>
             let
                 (* Variable index *)
                 val () = gencde (base, ToStack, NotEnd, loopAddr)
@@ -675,7 +722,7 @@ struct
                 decsp(); decsp(); decsp()
             end
 
-       |    BICStoreOperation { kind=LoadStoreMLByte _, address, value } =>
+        |   BICStoreOperation { kind=LoadStoreMLByte _, address, value } =>
             (
                 genByteAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
@@ -683,17 +730,53 @@ struct
                 decsp(); decsp()
             )
 
-       |    BICStoreOperation { kind=LoadStoreC8, address, value} => raise InternalError "TODO: StoreC8"
+        |   BICStoreOperation { kind=LoadStoreC8, address, value} =>
+            (
+                genByteAddress address;
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeC8, cvec);
+                decsp(); decsp()
+            )
 
-       |    BICStoreOperation { kind=LoadStoreC16, address, value} => raise InternalError "TODO: StoreC16"
+        |   BICStoreOperation { kind=LoadStoreC16, address, value} =>
+            (
+                genNonByteAddress address;
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeC16, cvec);
+                decsp(); decsp(); decsp()
+            )
 
-       |    BICStoreOperation { kind=LoadStoreC32, address, value} => raise InternalError "TODO: StoreC32"
+        |   BICStoreOperation { kind=LoadStoreC32, address, value} =>
+            (
+                genNonByteAddress address;
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeC32, cvec);
+                decsp(); decsp(); decsp()
+            )
 
-       |    BICStoreOperation { kind=LoadStoreC64, address, value} => raise InternalError "TODO: StoreC64"
+        |   BICStoreOperation { kind=LoadStoreC64, address, value} =>
+            (
+                genNonByteAddress address;
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeC64, cvec);
+                decsp(); decsp(); decsp()
+            )
 
-       |    BICStoreOperation { kind=LoadStoreCFloat, address, value} => raise InternalError "TODO: StoreCFloat"
+        |   BICStoreOperation { kind=LoadStoreCFloat, address, value} =>
+            (
+                genNonByteAddress address;
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeCFloat, cvec);
+                decsp(); decsp(); decsp()
+            )
 
-       |    BICStoreOperation { kind=LoadStoreCDouble, address, value} => raise InternalError "TODO: StoreCDouble"
+        |   BICStoreOperation { kind=LoadStoreCDouble, address, value} =>
+            (
+                genNonByteAddress address;
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeCDouble, cvec);
+                decsp(); decsp(); decsp()
+            )
 
         |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
             (
@@ -705,23 +788,13 @@ struct
             )
 
         |   BICBlockOperation { kind=BlockOpMove{isByteMove=false}, sourceLeft, destRight, length } =>
-            let
-                (* This is more complicated - we can't just add the index and offset. *)
-                fun loadAddress{base, index, offset} =
-                (
-                    gencde (base, ToStack, NotEnd, loopAddr);
-                    case index of
-                        NONE => (pushConst (toMachineWord 0, cvec); incsp())
-                    |   SOME indexVal => gencde (indexVal, ToStack, NotEnd, loopAddr);
-                    pushConst (toMachineWord offset, cvec); incsp()
-                )
-            in
-                loadAddress sourceLeft;
-                loadAddress destRight;
+            (
+                genNonByteAddress sourceLeft;
+                genNonByteAddress destRight;
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockMoveWord, cvec);
                 decsp(); decsp(); decsp(); decsp(); decsp(); decsp()
-            end
+            )
 
         |   BICBlockOperation { kind=BlockOpEqualByte, sourceLeft, destRight, length } =>
             (
