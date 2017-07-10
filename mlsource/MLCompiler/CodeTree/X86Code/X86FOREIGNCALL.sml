@@ -392,7 +392,7 @@ struct
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
                             address=BaseOffset{offset= ~wordSize, base=eax, index=NoIndex}},
-                        StoreByteConstToMemory{toStore=F_bytes, address=BaseOffset{offset= ~1, base=eax, index=NoIndex}},
+                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address=BaseOffset{offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { base=eax, offset=0, toStore=xmm0 },
                         StoreInitialised
                     ]                    
@@ -488,7 +488,7 @@ struct
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
                             address=BaseOffset{offset= ~wordSize, base=eax, index=NoIndex}},
-                        StoreByteConstToMemory{toStore=F_bytes, address=BaseOffset{offset= ~1, base=eax, index=NoIndex}},
+                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address=BaseOffset{offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { base=eax, offset=0, toStore=xmm0 },
                         StoreInitialised
                     ]                    

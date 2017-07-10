@@ -346,7 +346,17 @@ struct
         |   codeGenICode(
                 MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=ByteToByte} :: rest, code) =
                 codeGenICode(rest,
-                    StoreByteRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
+                    StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
+
+        |   codeGenICode(
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=WordTo16Bit} :: rest, code) =
+                codeGenICode(rest,
+                    StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
+
+        |   codeGenICode(
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=MemoryLocation mLoc, kind=WordTo32Bit} :: rest, code) =
+                codeGenICode(rest,
+                    StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
 
                 (* Store a short constant to memory *)
         |   codeGenICode(
@@ -403,7 +413,7 @@ struct
                 fun allocStore{size, flags, output, preserve} =
                 if isX64 andalso flags <> 0w0
                 then
-                    [StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
+                    [StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
                      StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
                      AllocStore{size=size, output=output, saveRegs=preserve}]
                 else
@@ -434,7 +444,7 @@ struct
                 val allocCode =
                 [
                     (* Store in the top byte *)
-                    StoreByteRegToMemory { toStore=fReg, address=BaseOffset{base=dReg, offset= ~1, index=NoIndex}},
+                    StoreNonWord{size=Size8Bit, toStore=fReg, address=BaseOffset{base=dReg, offset= ~1, index=NoIndex}},
                     (* Untag the flags. *)
                     ShiftConstant{ shiftType=SHR, output=fReg, shift=0w1},
                     (* Store it as the length field. *)

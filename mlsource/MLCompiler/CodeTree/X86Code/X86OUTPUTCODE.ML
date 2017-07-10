@@ -519,7 +519,7 @@ struct
     |   nReg(FPReg(FloatingPtReg r)) = Word8.toInt r + 16
     |   nReg(XMMReg(SSE2Reg r)) = Word8.toInt r + 23
         
-    datatype opsize = SZByte | SZDWord | SZQWord
+    datatype opsize = SZByte | SZWord | SZDWord | SZQWord
     
     val sz32_64 = if isX64 then SZQWord else SZDWord
 
@@ -550,6 +550,15 @@ struct
     |   genRegRepr(GeneralReg (0w6, false), SZQWord) = "rsi"
     |   genRegRepr(GeneralReg (0w7, false), SZQWord) = "rdi"
     |   genRegRepr(GeneralReg (reg, true),  SZQWord) = "r" ^ Int.toString(Word8.toInt reg +8)
+    |   genRegRepr(GeneralReg (0w0, false), SZWord) = "ax"
+    |   genRegRepr(GeneralReg (0w1, false), SZWord) = "cx"
+    |   genRegRepr(GeneralReg (0w2, false), SZWord) = "dx"
+    |   genRegRepr(GeneralReg (0w3, false), SZWord) = "bx"
+    |   genRegRepr(GeneralReg (0w4, false), SZWord) = "sp"
+    |   genRegRepr(GeneralReg (0w5, false), SZWord) = "bp"
+    |   genRegRepr(GeneralReg (0w6, false), SZWord) = "si"
+    |   genRegRepr(GeneralReg (0w7, false), SZWord) = "di"
+    |   genRegRepr(GeneralReg (reg, true),  SZWord) = "r" ^ Int.toString(Word8.toInt reg +8) ^ "w"
     |   genRegRepr _ = "unknown" (* Suppress warning because word values are not exhaustive. *)
 
     and fpRegRepr(FloatingPtReg n) = "fp" ^ Word8.toString n
@@ -769,6 +778,8 @@ struct
     |   CALL_32
     |   MOVL_A_R
     |   MOVL_R_A
+    |   MOVL_R_A16
+    |   MOVL_R_A32
     |   MOVB_R_A of {forceRex: bool}
     |   PUSH_R of Word8.word
     |   POP_R  of Word8.word
@@ -811,6 +822,8 @@ struct
     |   opToInt CALL_32       =  0wxe8
     |   opToInt MOVL_A_R      =  0wx8b
     |   opToInt MOVL_R_A      =  0wx89
+    |   opToInt MOVL_R_A16    =  0wx89 (* Also has an OPSIZE prefix. *)
+    |   opToInt MOVL_R_A32    =  0wx89 (* Suppresses the REX.W prefix. *)
     |   opToInt (MOVB_R_A _)  =  0wx88
     |   opToInt (PUSH_R reg)  =  0wx50 + reg
     |   opToInt (POP_R  reg)  =  0wx58 + reg
@@ -1196,6 +1209,7 @@ struct
     |   genEscape(SSE2Ops SSE2Xor, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops _, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(CVTSI2SD, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(MOVL_R_A16, cvec) = gen8u(0wx66, cvec) (* Requires OPSIZE prefix. *)
     |   genEscape _ = ()
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -1863,8 +1877,8 @@ struct
     |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
-    |   StoreByteRegToMemory of { toStore: genReg, address: memoryAddress }
-    |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
+    |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
+    |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
     |   AllocStoreVariable of { output: genReg, saveRegs: genReg list }
     |   StoreInitialised
@@ -1942,7 +1956,7 @@ struct
                 (stream "MoveRR "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source)
 
         |   LoadNonWord { size, source, output } =>
-                (stream "Move"; printSize size; stream " "; printGReg output; stream " <= "; printMemAddress source )
+                (stream "Load"; printSize size; stream " "; printGReg output; stream " <= "; printMemAddress source )
 
         |   ArithToGenReg { opc, output, source } =>
                 (stream (arithOpRepr opc ^ "RR "); printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
@@ -2003,16 +2017,16 @@ struct
                 stream "StoreLongConstToMemory "; printMemAddress address; stream " <= "; stream(Address.stringOfWord toStore)
             )
 
-        |   StoreByteRegToMemory { toStore, address } =>
+        |   StoreNonWord { size, toStore, address } =>
             (
-                stream "StoreByteRegToMemory "; printMemAddress address;
+                stream "Store"; printSize size; stream " "; printMemAddress address;
                 stream " <= "; stream(genRegRepr(toStore, SZByte))
             )
 
-        |   StoreByteConstToMemory { toStore, address } =>
+        |   StoreNonWordConst { size, toStore, address } =>
             (
-                stream "StoreByteConstToMemory "; printMemAddress address;
-                stream " <= 0x"; stream(Word8.toString toStore)
+                stream "StoreConst"; printSize size; stream " "; printMemAddress address;
+                stream " <= "; stream(LargeInt.toString toStore)
             )
 
         |   LoadAddress{ output, offset, base, index } =>
@@ -2611,7 +2625,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(StoreByteRegToMemory{ toStore, address } :: remainder) =
+        |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address } :: remainder) =
             let
                 val (rrC, _) = getReg toStore
                 (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
@@ -2629,7 +2643,27 @@ struct
                 cgOp remainder
             end
 
-        |   cgOp(StoreByteConstToMemory{ toStore=toStore, address } :: remainder) =
+        |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address } :: remainder) =
+            (
+                case address of
+                    BaseOffset{offset, base, index=NoIndex} =>
+                        genOpEA(MOVL_R_A16, LargeInt.fromInt offset, base, toStore, code) 
+                |   BaseOffset{offset, base, index} =>
+                        genOpIndexed(MOVL_R_A16, LargeInt.fromInt offset, SOME base, index, toStore, code);
+                cgOp remainder
+            )
+
+        |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address } :: remainder) =
+            (
+                case address of
+                    BaseOffset{offset, base, index=NoIndex} =>
+                        genOpEA(MOVL_R_A32, LargeInt.fromInt offset, base, toStore, code) 
+                |   BaseOffset{offset, base, index} =>
+                        genOpIndexed(MOVL_R_A32, LargeInt.fromInt offset, SOME base, index, toStore, code);
+                cgOp remainder
+            )
+
+        |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address } :: remainder) =
             (
                 (* Short constant *)
                 case address of
@@ -2637,9 +2671,15 @@ struct
                         genOpPlus2(MOVB_8_A, LargeInt.fromInt offset, base, 0w0, code) 
                 |   BaseOffset{offset, base, index} =>
                         genOpIndexed(MOVB_8_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false), code);
-                gen8u (toStore, code);
+                gen8u (Word8.fromLargeInt toStore, code);
                 cgOp remainder
             )
+
+        |   cgOp(StoreNonWordConst{ size=Size16Bit, ... } :: _) =
+                raise InternalError "StoreNonWordConst: 16Bit"
+
+        |   cgOp(StoreNonWordConst{ size=Size32Bit, ... } :: _) =
+                raise InternalError "StoreNonWordConst: 32Bit"
 
         |   cgOp(AllocStore{ size, output, saveRegs } :: remainder) =
             (
@@ -3058,6 +3098,7 @@ struct
             val prefix =
                 case sz of
                     SZByte  => "byte ptr "
+                |   SZWord  => "word ptr "
                 |   SZDWord => "dword ptr "
                 |   SZQWord => "qword ptr "
         in
@@ -3154,7 +3195,7 @@ struct
             print "mov \t";
             print(genRegRepr (mkReg (opByte mod 0w8, rexB), sz));
             print ",";
-            case sz of SZByte => print "???" | SZDWord => print32 () | SZQWord => print64 ()
+            case sz of SZDWord => print32 () | SZQWord => print64 () | _ => print "???"
         )
         
         fun printShift (opByte, rex, sz) =
@@ -3234,6 +3275,15 @@ struct
                 printEA(rex, SZQWord)
             )
         end
+        
+        fun printJmp32 oper =
+        let
+            val valu = get32s (!ptr, seg) before (ptr +:= 0w4)
+        in
+            print oper; print "\t";
+            print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
+        end
+
     in
 
         if procName = "" (* No name *) then print "?" else print procName;
@@ -3250,7 +3300,7 @@ struct
                 then (print "lock "; ptr := !ptr + 0w1)
                 else ()
                 
-            val havePrefix =
+            val legacyPrefix =
                 let
                     val p = get8u (!ptr, seg)
                 in
@@ -3278,7 +3328,8 @@ struct
 
             val opByte = get8u (!ptr, seg) before ptr +:= 0w1
             
-            val sizeFromRexW = if rexW then SZQWord else SZDWord
+            val sizeFromRexW =
+                if rexW then SZQWord else if legacyPrefix = 0wx66 then SZWord else SZDWord
         in
             case opByte of
                 0wx03 => printGvEv (opByte, rex, rexR, sizeFromRexW)
@@ -3291,91 +3342,104 @@ struct
                     val opByte2  = csegGet (seg, !ptr)
                     val () = (ptr +:= 0w1)
                 in
-                    if havePrefix = 0w0 andalso opByte2 = 0wxC1
-                    then
-                    let
-                        val nb = csegGet (seg, !ptr);
-                        val reg = (nb >>- 0w3) andb8 0w7
-                    in
-                        (* The address argument comes first in the assembly code. *)
-                        print "xadd\t";
-                        printEA (rex, sizeFromRexW);
-                        print ",";
-                        print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
-                    end
-                    
-                    else if havePrefix = 0w0 andalso (opByte2 = 0wxB6 orelse opByte2 = 0wxB7 orelse opByte2 = 0wxAF)
-                    then
-                    let
-                        val nb = csegGet (seg, !ptr);
-                        val reg = (nb >>- 0w3) andb8 0w7
-                    in
-                        (* The register argument comes first. *)
-                        print (if opByte2 = 0wxB6 orelse opByte2 = 0wxB7 then "movzx\t" else "imul\t");
-                        print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
-                        print ",";
-                        printEA (rex, if opByte2 = 0wxB6 then SZByte else sizeFromRexW)
-                    end
-       
-                    else if havePrefix = 0w0 andalso (opByte2 >= 0wx80 andalso opByte2 <= 0wx8f)
-                    then
-                    let
-                        val valu = get32s (!ptr, seg) before (ptr +:= 0w4)
-                    in
-                        print(
+                    case legacyPrefix of
+                        0w0 =>
+                        (
                             case opByte2 of
-                                0wx80 => "jo  \t"
-                            |   0wx81 => "jno \t"
-                            |   0wx82 => "jb  \t"
-                            |   0wx83 => "jnb \t"
-                            |   0wx84 => "je  \t"
-                            |   0wx85 => "jne \t"
-                            |   0wx86 => "jna \t"
-                            |   0wx87 => "ja  \t" 
-                            |   0wx88 => "js  \t"
-                            |   0wx89 => "jns  \t" 
-                            |   0wx8a => "jp  \t"
-                            |   0wx8b => "jnp  \t" 
-                            |   0wx8c => "jl  \t"
-                            |   0wx8d => "jge \t"
-                            |   0wx8e => "jle \t"
-                            |   0wx8f => "jg  \t" 
-                            |   _ => "???\t"
-                            );
-                        print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
-                    end
+                                0wxC1 =>
+                                let
+                                    val nb = csegGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    (* The address argument comes first in the assembly code. *)
+                                    print "xadd\t";
+                                    printEA (rex, sizeFromRexW);
+                                    print ",";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
+                                end
+
+                            |   0wxB6 =>
+                                let
+                                    val nb = csegGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "movzx\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, SZByte)
+                                end
+
+                            |   0wxB7 =>
+                                let
+                                    val nb = csegGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "movzx\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, SZWord)
+                                end
+
+                            |   0wxAF =>
+                                let
+                                    val nb = csegGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "imul\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, sizeFromRexW)
+                                end
+
+                            |   0wx80 => printJmp32 "jo  "
+                            |   0wx81 => printJmp32 "jno "
+                            |   0wx82 => printJmp32 "jb  "
+                            |   0wx83 => printJmp32 "jnb "
+                            |   0wx84 => printJmp32 "je  "
+                            |   0wx85 => printJmp32 "jne "
+                            |   0wx86 => printJmp32 "jna "
+                            |   0wx87 => printJmp32 "ja  " 
+                            |   0wx88 => printJmp32 "js  "
+                            |   0wx89 => printJmp32 "jns " 
+                            |   0wx8a => printJmp32 "jp  "
+                            |   0wx8b => printJmp32 "jnp " 
+                            |   0wx8c => printJmp32 "jl  "
+                            |   0wx8d => printJmp32 "jge "
+                            |   0wx8e => printJmp32 "jle "
+                            |   0wx8f => printJmp32 "jg  "
+                            
+                            |   _ => (print "esc\t"; printValue(Word8.toLargeInt opByte2))
+                        )
                     
-                    else if havePrefix = 0wxf2
-                    then (* SSE2 instruction *)
-                    let
-                        val nb = csegGet (seg, !ptr)
-                        val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
-                    in
-                        case opByte2 of
-                            0wx10 => ( print "movsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx11 => ( print "movsd\t"; printEAxmm(rex, SZQWord); print ","; print(xmmRegRepr reg)  )
-                        |   0wx2a => ( print "cvtsi2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
-                        |   0wx58 => ( print "addsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx59 => ( print "mulsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx5c => ( print "subsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx5e => ( print "divsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   b => (print "F2\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
-                    end
+                    |   0wxf2 => (* SSE2 instruction *)
+                        let
+                            val nb = csegGet (seg, !ptr)
+                            val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                        in
+                            case opByte2 of
+                                0wx10 => ( print "movsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx11 => ( print "movsd\t"; printEAxmm(rex, SZQWord); print ","; print(xmmRegRepr reg)  )
+                            |   0wx2a => ( print "cvtsi2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
+                            |   0wx58 => ( print "addsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx59 => ( print "mulsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx5c => ( print "subsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx5e => ( print "divsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   b => (print "F2\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
+                        end
 
-                    else if havePrefix = 0wx66
-                    then (* SSE2 instruction *)
-                    let
-                        val nb = csegGet (seg, !ptr)
-                        val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
-                    in
-                        case opByte2 of
-                            0wx2e => ( print "ucomisd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx54 => ( print "andpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx57 => ( print "xorpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   b => (print "66\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
-                    end
+                    |   0wx66 => (* SSE2 instruction *)
+                        let
+                            val nb = csegGet (seg, !ptr)
+                            val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                        in
+                            case opByte2 of
+                                0wx2e => ( print "ucomisd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx54 => ( print "andpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx57 => ( print "xorpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   b => (print "66\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
+                        end
 
-                    else (print "esc\t"; printValue(Word8.toLargeInt opByte2))
+                    |   _ => (print "esc\t"; printValue(Word8.toLargeInt opByte2))
                 end (* ESCAPE *)
 
             |   0wx13 => printGvEv (opByte, rex, rexR, sizeFromRexW)

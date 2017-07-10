@@ -25,12 +25,9 @@ struct
   (* 0 not used (unusable?) *)
   val POLY_SYS_cmem_load_float     = 164
   val POLY_SYS_cmem_load_double    = 165
-  val POLY_SYS_cmem_store_8        = 166
-  val POLY_SYS_cmem_store_16       = 167
-  val POLY_SYS_cmem_store_32       = 168
-  val POLY_SYS_cmem_store_64       = 169
   val POLY_SYS_cmem_store_float    = 170
   val POLY_SYS_cmem_store_double   = 171
+
   val POLY_SYS_io_operation        = 189
 
 end;

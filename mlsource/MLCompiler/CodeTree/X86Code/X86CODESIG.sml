@@ -136,8 +136,8 @@ sig
     |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
-    |   StoreByteRegToMemory of { toStore: genReg, address: memoryAddress }
-    |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
+    |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
+    |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
     |   AllocStoreVariable of { output: genReg, saveRegs: genReg list }
     |   StoreInitialised

@@ -1510,16 +1510,64 @@ struct
             end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreC8, address, value}, context, _, destination) =
-                raise InternalError "codeToICode: Store LoadStoreC8"
+            let
+                (* Store a byte to C memory.  Almost exactly the same as LoadStoreMLByte. *)
+                val valueReg = newPReg() and valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w1, context)
+                val code =
+                    codeBaseIndex @
+                    codeToICodeTarget(value, context, false, valueReg) @
+                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false }] @ codeUntag @
+                    [MoveArgument {source=valueReg1, dest=MemoryLocation memLoc, kind=ByteToByte}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreC16, address, value}, context, _, destination) =
-                raise InternalError "codeToICode: Store LoadStoreC16"
+            let
+                (* Store a 16-bit value to C memory. *)
+                val valueReg = newPReg() and valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w2, context)
+                val code =
+                    codeBaseIndex @
+                    codeToICodeTarget(value, context, false, valueReg) @
+                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false }] @ codeUntag @
+                    [MoveArgument {source=valueReg1, dest=MemoryLocation memLoc, kind=WordTo16Bit}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreC32, address, value}, context, _, destination) =
-                raise InternalError "codeToICode: Store LoadStoreC32"
+            let
+                (* Store a 32-bit value.  If this is 64-bit mode we untag it but if this is 32-bit mode we unbox it. *)
+                val valueReg = newPReg() and valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w4, context)
+                val untagUnbox =
+                    if isX64
+                    then [UntagValue{dest=valueReg1, source=valueReg, isSigned=false }]
+                    else [MoveArgument{source=wordAt valueReg, dest=valueReg1, kind=WordToWord}]
+                val code =
+                    codeBaseIndex @
+                    codeToICodeTarget(value, context, false, valueReg) @ untagUnbox @ codeUntag @
+                    [MoveArgument {source=valueReg1, dest=MemoryLocation memLoc, kind=WordTo32Bit}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreC64, address, value}, context, _, destination) =
-                raise InternalError "codeToICode: Store LoadStoreC64"
+            let
+                (* Store a 64-bit value. *)
+                val _ = isX64 orelse raise InternalError "codeToICode: BICStoreOperation LoadStoreC64 in 32-bit"
+                val valueReg = newPReg() and valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
+                val code =
+                    codeBaseIndex @
+                    codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
+                    [MoveArgument{source=wordAt valueReg, dest=valueReg1, kind=WordToWord},
+                     MoveArgument {source=valueReg1, dest=MemoryLocation memLoc, kind=WordToWord}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreCFloat, address, value}, context, _, destination) =
                 raise InternalError "codeToICode: Store LoadStoreCFloat"

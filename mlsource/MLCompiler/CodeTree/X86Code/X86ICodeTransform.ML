@@ -704,7 +704,10 @@ struct
             end
 
             (* Store a pseudo-register in a memory location. *)
-        |   codeICode{icode=MoveArgument{ source=PReg(valueReg, PRegUntagged), dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+        |   codeICode{
+                icode=MoveArgument{
+                        source=PReg(valueReg, PRegUntagged),
+                        dest=MemoryLocation{offset, base as PReg(_, PRegGeneral), index=NoMemIndex}, kind} :: rest,
                       state=NormalState state, code, context} =
             let
                 val (pushedState as { valueStack, ccState, untaggedRegs}, pushCode) = pushRax state
@@ -726,6 +729,32 @@ struct
                 codeICode{
                     icode=rest, state=NormalState resultState,
                     code=store @ loadBaseToEax @ pushCode @ code, context=context}
+            end
+
+            (* As above except the base register is in an untagged register.  This is used for CMem stores. *)
+        |   codeICode{
+                icode=MoveArgument{
+                        source=PReg(valueReg, PRegUntagged),
+                        dest=MemoryLocation{offset, base=PReg(bReg, PRegUntagged), index=NoMemIndex}, kind} :: rest,
+                      state=NormalState{untaggedRegs, valueStack, ccState, ...}, code, context} =
+            let
+                (* CMem loads with a fixed offset *)
+                val realBReg =
+                    case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val realVReg =
+                    case List.find (fn {ureg, ...} => ureg = valueReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val store =
+                    [MoveArgument{
+                        source=realVReg,
+                        dest=MemoryLocation{base=realBReg, offset=offset, index=NoMemIndex}, kind=kind}]
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState, code=store @ code, context=context}
             end
 
             (* Store an untagged register in a memory location.  This is currently used to store the string
@@ -845,17 +874,79 @@ struct
                     case List.find (fn {ureg, ...} => ureg = valueReg) untaggedRegs of
                         SOME {reg as GenReg _, ...} => RealRegister reg
                     |   _ => raise InternalError "codeICode: find tagged"
-                val baseOnStack =
-                    case findEntry (argToPReg base, state) of
-                        OnStack s => s
-                    |   _ => raise InternalError "codeICode: MoveArgument"
+                (* The base may be a tagged or untagged register.  CMem stores extract the base address from
+                   a LargeWord.word boxed value into an untagged register. *)
+                val (realBReg, codeBreg) =
+                    case base of
+                        PReg(bReg, PRegGeneral) =>
+                        let
+                            val baseOnStack =
+                                case findEntry (bReg, state) of
+                                    OnStack s => s
+                                |   _ => raise InternalError "codeICode: MoveArgument"
+                            val code =
+                                [MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rbxAsArg, kind=WordToWord}]
+                        in
+                            (rbxAsArg, code)
+                        end
+                    |   PReg(bReg, PRegUntagged) =>
+                        let
+                            val realBReg =
+                                case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                                    SOME {reg as GenReg _, ...} => RealRegister reg
+                                |   _ => raise InternalError "codeICode: find tagged"
+                        in
+                            (realBReg, [])
+                        end
+                   |    _ => raise InternalError "codeICode: not Preg"
                 val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code =
-                        MoveArgument{source=realVReg, dest=MemoryLocation {offset=offset, base=raxAsArg, index=MemIndex1 realIReg}, kind=kind} ::
-                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=raxAsArg, kind=WordToWord} ::
-                        pushCode @ code,
+                        MoveArgument{source=realVReg, dest=MemoryLocation {offset=offset, base=realBReg, index=MemIndex1 realIReg}, kind=kind} ::
+                        codeBreg @ pushCode @ code,
+                    context=context}
+            end
+
+        |   codeICode{icode=
+                       MoveArgument{ source=PReg(valueReg, PRegUntagged), dest=MemoryLocation {offset, base, index}, kind} :: rest,
+                    state=NormalState state, code, context} =
+            (* Store an untagged value with an index value in a tagged register. This is used for CMem stores. *)
+            let
+                val (pushedState as { untaggedRegs, valueStack, ccState, ...}, pushCode) = pushRax state
+                val (iReg, indexed) =
+                    case index of
+                        MemIndex1 indexArg => (indexArg, MemIndex1 raxAsArg)
+                    |   MemIndex2 indexArg => (indexArg, MemIndex2 raxAsArg)
+                    |   MemIndex4 indexArg => (indexArg, MemIndex4 raxAsArg)
+                    |   MemIndex8 indexArg => (indexArg, MemIndex8 raxAsArg)
+                    |   _ => raise InternalError "codeICode: MemIndex"
+                (* The base address will be in an untagged register. *)
+                val (realBReg, codeBreg) =
+                    case base of
+                        PReg(_, PRegGeneral) => (rbxAsArg, loadSource(base, ebx, pushedState))
+                    |   PReg(bReg, PRegUntagged) =>
+                        let
+                            val realBReg =
+                                case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                                    SOME {reg as GenReg _, ...} => RealRegister reg
+                                |   _ => raise InternalError "codeICode: find tagged"
+                        in
+                            (realBReg, [])
+                        end
+                   |    _ => raise InternalError "codeICode: not Preg"
+                val realVReg =
+                    case List.find (fn {ureg, ...} => ureg = valueReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                        
+                val loadCode = codeBreg @ loadSource(iReg, eax, pushedState)
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code =
+                        MoveArgument{source=realVReg, dest=MemoryLocation {offset=offset, base=realBReg, index=indexed}, kind=kind} ::
+                        loadCode @ pushCode @ code,
                     context=context}
             end
 

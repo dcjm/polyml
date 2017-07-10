@@ -266,16 +266,6 @@ struct
     fun getDouble(s: voidStar, i: Word.word): real =
         RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_double (s, 0w0, i)
 
-    fun set8 (s: voidStar, i: Word.word, v: 'a): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_8 (s, 0w0, i, v)
-    fun set16 (s: voidStar, i: Word.word, v: Word.word): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_16 (s, 0w0, i, v)
-    fun set32 (s: voidStar, i: Word.word, v: 'a): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_32 (s, 0w0, i, v)
-    fun set64 (s: voidStar, i: Word.word, v: LargeWord.word): unit =
-        if RunCall.bytesPerWord = 0w4
-        then raise RunCall.Foreign "64-bit operations not available"
-        else RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_64 (s, 0w0, i, v)
     fun setFloat (s: voidStar, i: Word.word, v: real): unit =
         RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
     fun setDouble (s: voidStar, i: Word.word, v: real): unit =
