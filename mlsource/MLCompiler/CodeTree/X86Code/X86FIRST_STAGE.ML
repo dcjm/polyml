@@ -3813,27 +3813,15 @@ struct
             (opCode, matchResult(transtable, opRes, whereto))
         end
 
-        local (* Load the "self" entry from the thread-specific block. *)
+        (* Load the "self" entry from the thread-specific block. *)
+        fun threadSelf(transtable, whereto) =
+        let
             fun threadSelfI([], SOME(GenReg output)) =
-                let
-                    (* This is a duplicate of code in X86FOREIGNCALL and XCodetreeToICode. *)
-                    val memRegArgumentPtr =
-                        case Compat560.polySpecificGeneral (108, 0) of
-                            1 => (*X64Unix*) ~48
-                        |   2 => (*X64Win*) 16
-                        |   _ => (*X86_32*) 8
-                in
-                    [MoveToRegister{source=MemoryArg{base=output, offset=argThreadSelf, index=NoIndex}, output=output},
-                     MoveToRegister{source=MemoryArg{base=ebp, offset=memRegArgumentPtr, index=NoIndex}, output=output}]
-                end
+                    [MoveToRegister{source=MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}, output=output}]
             |   threadSelfI _ = raise InternalError "threadSelf"
+            val (opRes, opCode) = generalNegotiator threadSelfI (transtable, [], whereto)
         in
-            fun threadSelf(transtable, whereto) =
-            let
-                val (opRes, opCode) = generalNegotiator threadSelfI (transtable, [], whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
+            (opCode, matchResult(transtable, opRes, whereto))
         end
 
         local (* Load the length word from a memory cell.  We could reuse the base for the
