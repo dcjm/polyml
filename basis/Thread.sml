@@ -308,13 +308,13 @@ struct
         end
         
         local
-            val doCall: int*unit->unit = Compat560.threadGeneral
+            val threadTestInterrupt: unit -> unit = RunCall.rtsCallFull0 "PolyThreadTestInterrupt"
         in
             fun testInterrupt() =
                 (* If there is a pending request the word in the thread object
                    will be non-zero. *)
                 if RunCall.loadWord(self(), threadIdIntRequest) <> 0
-                then doCall(11, ())
+                then threadTestInterrupt()
                 else ()
         end
 
@@ -335,6 +335,8 @@ struct
             |   newStackSize (MaximumMLStack (SOME n) :: _, _) =
                     if n <= 0 then raise Thread "The stack size must be greater than zero" else n
             |   newStackSize (_ :: l, default) = newStackSize (l, default)
+            
+            val threadMaxStackSize: int -> unit = RunCall.rtsCallFull1 "PolyThreadMaxStackSize"
         in
             (* Set attributes.  Only changes the values that are specified.  The
                others remain the same. *)
@@ -348,7 +350,7 @@ struct
                 RunCall.storeWord (self(), threadIdFlags,
                     Word.orb(newValue, Word.andb(Word.notb mask, oldValues)));
                 if stack = getStackSizeAsInt me
-                then () else Compat560.threadGeneral (15, stack);
+                then () else threadMaxStackSize stack;
                 (* If we are now handling interrupts asynchronously check whether
                    we have a pending interrupt now.  This will only be effective
                    if we were previously handling them synchronously or blocking
@@ -377,7 +379,8 @@ struct
                    interrupts synchronously. *)
                 val (defaultAttrs, _) =
                     attrsToWord[EnableBroadcastInterrupt false, InterruptState InterruptSynch]
-                val doCall = Compat560.threadGeneral
+                val threadForkFunction:
+                    (unit->unit) * word * int -> thread = RunCall.rtsCallFull3 "PolyThreadForkThread"
             in
                 fun fork(f:unit->unit, attrs: threadAttribute list): thread =
                 let
@@ -386,40 +389,44 @@ struct
                     val attrValue = Word.orb(attrWord, Word.andb(Word.notb mask, defaultAttrs))
                     val stack = newStackSize(attrs, 0 (* Default is unlimited *))
                 in
-                    doCall(7, (f, attrValue, stack))
+                    threadForkFunction(f, attrValue, stack)
                 end
             end
         end
 
         val exit: unit -> unit = RunCall.rtsCallFull0 "PolyThreadKillSelf"
-        
-        local
-            val doCall: int*thread->bool = Compat560.threadGeneral
-        in
-            fun isActive(t: thread): bool = doCall(8, t)
-        end
-        
-        local
-            val doCall: int*unit->unit = Compat560.threadGeneral
-        in
-            fun broadcastInterrupt() = doCall(10, ())
-        end
+        and isActive: thread -> bool = RunCall.rtsCallFast1 "PolyThreadIsActive"
+        and broadcastInterrupt: unit -> unit = RunCall.rtsCallFull0 "PolyThreadBroadcastInterrupt"
 
         local
-            val doCall: int*thread->unit = Compat560.threadGeneral
+            (* Send an interrupt to a thread.  If it returns false
+               the thread did not exist and this should raise an exception. *)
+            val threadSendInterrupt: thread -> bool = RunCall.rtsCallFast1 "PolyThreadInterruptThread"
         in
-            fun kill(t: thread) = doCall(12, t)
-            and interrupt(t: thread) = doCall(9, t)
+            fun interrupt(t: thread) =
+                if threadSendInterrupt t
+                then ()
+                else raise Thread "Thread does not exist"
         end
 
         local
-            val doCall = Compat560.threadGeneral
+            val threadKillThread: thread -> bool = RunCall.rtsCallFast1 "PolyThreadKillThread"
         in
-            fun numProcessors():int = doCall(13, 0)
+            fun kill(t: thread) =
+                if threadKillThread t
+                then ()
+                else raise Thread "Thread does not exist"
+        end
 
-            and numPhysicalProcessors(): int option =
+        val numProcessors: unit -> int = RunCall.rtsCallFast0 "PolyThreadNumProcessors"
+
+        local
+            val numberOfPhysical: unit -> int =
+                RunCall.rtsCallFast0 "PolyThreadNumPhysicalProcessors"
+        in
+            fun numPhysicalProcessors(): int option =
                 (* It is not always possible to get this information *)
-                case doCall(14, 0) of 0 => NONE | n => SOME n
+                case numberOfPhysical() of 0 => NONE | n => SOME n
         end
     end
     
@@ -428,12 +435,9 @@ struct
         type mutex = Word.word ref
         fun mutex() = nvref 0w1; (* Initially unlocked. *)
         open Thread  (* atomicIncr, atomicDecr and atomicReset are set up by Initialise. *)
-
-(*        val atomicIncr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_incr
-        and atomicDecr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_decr
-        and atomicReset: Word.word ref -> unit     = RunCall.run_call1 POLY_SYS_atomic_reset*)
-
-        val doCall: int * mutex -> unit = Compat560.threadGeneral
+        
+        val threadMutexBlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexBlock"
+        val threadMutexUnlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexUnlock"
 
         (* A mutex is implemented as a Word.word ref.  It is initially set to 1 and locked
            by atomically decrementing it.  If it was previously unlocked the result will
@@ -461,7 +465,7 @@ struct
             then () (* We've acquired the lock. *)
             else (* It's locked.  We return when we have the lock. *)
             (
-                doCall(1, m);
+                threadMutexBlock m;
                 lock m (* Try again. *)
             )
         end
@@ -488,7 +492,7 @@ struct
                    acquire a lock. *)
             (
                 atomicReset m;
-                doCall(2, m)
+                threadMutexUnlock m
             )
         end
 
@@ -516,16 +520,11 @@ struct
         fun conditionVar(): conditionVar =
             { lock = Mutex.mutex(), threads = nvref nil }
 
-        (* To avoid duplicating the code we use zero to represent an infinite wait.
-           Since that's a valid time in the past we check that it isn't used in
-           waitUntil before doing anything else. *)
-        val infinity = Time.zeroTime;
-
         local
-            val doCall = Compat560.threadGeneral
-            fun Sleep(mt: Mutex.mutex * Time.time): unit = doCall(3, mt)
+            val threadCondVarWait: Mutex.mutex -> unit = RunCall.rtsCallFull1 "PolyThreadCondVarWait"
+            and threadCondVarWaitUntil: Mutex.mutex * Time.time -> unit = RunCall.rtsCallFull2 "PolyThreadCondVarWaitUntil"
         in
-            fun innerWait({lock, threads}: conditionVar, m: Mutex.mutex, t: Time.time) : bool =
+            fun innerWait({lock, threads}: conditionVar, m: Mutex.mutex, t: Time.time option) : bool =
             let
                 val me = self() (* My thread id. *)
                 
@@ -536,7 +535,10 @@ struct
                     fun removeThis [] = raise Fail "Thread missing in list"
                      |  removeThis (h::t) = if equal(h, me) then t else h :: removeThis t
                      
-                    val () = Sleep(lock, t) (* Atomically release the lock and wait. *)
+                    val () =
+                        case t of
+                            SOME time => threadCondVarWaitUntil(lock, time)
+                        |   NONE => threadCondVarWait lock
 
                     val () = Mutex.lock lock (* Get the lock again.  *)
                     
@@ -552,7 +554,7 @@ struct
                         Mutex.unlock lock;
                         true
                     )
-                    else if t <> infinity andalso Time.now() >= t
+                    else if (case t of NONE => false | SOME t => Time.now() >= t)
                     then (* We've timed out. *)
                     (
                         threads := removeThis(! threads);
@@ -576,7 +578,7 @@ struct
                 waitAgain() (* Wait and return the result when we're done. *)
             end
 
-            fun doWait(c: conditionVar, m: Mutex.mutex, t: Time.time) : bool =
+            fun doWait(c: conditionVar, m: Mutex.mutex, t: Time.time option) : bool =
             let
                 val originalIntstate = getInterruptState()
                 (* Set this to handle interrupts synchronously unless we're already
@@ -613,31 +615,28 @@ struct
             end
 
             fun wait(c: conditionVar, m: Mutex.mutex) : unit =
-                (doWait(c, m, infinity); ())
+                (doWait(c, m, NONE); ())
             and waitUntil(c: conditionVar, m: Mutex.mutex, t: Time.time) : bool =
-                if t = infinity
-                then false (* This has already happened. *)
-                else doWait(c, m, t)
+                doWait(c, m, SOME t)
         end
         
         local
-            val doCall = Compat560.threadGeneral
             (* This call wakes up the specified thread.  If the thread has already been
                interrupted and is not ignoring interrupts it returns false.  Otherwise
                it wakes up the thread and returns true.  We have to use this because
                we define that if a thread is interrupted before it is signalled then
                it raises Interrupt. *)
-            fun doWake(t: thread): bool = doCall(4, t)
+            val threadCondVarWake: thread -> bool = RunCall.rtsCallFast1 "PolyThreadCondVarWake"
             
             (* Wake a single thread if we can (signal). *)
             fun wakeOne [] = []
             |   wakeOne (thread::rest) =
-                    if doWake thread
+                    if threadCondVarWake thread
                     then rest
                     else thread :: wakeOne rest
             (* Wake all threads (broadcast). *)
             fun wakeAll [] = [] (* Always returns the empty list. *)
-            |   wakeAll (thread::rest) = (doWake thread; wakeAll rest)
+            |   wakeAll (thread::rest) = (threadCondVarWake thread; wakeAll rest)
             
             fun signalOrBroadcast({lock, threads}: conditionVar, wakeThreads) : unit =
             let

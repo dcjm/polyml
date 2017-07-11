@@ -43,17 +43,6 @@ struct
     fun ~ (x: int): int = 0 - x
     
     fun abs (i: int): int = if i >= 0 then i else ~ i
-
-    (* These are replaced later on.  We need some of these for e.g. String
-       They neither check for overflow nor are they the correct ML definitions. *)
-    local
-        val q: FixedInt.int * FixedInt.int -> FixedInt.int = quot
-        val r: FixedInt.int * FixedInt.int -> FixedInt.int = rem
-    in
-        fun op div(_, 0) = raise RunCall.Div | op div(x,y) = q(x, y)
-        fun op mod(_, 0) = raise RunCall.Div | op mod(x,y) = r(x,y)
-    end
-
 end;
 
 val () = RunCall.addOverload FixedInt.>= ">="
@@ -64,85 +53,36 @@ and () = RunCall.addOverload FixedInt.+  "+"
 and () = RunCall.addOverload FixedInt.-  "-"
 and () = RunCall.addOverload FixedInt.*  "*"
 and () = RunCall.addOverload FixedInt.~  "~"
-and () = RunCall.addOverload FixedInt.abs  "abs"
-and () = RunCall.addOverload FixedInt.div  "div"
-and () = RunCall.addOverload FixedInt.mod  "mod";
+and () = RunCall.addOverload FixedInt.abs  "abs";
 
 structure LargeInt =
 struct
     open LargeInt
     
     local
-        val isShort: LargeInt.int -> bool = RunCall.isShort
-        val toShort: LargeInt.int -> FixedInt.int = RunCall.unsafeCast
-        and fromShort: FixedInt.int -> LargeInt.int = RunCall.unsafeCast
-
         val callAdd: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyAddArbitrary"
         and callSub: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolySubtractArbitrary"
         and callMult: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyMultiplyArbitrary"
-        and callDiv: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyDivideArbitrary"
-        and callRem: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyRemainderArbitrary"
         
         (* Comparison does not need to allocate memory so is a fast call. *)
         val callComp: LargeInt.int * LargeInt.int -> FixedInt.int = RunCall.rtsCallFast2 "PolyCompareArbitrary"
         
         exception Overflow  = RunCall.Overflow
     in
-        val op + =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then fromShort(toShort i + toShort j) handle Overflow => callAdd(i, j)
-                else callAdd(i, j)
-        and op - =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then fromShort(toShort i - toShort j) handle Overflow => callSub(i, j)
-                else callSub(i, j)
-        and op * =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then fromShort(toShort i * toShort j) handle Overflow => callMult(i, j)
-                else callMult(i, j)
+        val op + = fn (i, j) => add(i, j, callAdd)
+        and op - = fn (i, j) => subtract(i, j, callSub)
+        and op * = fn (i, j) => multiply(i, j, callMult)
 
-        (* Relational operations - no overflow.
-           An alternative would be to consider the sign bit if one argument is short and
-           the other long.  That would probably be better if one of the arguments was a
-           short constant.
-           e.g.
-           val op < =
-            fn (i, j) =>
-                if isShort i then if isShort j then toShort i < toShort j else isLongPositive j
-                else if isShort j then isLongNegative i
-                else callComp(i, j) < 0 *)
-        val op < =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then toShort i < toShort j
-                else callComp(i, j) < 0
-        and op > =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then toShort i > toShort j
-                else callComp(i, j) > 0
-        and op <= =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then toShort i <= toShort j
-                else callComp(i, j) <= 0
-        and op >= =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then toShort i >= toShort j
-                else callComp(i, j) >= 0
+        val op < = fn (i, j) => less(i, j, callComp)
+        and op > = fn (i, j) => greater(i, j, callComp)
+        and op <= = fn (i, j) => lessEq(i, j, callComp)
+        and op >= = fn (i, j) => greaterEq(i, j, callComp)
 
         (* Negation.  Just use 0 - X.  *)
         fun ~ x = 0 - x
-
-        (* Define div and mod as quot and rem.  They are redefined properly later. *)
-        (* TODO: Handle the short precision cases *)
-        fun op div(_, 0) = raise RunCall.Div | op div(x,y) = callDiv(x, y)
-        and op mod(_, 0) = raise RunCall.Div | op mod(x,y) = callRem(x,y)
     end
+    
+    (* N.B.  div and mod are added on a bit further down. *)
 end;
 
 val () = RunCall.addOverload LargeInt.>= ">="
@@ -152,11 +92,154 @@ and () = RunCall.addOverload LargeInt.<  "<"
 and () = RunCall.addOverload LargeInt.+  "+"
 and () = RunCall.addOverload LargeInt.-  "-"
 and () = RunCall.addOverload LargeInt.*  "*"
-and () = RunCall.addOverload LargeInt.~  "~"
+and () = RunCall.addOverload LargeInt.~  "~";
 (*and () = RunCall.addOverload LargeInt.abs  "abs"*)
+
+
+(* Now add div and mod. *)
+local
+    (* There's some duplication.  This is also in Int.sml. *)
+    local
+        fun power2' n 0 : LargeInt.int = n
+         |  power2' n i = power2' (2*n) (i-1)
+        val power2 = power2' 1
+        val wordSize : word = RunCall.bytesPerWord
+        val bitsInWord: int = (RunCall.unsafeCast wordSize) * 8
+        val wordSize = bitsInWord - 1 (* 31 or 63 bits *)
+    in
+        val maxIntP1 = power2(wordSize-1)
+    end
+in
+    structure FixedInt =
+    struct
+        open FixedInt
+
+        local
+            val fquot: FixedInt.int * FixedInt.int -> FixedInt.int = quot
+            val frem: FixedInt.int * FixedInt.int -> FixedInt.int = rem
+            val smallestInt = RunCall.unsafeCast(LargeInt.~ maxIntP1)
+            infix 7 quot rem
+            exception Overflow  = RunCall.Overflow
+            and Div = RunCall.Div
+        in
+            fun op quot(_, 0) = raise RunCall.Div
+            |   op quot(x, y) =
+                if y = ~1 andalso x = smallestInt
+                then raise Overflow
+                else fquot(x,y)
+
+            (* This should return zero when dividing minInt by ~1.  Since we
+               are working with 31/63 bits this won't overflow and will return
+               the correct answer. *)
+            fun op rem(_, 0) = raise Div
+            |   op rem(x, y) = frem (x, y)
+        
+            (* mod adjusts the result of rem to give the correcly signed result. *)
+            fun x mod y =
+                let
+                    val remainder = x rem y
+                in
+                    if remainder = 0
+                    then 0 (* If the remainder was zero the result is zero. *)
+                    else if (remainder < 0) = (y < 0)
+                    then remainder (* If the signs are the same there's no adjustment. *)
+                    else remainder + y (* Have to add in the divisor. *)
+                end
+
+            (* div adjusts the result to round towards -infinity. *)
+            fun x div y =
+                let
+                    val quotient = x quot y (* raises Div or Overflow as appropriate. *)
+                    and remainder = x rem y
+                in
+                    if remainder = 0 orelse (remainder < 0) = (y < 0)
+                    then quotient
+                    else quotient-1
+                end
+        end
+
+    end;
+
+    structure LargeInt =
+    struct
+        open LargeInt
+    
+        local
+            val isShort: LargeInt.int -> bool = RunCall.isShort
+            val toShort: LargeInt.int -> FixedInt.int = RunCall.unsafeCast
+            and fromShort: FixedInt.int -> LargeInt.int = RunCall.unsafeCast
+
+            val callDiv: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyDivideArbitrary"
+            and callRem: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyRemainderArbitrary"
+            (* We have a special rts call for this.  It's needed in both LargeInt and IntInf *)
+            val quotRemCall = LargeInt.callQuotRem "PolyQuotRemArbitrary"
+
+            infix 7 quot rem
+
+            exception Overflow  = RunCall.Overflow
+            val smallestInt = ~ maxIntP1
+
+            val zero = 0
+        in
+            val op quot =
+                fn (_, 0) => raise RunCall.Div
+                |  (i: int, j: int) =>
+                    if isShort i andalso isShort j andalso not (j = ~1 andalso i = smallestInt)
+                    then fromShort(FixedInt.quot(toShort i, toShort j))
+                    else callDiv(i, j)
+
+            (* We don't have to worry about overflow here because we will
+               get the correct result if we divide the smallest int by -1 and
+               because we're actually using 31/63 bits rather than true 32/64 bits
+               we won't get a hardware trap. *)
+            val op rem =
+                fn  (_, 0) => raise RunCall.Div
+                |   (i, j) =>
+                    if isShort i andalso isShort j
+                    then fromShort(FixedInt.rem(toShort i, toShort j))
+                    else callRem(i, j)
+
+            fun x mod y =
+            let
+                val r = x rem y
+            in
+                if r = zero orelse (y >= zero) = (r >= zero) then r else r + y
+            end
+
+            fun x div y =
+            let
+                (* If the signs differ the normal quot operation will give the wrong
+                   answer. We have to round the result down by subtracting either y-1 or
+                   y+1. This will round down because it will have the opposite sign to x *)
+        
+                (* ...
+                val d = x - (if (y >= 0) = (x >= 0) then 0 else if y > 0 then y-1 else y+1)
+                ... *)
+                val xpos = x >= zero
+                val ypos = y >= zero
+        
+                val d =
+                    if xpos = ypos 
+                    then x
+                    else if ypos
+                    then (x - (y - 1))
+                    else (x - (y + 1))
+            in
+                d quot y (* may raise Div for divide-by-zero *)
+            end
+            
+            fun quotRem(i, j) =
+                if isShort i andalso isShort j andalso not (j = ~1 andalso i = smallestInt)
+                then (fromShort(FixedInt.quot(toShort i, toShort j)), fromShort(FixedInt.rem(toShort i, toShort j)))
+                else quotRemCall(i, j)
+        end
+    end;
+end;
+
+val () = RunCall.addOverload FixedInt.div  "div"
+and () = RunCall.addOverload FixedInt.mod  "mod"
 and () = RunCall.addOverload LargeInt.div  "div"
 and () = RunCall.addOverload LargeInt.mod  "mod";
-
 
 structure Word =
 struct
@@ -215,8 +298,8 @@ struct
     local
         val zero = Word.toLargeWord 0w0
     in
-        fun x div y = if x = zero then raise RunCall.Div else LargeWord.div(x, y)
-        and x mod y = if x = zero then raise RunCall.Div else LargeWord.mod(x, y)
+        fun x div y = if y = zero then raise RunCall.Div else LargeWord.div(x, y)
+        and x mod y = if y = zero then raise RunCall.Div else LargeWord.mod(x, y)
     end
 end;
 
@@ -379,7 +462,6 @@ struct
         and ffiGeneralCall = RunCall.rtsCallFull2 "PolyFFIGeneral"
         and oldForeignGeneralCall = RunCall.rtsCallFull2 "PolyForeignGeneral"
         and xWindowsGeneralCall = RunCall.rtsCallFull1 "PolyXWindowsGeneral"
-        and threadGeneralCall = RunCall.rtsCallFull2 "PolyThreadGeneral"
         and createEntryPointObjectCall = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
         and osSpecificGeneralCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         and polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
@@ -391,7 +473,6 @@ struct
         and ffiGeneral(code: int, arg: 'a): 'b = RunCall.unsafeCast(ffiGeneralCall(RunCall.unsafeCast(code, arg)))
         and oldForeignGeneral(code: int, arg: 'a): 'b = RunCall.unsafeCast(oldForeignGeneralCall(RunCall.unsafeCast(code, arg)))
         and xWindowsGeneral (arg:'a):'b = RunCall.unsafeCast(xWindowsGeneralCall(RunCall.unsafeCast arg))
-        and threadGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(threadGeneralCall(RunCall.unsafeCast(code, arg)))
         and createEntryPointObject(s: string): 'a = RunCall.unsafeCast(createEntryPointObjectCall s)
         and osSpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(osSpecificGeneralCall(RunCall.unsafeCast(code, arg)))
         and polySpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(polySpecificGeneralCall(RunCall.unsafeCast(code, arg)))

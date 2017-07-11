@@ -119,6 +119,11 @@ sig
     datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
     and fpSize = SinglePrecision | DoublePrecision
 
+    datatype trapEntries =
+        StackOverflowCall
+    |   StackOverflowCallEx
+    |   HeapOverflowCall
+
     datatype operation =
         MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
     |   LoadNonWord of { size: nonWordSize, source: memoryAddress, output: genReg }
@@ -134,7 +139,7 @@ sig
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
     |   TestTagR of genReg
     |   TestByteMem of { base: genReg, offset: int, bits: word }
-    |   CallRTS of int
+    |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
     |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
@@ -149,7 +154,6 @@ sig
     |   RaiseException
     |   UncondBranch of label
     |   ResetStack of int
-    |   InterruptCheck
     |   JumpLabel of label
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
@@ -195,8 +199,6 @@ sig
     and memRegCStackPtr: int
     and memRegThreadSelf: int
     and memRegStackPtr: int
-    and memRegStackOverflowCall: int
-    and memRegStackOverflowCallEx: int
     and memRegSize: int
 
     (* Debugging controls and streams for optimiser. *)

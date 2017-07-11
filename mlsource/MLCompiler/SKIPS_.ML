@@ -152,17 +152,19 @@ struct
 
     fun getList (separator, startsys, lex, each) =
     let
-        fun forList(list, startLoc) =
+        val startLoc = location lex
+        fun forList list =
         let
             val (item, itemLoc) = each()
         in
             (* Add each item to the list.  The final span is from
-               the start to the final location. *)
+               the start to the final location.  Make the list and then
+               reverse it.  That's avoids quadratic performance on long lists. *)
             if testfor (separator, startsys, lex)
-            then forList(list @ [item], startLoc)
-            else (list @ [item], locSpan(startLoc, itemLoc))
+            then forList(item :: list)
+            else (List.rev(item :: list), locSpan(startLoc, itemLoc))
         end
-     in
-        forList ([], location lex)
+    in
+        forList []
     end;
 end (* SKIPS *);

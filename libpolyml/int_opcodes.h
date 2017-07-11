@@ -232,3 +232,5 @@
 #define INSTR_blockMoveByte     0xec
 #define INSTR_blockEqualByte    0xed
 #define INSTR_blockCompareByte  0xee
+#define INSTR_loadUntagged      0xef
+#define INSTR_storeUntagged     0xf0

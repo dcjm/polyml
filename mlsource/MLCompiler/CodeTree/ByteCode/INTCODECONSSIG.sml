@@ -36,7 +36,6 @@ sig
     and opcode_cellLength: opcode
     and opcode_cellFlags: opcode
     and opcode_clearMutable: opcode
-    and opcode_stringLength: opcode
     and opcode_atomicIncr: opcode
     and opcode_atomicDecr: opcode
     and opcode_atomicReset: opcode
@@ -70,7 +69,6 @@ sig
     val opcode_wordMult: opcode
     val opcode_wordDiv: opcode
     val opcode_wordMod: opcode
-    val opcode_setStringLength: opcode
     val opcode_wordAnd: opcode
     val opcode_wordOr: opcode
     val opcode_wordXor: opcode
@@ -116,6 +114,7 @@ sig
     val opcode_loadC64: opcode
     val opcode_loadCFloat: opcode
     val opcode_loadCDouble: opcode
+    val opcode_loadUntagged: opcode
     val opcode_storeMLWord: opcode
     val opcode_storeMLByte: opcode
     val opcode_storeC8: opcode
@@ -124,6 +123,7 @@ sig
     val opcode_storeC64: opcode
     val opcode_storeCFloat: opcode
     val opcode_storeCDouble: opcode
+    val opcode_storeUntagged: opcode
     val opcode_blockMoveWord: opcode
     val opcode_blockMoveByte: opcode
     val opcode_blockEqualByte: opcode

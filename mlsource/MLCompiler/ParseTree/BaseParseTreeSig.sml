@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015 David C.J. Matthews
+    Copyright (c) 2013-2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -258,7 +258,7 @@ sig
          {
            name:          string,
            typeVars:      typeVarForm list,
-           constrs:       {constrName: string, constrArg: typeParsetree option, idLocn: location} list,
+           constrs:       valueConstr list,
            tcon:          typeConstrSet ref,
            nameLoc:       location,
            fullLoc:  location
@@ -310,6 +310,9 @@ sig
     and funpattern = (* The declaration part of a fun binding. *)
         { ident: { name: string, expType: types ref, location: location },
           isInfix: bool, args: parsetree list, constraint: typeParsetree option }
+
+    and valueConstr =
+        {constrName: string, constrArg: typeParsetree option, idLocn: location, constrVal: values ref}
 
     structure Sharing:
     sig

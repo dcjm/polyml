@@ -298,6 +298,7 @@ mkdir_p = @mkdir_p@
 moduledir = @moduledir@
 oldincludedir = @oldincludedir@
 pdfdir = @pdfdir@
+polyc_CFLAGS = @polyc_CFLAGS@
 prefix = @prefix@
 program_transform_name = @program_transform_name@
 psdir = @psdir@
@@ -312,7 +313,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
-SUBDIRS = IntAsIntInf
+SUBDIRS = IntInfAsInt
 all: all-recursive
 
 .SUFFIXES:

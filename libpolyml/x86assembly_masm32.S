@@ -50,7 +50,7 @@ UnusedRestore       DB      ?       ;
 SaveCStack          DWORD   ?       ; Saved C stack pointer
 ThreadId            DWORD   ?       ; My thread id
 StackPtr            DWORD   ?       ; Stack pointer
-ProgramCtr          DWORD   ?
+UnusedProgramCtr    DWORD   ?
 HeapOverFlowCall    DWORD   ?
 StackOverFlowCall   DWORD   ?
 StackOverFlowCallEx DWORD   ?
@@ -108,7 +108,7 @@ X86AsmSwitchToPoly:
     mov     esi,[ArgVector.SaveRSI+ebp]
     mov     edi,[ArgVector.SaveRDI+ebp]
     cld                                     ; Clear this just in case
-    jmp    [ArgVector.ProgramCtr+ebp]       ; Jump to code address
+    ret
 
 ; Code to save the state and switch to C
 ; This saves the full register state.

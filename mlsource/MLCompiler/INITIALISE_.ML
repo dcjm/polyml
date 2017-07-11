@@ -111,6 +111,9 @@ struct
             fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
             fun makeTV    () = mkTypeVar (generalisable, false, false, false)
             fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
+            fun makeTypeVariable() =
+                makeTv {value=emptyType, level=generalisable, equality=false,
+                        nonunifiable=false, printable=false}
             
             (* Make some functions *)
             infixr 5 ->>
@@ -163,14 +166,14 @@ struct
         
         fun makeTypeAbbreviation(name, fullName, typeVars, typeResult, locations) =
             makeTypeConstructor(
-                name, makeTypeFunction(basisDescription fullName, (typeVars, typeResult)),
+                name, typeVars, makeTypeFunction(basisDescription fullName, (typeVars, typeResult)),
                 locations)
 
         (* Make an opaque type and add it to an environment. *)
         fun makeAndDeclareOpaqueType(typeName, fullName, env) =
         let
             val typeconstr =
-                makeTypeConstructor(typeName,
+                makeTypeConstructor(typeName, [],
                     makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription fullName),
                     declInBasis);
         in
@@ -254,6 +257,33 @@ struct
         in
             val () = enterGlobalType  ("ref", TypeConstrSet(refConstr, [refCons]));
             val () = enterGlobalValue ("ref", refCons);
+        end
+        
+        local
+            open BuiltIns
+            fun monoTypePrinter _ = PRETTY.PrettyString "?"
+
+            val idCode =
+                let
+                    open TypeValue
+                    val equalLongWordFn =
+                        mkInlproc(
+                            mkBinary(LargeWordComparison TestEqual, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualLargeWord()", [], 0)
+                    val code =
+                        createTypeValue{
+                            eqCode=equalLongWordFn,
+                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
+                            boxedCode = boxedNever,
+                            sizeCode = singleWord
+                            }
+                in
+                   Global (genCode(code, [], 0) ())
+                end
+        in
+            val largeWordType =
+                makeTypeConstructor("word", [],
+                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
+            val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
         end
 
         val () = enterGlobalType ("exn", TypeConstrSet(exnConstr, []));
@@ -523,7 +553,7 @@ struct
                     ("XWindows",    EXC_XWindows,       String),
                     ("Foreign",     EXC_foreign,        String),
                     ("Thread",      EXC_thread,         String),
-                    ("SysErr",      EXC_syserr,         String ** Option Int)
+                    ("SysErr",      EXC_syserr,         String ** Option LargeWord)
                 ]
         end
 
@@ -532,10 +562,32 @@ struct
            overloaded functions are extracted from them. *)
         local
             val largeIntEnv = makeStructure(globalEnv, "LargeInt")
+            (* The comparison operations take two arbitrary precision ints and
+               a general "compare" function that returns a fixed precision int. *)
+            val compareType =
+                mkProductType[intInfType, intInfType, intInfType ** intInfType ->> fixedIntType] ->> Bool
+            val arithType =
+                mkProductType[intInfType, intInfType, intInfType ** intInfType ->> intInfType] ->> intInfType
             val callQuotRemType = String ->> intInfType ** intInfType ->> intInfType ** intInfType
             val callQuotRem = mkGvar ("callQuotRem", callQuotRemType, quotRemCall, declInBasis)
+
+            fun enterArbitrary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkArbitraryFn oper, declInBasis)
+            in
+                #enterVal largeIntEnv (name, value)
+            end
         in
             val () = #enterType largeIntEnv ("int", TypeConstrSet(intInfConstr, []))
+            (* These functions are used internally. *)
+            val () = enterArbitrary("less", ArbCompare BuiltIns.TestLess, compareType)
+            val () = enterArbitrary("greater", ArbCompare BuiltIns.TestGreater, compareType)
+            val () = enterArbitrary("lessEq", ArbCompare BuiltIns.TestLessEqual, compareType)
+            val () = enterArbitrary("greaterEq", ArbCompare BuiltIns.TestGreaterEqual, compareType)
+            val () = enterArbitrary("add", ArbArith BuiltIns.ArithAdd, arithType)
+            val () = enterArbitrary("subtract", ArbArith BuiltIns.ArithSub, arithType)
+            val () = enterArbitrary("multiply", ArbArith BuiltIns.ArithMult, arithType)
+            
             val () = #enterVal largeIntEnv ("callQuotRem", callQuotRem)
         end
 
@@ -574,29 +626,6 @@ struct
         local
             open BuiltIns
             val largeWordEnv = makeStructure(globalEnv, "LargeWord")
-            fun monoTypePrinter _ = PRETTY.PrettyString "?"
-
-            val idCode =
-                let
-                    open TypeValue
-                    val equalLongWordFn =
-                        mkInlproc(
-                            mkBinary(LargeWordComparison TestEqual, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualLargeWord()", [], 0)
-                    val code =
-                        createTypeValue{
-                            eqCode=equalLongWordFn,
-                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
-                            boxedCode = boxedNever,
-                            sizeCode = singleWord
-                            }
-                in
-                   Global (genCode(code, [], 0) ())
-                end
-            val largeWordType =
-                makeTypeConstructor("word",
-                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
-
-            val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
 
             fun enterBinary(name, oper, typ) =
             let
@@ -797,7 +826,7 @@ struct
             (* Thread.thread type.  This is an equality type with pointer equality. *)
             val threadConstr= 
                 makeTypeConstructor (
-                    "thread", makeFreeId(0, Global (genCode(code, [], 0) ()), true, basisDescription "thread"),
+                    "thread", [], makeFreeId(0, Global (genCode(code, [], 0) ()), true, basisDescription "thread"),
                     [DeclaredAt inBasis])
             val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
             val selfFunction = mkGvar ("self", Unit ->> threadType, getCurrentThreadIdFn, declInBasis)
@@ -984,7 +1013,7 @@ struct
                 end
         in
             val vectorType =
-                makeTypeConstructor("vector",
+                makeTypeConstructor("vector", [makeTypeVariable()],
                     makeFreeId(1, idCode, true, basisDescription "vector"), declInBasis)
             val () = enterGlobalType  ("vector", TypeConstrSet(vectorType, []))
         end
@@ -1033,7 +1062,7 @@ struct
                 end
         in
             val byteVectorType =
-                makeTypeConstructor("byteVector",
+                makeTypeConstructor("byteVector", [],
                     makeFreeId(0, idCode, true, basisDescription "byteVector"), declInBasis)
             val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []))
         end
@@ -1185,7 +1214,7 @@ struct
             (* Entries in the static list.  This type is only used within the implementation of
                DebuggerInterface in the basis library and does not appear in the final signature. *)
             val environEntryConstr =
-                makeTypeConstructor("environEntry",
+                makeTypeConstructor("environEntry", [],
                     makeFreeId(0, defaultEqAndPrintCode(), false,
                         basisDescription "PolyML.DebuggerInterface.environEntry"), declInBasis)
             val environEntryType =
@@ -1355,14 +1384,14 @@ struct
             in
                 (* type 'a tag *)
                 val tagConstr =
-                    makeTypeConstructor("tag",
+                    makeTypeConstructor("tag", [makeTypeVariable()],
                         makeFreeId(1, idCode, false, basisDescription "tag"), declInBasis);
                 val () = #enterType uniStructEnv ("tag", TypeConstrSet(tagConstr, []))
             end
 
             (* type universal *)
             val univConstr =
-                makeTypeConstructor("universal",
+                makeTypeConstructor("universal", [],
                         makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription "universal"), declInBasis);
             val () = #enterType uniStructEnv ("universal",  TypeConstrSet(univConstr, []));
 
@@ -1396,7 +1425,7 @@ struct
             open TYPETREE
             (* Parsetree properties datatype. *)
             val propConstr =
-                makeTypeConstructor("ptProperties",
+                makeTypeConstructor("ptProperties", [],
                     makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), declInBasis);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 

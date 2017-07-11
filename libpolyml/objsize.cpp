@@ -111,24 +111,23 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
     show_size    = show;
 
     // Create a bitmap for each of the areas apart from the IO area
-    nBitmaps = gMem.nlSpaces+gMem.npSpaces+gMem.ncSpaces; //
+    nBitmaps = (unsigned)(gMem.lSpaces.size()+gMem.pSpaces.size()+gMem.cSpaces.size()); //
     bitmaps = new VisitBitmap*[nBitmaps];
     unsigned bm = 0;
-    unsigned j;
-    for (j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        MemSpace *space = gMem.pSpaces[j];
+        MemSpace *space = *i;
         // Permanent areas are filled with objects from the bottom.
         bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
     }
-    for (j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = *i;
         bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
     }
-    for (j = 0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[j];
+        CodeSpace *space = *i;
         bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
     }
     ASSERT(bm == nBitmaps);
@@ -284,9 +283,8 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
     
     PolyObject *p;
 
-    if (OBJ_IS_CODEPTR(w))
-        p = ObjCodePtrToPtr(w.AsCodePtr()); /* find beginning of the code object */
-    else p = w.AsObjPtr();
+    ASSERT(w.IsDataPtr());
+    p = w.AsObjPtr();
     
     /* Have we already visited this object? */
     if (bm->AlreadyVisited(p))

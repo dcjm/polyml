@@ -44,7 +44,6 @@
 	<source name="basis\List.sml" />
 	<source name="basis\ListPair.sml" />
 	<source name="basis\MATH.sml" />
-	<source name="basis\ml_bind.sml" />
 	<source name="basis\MONO_ARRAY.sml" />
 	<source name="basis\MONO_ARRAY_SLICE.sml" />
 	<source name="basis\MONO_VECTOR.sml" />
@@ -74,7 +73,6 @@
 	<source name="basis\STREAM_IO.sml" />
 	<source name="basis\String.sml" />
 	<source name="basis\StringSignatures.sml" />
-	<source name="basis\SysWord.sml" />
 	<source name="basis\Text.sml" />
 	<source name="basis\TextIO.sml" />
 	<source name="basis\TextPrimIO.sml" />
@@ -120,7 +118,6 @@
 	<source name="mlsource\MLCompiler\CodeTree\GCode.x86_64.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\GENCODESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\ml_bind.ML" />
-	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODEGEN_TABLESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\GENERATE_CODE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ICodeSig.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ml_bind.ML" />
@@ -220,15 +217,15 @@
 	<source name="mlsource\MLCompiler\VALUE_OPS.ML" />
 	<source name="mlsource\MLCompiler\ValueOps.ML" />
 	<source name="mlsource\MLCompiler\VALUEOPSSIG.sml" />
-	<source name="modules\IntAsIntInf\ArrayVector.sml" />
-	<source name="modules\IntAsIntInf\Date.sml" />
-	<source name="modules\IntAsIntInf\InputOutput.sml" />
-	<source name="modules\IntAsIntInf\Integer.sml" />
-	<source name="modules\IntAsIntInf\List.sml" />
-	<source name="modules\IntAsIntInf\RealStringCvt.sml" />
-	<source name="modules\IntAsIntInf\ROOT.sml" />
-	<source name="modules\IntAsIntInf\StringChar.sml" />
-	<source name="modules\IntAsIntInf\Word.sml" />
-	<source name="modules\IntAsIntInf\Word64.sml" />
+	<source name="modules\IntInfAsInt\ArrayVector.sml" />
+	<source name="modules\IntInfAsInt\Date.sml" />
+	<source name="modules\IntInfAsInt\InputOutput.sml" />
+	<source name="modules\IntInfAsInt\Integer.sml" />
+	<source name="modules\IntInfAsInt\List.sml" />
+	<source name="modules\IntInfAsInt\RealStringCvt.sml" />
+	<source name="modules\IntInfAsInt\ROOT.sml" />
+	<source name="modules\IntInfAsInt\StringChar.sml" />
+	<source name="modules\IntInfAsInt\Word.sml" />
+	<source name="modules\IntInfAsInt\Word64.sml" />
 	<source name="Root.ML" root="true" />
 </polyproject>

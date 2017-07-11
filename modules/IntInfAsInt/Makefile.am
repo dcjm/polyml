@@ -1,16 +1,16 @@
 AUTOMAKE_OPTIONS=foreign
 
-all-local: IntAsIntInf
+all-local: IntInfAsInt
 
 clean-local:
-	-rm -f IntAsIntInf
+	-rm -f IntInfAsInt
 
 install-exec-local:
 	$(mkdir_p) $(DESTDIR)$(moduledir)
-	$(INSTALL_PROGRAM) IntAsIntInf $(DESTDIR)$(moduledir)
+	$(INSTALL_PROGRAM) IntInfAsInt $(DESTDIR)$(moduledir)
 
 uninstall-local:
-	-rm -f $(DESTDIR)$(moduledir)/IntAsIntInf
+	-rm -f $(DESTDIR)$(moduledir)/IntInfAsInt
 
-IntAsIntInf: ../../poly$(EXEEXT) ROOT.sml
+IntInfAsInt: ../../poly$(EXEEXT) ROOT.sml
 	echo "use \"$(srcdir)/ROOT.sml\";" | ../../poly$(EXEEXT) -q -error-exit

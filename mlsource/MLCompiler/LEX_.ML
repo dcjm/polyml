@@ -457,7 +457,7 @@ struct
              else if isOperator c
                then parseIdent state isOperator (idVal ^ ".")
                  
-             else lexError(state, "invalid identifer - "^ idVal ^ "." ^ str c)
+             else lexError(state, "invalid identifier - "^ idVal ^ "." ^ str c)
         end
         else 
         (

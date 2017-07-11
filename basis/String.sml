@@ -31,16 +31,30 @@ local
         address*address*word*word*word->unit = RunCall.moveBytes
 
     val wordSize : word = LibrarySupport.wordSize
-    
-    fun charAsString(c: char): string =
-    let
-        val v = allocString 0w1
-        val () = RunCall.storeByte(v, wordSize, c)
-        val () = RunCall.clearMutableBit v
+
+    local
+        fun singleCharString(c: word): string =
+        let
+            val v = allocString 0w1
+            val () = RunCall.storeByte(v, wordSize, c)
+            val () = RunCall.clearMutableBit v
+        in
+            v
+        end
+        (* We haven't defined Vector at this stage. *)
+        val charMap = RunCall.allocateWordMemory(0w256, 0wx40, 0w0)
+        val intAsWord: int -> word = RunCall.unsafeCast
+        fun setEntries i =
+            if i < 256
+            then (RunCall.storeWord(charMap, intAsWord i, singleCharString(intAsWord i)); setEntries(i+1))
+            else ();
+        val () = setEntries 0
+        val () = RunCall.clearMutableBit charMap
     in
-        v
+        (* Since we've covered the full range from 0 to 255 we don't need a bounds check. *)
+        fun charAsString (ch: char): string = RunCall.loadWord(charMap, RunCall.unsafeCast ch)
     end
-    
+
     val bcopy: string*string*word*word*word -> unit = RunCall.moveBytes
 
     (* This can be used where we have already checked the range. *)
@@ -352,7 +366,9 @@ local
         let
             val size_s1 = size s1 and size_s2 = size s2
         in
-            byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
+            if size_s1 <= size_s2
+            then byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
+            else false
         end
 
         (* True if s1 is a substring of s2 *)
@@ -443,11 +459,52 @@ local
                 else General.LESS
             end
 
-            val op >= : string*string->bool = (fn i => i >= 0) o compareString
-            and op <= : string*string->bool = (fn i => i <= 0) o compareString
-            and op >  : string*string->bool = (fn i => i > 0) o compareString
-            and op <  : string*string->bool = (fn i => i < 0) o compareString
-        end
+            (* String relational operators.  They could all be defined in terms of "compare" but this
+               generates better code. *)
+            val op >= =
+            fn (s1: string, s2: string) =>
+                let
+                    val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                    val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                in
+                    if test = 0
+                    then s1l >= s2l
+                    else test >= 0
+                end
+
+            and op <= =
+            fn (s1: string, s2: string) =>
+                let
+                    val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                    val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                in
+                    if test = 0
+                    then s1l <= s2l
+                    else test <= 0
+                end
+
+            and op > =
+            fn (s1: string, s2: string) =>
+                let
+                    val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                    val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                in
+                    if test = 0
+                    then s1l > s2l
+                    else test > 0
+                end
+
+            and op < =
+            fn (s1: string, s2: string) =>
+                let
+                    val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                    val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                in
+                    if test = 0
+                    then s1l < s2l
+                    else test < 0
+                end
+         end
 
                    
     end (* String *)
@@ -966,23 +1023,23 @@ in
     
         (* TODO: More efficient version. *)
         fun fromCString "" = SOME "" (* Special case *)
-          | fromCString s =
+        |   fromCString s =
             let
-            val len = sizeAsWord s
-            fun rdr i =
-                if i = len then NONE
-                else SOME(unsafeStringSub(s, i), i+0w1)
-            (* Repeatedly convert escape sequences and accumulate the
-               results in a list. *)
-            fun convChar i =
-                case scanC rdr i of
-                    NONE => []
-                  | SOME(res, j) => res :: convChar j
+                val len = sizeAsWord s
+                fun rdr i =
+                    if i = len then NONE
+                    else SOME(unsafeStringSub(s, i), i+0w1)
+                (* Repeatedly convert escape sequences and accumulate the
+                   results in a list. *)
+                fun convChar i =
+                    case scanC rdr i of
+                        NONE => []
+                      | SOME(res, j) => res :: convChar j
             in
-            (* If we couldn't even get a single character we return NONE. *)
-            case convChar 0w0 of
-                [] => NONE
-              | res => SOME(implode res)
+                (* If we couldn't even get a single character we return NONE. *)
+                case convChar 0w0 of
+                    [] => NONE
+                |   res => SOME(implode res)
             end
     
         (* Install conversion and print functions. *)
@@ -1120,7 +1177,7 @@ in
         fun vector (Array(len, vec)) =
             if len = 0w0 then ""
             else if len = 0w1
-            then (* Single character string is the character itself. *)
+            then (* Single character string. *)
                 charAsString (RunCall.loadByte (vec, 0w0))
             else
             let
@@ -1542,8 +1599,8 @@ in
             in
                 if length = 0 then ""
                 else if length = 1
-                then (* Single character string is the character itself. *)
-                    RunCall.unsafeCast (RunCall.loadByte (vec, intAsWord start))
+                then (* Optimise single character strings. *)
+                    charAsString(RunCall.loadByte (vec, intAsWord start))
                 else
                 let
                     val len = intAsWord length

@@ -508,7 +508,6 @@ struct
                 |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
                 |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
                 |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
-                |   StringLengthWord => genOpcode(opcode_stringLength, cvec)
                 |   AtomicIncrement => genOpcode(opcode_atomicIncr, cvec)
                 |   AtomicDecrement => genOpcode(opcode_atomicDecr, cvec)
                 |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
@@ -560,7 +559,6 @@ struct
                 |   WordShift ShiftRightLogical => genOpcode(opcode_wordShiftRLog, cvec)
                 |   WordShift ShiftRightArithmetic => genOpcode(opcode_wordShiftRArith, cvec)
                  
-                |   SetStringLengthWord => genOpcode(opcode_setStringLength, cvec)
                 |   AllocateByteMemory => genOpcode(opcode_allocByteMem, cvec)
                 
                 |   LargeWordComparison TestEqual => genOpcode(opcode_lgWordEqual, cvec)
@@ -696,6 +694,13 @@ struct
                 decsp(); decsp()
             )
 
+        |   BICLoadOperation { kind=LoadStoreUntaggedUnsigned, address} =>
+            (
+                genNonByteAddress address;
+                genOpcode(opcode_loadUntagged, cvec);
+                decsp(); decsp()
+            )
+
         |   BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}, value } =>
             let
                 (* No index.  We could almost use move_to_vec here except that it leaves
@@ -780,6 +785,14 @@ struct
                 decsp(); decsp(); decsp()
             )
 
+        |   BICStoreOperation { kind=LoadStoreUntaggedUnsigned, address, value} =>
+            (
+                genNonByteAddress address;
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeUntagged, cvec);
+                decsp(); decsp(); decsp()
+            )
+
         |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
             (
                 genByteAddress sourceLeft;
@@ -814,6 +827,12 @@ struct
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockCompareByte, cvec);
                 decsp(); decsp(); decsp(); decsp()
+            )
+       
+       |    BICArbitrary { longCall, ... } =>
+                (* Just use the long-precision case in the interpreted version. *)
+            (
+                gencde (longCall, whereto, tailKind, loopAddr)
             )
 
     in (* body of gencde *) 

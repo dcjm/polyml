@@ -37,7 +37,7 @@ public:
 
 private:
     // ScanAddress overrides
-    virtual void ScanConstant(byte *addrOfConst, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code);
 
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }

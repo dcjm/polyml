@@ -969,17 +969,12 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
  *   
  **********************************************************************/
 
-/* This is backwards compatible with the old code in which toCchar and fromCchar
-   worked on "string" rather than "char".  Since single character strings and
-   chars have the same representation there's no need to change this.
-   DCJM 27/6/01. */
 static Handle toCchar (TaskData *taskData, Handle h)
 {
-    char s[2];
-    Poly_string_to_C(DEREFWORD(h),s,2);
-    mes(("<%c>\n", s[0]));
+    char ch = (char)get_C_int(taskData, UNHANDLE(h));
+    mes(("<%c>\n", ch));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(char));
-    *(char*)DEREFVOL(taskData, UNHANDLE(res)) = s[0];
+    *(char*)DEREFVOL(taskData, UNHANDLE(res)) = ch;
     return res;
 }
 
@@ -987,7 +982,7 @@ static Handle fromCchar (TaskData *taskData, Handle h)
 {
     char c = *(char*)DEREFVOL(taskData, UNHANDLE(h));
     mes(("<%c>\n", c));
-    return SAVE(C_string_to_Poly(taskData, &c,1));
+    return Make_arbitrary_precision(taskData, c & 0xff);
 }
 
 

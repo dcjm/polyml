@@ -176,48 +176,24 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
 // Adds incr to the profile count for the function pointed at by
 // pc or by one of its callers.
 // This is called from a signal handler in the case of time profiling.
-void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED incr)
+void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
 {
-
-    /* The first PC may be valid even if it's not a code pointer */
-    bool is_code = true;
-    PolyWord pc = PolyWord::FromCodePtr(fpc);
-    PolyWord *endStack = taskData->stack->top;
-    
-    /* First try the pc value we have been given - if that fails search down
-       the stack to see if there is a return address we can use. */
-    for (;;)
+    // Check that the pc value is within the heap.  It could be
+    // in the assembly code.
+    PolyObject *codeObj = gMem.FindCodeObject(fpc);
+    if (codeObj)
     {
-        /* Get the address of the code segment from the code pointer */
-        if (pc.IsCodePtr() || is_code)
-        {   
-            is_code = false;
-            
-            // Check that the pc value is within the heap.  It could be
-            // in the assembly code.
-            MemSpace *space = gMem.SpaceForAddress(pc.AsAddress());
-            if (space != 0)
-            {
-                PolyObject *profObject = getProfileObjectForCode(ObjCodePtrToPtr(pc.AsCodePtr()));
-                PLocker locker(&countLock);
-                if (profObject)
-                    profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
-                return;
-            }
-            /* else just fall through and try next candidate address */
-        } /* OBJ_IS_CODEPTR(pc) */
-        
-        /* Find next candidate address */
-        if (sp < endStack)
-            pc = *sp++;
-        else /* Reached bottom of stack without finding valid code pointer */
-        {
-            PLocker locker(&countLock);
-            mainThreadCounts[MTP_USER_CODE] += incr;
-            return;
-        }
-    } /* loop "forever" */
-    /*NOTREACHED*/
+        PolyObject *profObject = getProfileObjectForCode(codeObj);
+        PLocker locker(&countLock);
+        if (profObject)
+            profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
+        return;
+    }
+    // Didn't find it.
+    {
+        PLocker locker(&countLock);
+        mainThreadCounts[MTP_USER_CODE] += incr;
+    }
 }
 
 
@@ -245,7 +221,9 @@ void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
         PolyObject *obj = (PolyObject*)ptr;
         if (obj->ContainsForwardingPtr())
         {
-            // It's a forwarding pointer - get the length from the new location
+            // This used to be necessary when code objects were held in the
+            // general heap.  Now that we only ever scan code and permanent
+            // areas it's probably not needed.
             while (obj->ContainsForwardingPtr())
                 obj = obj->GetForwardingPtr();
             ASSERT(obj->ContainsNormalLengthWord());
@@ -286,18 +264,16 @@ void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
 void ProfileRequest::getResults(void)
 // Print profiling information and reset profile counts.
 {
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        MemSpace *space = gMem.pSpaces[j];
+        MemSpace *space = *i;
         // Permanent areas are filled with objects from the bottom.
         getProfileResults(space->bottom, space->top); // Bottom to top
     }
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        // Local areas only have objects from the allocation pointer to the top.
-        getProfileResults(space->bottom, space->lowerAllocPtr);
-        getProfileResults(space->upperAllocPtr, space->top);
+        CodeSpace *space = *i;
+        getProfileResults(space->bottom, space->top);
     }
 
     {
@@ -373,15 +349,8 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
         otherwise try to find out where we are. */
     if (mainThreadPhase == MTP_USER_CODE)
     {
-        if (taskData)
-        {
-            PolyWord *sp;
-            POLYCODEPTR pc;
-            if (taskData->GetPCandSPFromContext(context, sp, pc))
-                add_count(taskData, pc, sp, 1);
-            else mainThreadCounts[MTP_USER_CODE]++;
-        }
-        else mainThreadCounts[MTP_USER_CODE]++;
+        if (taskData == 0 || ! taskData->AddTimeProfileCount(context))
+            mainThreadCounts[MTP_USER_CODE]++;
         // On Mac OS X all virtual timer interrupts seem to be directed to the root thread
         // so all the counts will be "unknown".
     }
@@ -515,6 +484,8 @@ void ProfileRequest::Perform()
         profileMode = kProfileOff;
         processes->StopProfiling();
         getResults();
+        // Remove all the bitmaps to free up memory
+        gMem.RemoveProfilingBitmaps(); 
         break;
 
     case kProfileTimeThread:
@@ -541,12 +512,16 @@ void ProfileRequest::Perform()
     case kProfileLiveMutables:
         profileMode = kProfileLiveMutables;
         break;
+
+    case kProfileMutexContention:
+        profileMode = kProfileMutexContention;
+        break;
        
     default: /* do nothing */
         break;
     }
-    
-} /* profilerc */
+
+}
 
 struct _entrypts profilingEPT[] =
 {

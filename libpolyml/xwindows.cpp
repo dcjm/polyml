@@ -254,7 +254,7 @@ extern "C" {
 static void RaiseXWindows(TaskData *taskData, const char *s) __attribute__((noreturn));
 
 
-#define ButtonClickMask (((unsigned)1 << 31))
+#define ButtonClickMask (((unsigned)1 << 29))
 
 #define XMASK(m) ((m) &~ButtonClickMask)
 
@@ -4702,7 +4702,7 @@ static void InsertWidgetTimeout
 // N.B.  There may be a GC while in here.
 // This was previously in basicio.cpp but has been moved here
 // since this is the only place it's used now.
-static void process_may_block(TaskData *taskData, int fd, int/* ioCall*/)
+static void process_may_block(TaskData *taskData, int fd)
 {
 #ifdef __CYGWIN__
       static struct timeval poll = {0,1};
@@ -4792,7 +4792,7 @@ static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Disp
             
             if (pending == 0)
             {
-                process_may_block(taskData, display->fd, POLY_SYS_XWindows);
+                process_may_block(taskData, display->fd);
             }
             else /* X Event arrived */
             {
@@ -4816,8 +4816,7 @@ static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Disp
             
             if (pending == 0)
             {
-                process_may_block(taskData, DEREFDISPLAYHANDLE(dsHandle)->display->fd,
-                    POLY_SYS_XWindows);
+                process_may_block(taskData, DEREFDISPLAYHANDLE(dsHandle)->display->fd);
             }
             else
             {

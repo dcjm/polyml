@@ -1,7 +1,7 @@
 /*
     Title:  heapsizing.cpp - parameters to adjust heap size
 
-    Copyright (c) Copyright David C.J. Matthews 2012, 2015
+    Copyright (c) Copyright David C.J. Matthews 2012, 2015, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -273,9 +273,9 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
 
     POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     currentSpaceUsed = wordsRequired;
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        currentSpaceUsed += gMem.lSpaces[i]->allocatedSpace();
+        currentSpaceUsed += (*i)->allocatedSpace();
     }
     // N.B.  Normally currentSpaceUsed will be less than the size of the heap
     // except if wordsRequired is very large.
@@ -583,7 +583,7 @@ bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
     else
     {
         double costMax = costFunction(sizeMax, withSharing, true);
-        while (sizeMax - sizeMin > gMem.DefaultSpaceSize())
+        while (sizeMax > sizeMin + gMem.DefaultSpaceSize())
         {
             POLYUNSIGNED sizeNext = (sizeMin + sizeMax) / 2;
             double cost = costFunction(sizeNext, withSharing, true);

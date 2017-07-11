@@ -100,15 +100,6 @@ unsigned long PExport::getIndex(PolyObject *p)
     }
 }
 
-void PExport::printCodeAddr(byte *q)
-// Address into code.  Either the pc field of a stack segment or
-//  a word + 2 format address.
-{
-    PolyObject *obj = ObjCodePtrToPtr(q);
-    unsigned long a = getIndex(obj);
-    fprintf(exportFile, "$%lu+%" POLYUFMT, a, (POLYUNSIGNED)(q - (byte*)obj));
-}
-
 /* Get the index corresponding to an address. */
 void PExport::printAddress(void *p)
 {
@@ -119,8 +110,6 @@ void PExport::printValue(PolyWord q)
 {
     if (IS_INT(q) || q == PolyWord::FromUnsigned(0))
         fprintf(exportFile, "%" POLYSFMT, UNTAGGED(q));
-    else if (OBJ_IS_CODEPTR(q))
-        printCodeAddr(q.AsCodePtr());
     else
         printAddress(q.AsAddress());
 }
@@ -154,9 +143,6 @@ void PExport::printObject(PolyObject *p)
         /* May be a string, a long format arbitrary precision
            number or a real number. */
         PolyStringObject* ps = (PolyStringObject*)p;
-        /* See if the first word is a possible length.  The length
-           cannot be one because single character strings are
-           represented by the character. */
         /* This is not infallible but it seems to be good enough
            to detect the strings. */
         POLYUNSIGNED bytes = length * sizeof(PolyWord);
@@ -169,7 +155,7 @@ void PExport::printObject(PolyObject *p)
             for (unsigned i = 0; i < ps->length; i++)
             {
                 char ch = ps->chars[i];
-                fprintf(exportFile, "%02x", ch);
+                fprintf(exportFile, "%02x", ch & 0xff);
             }
         }
         else
@@ -247,13 +233,14 @@ void PExport::printObject(PolyObject *p)
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void PExport::ScanConstant(byte *addr, ScanRelocationKind code)
+void PExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
     PolyWord p = GetConstantValue(addr, code);
     // We put in all the values including tagged constants.
-    PolyObject *obj = ObjCodePtrToPtr(addr);
     // Put in the byte offset and the relocation type code.
-    fprintf(exportFile, "%" POLYUFMT ",%d,", (POLYUNSIGNED)(addr - (byte*)obj), code);
+    POLYUNSIGNED offset = (POLYUNSIGNED)(addr - (byte*)base);
+    ASSERT (offset < base->Length() * sizeof(POLYUNSIGNED));
+    fprintf(exportFile, "%" POLYUFMT ",%d,", (POLYUNSIGNED)(addr - (byte*)base), code);
     printValue(p); // The value to plug in.
     fprintf(exportFile, " ");
 }
@@ -543,8 +530,8 @@ bool PImport::DoImport()
     int ch;
     POLYUNSIGNED objNo;
 
-    ASSERT(gMem.npSpaces == 0);
-    ASSERT(gMem.neSpaces == 0);
+    ASSERT(gMem.pSpaces.size() == 0);
+    ASSERT(gMem.eSpaces.size() == 0);
 
     ch = getc(f);
     /* Skip the "Mapping" line. */

@@ -68,11 +68,13 @@
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <winsock2.h>
 #include <tchar.h>
+#define NOMEMORY        ERROR_NOT_ENOUGH_MEMORY
+#undef ENOMEM
 #else
 typedef char TCHAR;
 #define _tgetenv getenv
+#define NOMEMORY ENOMEM
 #endif
-
 
 #include "globals.h"
 #include "sys.h"
@@ -97,6 +99,9 @@ extern "C" {
     POLYEXTERNALSYMBOL void PolyFinish(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL void PolyTerminate(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorName(PolyObject *threadId, PolyWord syserr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorMessage(PolyObject *threadId, PolyWord syserr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorFromString(PolyObject *threadId, PolyWord string);
 }
 
 #define SAVE(x) mdTaskData->saveVec.push(x)
@@ -169,7 +174,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
     case 14: /* Return a string from the environment. */
         {
             TempString buff(args->Word());
-            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", NOMEMORY);
             TCHAR *res = _tgetenv(buff);
             if (res == NULL) raise_syscall(mdTaskData, "Not Found", 0);
             else return SAVE(C_string_to_Poly(mdTaskData, res));
@@ -192,7 +197,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
     case 17: /* Run command. */
         {
             TempString buff(args->Word());
-            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", NOMEMORY);
             int res = -1;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             // Windows.
@@ -255,12 +260,12 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
                             DWORD result;
                             BOOL fResult = GetExitCodeProcess((HANDLE)pid, &result);
                             if (! fResult)
-                                raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
+                                raise_syscall(mdTaskData, "Function system failed", GetLastError());
                             CloseHandle((HANDLE)pid);
                             return Make_fixed_precision(mdTaskData, result);
                         }
                     case WAIT_FAILED:
-                        raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
+                        raise_syscall(mdTaskData, "Function system failed", GetLastError());
                     }
                     // Wait for the process to exit or for the timeout
                     WaitHandle waiter((HANDLE)pid);
@@ -331,67 +336,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
 
         /************ Error codes **************/
 
-    case 2: /* Get the name of a numeric error message. */
-        {
-            char buff[40];
-            int e = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
-            Handle  res;
-            /* First look to see if we have the name in
-               the error table. They should generally all be
-               there. */
-            const char *errorMsg = stringFromErrorCode(e);
-            if (errorMsg != NULL)
-                return SAVE(C_string_to_Poly(mdTaskData, errorMsg));
-            /* We get here if there's an error which isn't in the table. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            /* In the Windows version we may have both errno values
-               and also GetLastError values.  We convert the latter into
-               negative values before returning them. */
-            if (e < 0)
-            {
-                sprintf(buff, "WINERROR%0d", -e);
-                res = SAVE(C_string_to_Poly(mdTaskData, buff));
-                return res;
-            }
-            else
-#endif
-            {
-                sprintf(buff, "ERROR%0d", e);
-                res = SAVE(C_string_to_Poly(mdTaskData, buff));
-            }
-            return res;
-        }
 
-    case 3: /* Get the explanatory message for an error. */
-        {
-            return errorMsg(mdTaskData, get_C_int(mdTaskData, DEREFWORDHANDLE(args)));
-        }
-
-    case 4: /* Try to convert an error string to an error number. */
-        {
-            char buff[40];
-            /* Get the string. */
-            Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
-            /* Look the string up in the table. */
-            int err = 0;
-            if (errorCodeFromString(buff, &err))
-                return Make_arbitrary_precision(mdTaskData, err);
-            /* If we don't find it then it may have been a constructed
-               error name. */
-            if (strncmp(buff, "ERROR", 5) == 0)
-            {
-                int i = atoi(buff+5);
-                if (i > 0) return Make_arbitrary_precision(mdTaskData, i);
-            }
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            if (strncmp(buff, "WINERROR", 8) == 0)
-            {
-                int i = atoi(buff+8);
-                if (i > 0) return Make_arbitrary_precision(mdTaskData, -i);
-            }
-#endif
-            return Make_arbitrary_precision(mdTaskData, 0);
-        }
 
         /************ Directory/file paths **************/
 
@@ -444,7 +389,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
             */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             TempString buff(path);
-            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", NOMEMORY);
             size_t length = _tcslen(buff);
             if (length >= 2 && buff[1] == ':')
             { /* Volume name? */
@@ -650,11 +595,95 @@ void PolyTerminate(PolyObject *threadId, PolyWord arg)
     _exit(i); // Doesn't return.
 }
 
+// Get the name of a numeric error message.
+POLYUNSIGNED PolyProcessEnvErrorName(PolyObject *threadId, PolyWord syserr)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        int e = (int)syserr.AsObjPtr()->Get(0).AsSigned();
+        // First look to see if we have the name in the error table. They should generally all be there.
+        const char *errorMsg = stringFromErrorCode(e);
+        if (errorMsg != NULL)
+            result = taskData->saveVec.push(C_string_to_Poly(taskData, errorMsg));
+        else
+        { // If it isn't in the table.
+            char buff[40];
+            sprintf(buff, "ERROR%0d", e);
+            result = taskData->saveVec.push(C_string_to_Poly(taskData, buff));
+        }
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Get the explanatory message for an error. */
+POLYUNSIGNED PolyProcessEnvErrorMessage(PolyObject *threadId, PolyWord syserr)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = errorMsg(taskData, (int)syserr.AsObjPtr()->Get(0).AsSigned());
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Try to convert an error string to an error number.
+POLYUNSIGNED PolyProcessEnvErrorFromString(PolyObject *threadId, PolyWord string)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        char buff[40];
+        // Get the string.
+        Poly_string_to_C(string, buff, sizeof(buff));
+        // Look the string up in the table.
+        int err = 0;
+        if (errorCodeFromString(buff, &err))
+            result = Make_sysword(taskData, err);
+        else if (strncmp(buff, "ERROR", 5) == 0)
+        // If we don't find it then it may have been a constructed error name.
+            result = Make_sysword(taskData, atoi(buff+5));
+        else result = Make_sysword(taskData, 0); // Return 0w0 if it isn't there.
+
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts processEnvEPT[] =
 {
     { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
     { "PolyTerminate",                  (polyRTSFunction)&PolyTerminate},
     { "PolyProcessEnvGeneral",          (polyRTSFunction)&PolyProcessEnvGeneral},
+    { "PolyProcessEnvErrorName",        (polyRTSFunction)&PolyProcessEnvErrorName},
+    { "PolyProcessEnvErrorMessage",     (polyRTSFunction)&PolyProcessEnvErrorMessage},
+    { "PolyProcessEnvErrorFromString",  (polyRTSFunction)&PolyProcessEnvErrorFromString},
 
     { NULL, NULL} // End of list.
 };

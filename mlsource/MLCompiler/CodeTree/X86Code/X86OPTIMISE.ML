@@ -84,7 +84,13 @@ struct
             (* Branch chaining. If we have a label followed by an unconditional branch set the
                chain entry of the label to destination of the branch. *)
         |   forward((l as JumpLabel(Labels{chain as ref NONE, ...})) ::
-                    (u as UncondBranch(uncondLab as Labels{chain=ref chainL, ...})) :: tl, list, _) =
+                    (u as UncondBranch(uncondLab as Labels{chain=uChain as ref chainL, ...})) :: tl, list, rep) =
+            if chain = uChain
+            then (* We have an infinite loop - we mustn't chain.
+                    This shouldn't really happen - we should have inserted a stack check so the
+                    loop can be interrupted. *)
+                forward(tl, u :: l :: list, rep)
+            else
             (
                 if isSome chainL then chain := chainL else chain := SOME uncondLab;
                 (* It's essential to include the branch in the output at this point.

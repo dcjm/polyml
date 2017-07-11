@@ -46,6 +46,10 @@ struct
         let
             (* Although the datatype values are almost certainly integers it's
                much safer to map them to known values here. *)
+            (* The Basis library documentation does not define what exception is
+               raised here in the event of an error.  convReal in the Real
+               structure expects this to be Fail so will need to be changed
+               if any other exception is raised. *)
             val rv =
                 case r of
                     TO_NEAREST => 0

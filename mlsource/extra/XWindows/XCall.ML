@@ -20,8 +20,12 @@
 structure XCall =
 struct
     exception XWindows = RunCall.XWindows;
-  
-  fun xcall n = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows n
+    
+    local
+        val callX = RunCall.rtsCallFull1 "PolyXWindowsGeneral"
+    in
+        fun xcall n = RunCall.unsafeCast(callX(RunCall.unsafeCast n))
+    end
 
 (* The following XCALL numbers should match those in xcall_numbers.h *)
 (* in the Poly/ML run-time system.                                   *)

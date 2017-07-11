@@ -200,8 +200,6 @@ struct
        It can't be 'a vector which is what we want because of the value restriction. *)
     val emptyVector: word = RunCall.allocateWordMemory(0w0, 0w0, 0w0)
     
-    
-    (* We have a special rts call for this.  It's needed in both LargeInt and IntInf *)
-    val quotRem = LargeInt.callQuotRem "PolyQuotRemArbitrary"
+    val quotRem = LargeInt.quotRem
 end;
 

@@ -186,18 +186,18 @@ void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POL
 // is unable to find a suitable space.
 static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace **dst, bool isMutable, GCTaskId *id)
 {
-    unsigned m = 0;
+    std::vector<LocalMemSpace*>::iterator m = gMem.lSpaces.begin();
     // If we're compressing the space and it's full that's it.
     if (*dst == src)
         return false;
     if (*dst != 0)
     {
         // Find the next space after this
-        while (gMem.lSpaces[m] != *dst) m++;
+        while (*m != *dst) m++;
         m++;
     }
-    for (; m < gMem.nlSpaces; m++) {
-        LocalMemSpace *lSpace = gMem.lSpaces[m];
+    for (; m < gMem.lSpaces.end(); m++) {
+        LocalMemSpace *lSpace = *m;
         if (lSpace == src)
         {
             // The only possibility is to compact this area.
@@ -214,7 +214,7 @@ static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace **dst, bool isMutabl
                 // Change the space.
                 lSpace->spaceOwner = id;
                 *dst = lSpace; // Return the space
-                if (debugOptions & DEBUG_GC)
+                if (debugOptions & DEBUG_GC_ENHANCED)
                     Log("GC: Copy: copying %s cells from %p to %p\n",
                                 isMutable ? "mutable" : "immutable", src, lSpace);
                 return true;
@@ -230,9 +230,9 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
 {
     LocalMemSpace *mutableDest = 0, *immutableDest = 0;
 
-    for (unsigned i = gMem.nlSpaces; i > 0; i--)
+    for (std::vector<LocalMemSpace*>::reverse_iterator i = gMem.lSpaces.rbegin(); i != gMem.lSpaces.rend(); i++)
     {
-        LocalMemSpace *src = gMem.lSpaces[i-1];
+        LocalMemSpace *src = *i;
 
         if (src->spaceOwner == 0)
         {
@@ -244,7 +244,7 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
         else if (src->spaceOwner != id)
             continue;
 
-        if (debugOptions & DEBUG_GC)
+        if (debugOptions & DEBUG_GC_ENHANCED)
             Log("GC: Copy: copying area %p (thread %p) %s \n", src, id, src->spaceTypeString());
 
         // We start at fullGCLowerLimit which is the lowest marked object in the heap
@@ -340,12 +340,11 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
 
 void GCCopyPhase()
 {
-    unsigned j;
     mainThreadPhase = MTP_GCPHASECOMPACT;
 
-    for(j = 0; j < gMem.nlSpaces; j++)
+    for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
+        LocalMemSpace *lSpace = *i;
         POLYUNSIGNED highest = lSpace->wordNo(lSpace->top);
         for (unsigned i = 0; i < NSTARTS; i++)
             lSpace->start[i] = highest;
@@ -366,7 +365,7 @@ void GCCopyPhase()
         // be done is very small one thread could process more than one task.
         // Have to be careful because we use the task ID to decide which space
         // to scan.
-        for (j = 0; j < gpTaskFarm->ThreadCount(); j++)
+        for (unsigned j = 0; j < gpTaskFarm->ThreadCount(); j++)
             gpTaskFarm->AddWorkOrRunNow(&copyAllData, 0, 0);
     }
 

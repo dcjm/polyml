@@ -139,6 +139,17 @@ typedef char TCHAR;
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
+#define TOOMANYFILES ERROR_NO_MORE_FILES
+#define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
+#define STREAMCLOSED ERROR_INVALID_HANDLE
+#define FILEDOESNOTEXIST ERROR_FILE_NOT_FOUND
+#define ERRORNUMBER _doserrno
+#else
+#define TOOMANYFILES EMFILE
+#define NOMEMORY ENOMEM
+#define STREAMCLOSED EBADF
+#define FILEDOESNOTEXIST ENOENT
+#define ERRORNUMBER errno
 #endif
 
 #ifndef O_ACCMODE
@@ -222,7 +233,7 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
            follow Unix here.  */
         if (err == ERROR_BROKEN_PIPE)
             return true; /* At EOF - will not block. */
-        else raiseSyscallError(taskData, -err);
+        else raiseSyscallError(taskData, err);
         /*NOTREACHED*/
     }
 
@@ -252,7 +263,7 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
       selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
       if (selRes > 0) return true; /* Something waiting. */
       else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
-          raiseSyscallError(taskData, errno);
+          raiseSyscallError(taskData, ERRORNUMBER);
       else return false;
 }
 
@@ -411,9 +422,9 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
     while (true) // Repeat only with certain kinds of errors
     {
         TempString cFileName(filename->Word()); // Get file name
-        if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
         Handle str_token = make_stream_entry(taskData);
-        if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
         POLYUNSIGNED stream_no = STREAMID(str_token);
         int stream = _topen(cFileName, mode, access);
 
@@ -451,13 +462,13 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
         case EMFILE: /* too many open files */
             {
                 if (emfileFlag) /* Previously had an EMFILE error. */
-                    raise_syscall(taskData, "Cannot open", EMFILE);
+                    raise_syscall(taskData, "Cannot open", TOOMANYFILES);
                 emfileFlag = true;
                 FullGC(taskData); /* May clear emfileFlag if we close a file. */
                 continue;
             }
         default:
-            raise_syscall(taskData, "Cannot open", errno);
+            raise_syscall(taskData, "Cannot open", ERRORNUMBER);
             /*NOTREACHED*/
             return 0;
         }
@@ -502,7 +513,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         while (true) {
             strm = get_stream(DEREFHANDLE(stream));
             /* Raise an exception if the stream has been closed. */
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (isAvailable(taskData, strm))
                 break;
             WaitStream waiter(strm);
@@ -528,24 +539,18 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
         ssize_t haveRead;
 #endif
-        int err;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (isConsole(strm))
-        {
             haveRead = getConsoleInput((char*)base+offset, length);
-            err = errno;
-        }
         else
 #endif
-        { // Unix and Windows other than console.
+            // Unix and Windows other than console.
             haveRead = read(fd, base+offset, length);
-            err = errno;
-        }
         if (haveRead >= 0)
             return Make_fixed_precision(taskData, haveRead); // Success.
         // If it failed because it was interrupted keep trying otherwise it's an error.
-        if (err != EINTR)
-            raise_syscall(taskData, "Error while reading", err);
+        if (errno != EINTR)
+            raise_syscall(taskData, "Error while reading", ERRORNUMBER);
     }
 }
 
@@ -574,7 +579,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         while (true) {
             strm = get_stream(DEREFHANDLE(stream));
             /* Raise an exception if the stream has been closed. */
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (isAvailable(taskData, strm))
                 break;
             WaitStream waiter(strm);
@@ -592,21 +597,15 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         // stack exhaustion.  We limit the space to 100k. */
         if (length > 102400) length = 102400;
         byte *buff = (byte*)malloc(length);
-        if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", ENOMEM);
+        if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", NOMEMORY);
 
-        int err;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (isConsole(strm))
-        {
             haveRead = getConsoleInput((char*)buff, length);
-            err = errno;
-        }
         else
 #endif
-        { // Unix and Windows other than console.
+            // Unix and Windows other than console.
             haveRead = read(fd, buff, length);
-            err = errno;
-        }
         if (haveRead >= 0)
         {
             Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
@@ -615,8 +614,8 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         }
         free(buff);
         // If it failed because it was interrupted keep trying otherwise it's an error.
-        if (err != EINTR)
-            raise_syscall(taskData, "Error while reading", err);
+        if (errno != EINTR)
+            raise_syscall(taskData, "Error while reading", ERRORNUMBER);
     }
 }
 
@@ -638,7 +637,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     PIOSTRUCT       strm = get_stream(stream->WordP());
     byte    ch;
     /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
     /* We don't actually handle cases of blocking on output. */
     byte *toWrite;
@@ -654,7 +653,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     }
     else toWrite = base.AsObjPtr()->AsBytePtr();
     haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
-    if (haveWritten < 0) raise_syscall(taskData, "Error while writing", errno);
+    if (haveWritten < 0) raise_syscall(taskData, "Error while writing", ERRORNUMBER);
 
     return Make_fixed_precision(taskData, haveWritten);
 }
@@ -664,7 +663,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
 static bool canOutput(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* There's no way I can see of doing this in Windows. */
@@ -684,7 +683,7 @@ static bool canOutput(TaskData *taskData, Handle stream)
     FD_SET(strm->device.ioDesc, &write_fds);
     sel = select(FD_SETSIZE,&read_fds,&write_fds,&except_fds,&poll);
     if (sel < 0 && errno != EINTR)
-        raise_syscall(taskData, "select failed", errno);
+        raise_syscall(taskData, "select failed", ERRORNUMBER);
     return sel > 0;
 #endif
 }
@@ -693,7 +692,7 @@ static long seekStream(TaskData *taskData, PIOSTRUCT strm, long pos, int origin)
 {
     long lpos;
     lpos = lseek(strm->device.ioDesc, pos, origin);
-    if (lpos < 0) raise_syscall(taskData, "Position error", errno);
+    if (lpos < 0) raise_syscall(taskData, "Position error", ERRORNUMBER);
     return lpos;
 }
 
@@ -702,13 +701,13 @@ static long seekStream(TaskData *taskData, PIOSTRUCT strm, long pos, int origin)
 static Handle bytesAvailable(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
     /* Remember our original position, seek to the end, then seek back. */
     long original = seekStream(taskData, strm, 0L, SEEK_CUR);
     long endOfStream = seekStream(taskData, strm, 0L, SEEK_END);
     if (seekStream(taskData, strm, original, SEEK_SET) != original) 
-        raise_syscall(taskData, "Position error", errno);
+        raise_syscall(taskData, "Position error", ERRORNUMBER);
     return Make_fixed_precision(taskData, endOfStream-original);
 }
 
@@ -725,7 +724,7 @@ static Handle bytesAvailable(TaskData *taskData, Handle stream)
 static Handle fileKind(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         HANDLE hTest;
@@ -748,7 +747,7 @@ static Handle fileKind(TaskData *taskData, Handle stream)
 #else
     {
         struct stat statBuff;
-        if (fstat(strm->device.ioDesc, &statBuff) < 0) raise_syscall(taskData, "Stat failed", errno);
+        if (fstat(strm->device.ioDesc, &statBuff) < 0) raise_syscall(taskData, "Stat failed", ERRORNUMBER);
         switch (statBuff.st_mode & S_IFMT)
         {
         case S_IFIFO:
@@ -826,7 +825,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
             PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
             taskData->saveVec.reset(marker);
             int bits = get_C_int(taskData, bitVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             
             if (isSocket(strm))
             {
@@ -920,13 +919,13 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         {
             PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
             int bits = UNTAGGED(bitVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (bits & POLL_BIT_IN) FD_SET(strm->device.ioDesc, &readFds);
             if (bits & POLL_BIT_OUT) FD_SET(strm->device.ioDesc, &writeFds);
         }
         /* Simply check the status without blocking. */
         if (nDesc > 0) selectRes = select(FD_SETSIZE, &readFds, &writeFds, &exceptFds, &poll);
-        if (selectRes < 0) raise_syscall(taskData, "select failed", errno);
+        if (selectRes < 0) raise_syscall(taskData, "select failed", ERRORNUMBER);
         /* What if nothing was ready? */
         if (selectRes == 0)
         {
@@ -948,7 +947,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                        we must return, otherwise we block. */
                     taskData->saveVec.reset(hSave);
                     if (gettimeofday(&tv, NULL) != 0)
-                        raise_syscall(taskData, "gettimeofday failed", errno);
+                        raise_syscall(taskData, "gettimeofday failed", ERRORNUMBER);
                     if ((unsigned long)tv.tv_sec > secs ||
                         ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
                         break;
@@ -989,7 +988,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         {
             PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
             POLYUNSIGNED bits = UNTAGGED(bitVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             fds[i].fd = strm->device.ioDesc;
             fds[i].events = 0;
             if (bits & POLL_BIT_IN) fds[i].events |= POLLIN; /* | POLLRDNORM??*/
@@ -999,7 +998,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         }
         /* Poll the descriptors. */
         if (nDesc > 0) pollRes = poll(fds, nDesc, 0);
-        if (pollRes < 0) raise_syscall(taskData, "poll failed", errno);
+        if (pollRes < 0) raise_syscall(taskData, "poll failed", ERRORNUMBER);
         /* What if nothing was ready? */
         if (pollRes == 0)
         {
@@ -1022,7 +1021,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* If the timeout time is earlier than the current time
                        we must return, otherwise we block. */
                     if (gettimeofday(&tv, NULL) != 0)
-                        raise_syscall(taskData, "gettimeofday failed", errno);
+                        raise_syscall(taskData, "gettimeofday failed", ERRORNUMBER);
                     if ((unsigned long)tv.tv_sec > secs ||
                         ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
                         break;
@@ -1059,7 +1058,7 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
     while (1) // Only certain errors
     {
         Handle str_token = make_stream_entry(taskData);
-        if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
         POLYUNSIGNED stream_no    = STREAMID(str_token);
         PIOSTRUCT strm = &basic_io_vector[stream_no];
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -1067,20 +1066,20 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
             // Get the directory name but add on two characters for the \* plus one for the NULL.
             POLYUNSIGNED length = PolyStringLength(dirname->Word());
             TempString dirName((TCHAR*)malloc((length + 3)*sizeof(TCHAR)));
-            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             Poly_string_to_C(dirname->Word(), dirName, length+2);
             // Tack on \* to the end so that we find all files in the directory.
             lstrcat(dirName, _T("\\*"));
             HANDLE hFind = FindFirstFile(dirName, &strm->device.directory.lastFind);
             if (hFind == INVALID_HANDLE_VALUE)
-                raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
+                raise_syscall(taskData, "FindFirstFile failed", GetLastError());
             strm->device.directory.hFind = hFind;
             /* There must be at least one file which matched. */
             strm->device.directory.fFindSucceeded = 1;
         }
 #else
         TempString dirName(dirname->Word());
-        if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
         DIR *dirp = opendir(dirName);
         if (dirp == NULL)
         {
@@ -1092,13 +1091,13 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
             case EMFILE:
                 {
                     if (emfileFlag) /* Previously had an EMFILE error. */
-                        raise_syscall(taskData, "Cannot open", EMFILE);
+                        raise_syscall(taskData, "Cannot open", TOOMANYFILES);
                     emfileFlag = true;
                     FullGC(taskData); /* May clear emfileFlag if we close a file. */
                     continue;
                 }
             default:
-                raise_syscall(taskData, "opendir failed", errno);
+                raise_syscall(taskData, "opendir failed", ERRORNUMBER);
             }
         }
         strm->device.ioDir = dirp;
@@ -1117,7 +1116,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
     Handle result = NULL;
 #endif
     /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* The next entry to read is already in the buffer. FindFirstFile
        both opens the directory and returns the first entry. If
@@ -1163,7 +1162,7 @@ Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
     /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* There's no rewind - close and reopen. */
@@ -1171,13 +1170,13 @@ Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
         strm->ioBits = 0;
         POLYUNSIGNED length = PolyStringLength(dirname->Word());
         TempString dirName((TCHAR*)malloc((length + 3)*sizeof(TCHAR)));
-        if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
         Poly_string_to_C(dirname->Word(), dirName, length+2);
         // Tack on \* to the end so that we find all files in the directory.
         lstrcat(dirName, _T("\\*"));
         HANDLE hFind = FindFirstFile(dirName, &strm->device.directory.lastFind);
         if (hFind == INVALID_HANDLE_VALUE)
-            raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
+            raise_syscall(taskData, "FindFirstFile failed", GetLastError());
         strm->device.directory.hFind = hFind;
         /* There must be at least one file which matched. */
         strm->device.directory.fFindSucceeded = 1;
@@ -1195,13 +1194,13 @@ static Handle change_dirc(TaskData *taskData, Handle name)
 /* Change working directory. */
 {
     TempString cDirName(name->Word());
-    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (SetCurrentDirectory(cDirName) == FALSE)
-       raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError());
+       raise_syscall(taskData, "SetCurrentDirectory failed", GetLastError());
 #else
     if (chdir(cDirName) != 0)
-        raise_syscall(taskData, "chdir failed", errno);
+        raise_syscall(taskData, "chdir failed", ERRORNUMBER);
 #endif
     return SAVE(TAGGED(0));
 }
@@ -1229,12 +1228,12 @@ POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
 Handle isDir(TaskData *taskData, Handle name)
 {
     TempString cDirName(name->Word());
-    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         DWORD dwRes = GetFileAttributes(cDirName);
         if (dwRes == 0xFFFFFFFF)
-            raise_syscall(taskData, "GetFileAttributes failed", -(int)GetLastError());
+            raise_syscall(taskData, "GetFileAttributes failed", GetLastError());
         if (dwRes & FILE_ATTRIBUTE_DIRECTORY)
             return Make_fixed_precision(taskData, 1);
         else return Make_fixed_precision(taskData, 0);
@@ -1243,7 +1242,7 @@ Handle isDir(TaskData *taskData, Handle name)
     {
         struct stat fbuff;
         if (stat(cDirName, &fbuff) != 0)
-            raise_syscall(taskData, "stat failed", errno);
+            raise_syscall(taskData, "stat failed", ERRORNUMBER);
         if ((fbuff.st_mode & S_IFMT) == S_IFDIR)
             return Make_fixed_precision(taskData, 1);
         else return Make_fixed_precision(taskData, 0);
@@ -1259,37 +1258,37 @@ Handle fullPath(TaskData *taskData, Handle filename)
     /* Special case of an empty string. */
     if (PolyStringLength(filename->Word()) == 0) cFileName = _tcsdup(_T("."));
     else cFileName = Poly_string_to_T_alloc(filename->Word());
-    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         // Get the length
         DWORD dwRes = GetFullPathName(cFileName, 0, NULL, NULL);
         if (dwRes == 0)
-            raise_syscall(taskData, "GetFullPathName failed", -(int)GetLastError());
+            raise_syscall(taskData, "GetFullPathName failed", GetLastError());
         TempString resBuf((TCHAR*)malloc(dwRes * sizeof(TCHAR)));
-        if (resBuf == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        if (resBuf == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
         // When the length is enough the result is the length excluding the null
         DWORD dwRes1 = GetFullPathName(cFileName, dwRes, resBuf, NULL);
         if (dwRes1 == 0 || dwRes1 >= dwRes)
-            raise_syscall(taskData, "GetFullPathName failed", -(int)GetLastError());
+            raise_syscall(taskData, "GetFullPathName failed", GetLastError());
         /* Check that the file exists.  GetFullPathName doesn't do that. */
         dwRes = GetFileAttributes(resBuf);
         if (dwRes == 0xffffffff)
-            raise_syscall(taskData, "File does not exist", ENOENT);
+            raise_syscall(taskData, "File does not exist", FILEDOESNOTEXIST);
         return(SAVE(C_string_to_Poly(taskData, resBuf)));
     }
 #else
     {
         TempCString resBuf(realpath(cFileName, NULL));
         if (resBuf == NULL)
-            raise_syscall(taskData, "realpath failed", errno);
+            raise_syscall(taskData, "realpath failed", ERRORNUMBER);
         /* Some versions of Unix don't check the final component
            of a file.  To be consistent try doing a "stat" of
            the resulting string to check it exists. */
         struct stat fbuff;
         if (stat(resBuf, &fbuff) != 0)
-            raise_syscall(taskData, "stat failed", errno);
+            raise_syscall(taskData, "stat failed", ERRORNUMBER);
         return(SAVE(C_string_to_Poly(taskData, resBuf)));
     }
 #endif
@@ -1300,7 +1299,7 @@ Handle fullPath(TaskData *taskData, Handle filename)
 Handle modTime(TaskData *taskData, Handle filename)
 {
     TempString cFileName(filename->Word());
-    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* There are two ways to get this information.
@@ -1315,10 +1314,10 @@ Handle modTime(TaskData *taskData, Handle filename)
         const TCHAR *p;
         for(p = cFileName; *p; p++)
             if (*p == '*' || *p == '?')
-                raise_syscall(taskData, "Invalid filename", EBADF);
+                raise_syscall(taskData, "Invalid filename", STREAMCLOSED);
         hFind = FindFirstFile(cFileName, &wFind);
         if (hFind == INVALID_HANDLE_VALUE)
-            raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
+            raise_syscall(taskData, "FindFirstFile failed", GetLastError());
         FindClose(hFind);
         return Make_arb_from_Filetime(taskData, wFind.ftLastWriteTime);
     }
@@ -1326,7 +1325,7 @@ Handle modTime(TaskData *taskData, Handle filename)
     {
         struct stat fbuff;
         if (stat(cFileName, &fbuff) != 0)
-            raise_syscall(taskData, "stat failed", errno);
+            raise_syscall(taskData, "stat failed", ERRORNUMBER);
         /* Convert to microseconds. */
         return Make_arb_from_pair_scaled(taskData, STAT_SECS(&fbuff,m),
                                          STAT_USECS(&fbuff,m), 1000000);
@@ -1338,7 +1337,7 @@ Handle modTime(TaskData *taskData, Handle filename)
 Handle fileSize(TaskData *taskData, Handle filename)
 {
     TempString cFileName(filename->Word());
-    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* Similar to modTime*/
@@ -1347,10 +1346,10 @@ Handle fileSize(TaskData *taskData, Handle filename)
         const TCHAR *p;
         for(p = cFileName; *p; p++)
             if (*p == '*' || *p == '?')
-                raise_syscall(taskData, "Invalid filename", EBADF);
+                raise_syscall(taskData, "Invalid filename", STREAMCLOSED);
         hFind = FindFirstFile(cFileName, &wFind);
         if (hFind == INVALID_HANDLE_VALUE)
-            raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
+            raise_syscall(taskData, "FindFirstFile failed", GetLastError());
         FindClose(hFind);
         return Make_arb_from_32bit_pair(taskData, wFind.nFileSizeHigh, wFind.nFileSizeLow);
     }
@@ -1358,7 +1357,7 @@ Handle fileSize(TaskData *taskData, Handle filename)
     {
     struct stat fbuff;
     if (stat(cFileName, &fbuff) != 0)
-        raise_syscall(taskData, "stat failed", errno);
+        raise_syscall(taskData, "stat failed", ERRORNUMBER);
     return Make_arbitrary_precision(taskData, fbuff.st_size);
     }
 #endif
@@ -1368,7 +1367,7 @@ Handle fileSize(TaskData *taskData, Handle filename)
 Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
 {
     TempString cFileName(fileName->Word());
-    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* The only way to set the time is to open the file and
@@ -1382,13 +1381,13 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
         HANDLE hFile = CreateFile(cFileName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
                     FILE_ATTRIBUTE_NORMAL, NULL);
         if (hFile == INVALID_HANDLE_VALUE)
-            raise_syscall(taskData, "CreateFile failed", -(int)GetLastError());
+            raise_syscall(taskData, "CreateFile failed", GetLastError());
         /* Set the file time. */
         if (!SetFileTime(hFile, NULL, &ft, &ft))
         {
             int nErr = GetLastError();
             CloseHandle(hFile);
-            raise_syscall(taskData, "SetFileTime failed", -nErr);
+            raise_syscall(taskData, "SetFileTime failed", nErr);
         }
         CloseHandle(hFile);
     }
@@ -1407,7 +1406,7 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
         times[0].tv_sec = times[1].tv_sec = secs;
         times[0].tv_usec = times[1].tv_usec = usecs;
         if (utimes(cFileName, times) != 0)
-            raise_syscall(taskData, "utimes failed", errno);
+            raise_syscall(taskData, "utimes failed", ERRORNUMBER);
     }
 #endif
     return Make_fixed_precision(taskData, 0);
@@ -1417,13 +1416,13 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
 Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
 {
     TempString oldName(oldFileName->Word()), newName(newFileName->Word());
-    if (oldName == 0 || newName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (oldName == 0 || newName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (! MoveFileEx(oldName, newName, MOVEFILE_REPLACE_EXISTING))
-        raise_syscall(taskData, "MoveFileEx failed", -(int)GetLastError());
+        raise_syscall(taskData, "MoveFileEx failed", GetLastError());
 #else
     if (rename(oldName, newName) != 0)
-        raise_syscall(taskData, "rename failed", errno);
+        raise_syscall(taskData, "rename failed", ERRORNUMBER);
 #endif
     return Make_fixed_precision(taskData, 0);
 }
@@ -1437,7 +1436,7 @@ Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
 Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
 {
     TempString fileName(name->Word());
-    if (fileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (fileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     int rts = get_C_int(taskData, DEREFWORD(rights));
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -1526,7 +1525,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 16: /* See if we can get some input. */
         {
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             return Make_fixed_precision(taskData, isAvailable(taskData, str) ? 1 : 0);
         }
 
@@ -1539,7 +1538,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
                for the availability of random access so it should raise an
                exception if setFilePos or endFilePos would fail. */
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             long pos = seekStream(taskData, str, 0L, SEEK_CUR);
             return Make_arbitrary_precision(taskData, pos);
@@ -1549,7 +1548,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         {
             long position = (long)get_C_long(taskData, DEREFWORD(args));
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             (void)seekStream(taskData, str, position, SEEK_SET);
             return Make_arbitrary_precision(taskData, 0);
@@ -1558,13 +1557,13 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 20: /* Return position at end of stream. */
         {
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             /* Remember our original position, seek to the end, then seek back. */
             long original = seekStream(taskData, str, 0L, SEEK_CUR);
             long endOfStream = seekStream(taskData, str, 0L, SEEK_END);
             if (seekStream(taskData, str, original, SEEK_SET) != original) 
-                raise_syscall(taskData, "Position error", errno);
+                raise_syscall(taskData, "Position error", ERRORNUMBER);
             return Make_arbitrary_precision(taskData, endOfStream);
         }
 
@@ -1586,7 +1585,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         processes->TestAnyEvents(taskData);
         while (true) {
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (isAvailable(taskData, str))
                 return Make_fixed_precision(taskData, 0);
             WaitStream waiter(str);
@@ -1613,7 +1612,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
            stdIn, stdOut and stdErr. */
         {
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             return Make_fixed_precision(taskData, str->device.ioDesc);
         }
 
@@ -1630,7 +1629,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
             }
             /* Have to make a new entry. */
             Handle str_token = make_stream_entry(taskData);
-            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             POLYUNSIGNED stream_no    = STREAMID(str_token);
             str = &basic_io_vector[stream_no];
             str->device.ioDesc = get_C_int(taskData, DEREFWORD(args));
@@ -1662,27 +1661,27 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             DWORD space = GetCurrentDirectory(0, NULL);
             if (space == 0)
-               raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
+               raise_syscall(taskData, "GetCurrentDirectory failed", GetLastError());
             TempString buff((TCHAR*)malloc(space * sizeof(TCHAR)));
-            if (buff == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             if (GetCurrentDirectory(space, buff) == 0)
-                raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
+                raise_syscall(taskData, "GetCurrentDirectory failed", GetLastError());
             return SAVE(C_string_to_Poly(taskData, buff));
 #else
             size_t size = 4096;
             TempString string_buffer((TCHAR *)malloc(size * sizeof(TCHAR)));
-            if (string_buffer == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (string_buffer == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             TCHAR *cwd;
             while ((cwd = getcwd(string_buffer, size)) == NULL && errno == ERANGE) {
                 if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "getcwd needs too large a buffer");
                 size *= 2;
                 TCHAR *new_buf = (TCHAR *)realloc(string_buffer, size * sizeof(TCHAR));
-                if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
                 string_buffer = new_buf;
             }
 
             if (cwd == NULL)
-               raise_syscall(taskData, "getcwd failed", errno);
+               raise_syscall(taskData, "getcwd failed", ERRORNUMBER);
             return SAVE(C_string_to_Poly(taskData, cwd));
 #endif
         }
@@ -1690,13 +1689,13 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 55: /* Create a new directory. */
         {
             TempString dirName(args->Word());
-            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (! CreateDirectory(dirName, NULL))
-               raise_syscall(taskData, "CreateDirectory failed", -(int)GetLastError());
+               raise_syscall(taskData, "CreateDirectory failed", GetLastError());
 #else
             if (mkdir(dirName, 0777) != 0)
-                raise_syscall(taskData, "mkdir failed", errno);
+                raise_syscall(taskData, "mkdir failed", ERRORNUMBER);
 #endif
 
             return Make_fixed_precision(taskData, 0);
@@ -1705,13 +1704,13 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 56: /* Delete a directory. */
         {
             TempString dirName(args->Word());
-            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (! RemoveDirectory(dirName))
-               raise_syscall(taskData, "RemoveDirectory failed", -(int)GetLastError());
+               raise_syscall(taskData, "RemoveDirectory failed", GetLastError());
 #else
             if (rmdir(dirName) != 0)
-                raise_syscall(taskData, "rmdir failed", errno);
+                raise_syscall(taskData, "rmdir failed", ERRORNUMBER);
 #endif
 
             return Make_fixed_precision(taskData, 0);
@@ -1723,19 +1722,19 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 58: /* Test for symbolic link. */
         {
             TempString fileName(args->Word());
-            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             {
                 DWORD dwRes = GetFileAttributes(fileName);
                 if (dwRes == 0xFFFFFFFF)
-                    raise_syscall(taskData, "GetFileAttributes failed", -(int)GetLastError());
+                    raise_syscall(taskData, "GetFileAttributes failed", GetLastError());
                 return Make_fixed_precision(taskData, (dwRes & FILE_ATTRIBUTE_REPARSE_POINT) ? 1:0);
             }
 #else
             {
             struct stat fbuff;
                 if (lstat(fileName, &fbuff) != 0)
-                    raise_syscall(taskData, "stat failed", errno);
+                    raise_syscall(taskData, "stat failed", ERRORNUMBER);
                 return Make_fixed_precision(taskData, 
                         ((fbuff.st_mode & S_IFMT) == S_IFLNK) ? 1 : 0);
             }
@@ -1752,21 +1751,21 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 #else
             int nLen;
             TempString linkName(args->Word());
-            if (linkName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (linkName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
             size_t size = 4096;
             TempString resBuf((TCHAR *)malloc(size * sizeof(TCHAR)));
-            if (resBuf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (resBuf == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             // nLen is signed, so cast size to ssize_t to perform signed
             // comparison, avoiding an infinite loop when nLen is -1.
             while ((nLen = readlink(linkName, resBuf, size)) >= (ssize_t) size) {
                 size *= 2;
                 if (size > std::numeric_limits<ssize_t>::max()) raise_fail(taskData, "readlink needs too large a buffer");
                 TCHAR *newBuf = (TCHAR *)realloc(resBuf, size * sizeof(TCHAR));
-                if (newBuf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                if (newBuf == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
                 resBuf = newBuf;
             }
-            if (nLen < 0) raise_syscall(taskData, "readlink failed", errno);
+            if (nLen < 0) raise_syscall(taskData, "readlink failed", ERRORNUMBER);
             return(SAVE(C_string_to_Poly(taskData, resBuf, nLen)));
 #endif
         }
@@ -1786,13 +1785,13 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 64: /* Delete a file. */
         {
             TempString fileName(args->Word());
-            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (! DeleteFile(fileName))
-               raise_syscall(taskData, "DeleteFile failed", 0-GetLastError());
+               raise_syscall(taskData, "DeleteFile failed", GetLastError());
 #else
             if (unlink(fileName) != 0)
-                raise_syscall(taskData, "unlink failed", errno);
+                raise_syscall(taskData, "unlink failed", ERRORNUMBER);
 #endif
 
             return Make_fixed_precision(taskData, 0);
@@ -1809,22 +1808,22 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             DWORD dwSpace = GetTempPath(0, NULL);
             if (dwSpace == 0)
-                raise_syscall(taskData, "GetTempPath failed", -(int)(GetLastError()));
+                raise_syscall(taskData, "GetTempPath failed", GetLastError());
             TempString buff((TCHAR*)malloc((dwSpace + 12)*sizeof(TCHAR)));
-            if (buff == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             if (GetTempPath(dwSpace, buff) == 0)
-                raise_syscall(taskData, "GetTempPath failed", -(int)(GetLastError()));
+                raise_syscall(taskData, "GetTempPath failed", GetLastError());
             lstrcat(buff, _T("MLTEMPXXXXXX"));
 #else
             const char *template_subdir =  "/MLTEMPXXXXXX";
 #ifdef P_tmpdir
             TempString buff((TCHAR *)malloc(strlen(P_tmpdir) + strlen(template_subdir) + 1));
-            if (buff == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             strcpy(buff, P_tmpdir);
 #else
             const char *tmpdir = "/tmp";
             TempString buff((TCHAR *)malloc(strlen(tmpdir) + strlen(template_subdir) + 1));
-            if (buff == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             strcpy(buff, tmpdir);
 #endif
             strcat(buff, template_subdir);
@@ -1836,16 +1835,16 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
             // mkstemp generally does this anyway.
             mode_t oldMask = umask(0077);
             int fd = mkstemp(buff);
-            int wasError = errno;
+            int wasError = ERRORNUMBER;
             (void)umask(oldMask);
             if (fd != -1) close(fd);
             else raise_syscall(taskData, "mkstemp failed", wasError);
 #else
             if (_tmktemp(buff) == 0)
-                raise_syscall(taskData, "mktemp failed", errno);
+                raise_syscall(taskData, "mktemp failed", ERRORNUMBER);
             int fd = _topen(buff, O_RDWR | O_CREAT | O_EXCL, 00600);
             if (fd != -1) close(fd);
-            else raise_syscall(taskData, "Temporary file creation failed", errno);
+            else raise_syscall(taskData, "Temporary file creation failed", ERRORNUMBER);
 #endif
             Handle res = SAVE(C_string_to_Poly(taskData, buff));
             return res;
@@ -1861,9 +1860,9 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 #else
             struct stat fbuff;
             TempString fileName(args->Word());
-            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             if (stat(fileName, &fbuff) != 0)
-                raise_syscall(taskData, "stat failed", errno);
+                raise_syscall(taskData, "stat failed", ERRORNUMBER);
             /* Assume that inodes are always non-negative. */
             return Make_arbitrary_precision(taskData, fbuff.st_ino);
 #endif

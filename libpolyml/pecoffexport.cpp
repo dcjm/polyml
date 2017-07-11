@@ -145,7 +145,7 @@ void PECOFFExport::writeSymbol(const char *symbolName, __int32 value, int sectio
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void PECOFFExport::ScanConstant(byte *addr, ScanRelocationKind code)
+void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
     IMAGE_RELOCATION reloc;
     PolyWord p = GetConstantValue(addr, code);

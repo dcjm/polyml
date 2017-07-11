@@ -3,7 +3,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2015 David C.J. Matthews
+    Copyright (c) 2000-9, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,6 +39,7 @@ sig
     type funpattern
     type codeBinding
     type level
+    type valueConstr
   
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
@@ -117,9 +118,8 @@ sig
   val mkAbstypeDeclaration :
       datatypebind list * typebind list * parsetree list * location -> parsetree;
   val mkTypeBinding : string * typeVarForm list * typeParsetree option * bool * location * location -> typebind;
-  val mkDatatypeBinding :
-    string * typeVarForm list *
-        {constrName: string, constrArg: typeParsetree option, idLocn: location} list * location * location -> datatypebind;
+  val mkDatatypeBinding : string * typeVarForm list * valueConstr list * location * location -> datatypebind
+  val mkValueConstr : string * typeParsetree option * location -> valueConstr
   val mkExBinding : string * parsetree * typeParsetree option * location * location -> exbind;
   val mkLabelledTree : labelRecEntry list * bool * location -> parsetree;
   val mkLabelRecEntry: string * location * parsetree * location -> labelRecEntry

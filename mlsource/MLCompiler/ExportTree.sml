@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2015 David C.J. Matthews
+    Copyright (c) 2009, 2015, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -106,7 +106,8 @@ struct
     (* Tag used to indicate the root tree node in the compiler arguments. *)
     val rootTreeTag: navigation Universal.tag = Universal.tag()
 
-    (* Map value locations into properties. *)
+    (* Map value locations into properties.  This is used for a reference to
+       an id. *)
     fun mapLocationProps locs =
     let
         fun prop (DeclaredAt loc) = PTdeclaredAt loc
@@ -115,6 +116,18 @@ struct
         |   prop (SequenceNo id) = PTrefId id
     in
         List.map prop locs
+    end
+    
+    (* Defining location.  This sequence Id is a PTdefId.
+       Leave PTdeclaredAt for the moment although it's probably unnecessary
+       since this is the declaration location. *)
+    fun definingLocationProps locs =
+    let
+        fun prop (DeclaredAt loc, l) = PTdeclaredAt loc :: l
+        |   prop (SequenceNo id, l) = PTdefId id :: l
+        |   prop (_, l) = l
+    in
+        List.foldl prop [] locs
     end
 
     (* Types that can be shared. *)

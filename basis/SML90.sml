@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: SML90 Signature and Structure
     Author:     David Matthews
-    Copyright   David Matthews 1999
+    Copyright   David Matthews 1999, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,7 +17,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* G&R 2004 status: This structure and signature are not listed and should be avoided in new code. *)
+(* This is intended for backwards compatibility only.  It should probably be withdrawn. *)
 
 signature SML90 =
 sig
@@ -81,9 +80,7 @@ struct
     fun ord "" = raise Ord | ord s = Char.ord(String.sub(s, 0))
 
     fun chr i = str(Char.chr i)
-    (* Because single character strings are represented by the characters
-       themselves we just need to coerce String.explode. *)
-    val explode: string -> string list = RunCall.unsafeCast(String.explode)
+    fun explode s = map String.str (String.explode s) 
     val implode = String.concat
 
     type instream = TextIO.instream and outstream = TextIO.outstream

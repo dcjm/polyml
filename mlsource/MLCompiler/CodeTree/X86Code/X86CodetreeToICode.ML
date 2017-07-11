@@ -131,18 +131,7 @@ struct
             |   testAsBranch(TestGreaterEqual,  false,  true)       = JNB
             |   testAsBranch(TestGreaterEqual,  false,  false)      = JB
         end
-    
-        fun checkOverflow (ccRef, _ (* No longer used *)) =
-        let
-            val label = newLabel()
-        in
-            [
-                ConditionalForwardJump{ ccRef=ccRef, condition=JNO, label=label },
-                RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))},
-                ForwardJumpLabel{ label=label, result=NONE }
-            ]
-        end
-        
+
         (* Generally we have an offset in words and no index register. *)
         fun wordOffsetAddress(offset, baseReg: abstract): abstract argument =
             MemoryLocation{offset=offset*wordSize, base=baseReg, index=NoMemIndex}
@@ -229,7 +218,7 @@ struct
 
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.  *)
-        and codeToICode(BICNewenv (bindings, exp), context as {stackPtr=initialSp, ...} , isTail, target) =
+        and codeToICode(BICNewenv (bindings, exp), context as {stackPtr=initialSp, ...} , isTail, destination) =
             let
                 (* Process a list of bindings.  We need to accumulate the space used by
                    any containers and reset the stack pointer at the end if necessary. *)
@@ -326,14 +315,27 @@ struct
                     end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context)
-                val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, target)
-                val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
-                val adjustSp =
-                    if initialSp = finalSp orelse haveExited
-                    then []
-                    else [ResetStackPtr{numWords=finalSp-initialSp}]
+                (* If we have had a container we'll need to reset the stack *)
             in
-                (codeBindings @ codeExp @ adjustSp, result, haveExited)
+                if initialSp <> finalSp
+                then
+                let
+                    val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
+                    val bodyReg = newPReg() and resultReg = asTarget destination
+                    val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, SpecificPReg bodyReg)
+                    val adjustSp =
+                        if haveExited then [] else
+                        [ResetStackPtr{numWords=finalSp-initialSp},
+                         LoadArgument{source=result, dest=resultReg, kind=MoveWord}]
+                in
+                    (codeBindings @ codeExp @ adjustSp, RegisterArgument resultReg, haveExited)
+                end
+                else
+                let
+                    val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, destination)
+                in
+                    (codeBindings @ codeExp, result, haveExited)
+                end
             end
             
         |   codeToICode(BICConstnt(value, _), _, _, destination) =
@@ -381,7 +383,6 @@ struct
         |   codeToICode(BICEval {function, argList, ...}, context, isTail, destination) =
             let
                 val target = asTarget destination
-                val numArgs = List.length argList
                 (* Create pregs for the closure and each argument. *)
                 val clPReg = newPReg()
                 (* If we have a constant closure we can go directly to the entry point.
@@ -438,29 +439,32 @@ struct
                    Currently we don't allow memory arguments at all.  There's the potential for
                    problems later.  Memory arguments could possibly lead to aliasing of the stack
                    if the memory actually refers to a container on the stack.  That would mess
-                   up the code that ensures that stack arguments are stored in the right order.
-                   Don't allow long constants in tail calls.  We may move arguments directly
-                   to their stack location so we're dealing with a memory move there.  *)
-                val allowDefer =
+                   up the code that ensures that stack arguments are stored in the right order. *)
+                (* We don't allow long constants in stack arguments to a tail-recursive call
+                   because we may use a memory move to set them. *)
+                val allowInStackArg =
                     Allowed {anyConstant=not isTail, const32s=true, memAddr=false, existingPreg=not isTail }
-                fun loadArgs [] = ([], [])
-                |   loadArgs((arg, _)::args) =
-                    let
-                        val (c, r, _) = codeToICode(arg, context, false, allowDefer)
-                        val (regs, code) = loadArgs args
+                and allowInRegArg =
+                    Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
+
+                (* Load the first arguments into registers and the rest to the stack. *)
+                fun loadArgs ([], _) = ([], [], [])
+                |   loadArgs ((arg, _) :: args, argReg::argRegs) =
+                    let (* Register argument. *)
+                        val (c, r, _) = codeToICode(arg, context, false, allowInRegArg)
+                        val (code, regArgs, stackArgs) = loadArgs(args, argRegs)
                     in
-                        (r::regs, c @ code)
+                        (c @ code, (r, argReg) :: regArgs, stackArgs)
                     end
-                val (argPRegs, codeArgs) = loadArgs argList
-                (* Load the argument registers.  This returns the
-                   shorter of the actual arguments and those in registers. *)
-                val regArgs = ListPair.zip (argPRegs, argRegs)
-                (* The stack arguments are the later arguments in the list i.e. those
-                   most recently pushed to the stack. *)
-                val stackArgs =
-                    if numArgs > List.length argRegs
-                    then List.drop(argPRegs, List.length argRegs)
-                    else []
+                |   loadArgs ((arg, _) :: args, []) =
+                    let (* Stack argument. *)
+                        val (c, r, _) = codeToICode(arg, context, false, allowInStackArg)
+                        val (code, regArgs, stackArgs) = loadArgs(args, [])
+                    in
+                        (c @ code, regArgs, r :: stackArgs)
+                    end
+                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, argRegs)
+                
                 val callInstr =
                     if isTail
                     then
@@ -583,7 +587,8 @@ struct
                    mutex to interlock clearing a mutex.  On the X86 we use hardware locking and
                    the hardware guarantees that an assignment of a word will be atomic. *)
                 val (argCode, addrReg) = codeToPReg(arg1, context)
-                val code = argCode @ [LockMutable{addr=addrReg}]
+                (* Store tagged 1 in the mutex.  This is the unlocked value. *)
+                val code = argCode @ [StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=NoMemIndex, offset=0, kind=MoveWord}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -673,143 +678,23 @@ struct
         |   codeToICode(instr as BICBinary{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(instr, context, isTail, destination)
 
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val ccRef = newCCRef()
-                (* If the argument is a constant we can subtract the tag beforehand.
-                   This should always be a tagged value if the type is correct.  However it's possible for it not to
-                   be if we have an arbitrary precision value.  There will be a run-time check that the value is
-                   short and so this code will never be executed.  It will generally be edited out by the higher
-                   level be we can't rely on that.  Because it's never executed we can just put in zero. *)
-                val constVal =
-                    if isShort value
-                    then semitag(Word.toLargeIntX(toShort value))
-                    else 0
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                fun checkOverflow ccRef =
+                let
+                    val label = newLabel()
+                in
+                    [
+                        ConditionalForwardJump{ ccRef=ccRef, condition=JNO, label=label },
+                        RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))},
+                        ForwardJumpLabel{ label=label, result=NONE }
+                    ]
+                end
             in
-                (arg1Code @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target), RegisterArgument target, false)
+                (codeFixedPrecisionArith(oper, arg1, arg2, context, target, checkOverflow), RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val ccRef = newCCRef()
-                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
-                val constVal =
-                    if isShort value
-                    then semitag(Word.toLargeIntX(toShort value))
-                    else 0
-                val (arg2Code, aReg2) = codeToPReg(arg2, context)
-            in
-                (arg2Code @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg2, operand2=IntegerConstant constVal, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target), RegisterArgument target, false)
-            end
-
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val aReg3 = newPReg() and ccRef = newCCRef()
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
-                val (arg2Code, aReg2) = codeToPReg(arg2, context)
-            in
-                (arg1Code @ arg2Code @
-                    (* Subtract the tag bit from the second argument, do the addition and check for overflow. *)
-                    (* TODO: We should really do the detagging in the transform phase.  It can make a better choice of
-                       the argument if one of the arguments is already untagged or if we have a constant argument. *)
-                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
-                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg3, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target), RegisterArgument target, false)
-            end
-
-            (* Subtraction.  We can handle the special case of the second argument being a constant but not the first. *)
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val ccRef = newCCRef()
-                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
-                val constVal =
-                    if isShort value
-                    then semitag(Word.toLargeIntX(toShort value))
-                    else 0
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
-            in
-                (arg1Code @
-                    [ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target), RegisterArgument target, false)
-            end
-
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val aReg3 = newPReg()
-                val ccRef = newCCRef()
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
-                val (arg2Code, aReg2) = codeToPReg(arg2, context)
-            in
-                (arg1Code @ arg2Code @
-                    (* Do the subtraction, test for overflow and afterwards add in the tag bit. *)
-                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target) @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], RegisterArgument target, false)
-            end
-
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg() and arg1Untagged = newUReg()
-                and arg2Untagged = newUReg() and resUntagged = newUReg()
-                val mulCC = newCCRef()
-                (* This is almost the same as the word operation except we use a signed shift and check for overflow. *)
-            in
-                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
-                       if we have a value that is already untagged. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *)},
-                     ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
-                     Multiplication{resultReg=resUntagged, operand1=RegisterArgument arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=mulCC} ] @
-                     checkOverflow(mulCC, target) @
-                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}], RegisterArgument target, false)
-            end
-
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, arg1, arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg()
-                val arg1Untagged = newUReg() and arg2Untagged = newUReg()
-                val quotient = newUReg() and remainder = newUReg()
-            in
-                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true},
-                     UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true},
-                     Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
-                                quotient=quotient, remainder=remainder },
-                     TagValue { source=quotient, dest=target }], RegisterArgument target, false)
-            end
-
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, arg1, arg2}, context, _, destination) =
-            let
-                (* Identical to Quot except that the result is the remainder. *)
-                val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg()
-                val arg1Untagged = newUReg() and arg2Untagged = newUReg()
-                val quotient = newUReg() and remainder = newUReg()
-            in
-                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    (* Shift both of the arguments to remove the tags. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true},
-                     UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true},
-                     Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
-                                quotient=quotient, remainder=remainder },
-                     TagValue { source=remainder, dest=target }], RegisterArgument target, false)
-            end
-
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith _, ...}, _, _, _) =
-                raise InternalError "codeToICode: FixedPrecisionArith - unimplemented operation"
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
@@ -1168,6 +1053,31 @@ struct
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(instr, context, isTail, destination)
+        
+        |   codeToICode(BICArbitrary {oper, shortCond, arg1, arg2, longCall}, context, _, destination) =
+            let
+                val startLong = newLabel() and resultLabel = newLabel()
+                val target = asTarget destination
+                val condResult = newPReg()
+                (* Overflow check - if there's an overflow jump to the long precision case. *)
+                fun jumpOnOverflow ccRef =
+                    [ConditionalForwardJump{ ccRef=ccRef, condition=JO, label=startLong }]
+                val (longCode, _, _) = codeToICode(longCall, context, false, SpecificPReg condResult)
+                     (* We could use a tail jump here if this is a tail. *)
+           in
+                (
+                    (* Test the tag bits and skip to the long case if either is clear. *)
+                    codeCondition(shortCond, context, false, startLong) @
+                    (* Try evaluating as fixed precision and jump if we get an overflow. *)
+                    codeFixedPrecisionArith(oper, arg1, arg2, context, condResult, jumpOnOverflow) @
+                    (* If we haven't had an overflow jump to the result. *)
+                    [UnconditionalForwardJump{label=resultLabel},
+                     (* If we need to use the full long-precision call we come here. *)
+                     ForwardJumpLabel{label=startLong, result=NONE}] @ longCode @
+                    [ForwardJumpLabel{label=resultLabel, result=SOME condResult},
+                     LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord}],
+                    RegisterArgument target, false)
+            end
 
         |   codeToICode(BICAllocateWordMemory {numWords as BICConstnt(length, _), flags as BICConstnt(flagValue, _), initial}, context, _, destination) =
             (* Constant length and flags is used for ref.  We could handle other cases. *)
@@ -1440,22 +1350,24 @@ struct
         |   codeToICode(BICBeginLoop {loop, arguments}, context as { stackPtr, ...}, isTail, destination) =
             let
                 val target = asTarget destination
-                (* First evaluate the initial values for the arguments to new pregs.
-                   These are only used for the initial values. *)
-                val argPRegs = map(fn _ => newPReg()) arguments
-                val codeArgs =
-                    ListPair.foldlEq(fn (({value, ...}, _), pr, l) => l @ codeToICodeTarget(value, context, false, pr)) []
-                        (arguments, argPRegs)
-                (* Create loop arguments.  These are associated with the loop variables. *)
-                fun makeLoopReg ({addr, ...}, _) =
-                    let val pr = newPReg() val () = Array.update(locToPregArray, addr, SOME pr) in pr end
-                val loopRegs = map makeLoopReg arguments
+                
+                fun codeArgs [] = ([], [])
+                |   codeArgs (({value, addr}, _) :: rest) =
+                    let
+                        val pr = newPReg()
+                        val () = Array.update(locToPregArray, addr, SOME pr)
+                        val code = codeToICodeTarget(value, context, false, pr)
+                        val (pregs, othercode) = codeArgs rest
+                    in
+                        (pr::pregs, code@othercode)
+                    end
+                val (loopRegs, argCode) = codeArgs arguments
+
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
                     codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target)
-                val args = ListPair.mapEq(fn (s, l) => (RegisterArgument s, l)) (argPRegs, loopRegs)
             in
-                (codeArgs @ [StartLoop{regArgs=args, loopLabel=loopLabel}] @ loopBody @
+                (argCode @ [StartLoop{loopLabel=loopLabel}] @ loopBody @
                     [EndLoop {loopLabel=loopLabel, staticRegs=[]}], RegisterArgument target, loopExited)
             end
         
@@ -1475,7 +1387,8 @@ struct
                     if loopSp = stackPtr then []
                     else [ResetStackPtr{numWords=stackPtr-loopSp}]
             in
-                (codeArgs @ stackReset @ [JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0}], RegisterArgument target, true)
+                (codeArgs @ stackReset @
+                    [JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0, checkInterrupt=SOME[]}], RegisterArgument target, true)
             end
 
         |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =
@@ -1838,13 +1751,20 @@ struct
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreCFloat, address, value}, context, _, destination) =
             let
-                val valueReg = newPReg() and floatReg = newUReg()
+                val valueReg = newPReg() and floatReg = newUReg() and float2Reg = newUReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w4, context)
+                (* If we're using an SSE2 reg we have to convert it from double to single precision. *)
+                val (storeReg, cvtCode) =
+                    case fpMode of
+                        FPModeSSE2 =>
+                            (float2Reg,
+                                [SSE2FPArith{opc=SSE2DoubleToFloat, resultReg=float2Reg, arg1=RegisterArgument floatReg, arg2=RegisterArgument floatReg}])
+                    |   FPModeX87 => (floatReg, [])
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble},
-                     StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveFloat}]
+                    LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble} :: cvtCode @
+                    [StoreArgument {source=RegisterArgument storeReg, base=base, offset=offset, index=index, kind=MoveFloat}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1867,6 +1787,9 @@ struct
                 (* We have to untag the value to store. *)
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
                 (* See if it's a constant.  This is frequently used to set the last word of a string to zero. *)
+                (* We have to be a bit more careful on the X86.  We use moves to store constants that
+                   can include addresses.  To avoid problems we only use a move if the value is
+                   zero or odd and so looks like a tagged value. *)
                 val storeAble =
                     case value of
                         BICConstnt(value, _) =>
@@ -1876,7 +1799,9 @@ struct
                             let
                                 val ival = Word.toLargeIntX(toShort value)
                             in
-                                if is32bit ival then SOME ival else NONE
+                                if isX64
+                                then if is32bit ival then SOME ival else NONE
+                                else if ival = 0 orelse ival mod 2 = 1 then SOME ival else NONE
                             end
                     |   _ => NONE
                 val (storeVal, valCode) =
@@ -1922,8 +1847,9 @@ struct
                     rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
                     lengthUntag @
                     [CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef },
-                     ConditionalForwardJump{ ccRef=ccRef, condition=JL, label=labLess },
-                     ConditionalForwardJump{ ccRef=ccRef, condition=JG, label=labGreater },
+                     (* N.B. These are unsigned comparisons. *)
+                     ConditionalForwardJump{ ccRef=ccRef, condition=JB, label=labLess },
+                     ConditionalForwardJump{ ccRef=ccRef, condition=JA, label=labGreater },
                      LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=MoveWord },
                      UnconditionalForwardJump{ label=exitLab1 },
                      ForwardJumpLabel{ label=labLess, result=NONE },
@@ -2268,6 +2194,138 @@ struct
             codeToICode(
                 BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target)
 
+        (* The fixed precision functions are also used for arbitrary precision but instead of raising Overflow we
+           need to jump to the code that handles the long format. *)
+        and codeFixedPrecisionArith(BuiltIns.ArithAdd, arg1, BICConstnt(value, _), context, target, onOverflow) =
+            let
+                val ccRef = newCCRef()
+                (* If the argument is a constant we can subtract the tag beforehand.
+                   This should always be a tagged value if the type is correct.  However it's possible for it not to
+                   be if we have an arbitrary precision value.  There will be a run-time check that the value is
+                   short and so this code will never be executed.  It will generally be edited out by the higher
+                   level be we can't rely on that.  Because it's never executed we can just put in zero. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+            in
+                arg1Code @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    onOverflow ccRef
+            end
+
+        |   codeFixedPrecisionArith(BuiltIns.ArithAdd, BICConstnt(value, _), arg2, context, target, onOverflow) =
+            let
+                val ccRef = newCCRef()
+                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
+            in
+                arg2Code @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg2, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    onOverflow ccRef
+            end
+
+        |   codeFixedPrecisionArith(BuiltIns.ArithAdd, arg1, arg2, context, target, onOverflow) =
+            let
+                val aReg3 = newPReg() and ccRef = newCCRef()
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
+            in
+                arg1Code @ arg2Code @
+                    (* Subtract the tag bit from the second argument, do the addition and check for overflow. *)
+                    (* TODO: We should really do the detagging in the transform phase.  It can make a better choice of
+                       the argument if one of the arguments is already untagged or if we have a constant argument. *)
+                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
+                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg3, ccRef=ccRef}] @
+                    onOverflow ccRef
+            end
+
+            (* Subtraction.  We can handle the special case of the second argument being a constant but not the first. *)
+        |   codeFixedPrecisionArith(BuiltIns.ArithSub, arg1, BICConstnt(value, _), context, target, onOverflow) =
+            let
+                val ccRef = newCCRef()
+                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+            in
+                arg1Code @
+                    [ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    onOverflow ccRef
+            end
+
+        |   codeFixedPrecisionArith(BuiltIns.ArithSub, arg1, arg2, context, target, onOverflow) =
+            let
+                val aReg3 = newPReg()
+                val ccRef = newCCRef()
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
+            in
+                arg1Code @ arg2Code @
+                    (* Do the subtraction, test for overflow and afterwards add in the tag bit. *)
+                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=ccRef}] @
+                    onOverflow ccRef @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+            end
+
+        |   codeFixedPrecisionArith(BuiltIns.ArithMult, arg1, arg2, context, target, onOverflow) =
+            let
+                val aReg1 = newPReg() and aReg2 = newPReg() and arg1Untagged = newUReg()
+                and arg2Untagged = newUReg() and resUntagged = newUReg()
+                val mulCC = newCCRef()
+                (* This is almost the same as the word operation except we use a signed shift and check for overflow. *)
+            in
+                codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
+                       if we have a value that is already untagged. *)
+                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *)},
+                     ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
+                     Multiplication{resultReg=resUntagged, operand1=RegisterArgument arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=mulCC} ] @
+                     onOverflow mulCC @
+                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+            end
+
+        |   codeFixedPrecisionArith(BuiltIns.ArithQuot, arg1, arg2, context, target, _) =
+            let
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val arg1Untagged = newUReg() and arg2Untagged = newUReg()
+                val quotient = newUReg() and remainder = newUReg()
+            in
+                codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
+                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true},
+                     UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true},
+                     Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                                quotient=quotient, remainder=remainder },
+                     TagValue { source=quotient, dest=target }]
+            end
+
+        |   codeFixedPrecisionArith(BuiltIns.ArithRem, arg1, arg2, context, target, _) =
+            let
+                (* Identical to Quot except that the result is the remainder. *)
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val arg1Untagged = newUReg() and arg2Untagged = newUReg()
+                val quotient = newUReg() and remainder = newUReg()
+            in
+                codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                    (* Shift both of the arguments to remove the tags. *)
+                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true},
+                     UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true},
+                     Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                                quotient=quotient, remainder=remainder },
+                     TagValue { source=remainder, dest=target }]
+            end
+
+        |   codeFixedPrecisionArith(_, _, _, _, _, _) =
+                raise InternalError "codeToICode: FixedPrecisionArith - unimplemented operation"
+
         (* Code an address.  The index is optional. *)
         and codeAddress({base, index=SOME index, offset}, true (* byte move *), context) =
             let
@@ -2371,7 +2429,10 @@ struct
 
         (* Return the argument as an untagged value.  We separate evaluating the argument from
            untagging because we may have to evaluate other arguments and that could involve a
-           function call and we can't save the value to the stack after we've untagged it. *)
+           function call and we can't save the value to the stack after we've untagged it.
+           Currently this is only used for byte values but we may have to be careful if
+           we use it for word values on the X86.  Moving an untagged value into a register
+           might look like loading a constant address. *)
         and codeAsUntaggedValue(BICConstnt(value, _), isSigned, _) =
             let
                 val cval = if isShort value then toShort value else 0w0

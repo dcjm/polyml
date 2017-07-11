@@ -296,7 +296,7 @@ struct
     and opcode_cellLength        = Opcode 0x93
     and opcode_cellFlags         = Opcode 0x94
     and opcode_clearMutable      = Opcode 0x95
-    and opcode_stringLength      = Opcode 0x96
+    (*and opcode_stringLength      = Opcode 0x96*)
     and opcode_atomicIncr        = Opcode 0x97
     and opcode_atomicDecr        = Opcode 0x98
     and opcode_atomicReset       = Opcode 0x99
@@ -330,7 +330,7 @@ struct
     val opcode_wordMult          = Opcode 0xb3
     val opcode_wordDiv           = Opcode 0xb4
     val opcode_wordMod           = Opcode 0xb5
-    val opcode_setStringLength   = Opcode 0xb6
+    (*val opcode_setStringLength   = Opcode 0xb6*)
     val opcode_wordAnd           = Opcode 0xb7
     val opcode_wordOr            = Opcode 0xb8
     val opcode_wordXor           = Opcode 0xb9
@@ -387,6 +387,8 @@ struct
     val opcode_blockMoveByte     = Opcode 0xec
     val opcode_blockEqualByte    = Opcode 0xed
     val opcode_blockCompareByte  = Opcode 0xee
+    val opcode_loadUntagged      = Opcode 0xef
+    val opcode_storeUntagged     = Opcode 0xf0
  
     (* val opcode_last              = opcode_ioVec_225; *)
 
@@ -514,7 +516,7 @@ struct
         val () = repUpdate(opcode_cellLength, "cellLength")
         val () = repUpdate(opcode_cellFlags, "cellFlags")
         val () = repUpdate(opcode_clearMutable, "clearMutable")
-        val () = repUpdate(opcode_stringLength, "stringLength")
+        (*val () = repUpdate(opcode_stringLength, "stringLength")*)
         val () = repUpdate(opcode_atomicIncr, "atomicIncr")
         val () = repUpdate(opcode_atomicDecr, "atomicDecr")
         val () = repUpdate(opcode_atomicReset, "atomicReset")
@@ -548,7 +550,7 @@ struct
         val () = repUpdate(opcode_wordMult, "wordMult")
         val () = repUpdate(opcode_wordDiv, "wordDiv")
         val () = repUpdate(opcode_wordMod, "wordMod")
-        val () = repUpdate(opcode_setStringLength, "setStringLength")
+        (*val () = repUpdate(opcode_setStringLength, "setStringLength")*)
         val () = repUpdate(opcode_wordAnd, "wordAnd")
         val () = repUpdate(opcode_wordOr, "wordOr")
         val () = repUpdate(opcode_wordXor, "wordXor")
@@ -605,6 +607,8 @@ struct
         val () = repUpdate(opcode_blockMoveByte, "blockMoveByte")
         val () = repUpdate(opcode_blockEqualByte, "blockEqualByte")
         val () = repUpdate(opcode_blockCompareByte, "blockCompareByte")
+        val () = repUpdate(opcode_loadUntagged, "loadUntagged")
+        val () = repUpdate(opcode_storeUntagged, "storeUntagged")
     in
       fun repr (Opcode n) : string = Array.sub (repArray, n);
     end;

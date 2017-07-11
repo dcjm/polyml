@@ -298,15 +298,61 @@ struct
             |   doClean use (BeginLoop{loop, arguments}) =
                 let
                     val cleanBody = cleanCode(loop, use)
-                    (* TODO: If the arguments are not actually used (e.g. Succeed/Test114) we should
-                       remove them but then we also have to remove the corresponding arguments from
-                       the Loop nodes.  We have to be careful about side-effects.  At the moment
-                       we add a UseGeneral if the value is not used to ensure that we always
-                       pass a non-null list to any Extract node used in the actual argument. *)
-                    fun mapArg({value, addr, use}, t) =
-                        ({value=cleanCode(value, if null use then [UseGeneral] else use), addr=addr, use=use}, t)
+                    (* Remove unused arguments.  They're unnecessary and may cause problems
+                       later on. *)
+                    fun filterUnused [] = ([], [])
+                    |   filterUnused (({use=[], value, ...}, _) :: args) =
+                        let
+                            val (used, discards) = filterUnused args
+                            (* We only need to keep this if it might have a side-effect. *)
+                        in
+                           (used, NullBinding(cleanCode(value, [UseGeneral])) :: discards)
+                        end
+                    |   filterUnused(({value, addr, use}, t) :: args) =
+                        let
+                            val (used, discards) = filterUnused args
+                        in
+                            (({value=cleanCode(value, use), addr=addr, use=use}, t) :: used, discards)
+                        end
+                    val (usedArgs, discards) = filterUnused arguments
                 in
-                    SOME(BeginLoop {loop = cleanBody, arguments = map mapArg arguments})
+                    if not(null discards)
+                    then
+                    let
+                        fun splitArgs([], []) = ([], [])
+                        |   splitArgs((arg, _) :: args, ({use=[], ...}, _) :: arguments) =
+                            let
+                                val (useArgs, discards) = splitArgs(args, arguments)
+                            in
+                                (* We actually only need to keep this argument if it might have
+                                   a side-effect but keep it anyway. *)
+                                (useArgs, NullBinding arg :: discards)
+                            end
+                        |   splitArgs(arg :: args, _ :: arguments) =
+                            let
+                                val (useArgs, discards) = splitArgs(args, arguments)
+                            in
+                                (arg :: useArgs, discards)
+                            end
+                        |   splitArgs _ = raise InternalError "splitArgs"
+
+                        fun filterLoopArgs(Loop l) =
+                            let
+                                val (useArgs, discards) = splitArgs(l, arguments)
+                            in
+                                SOME(Newenv(discards, Loop useArgs))
+                            end
+                            (* Don't descend into functions or inner loops. *)
+                        |   filterLoopArgs(instr as Lambda _) = SOME instr
+                        |   filterLoopArgs(instr as BeginLoop _) = SOME instr
+                        |   filterLoopArgs _ = NONE
+
+                        val newLoop =
+                            BeginLoop {loop = mapCodetree filterLoopArgs cleanBody, arguments = usedArgs}
+                    in
+                        SOME(Newenv(discards, newLoop))
+                    end
+                    else SOME(BeginLoop {loop = cleanBody, arguments = usedArgs})
                 end
         
             |   doClean _ _ = NONE (* Anything else *)

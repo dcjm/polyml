@@ -415,17 +415,18 @@ struct
 (*****************************************************************************)
 
     (* Build a datatype within the basis. *)
-    fun buildBasisDatatype(tcName, tIdPath, arity: int, isEqType: bool,
+    fun buildBasisDatatype(tcName, tIdPath, tyVars, isEqType: bool,
             mkValConstrs: typeConstrs -> (values * codetree) list * codetree * codetree) =
     let
         (* Create a temporary datatype.  The "name" we put in here is usually the
            same as the type constructor name except for datatypes in the PolyML structure
            which have the PolyML prefix. *)
+        val arity = List.length tyVars
         val description = basisDescription tIdPath
         val id =
             makeBoundId(arity, Local{addr = ref ~1, level = ref baseLevel}, 0 (* IdNumber*),
                 isEqType, true, description)
-        val dtype = makeTypeConstructor (tcName, id, [DeclaredAt inBasis]);
+        val dtype = makeTypeConstructor (tcName, tyVars, id, [DeclaredAt inBasis]);
         (* Build the constructors. *)
         val (valConstrsAndDecs, boxedCode, sizeCode) = mkValConstrs dtype
         (* The constructors have to be ordered as in genValueConstrs in PARSE_TREE. *)
@@ -478,7 +479,8 @@ struct
     local
         fun makeConsAndNil listType =
         let
-            val alpha = mkTypeVar(generalisable, false, false, false)
+            val listTypeVars  = tcTypeVars listType;
+            val alpha         = TypeVar(hd listTypeVars);
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
             val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
             val nilConstructor  =
@@ -494,7 +496,10 @@ struct
         end
     in
         val listConstr =
-            buildBasisDatatype("list", "list", 1, true, makeConsAndNil)
+            buildBasisDatatype("list", "list",
+                [makeTv {value=EmptyType, level=generalisable, nonunifiable=false,
+                         equality=false, printable=false}],
+                    true, makeConsAndNil)
         val (nilConstructor, consConstructor) =
             case listConstr of
                 TypeConstrSet(_, [consC as Value{name="::", ...}, nilC as Value{name="nil", ...}]) =>
@@ -505,7 +510,8 @@ struct
     local
         fun makeNoneAndSome optionType =
         let
-            val alpha = mkTypeVar(generalisable, false, false, false)
+            val optionTypeVars  = tcTypeVars optionType;
+            val alpha         = TypeVar(hd optionTypeVars);
             val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
             val someType      = mkFunctionType (alpha, alphaOption);
             val noneConstructor  =
@@ -521,7 +527,9 @@ struct
         end
     in
         val optionConstr=
-            buildBasisDatatype("option", "option", 1, true, makeNoneAndSome)
+            buildBasisDatatype("option", "option",
+                [makeTv {value=EmptyType, level=generalisable, nonunifiable=false,
+                         equality=false, printable=false}], true, makeNoneAndSome)
         val (noneConstructor, someConstructor) =
             case optionConstr of
                 TypeConstrSet(_, [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}]) => (noneC, someC)
@@ -549,7 +557,7 @@ struct
                 ]
         in
             val locationCons =
-                makeTypeConstructor("location",
+                makeTypeConstructor("location", [],
                     makeTypeFunction(basisDescription "PolyML.location", ([], mkLabelled(sortLabels fields, true))),
                     [DeclaredAt inBasis])
             val locationConstr = TypeConstrSet(locationCons, [])
@@ -576,7 +584,7 @@ struct
             end
         in
             val contextConstr =
-                buildBasisDatatype("context", "PolyML.context", 0, false, makeConstructors)
+                buildBasisDatatype("context", "PolyML.context", [], false, makeConstructors)
         end
 
         local
@@ -611,7 +619,7 @@ struct
             end
         in
             val prettyConstr =
-                buildBasisDatatype("pretty", "PolyML.pretty", 0, false, makeConstructors)
+                buildBasisDatatype("pretty", "PolyML.pretty", [], false, makeConstructors)
         end
     end
 

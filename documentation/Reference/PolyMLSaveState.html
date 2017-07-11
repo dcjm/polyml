@@ -33,20 +33,16 @@
     <strong>val</strong> showHierarchy : unit -&gt; string list
     <strong>val</strong> showParent : string -&gt; string option
     <strong>val</strong> loadHierarchy: string list -&gt; unit
-        <strong>structure</strong> Tags:
-          <strong>sig</strong>
-            <strong>val</strong> fixityTag: (string * NameSpace.Infixes.fixity) Universal.tag
-            <strong>val</strong> functorTag:
-               (string * NameSpace.Functors.functorVal) Universal.tag
-            <strong>val</strong> signatureTag:
-               (string * NameSpace.Signatures.signatureVal) Universal.tag
-            <strong>val</strong> startupTag: (unit -> unit) Universal.tag
-            <strong>val</strong> structureTag:
-               (string * NameSpace.Structures.structureVal) Universal.tag
-            <strong>val</strong> typeTag:
-               (string * NameSpace.TypeConstrs.typeConstr) Universal.tag
-            <strong>val</strong> valueTag: (string * NameSpace.Values.value) Universal.tag
-          <strong>end</strong>
+    <strong>structure</strong> Tags:
+    <strong>sig</strong>
+        <strong>val</strong> fixityTag: (string * NameSpace.Infixes.fixity) Universal.tag
+        <strong>val</strong> functorTag: (string * NameSpace.Functors.functorVal) Universal.tag
+        <strong>val</strong> signatureTag: (string * NameSpace.Signatures.signatureVal) Universal.tag
+        <strong>val</strong> structureTag: (string * NameSpace.Structures.structureVal) Universal.tag
+        <strong>val</strong> typeTag: (string * NameSpace.TypeConstrs.typeConstr) Universal.tag
+        <strong>val</strong> valueTag: (string * NameSpace.Values.value) Universal.tag
+        <strong>val</strong> startupTag: (unit -> unit) Universal.tag
+    <strong>end</strong>
     <strong>val</strong> loadModule: string -&gt; unit
     <strong>val</strong> loadModuleBasic: string -&gt; Universal.universal list
     <strong>val</strong> saveModule:
@@ -123,24 +119,52 @@
     saved state has no parent <span class="identifier">showParent</span> returns 
     <span class="identifier">NONE</span>.</p>
 </div>
-  
-<h3><font face="Arial, Helvetica, sans-serif">Comparison with the Persistent Store</font></h3>
-<p>The persistent store of earlier versions of Poly/ML was similar to this in 
-  that the <span class="identifier">commit</span> function saved only the changes 
-  back to the database. There was also a <span class="identifier">make_database</span> 
-  function that created a child database that contained only the changes from 
-  the parent. There are a number of differences. A saved state is read and written 
-  as a whole and is not locked once it has been read. As a rough equivalent <span class="identifier">commit</span> 
-  and <span class="identifier">make_database</span> can be written as</p>
-<PRE class="entrycode"><STRONG>fun</STRONG> commit() =
-    <strong>let val</strong> h = PolyML.SaveState.showHierarchy()
-    <strong>in</strong> saveChild(List.last h, length h - 1) <strong>end</strong>
-<strong>and</strong> make_database f =
-    <strong>let val</strong> h = PolyML.SaveState.showHierarchy()
-    <strong>in</strong> saveChild(f, length h) <strong>end</strong>
-</PRE>
-<p>The definition of commit assumes that a saved state has already been loaded 
-  and will fail if it has not.</p>
+
+<h3><font face="Arial, Helvetica, sans-serif">Modules</font></h3>
+<p> A module is a collection of bindings, primarily structures, signatures and 
+  functors, that can be saved and later reloaded. It is similar to a saved state 
+  in that a module can only be loaded into the same executable that saved it. 
+  However, it is possible to load multiple modules without them interfering.</p>
+<p>The module system is designed with two different levels. The high-level functions, 
+  <span class="identifier">loadModule</span> and <span class="identifier">saveModule</span> are likely to be useful for most purposes while the 
+  lower-level functions, <span class="identifier">loadModuleBasic</span> and <span class="identifier">saveModuleBasic</span> will only be required 
+  in special circumstances.</p>
+<PRE class="entrycode"><STRONG>val</STRONG> loadModule : string -&gt; unit</PRE>
+<div class="entrytext"> 
+  <p><span class="identifier">loadModule</span> takes the name of a module and loads it into memory.  The start-up function, if any is executed and if
+  it returns successfully the structures, signatures and other components are added to the name-space.
+  The module name can either be a file path if it contains a directory separator e.g. ./foo or it is looked up in the path given by POLYMODPATH.</p>
+</div>
+<PRE class="entrycode"><STRONG>val</STRONG> saveModule : string *
+           {sigs: string list, structs: string list, functors: string list,
+            onStartup: (unit -> unit) option} -&gt; unit</PRE>
+<div class="entrytext"> 
+  <p><span class="identifier">saveModule</span> takes a file name and names of 
+    structures, signature and functors, together with an optional &quot;on-start-up&quot; 
+    function and writes them out as a package.</p>
+</div>
+<PRE class="entrycode"><STRONG>val</STRONG> loadModuleBasic : string -&gt; Universal.universal list</PRE>
+<div class="entrytext"> 
+  <p><span class="identifier">loadModuleBasic</span> is the low-level version 
+    of <span class="identifier">loadModule</span>. The module name is interpreted 
+    in the same way and the module is loaded into memory but instead of executing 
+    any start-up function or adding components to the name-space the list of the 
+    components as a list of <span class="identifier"><a href="Universal.html#universal">Universal.universal</a></span> 
+    values is returned. It is up to the caller how to interpret the result.</p>
+</div>
+<PRE class="entrycode"><STRONG>val</STRONG> saveModuleBasic: string * Universal.universal list -&gt; unit</PRE>
+<div class="entrytext"> 
+  <p><span class="identifier">saveModuleBasic</span> is the low-level version 
+    of <span class="identifier">saveModule</span>. It takes a file name and a 
+    list of <span class="identifier"><a href="Universal.html#universal">Universal.universal</a></span> 
+    values and saves the result as a module. The entries in the list can contain 
+    anything. However if the resulting module is loaded with <span class="identifier">loadModule</span> 
+    certain values will be treated specially. Values tagged using the tags listed 
+    in the <span class="identifier">Tags</span> structure will be added to the 
+    name space or in the case of the <span class="identifier">startUpTag</span>, executed as a start-up function. 
+    In particular <span class="identifier">saveModuleBasic</span> must be used if the module should load values 
+    or types rather than structures, functors or signatures.</p>
+</div>
 
 <ul class="nav">
 	<li><a href="PolyMLNameSpace.html">Previous</a></li>

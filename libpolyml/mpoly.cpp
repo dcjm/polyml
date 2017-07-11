@@ -143,6 +143,7 @@ static struct __debugOpts {
 {
     { _T("checkmem"),           "Perform additional debugging checks on memory",    DEBUG_CHECK_OBJECTS },
     { _T("gc"),                 "Log summary garbage-collector information",        DEBUG_GC },
+    { _T("gcenhanced"),         "Log enhanced garbage-collector information",       DEBUG_GC_ENHANCED },
     { _T("gcdetail"),           "Log detailed garbage-collector information",       DEBUG_GC_DETAIL },
     { _T("memmgr"),             "Memory manager information",                       DEBUG_MEMMGR },
     { _T("threads"),            "Thread related information",                       DEBUG_THREADS },
@@ -307,6 +308,8 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                                 Usage("Unknown argument to --debug\n");
                             if (*q == ',') p = q+1; else p = q;
                         }
+                        if (debugOptions & DEBUG_GC_DETAIL) debugOptions |= DEBUG_GC_ENHANCED;
+                        if (debugOptions & DEBUG_GC_ENHANCED) debugOptions |= DEBUG_GC;
                         break;
                     case OPT_DEBUGFILE:
                         SetLogFile(p);

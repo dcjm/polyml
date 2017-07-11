@@ -1,4 +1,3 @@
-
 (* If we already have int as arbitrary precision we don't need this.  This also
    deals with the problem of building with 5.6 where FixedInt is missing. *)
 case Int.precision of
@@ -7,7 +6,7 @@ case Int.precision of
            fun printError() = print "Module not required\n"
        in
            (* Create an empty module and exit. *)
-           PolyML.SaveState.saveModule("IntAsIntInf", {functors=[], sigs=[], structs=[], onStartup=SOME printError });
+           PolyML.SaveState.saveModule("IntInfAsInt", {functors=[], sigs=[], structs=[], onStartup=SOME printError });
            OS.Process.exit OS.Process.success
        end
 |   SOME _ => ();
@@ -94,6 +93,6 @@ local
 
     val startVal = [Universal.tagInject Tags.startupTag (fn () => RunCall.setDefaultIntTypeArbitrary true)]
 in
-    val () = saveModuleBasic("IntAsIntInf", structVals @ functorVals @ sigVals @ typeVals @ valueVals @ startVal)
+    val () = saveModuleBasic("IntInfAsInt", structVals @ functorVals @ sigVals @ typeVals @ valueVals @ startVal)
 end;
 

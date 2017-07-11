@@ -830,7 +830,7 @@ struct
           |   MaskBit PropertyChangeMask       = 4194304
           |   MaskBit ColormapChangeMask       = 8388608
           |   MaskBit OwnerGrabButtonMask      = 16777216
-          |   MaskBit ButtonClickMask          = 2147483648 Or MaskBit ButtonPressMask Or MaskBit ButtonReleaseMask   (* extra event mask *) ;
+          |   MaskBit ButtonClickMask          = 536870912 Or MaskBit ButtonPressMask Or MaskBit ButtonReleaseMask   (* extra event mask *) ;
       
           fun OrTogether []     acc = acc
           |   OrTogether (H::T) acc = OrTogether T (MaskBit H Or acc) ;

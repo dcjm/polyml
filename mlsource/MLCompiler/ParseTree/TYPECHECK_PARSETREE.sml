@@ -888,11 +888,18 @@ struct
                     and structTable = HashTable.hashMake 10
     
                     (* First get the structures... *)
-                    fun findStructure ({name, location, ...}: structureIdentForm) =
-                        Option.map (fn s => (s, location))
-                            (lookupStructure
+                    fun findStructure ({name, location, value, ...}: structureIdentForm) =
+                    let
+                        val foundStruct =
+                            lookupStructure
                                 ("Structure", {lookupStruct = #lookupStruct env}, name,
-                                    giveError (v, lex, location)))
+                                    giveError (v, lex, location))
+                        val () = value := foundStruct (* Remember in case we export. *)
+                    in
+                        case foundStruct of
+                            SOME str => SOME(str, location)
+                        |   NONE => NONE
+                    end
         
                     val strs = List.mapPartial findStructure ptl
                         
@@ -997,17 +1004,17 @@ struct
                         let
                             val description = { location = nameLoc, name = name, description = "" }
                         in
-                            makeTypeConstructor (name,
+                            makeTypeConstructor (name, typeVars,
                                 makeTypeId(isEqtype, false, (typeVars, EmptyType), description), props)
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
-                                makeTypeConstructor (name, typeId, props)
+                                makeTypeConstructor (name,  typeVars,typeId, props)
                         |   NONE =>
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
-                                makeTypeConstructor (name,
+                                makeTypeConstructor (name, typeVars,
                                     makeTypeId(isEqtype, false, (typeVars, decType), description), props)
                             end
                 in
@@ -1050,7 +1057,7 @@ struct
                     val locations = [DeclaredAt newLoc, SequenceNo (newBindingId lex)]
                     (* Create a new constructor with the same unique ID. *)
                     val typeID = tcIdentifier tcons
-                    val newTypeCons = makeTypeConstructor(newName, typeID, locations)
+                    val newTypeCons = makeTypeConstructor(newName, tcTypeVars tcons, typeID, locations)
     
                     (* Copy the value constructors. *)
                     fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =
@@ -1927,7 +1934,7 @@ struct
                     then makeTypeId(false, true, (typeVars, EmptyType), description)
                     else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
-                val tc = makeTypeConstructor(name, newId, locations)
+                val tc = makeTypeConstructor(name, typeVars, newId, locations)
             in
                 tcon := TypeConstrSet(tc, []);
                 enterType(TypeConstrSet(tc, []), name);
@@ -1963,7 +1970,7 @@ struct
                    right-hand side of the declaration. *)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val tcon =
-                    makeTypeConstructor (name,
+                    makeTypeConstructor (name, typeVars,
                         makeTypeId(false, false, (typeVars, decType), description), locations)
                 val tset = TypeConstrSet(tcon, [])
             in
@@ -1997,7 +2004,7 @@ struct
                 fun leq {constrName=xname: string, ...} {constrName=yname, ...} = xname < yname;
                 val sortedConstrs = quickSort leq constrs;
 
-                fun processConstr ({constrName=name, constrArg, idLocn, ...}) =
+                fun processConstr ({constrName=name, constrArg, idLocn, constrVal, ...}) =
                 let
                     val (constrType, isNullary) =
                         case constrArg of
@@ -2015,7 +2022,10 @@ struct
                     val () = checkForBuiltIn (name, v, lex, idLocn, true) : unit;
           
                     (* Put into the environment. *)
-                    val () = #enter consEnv (name, cons);
+                    val () = #enter consEnv (name, cons)
+                    
+                    (* Link it in case we export the tree. *)
+                    val () = constrVal := cons
                 in    
                     cons
                 end (* processConstr *)

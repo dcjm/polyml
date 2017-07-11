@@ -35,7 +35,7 @@ extern Handle Make_arbitrary_precision(TaskData *taskData, unsigned long);
 extern Handle Make_arbitrary_precision(TaskData *taskData, int);
 extern Handle Make_arbitrary_precision(TaskData *taskData, unsigned);
 
-#if SIZEOF_LONG_LONG != 0
+#ifdef HAVE_LONG_LONG
 extern Handle Make_arbitrary_precision(TaskData *taskData, long long);
 extern Handle Make_arbitrary_precision(TaskData *taskData, unsigned long long);
 #endif

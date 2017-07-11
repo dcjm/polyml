@@ -100,7 +100,6 @@ bool convertedWeak = false;
 */
 static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 {
-    unsigned j;
     gHeapSizeParameters.RecordAtStartOfMajorGC();
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeStart);
     globalStats.incCount(PSC_GC_FULLGC);
@@ -112,7 +111,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     gMem.RemoveEmptyLocals();
 
     if (debugOptions & DEBUG_GC)
-        Log("GC: Full GC, %lu words required %u spaces\n", wordsRequiredToAllocate, gMem.nlSpaces);
+        Log("GC: Full GC, %lu words required %u spaces\n", wordsRequiredToAllocate, gMem.lSpaces.size());
 
     if (debugOptions & DEBUG_HEAPSIZE)
         gMem.ReportHeapSizes("Full GC (before)");
@@ -132,9 +131,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     
     for (unsigned p = 3; p > 0; p--)
     {
-        for(j = 0; j < gMem.nlSpaces; j++)
+        for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
+            LocalMemSpace *lSpace = *i;
             ASSERT (lSpace->top >= lSpace->upperAllocPtr);
             ASSERT (lSpace->upperAllocPtr >= lSpace->lowerAllocPtr);
             ASSERT (lSpace->lowerAllocPtr >= lSpace->bottom);
@@ -149,9 +148,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         }
 
         // Set limits of weak refs.
-        for (j = 0; j < gMem.npSpaces; j++)
+        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
-            PermanentMemSpace *pSpace = gMem.pSpaces[j];
+            PermanentMemSpace *pSpace = *i;
             pSpace->highestWeak = pSpace->bottom;
             pSpace->lowestWeak = pSpace->top;
         }
@@ -161,9 +160,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         
         POLYUNSIGNED bitCount = 0, markCount = 0;
         
-        for (j = 0; j < gMem.nlSpaces; j++)
+        for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
-            LocalMemSpace *lSpace = gMem.lSpaces[j]; 
+            LocalMemSpace *lSpace = *i; 
             markCount += lSpace->i_marked + lSpace->m_marked;
             bitCount += lSpace->bitmap.CountSetBits(lSpace->spaceSize());
         }
@@ -173,16 +172,16 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         else
         {
             // Report an error.  If this happens again we crash.
-            Log("GC: Count error for space %u - mark count %lu, bitCount %lu\n", j, markCount, bitCount);
+            Log("GC: Count error mark count %lu, bitCount %lu\n", markCount, bitCount);
             if (p == 1)
             {
                 ASSERT(markCount == bitCount);
             }
         }
     }
-    for(j = 0; j < gMem.nlSpaces; j++)
+    for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
+        LocalMemSpace *lSpace = *i;
         // Reset the allocation pointers.  They will be set to the
         // limits of the retained data.
         lSpace->lowerAllocPtr = lSpace->bottom;
@@ -199,9 +198,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     {
         POLYUNSIGNED iMarked = 0, mMarked = 0;
         POLYUNSIGNED iSpace = 0, mSpace = 0;
-        for (unsigned i = 0; i < gMem.nlSpaces; i++)
+        for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
-            LocalMemSpace *lSpace = gMem.lSpaces[i];
+            LocalMemSpace *lSpace = *i;
             iMarked += lSpace->i_marked;
             mMarked += lSpace->m_marked;
             if (! lSpace->allocationSpace)
@@ -232,9 +231,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 
     {
         POLYUNSIGNED iUpdated = 0, mUpdated = 0, iMarked = 0, mMarked = 0;
-        for(j = 0; j < gMem.nlSpaces; j++)
+        for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
+            LocalMemSpace *lSpace = *i;
             iMarked += lSpace->i_marked;
             mMarked += lSpace->m_marked;
             if (lSpace->isMutable)
@@ -248,11 +247,11 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     // Delete empty spaces.
     gMem.RemoveEmptyLocals();
 
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
     {
-        for(j = 0; j < gMem.nlSpaces; j++)
+        for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
+            LocalMemSpace *lSpace = *i;
             Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->spaceTypeString(),
                 lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                 ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
@@ -265,9 +264,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     globalStats.setSize(PSS_ALLOCATION, 0);
     globalStats.setSize(PSS_ALLOCATION_FREE, 0);
 
-    for (j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = *i;
         POLYUNSIGNED free = space->freeSpace();
         globalStats.incSize(PSS_AFTER_LAST_GC, free*sizeof(PolyWord));
         globalStats.incSize(PSS_AFTER_LAST_FULLGC, free*sizeof(PolyWord));
@@ -284,7 +283,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 #ifdef FILL_UNUSED_MEMORY
         memset(space->bottom, 0xaa, (char*)space->upperAllocPtr - (char*)space->bottom);
 #endif
-        if (debugOptions & DEBUG_GC)
+        if (debugOptions & DEBUG_GC_ENHANCED)
             Log("GC: %s space %p %d free in %d words %2.1f%% full\n", space->spaceTypeString(),
                 space, space->freeSpace(), space->spaceSize(),
                 ((float)space->allocatedSpace()) * 100 / (float)space->spaceSize());

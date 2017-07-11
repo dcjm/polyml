@@ -150,6 +150,7 @@ struct
         TypeConstrs of
         {
             name:       string,
+            typeVars:   typeVarForm list,
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
@@ -459,6 +460,7 @@ struct
      flag indicating if the values can be tested for equality. *)
       
     fun tcName       (TypeConstrs {name,...})       = name
+    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
@@ -476,11 +478,13 @@ struct
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
 
-    (* Construct a type constructor. *)
-    fun makeTypeConstructor (name, uid, locations) =
+    (* Construct a type constructor.  We need typeVars here purely to be
+       able to print datatypes with equality type variables e.g. datatype ''a t. *)
+    fun makeTypeConstructor (name, typeVars, uid, locations) =
         TypeConstrs
         {
             name       = name,
+            typeVars   = typeVars,
             identifier = uid,
             locations = locations
         }

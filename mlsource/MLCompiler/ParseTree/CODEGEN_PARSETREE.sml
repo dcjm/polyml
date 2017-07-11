@@ -1210,10 +1210,12 @@ struct
                             List.foldl(fn(t, [_]) => getResultTuple t  | (_, s) => s) [GeneralType] clauses
 
                         (* If we're debugging we want the result of the function so we don't do this optimisation. *)
-                        (* Now disable this optimisation completely.  The lower-level optimiser does this. *)
+                        (* The optimiser also detects functions returning tuples and turns them into containers.
+                           That works for local functions but doesn't work if the function is exported e.g.
+                           IntInf.divMod. *)
                         val resultTuple =
                             if (getParameter debugTag (debugParams lex)) then [GeneralType]
-                            else if List.length resultTuples > 1 then [GeneralType] else resultTuples
+                            else resultTuples
                     in
                         val resTupleLength = List.length resultTuple
                         (*val _ = resTupleLength = 1 orelse raise InternalError "resTupleLength <> 1"*)

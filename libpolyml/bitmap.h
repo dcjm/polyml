@@ -39,11 +39,16 @@ public:
 private:
     static unsigned char BitN(POLYUNSIGNED n) { return 1 << (n & 7); }
 public:
+    // Test to see if it has been created
+    bool Created() const { return m_bits != 0; }
     // Set a single bit
     void SetBit(POLYUNSIGNED n) { m_bits[n >> 3] |=  BitN(n); }
+    // Clear a single bit
+    void ClearBit(POLYUNSIGNED n) { m_bits[n >> 3] &= (0xff ^ BitN(n)); }
     // Set a range of bits
     void SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length);
     // Clear a range of bits.  May already be partly clear
+    // N.B.  This may clear more than just the bits specified
     void ClearBits(POLYUNSIGNED bitno, POLYUNSIGNED length);
     // Test a bit
     bool TestBit(POLYUNSIGNED n) const { return (m_bits[n >> 3] & BitN(n)) != 0; }
@@ -53,6 +58,8 @@ public:
     POLYUNSIGNED FindFree(POLYUNSIGNED limit, POLYUNSIGNED bitno, POLYUNSIGNED n) const;
     // How many set bits are there in the bitmap?
     POLYUNSIGNED CountSetBits(POLYUNSIGNED size) const;
+    // Find the last set bit before here.
+    POLYUNSIGNED FindLastSet(POLYUNSIGNED bitno) const;
 private:
 
     unsigned char *m_bits;

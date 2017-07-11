@@ -210,8 +210,8 @@ struct
         Struct { name = structName, signat = copiedSig, access = newAccess, locations = baseLoc @ locations}
     end
     
-    fun makeSelectedType(typeConstr, Struct { signat=Signatures { typeIdMap, name=baseName, ...}, ...}) =
-        fullCopyDatatype(typeConstr, typeIdMap, baseName^".")
+    fun makeSelectedType(typeConstr, Struct { signat=Signatures { typeIdMap, ...}, name, ...}) =
+        fullCopyDatatype(typeConstr, typeIdMap, name^".")
 
     (* Look up a structure. *)
     fun lookupStructure (kind, {lookupStruct:string -> structVals option},

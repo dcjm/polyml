@@ -16,8 +16,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* G&R 2004 status: Only minor changes to Posix.IO.  Done. *)
-
 signature POSIX_ERROR =
 sig
     type syserror = OS.syserror (* G&R 2004 has an error *)
@@ -610,15 +608,11 @@ struct
 
     structure Error =
     struct
-        type syserror = OS.syserror
+        type syserror = OS.syserror (* Implemented as a SysWord.word value. *)
         val errorMsg = OS.errorMsg
-        and errorName = OS.errorName
-        and syserror = OS.syserror
+        fun toWord (s: syserror): SysWord.word = RunCall.unsafeCast s
+        and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast w
 
-        fun toWord (s: syserror): SysWord.word =
-            SysWord.fromInt(RunCall.unsafeCast s)
-        and fromWord (w: SysWord.word) : syserror =
-            RunCall.unsafeCast(SysWord.toInt w)
         val toobig = fromWord(getConst 0)
         and acces = fromWord(getConst 1)
         and again = fromWord(getConst 2)
@@ -662,6 +656,64 @@ struct
         and spipe = fromWord(getConst 40)
         and srch = fromWord(getConst 41)
         and xdev = fromWord(getConst 42)
+        
+        val errNames =
+        [
+            (acces, "acces"),
+            (again, "again"),
+            (badf, "badf"),
+            (badmsg, "badmsg"),
+            (busy, "busy"),
+            (canceled, "canceled"),
+            (child, "child"),
+            (deadlk, "deadlk"),
+            (dom, "dom"),
+            (exist, "exist"),
+            (fault, "fault"),
+            (fbig, "fbig"),
+            (inprogress, "inprogress"),
+            (intr, "intr"),
+            (inval, "inval"),
+            (io, "io"),
+            (isdir, "isdir"),
+            (loop, "loop"),
+            (mfile, "mfile"),
+            (mlink, "mlink"),
+            (msgsize, "msgsize"),
+            (nametoolong, "nametoolong"),
+            (nfile, "nfile"),
+            (nodev, "nodev"),
+            (noent, "noent"),
+            (noexec, "noexec"),
+            (nolck, "nolck"),
+            (nomem, "nomem"),
+            (nospc, "nospc"),
+            (nosys, "nosys"),
+            (notdir, "notdir"),
+            (notempty, "notempty"),
+            (notsup, "notsup"),
+            (notty, "notty"),
+            (nxio, "nxio"),
+            (perm, "perm"),
+            (pipe, "pipe"),
+            (range, "range"),
+            (rofs, "rofs"),
+            (spipe, "spipe"),
+            (srch, "srch"),
+            (toobig, "toobig"),
+            (xdev, "xdev")
+        ]
+        
+        (* These are defined to return the names above. *)
+        fun errorName n =
+            case List.find (fn (e, _) => e = n) errNames of
+                SOME(_, s) => s
+            |   NONE => OS.errorName n
+        
+        fun syserror s =
+            case List.find (fn (_, t) => s = t) errNames of
+                SOME(e, _) => SOME e
+            |   NONE => OS.syserror s
     end;
 
     structure Signal =

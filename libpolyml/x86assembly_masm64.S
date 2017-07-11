@@ -58,7 +58,7 @@ UnusedAlign         DWORD   ?
 SaveCStack          QWORD   ?       ; Saved C stack frame
 ThreadId            QWORD   ?       ; My thread id
 StackPtr            QWORD   ?       ; Stack pointer
-ProgramCtr          QWORD   ?
+UnusedProgramCtr    QWORD   ?
 HeapOverFlowCall    QWORD   ?
 StackOverFlowCall   QWORD   ?
 StackOverFlowCallEx QWORD   ?
@@ -162,7 +162,7 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     r13,[ArgVector.SaveR13+rbp]
     mov     r14,[ArgVector.SaveR14+rbp]
     cld                                     ; Clear this just in case
-    jmp     [ArgVector.ProgramCtr+rbp]
+    ret
 
 ; Everything up to here is considered as part of the X86AsmSwitchToPoly proc
 X86AsmSwitchToPoly ENDP

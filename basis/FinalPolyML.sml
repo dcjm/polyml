@@ -2044,8 +2044,9 @@ in
                 datatype profileMode =
                     ProfileTime             (* old mode 1 *)
                 |   ProfileAllocations      (* old mode 2 *)
-                |   ProfileLongIntEmulation (* old mode 3 *)
+                |   ProfileLongIntEmulation (* old mode 3  - No longer used*)
                 |   ProfileTimeThisThread   (* old mode 6 *)
+                |   ProfileMutexContention
             
                 fun profileStream (stream: (int * string) list -> unit) mode f arg =
                 let
@@ -2057,6 +2058,7 @@ in
                         |   ProfileAllocations =>       2
                         |   ProfileLongIntEmulation =>  3
                         |   ProfileTimeThisThread =>    6
+                        |   ProfileMutexContention =>   7
                     val _ = systemProfile code (* Discard the result *)
                     val result =
                         f arg handle exn => (stream(systemProfile 0); PolyML.Exception.reraise exn)

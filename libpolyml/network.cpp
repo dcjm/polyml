@@ -135,6 +135,15 @@ typedef int socklen_t;
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByName(PolyObject *threadId, PolyWord servName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(PolyObject *threadId, PolyWord servName, PolyWord protName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPort(PolyObject *threadId, PolyWord portNo);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(PolyObject *threadId, PolyWord portNo, PolyWord protName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(PolyObject *threadId, PolyWord protocolName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hostName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr);
 }
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
@@ -294,7 +303,6 @@ struct sk_tab_struct {
 
 static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto);
-static Handle makeServEntry(TaskData *taskData, struct servent *proto);
 static Handle mkAftab(TaskData *taskData, void*, char *p);
 static Handle mkSktab(TaskData *taskData, void*, char *p);
 static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt);
@@ -302,59 +310,30 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
 static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt);
 static Handle selectCall(TaskData *taskData, Handle args, int blockType);
 
-/* If these are not defined define them as negative because GetError returns
-   negative values for socket library errors which do not have
-   equivalents as errno-style errors. */
-#ifndef EWOULDBLOCK
-#define EWOULDBLOCK (-WSAEWOULDBLOCK)
-#endif
-
-#ifndef EINPROGRESS
-#define EINPROGRESS EWOULDBLOCK
-#endif
-
-#ifndef EMFILE 
-#define EMFILE      (-WSAEMFILE)
-#endif
-
-#ifndef EINTR
-#define EINTR       (-WSAEINTR)
-#endif
-
-#ifndef EBADF
-#define EBADF       (-WSAEBADF)
-#endif
-
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-/* To allow for portable code we map Windows socket errors to
-   errno-style errors if there is a suitable entry in errno.h.
-   If there isn't we simply return the negative value and handle
-   it later. N.B. WSAEWOULDBLOCK is one of those which does not
-   have an equivalent.  (It does seem to be defined in Windows CE). */
-int mapWindowsErrorCode(int err)
-{
-#ifdef EWOULDBLOCK
-    // This is very common so we treat it specially.
-    if (err == WSAEWOULDBLOCK)
-        return EWOULDBLOCK;
-#endif
-    const char *errText = stringFromErrorCode(-err);
-    int newErr = 0;
-    if (errText != 0 && errorCodeFromString(errText, &newErr))
-        return newErr;
-    else return -err;
-}
-
-static int GetError()
-{
-    return mapWindowsErrorCode(WSAGetLastError());
-}
-
-#define GETERROR    (GetError())
-#define MAPERROR(x) (mapWindowsErrorCode(x))
+#define GETERROR     (WSAGetLastError())
+#define TOOMANYFILES    WSAEMFILE
+#define NOMEMORY        WSA_NOT_ENOUGH_MEMORY
+#define STREAMCLOSED    WSA_INVALID_HANDLE
+#define WOULDBLOCK      WSAEWOULDBLOCK
+#define INPROGRESS      WSAEINPROGRESS
+#define CALLINTERRUPTED WSAEINTR
+#undef EBADF
+#undef EMFILE
+#undef EAGAIN
+#undef EINTR
+#undef EWOULDBLOCK
+#undef ENOMEM
 #else
 #define GETERROR    (errno)
-#define MAPERROR(x) (x)
+#define TOOMANYFILES EMFILE
+#define NOMEMORY ENOMEM
+#define STREAMCLOSED EBADF
+#define ERRORNUMBER errno
+#define FILEDOESNOTEXIST ENOENT
+#define WOULDBLOCK EWOULDBLOCK
+#define INPROGRESS EINPROGRESS
+#define CALLINTERRUPTED EINTR
 #endif
 
 
@@ -421,117 +400,6 @@ TryAgain: // Used for various retries.
           // safety we always come back here.
     switch (c)
     {
-    case 0:
-        { /* Get the current host name. */
-            size_t size = 4096;
-            TempCString hostName((char *)malloc(size));
-            if (hostName == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-            int err;
-            while ((err = gethostname(hostName, size)) != 0 && GETERROR == ENAMETOOLONG)
-            {
-                if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "gethostname needs too large a buffer");
-                size *= 2;
-                char *new_buf = (char *)realloc(hostName, size);
-                if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-                hostName = new_buf;
-            }
-
-            if (err != 0)
-                raise_syscall(taskData, "gethostname failed", GETERROR);
-
-            return (SAVE(C_string_to_Poly(taskData, hostName)));
-        }
-
-    case 1:
-        {
-            /* Look up a host name. */
-            TempCString hostName(Poly_string_to_C_alloc(DEREFWORD(args)));
-            struct hostent *host = gethostbyname(hostName);
-            if (host == NULL)
-                raise_syscall(taskData, "gethostbyname failed", GETERROR);
-            return makeHostEntry(taskData, host);
-        }
-
-    case 2:
-        {
-            /* Look up entry by address. */
-            unsigned long addr =
-                htonl(get_C_unsigned(taskData, DEREFWORDHANDLE(args)));
-            struct hostent *host;
-            /* Look up a host name given an address. */
-            host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
-            if (host == NULL)
-                raise_syscall(taskData, "gethostbyaddr failed", GETERROR);
-            return makeHostEntry(taskData, host);
-        }
-
-    case 3:
-        {
-            /* Look up protocol entry. */
-            TempCString protoName(Poly_string_to_C_alloc(DEREFWORD(args)));
-            struct protoent *proto = getprotobyname(protoName);
-            if (proto == NULL)
-                raise_syscall(taskData, "getprotobyname failed", GETERROR);
-            return makeProtoEntry(taskData, proto);
-        }
-
-    case 4:
-        {
-            /* Look up protocol entry. */
-            struct protoent *proto;
-            int pNum = get_C_int(taskData, DEREFWORDHANDLE(args));
-            proto = getprotobynumber(pNum);
-            if (proto == NULL)
-                raise_syscall(taskData, "getprotobynumber failed", GETERROR);
-            return makeProtoEntry(taskData, proto);
-        }
-
-    case 5:
-        {
-            /* Get service given service name only. */
-            TempCString servName(Poly_string_to_C_alloc(DEREFWORD(args)));
-            struct servent *serv = getservbyname (servName, NULL);
-            if (serv == NULL)
-                raise_syscall(taskData, "getservbyname failed", GETERROR);
-            return makeServEntry(taskData, serv);
-        }
-
-    case 6:
-        {
-            /* Get service given service name and protocol name. */
-            TempCString servName(Poly_string_to_C_alloc(args->WordP()->Get(0)));
-            TempCString protoName(Poly_string_to_C_alloc(args->WordP()->Get(1)));
-            struct servent *serv = getservbyname (servName, protoName);
-            if (serv == NULL)
-                raise_syscall(taskData, "getservbyname failed", GETERROR);
-            return makeServEntry(taskData, serv);
-        }
-
-    case 7:
-        {
-            /* Get service given port number only. */
-            struct servent *serv;
-            long port = htons(get_C_ushort(taskData, DEREFWORDHANDLE(args)));
-            serv = getservbyport(port, NULL);
-            if (serv == NULL)
-                raise_syscall(taskData, "getservbyport failed", GETERROR);
-            return makeServEntry(taskData, serv);
-        }
-
-    case 8:
-        {
-            /* Get service given port number and protocol name. */
-            struct servent *serv;
-            long port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
-            TempCString protoName(Poly_string_to_C_alloc(args->WordP()->Get(1)));
-            serv = getservbyport (port, protoName);
-            if (serv == NULL)
-                raise_syscall(taskData, "getservbyport failed", GETERROR);
-            return makeServEntry(taskData, serv);
-        }
-
-    // 9 and 10 were used for the NetDB structure which was removed from
-    // the basis library a long time ago.
 
     case 11:
         {
@@ -555,7 +423,7 @@ TryAgain: // Used for various retries.
     case 14: /* Create a socket */
         {
             Handle str_token = make_stream_entry(taskData);
-            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
             PIOSTRUCT strm;
             POLYUNSIGNED stream_no = STREAMID(str_token);
             int af = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
@@ -567,16 +435,16 @@ TryAgain: // Used for various retries.
                 free_stream_entry(stream_no);
                 switch (GETERROR)
                 {
-                case EMFILE: /* too many open files */
+                case TOOMANYFILES: /* too many open files */
                     {
                         if (emfileFlag) /* Previously had an EMFILE error. */
-                            raise_syscall(taskData, "socket failed", EMFILE);
+                            raise_syscall(taskData, "socket failed", TOOMANYFILES);
                         emfileFlag = true;
                         taskData->saveVec.reset(hSave);
                         FullGC(taskData); /* May clear emfileFlag if we close a file. */
                         goto TryAgain;
                     }
-                case EINTR:
+                case CALLINTERRUPTED:
                     taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 default: raise_syscall(taskData, "socket failed", GETERROR);
@@ -683,7 +551,7 @@ TryAgain: // Used for various retries.
                 linger.l_onoff = 1;
                 linger.l_linger = lTime;
             }
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (setsockopt(strm->device.sock, SOL_SOCKET, SO_LINGER,
                 (char*)&linger, sizeof(linger)) != 0)
                 raise_syscall(taskData, "setsockopt failed", GETERROR);
@@ -696,7 +564,7 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(args->WordP());
             socklen_t size = sizeof(linger);
             int lTime = 0;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (getsockopt(strm->device.sock, SOL_SOCKET, SO_LINGER,
                 (char*)&linger, &size) != 0)
                 raise_syscall(taskData, "getsockopt failed", GETERROR);
@@ -711,7 +579,7 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(args->WordP());
             struct sockaddr sockA;
             socklen_t   size = sizeof(sockA);
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (getpeername(strm->device.sock, &sockA, &size) != 0)
                 raise_syscall(taskData, "getpeername failed", GETERROR);
             /* Addresses are treated as strings. */
@@ -723,7 +591,7 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(args->WordP());
             struct sockaddr sockA;
             socklen_t   size = sizeof(sockA);
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (getsockname(strm->device.sock, &sockA, &size) != 0)
                 raise_syscall(taskData, "getsockname failed", GETERROR);
             return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
@@ -771,7 +639,7 @@ TryAgain: // Used for various retries.
     case 44: /* Find number of bytes available. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             unsigned long readable;
             if (ioctlsocket(strm->device.sock, FIONREAD, &readable) != 0)
@@ -787,7 +655,7 @@ TryAgain: // Used for various retries.
     case 45: /* Find out if we are at the mark. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             unsigned long atMark;
             if (ioctlsocket(strm->device.sock, SIOCATMARK, &atMark) != 0)
@@ -807,7 +675,7 @@ TryAgain: // Used for various retries.
     case 58: /* Non-blocking accept. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             else {
                 SOCKET sock = strm->device.sock;
                 struct sockaddr resultAddr;
@@ -816,7 +684,7 @@ TryAgain: // Used for various retries.
                 /* Get a token for the new socket - may raise an
                    exception if it fails. */
                 Handle str_token = make_stream_entry(taskData);
-                if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
                 POLYUNSIGNED stream_no = STREAMID(str_token);
                 socklen_t addrLen = sizeof(resultAddr);
                 SOCKET result = accept(sock, &resultAddr, &addrLen);
@@ -827,19 +695,22 @@ TryAgain: // Used for various retries.
                     free_stream_entry(stream_no);
                     switch (GETERROR)
                     {
-                    case EINTR:
+                    case CALLINTERRUPTED:
                         taskData->saveVec.reset(hSave);
                         goto TryAgain; /* Have to retry if we got EINTR. */
-                    case EMFILE: /* Too many files. */
+                    case TOOMANYFILES: /* Too many files. */
                         {
                             if (emfileFlag) /* Previously had an EMFILE error. */
-                                raise_syscall(taskData, "accept failed", EMFILE);
+                                raise_syscall(taskData, "accept failed", TOOMANYFILES);
                             emfileFlag = true;
                             taskData->saveVec.reset(hSave);
                             FullGC(taskData); /* May clear emfileFlag if we close a file. */
                             goto TryAgain;
                         }
-                    case EWOULDBLOCK:
+                    case WOULDBLOCK:
+#if (WOULDBLOCK != INPROGRESS)
+                    case INPROGRESS:
+#endif
                         /* If the socket is in non-blocking mode we pass
                            this back to the caller.  If it is blocking we
                            suspend this process and try again later. */
@@ -873,7 +744,7 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (bind(strm->device.sock, psock, (int)psAddr->length) != 0)
                 raise_syscall(taskData, "bind failed", GETERROR);
             return Make_arbitrary_precision(taskData, 0);
@@ -887,7 +758,7 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             /* In Windows, and possibly also in Unix, if we have
                received a previous EWOULDBLOCK we have to use "select"
                to tell us whether the connection actually succeeded. */
@@ -898,9 +769,9 @@ TryAgain: // Used for various retries.
                 /* It isn't clear that EINTR can ever occur with
                     connect, but just to be safe, we retry. */
                 int err = GETERROR;
-                if ((err == EWOULDBLOCK || err == EINPROGRESS) && c == 48 /*blocking version*/)
+                if ((err == WOULDBLOCK || err == INPROGRESS) && c == 48 /*blocking version*/)
                     break; // It's in progress and we need to wait for completion
-                else if (err != EINTR)
+                else if (err != CALLINTERRUPTED)
                     raise_syscall(taskData, "connect failed", err);
                 /* else try again. */
             }
@@ -910,7 +781,7 @@ TryAgain: // Used for various retries.
             {
                 // ThreadPause may GC.  We need to reload the socket for security.
                 strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-                if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+                if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
                 SOCKET sock = strm->device.sock;
                 /* In Windows failure is indicated by the bit being set in
                     the exception set rather than the write set. */
@@ -922,7 +793,7 @@ TryAgain: // Used for various retries.
                 if (waiter.SelectResult() < 0)
                 {
                     int err = waiter.SelectError();
-                    if (err != EINTR)
+                    if (err != CALLINTERRUPTED)
                         raise_syscall(taskData, "select failed", err);
                     /* else continue */
                 }
@@ -930,9 +801,10 @@ TryAgain: // Used for various retries.
                 {
                     int result = 0;
                     socklen_t len = sizeof(result);
-                    if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&result, &len) != 0
-                        || result != 0)
-                        raise_syscall(taskData, "connect failed", MAPERROR(result));
+                    if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&result, &len) != 0)
+                        raise_syscall(taskData, "connect failed", GETERROR);
+                    else if (result != 0)
+                        raise_syscall(taskData, "connect failed", result);
                     return Make_arbitrary_precision(taskData, 0); /* Success. */
                 }
             }
@@ -942,7 +814,7 @@ TryAgain: // Used for various retries.
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             int backlog = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (listen(strm->device.sock, backlog) != 0)
                 raise_syscall(taskData, "listen failed", GETERROR);
             return Make_arbitrary_precision(taskData, 0);
@@ -952,7 +824,7 @@ TryAgain: // Used for various retries.
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             int mode = 0;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             switch (get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)))
             {
             case 1: mode = SHUT_RD; break;
@@ -983,7 +855,7 @@ TryAgain: // Used for various retries.
             int flags = 0;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (IS_INT(pBase)) {
                 /* Handle the special case where we are sending a single
                    byte vector and the "address" is the tagged byte itself. */
@@ -1009,7 +881,7 @@ TryAgain: // Used for various retries.
                 if (sent != SOCKET_ERROR) /* OK. */
                     return Make_arbitrary_precision(taskData, sent);
                 err = GETERROR;
-                if (err == EWOULDBLOCK && c == 51 /* blocking */)
+                if ((err == WOULDBLOCK || err == INPROGRESS) && c == 51 /* blocking */)
                 {
                     WaitNetSend waiter(strm->device.sock);
                     processes->ThreadPauseForIO(taskData, &waiter);
@@ -1017,7 +889,7 @@ TryAgain: // Used for various retries.
                     taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 }
-                else if (err != EINTR)
+                else if (err != CALLINTERRUPTED)
                     raise_syscall(taskData, "send failed", err);
                 /* else try again */
             }
@@ -1043,7 +915,7 @@ TryAgain: // Used for various retries.
             int flags = 0;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (IS_INT(pBase)) {
                 /* Handle the special case where we are sending a single
                    byte vector and the "address" is the tagged byte itself. */
@@ -1070,7 +942,7 @@ TryAgain: // Used for various retries.
                 if (sent != SOCKET_ERROR) /* OK. */
                     return Make_arbitrary_precision(taskData, sent);
                 err = GETERROR;
-                if (err == EWOULDBLOCK && c == 52 /* blocking */)
+                if ((err == WOULDBLOCK || err == INPROGRESS) && c == 52 /* blocking */)
                 {
                     WaitNetSend waiter(strm->device.sock);
                     processes->ThreadPauseForIO(taskData, &waiter);
@@ -1078,7 +950,7 @@ TryAgain: // Used for various retries.
                     taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 }
-                else if (err != EINTR)
+                else if (err != CALLINTERRUPTED)
                     raise_syscall(taskData, "sendto failed", err);
                 /* else try again */
             }
@@ -1102,7 +974,7 @@ TryAgain: // Used for various retries.
             int flags = 0;
             if (peek != 0) flags |= MSG_PEEK;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             while (1) {
                 int err;
@@ -1119,7 +991,7 @@ TryAgain: // Used for various retries.
                     if (recvd > (int)length) recvd = length;
                     return Make_arbitrary_precision(taskData, recvd);
                 }
-                if (err == EWOULDBLOCK && c == 53 /* blocking */)
+                if ((err == WOULDBLOCK || err == INPROGRESS) && c == 53 /* blocking */)
                 {
                     /* Block until something arrives. */
                     WaitNet waiter(strm->device.sock, outOfBand != 0);
@@ -1128,7 +1000,7 @@ TryAgain: // Used for various retries.
                     taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 }
-                else if (err != EINTR)
+                else if (err != CALLINTERRUPTED)
                     raise_syscall(taskData, "recv failed", err);
                 /* else try again */
             }
@@ -1157,7 +1029,7 @@ TryAgain: // Used for various retries.
 
             if (peek != 0) flags |= MSG_PEEK;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             while (1) {
                 int err;
@@ -1180,7 +1052,7 @@ TryAgain: // Used for various retries.
                     DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(addrHandle));
                     return pair;
                 }
-                if (err == EWOULDBLOCK && c == 54 /* blocking */)
+                if ((err == WOULDBLOCK || err == INPROGRESS) && c == 54 /* blocking */)
                 {
                     WaitNet waiter(strm->device.sock, outOfBand != 0);
                     processes->ThreadPauseForIO(taskData, &waiter);
@@ -1188,7 +1060,7 @@ TryAgain: // Used for various retries.
                     taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 }
-                else if (err != EINTR)
+                else if (err != CALLINTERRUPTED)
                     raise_syscall(taskData, "recvfrom failed", err);
                 /* else try again */
             }
@@ -1197,7 +1069,7 @@ TryAgain: // Used for various retries.
     case 55: /* Create a socket pair. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Not implemented. */
-        raise_syscall(taskData, "socketpair not implemented", -WSAEAFNOSUPPORT);
+        raise_syscall(taskData, "socketpair not implemented", WSAEAFNOSUPPORT);
 #else
         {
             Handle str_token1 = make_stream_entry(taskData);
@@ -1219,16 +1091,16 @@ TryAgain: // Used for various retries.
                 free_stream_entry(stream_no2);
                 switch (GETERROR)
                 {
-                case EMFILE: /* too many open files */
+                case TOOMANYFILES: /* too many open files */
                     {
                         if (emfileFlag) /* Previously had an EMFILE error. */
-                            raise_syscall(taskData, "socket failed", EMFILE);
+                            raise_syscall(taskData, "socket failed", TOOMANYFILES);
                         emfileFlag = true;
                         FullGC(taskData); /* May clear emfileFlag if we close a file. */
                         taskData->saveVec.reset(hSave);
                         goto TryAgain;
                     }
-                case EINTR:
+                case CALLINTERRUPTED:
                     taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 default: raise_syscall(taskData, "socketpair failed", GETERROR);
@@ -1263,7 +1135,7 @@ TryAgain: // Used for various retries.
     case 56: /* Create a Unix socket address from a string. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Not implemented. */
-        raise_syscall(taskData, "Unix addresses not implemented", -WSAEAFNOSUPPORT);
+        raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
 #else
         {
             struct sockaddr_un addr;
@@ -1282,7 +1154,7 @@ TryAgain: // Used for various retries.
     case 57: /* Get the file name from a Unix socket address. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Not implemented. */
-        raise_syscall(taskData, "Unix addresses not implemented", -WSAEAFNOSUPPORT);
+        raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
 #else
         {
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP();
@@ -1443,7 +1315,7 @@ static Handle setSocketOption(TaskData *taskData, Handle args, int level, int op
 {
     PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
     int onOff = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
     if (setsockopt(strm->device.sock, level, opt,
         (char*)&onOff, sizeof(int)) != 0)
         raise_syscall(taskData, "setsockopt failed", GETERROR);
@@ -1456,7 +1328,7 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
     PIOSTRUCT strm = get_stream(args->WordP());
     int onOff = 0;
     socklen_t size = sizeof(int);
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
     if (getsockopt(strm->device.sock, level, opt,
         (char*)&onOff, &size) != 0)
         raise_syscall(taskData, "getsockopt failed", GETERROR);
@@ -1469,7 +1341,7 @@ static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt)
     PIOSTRUCT strm = get_stream(args->WordP());
     int optVal = 0;
     socklen_t size = sizeof(int);
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
     if (getsockopt(strm->device.sock, level, opt,
         (char*)&optVal, &size) != 0)
         raise_syscall(taskData, "getsockopt failed", GETERROR);
@@ -1527,19 +1399,19 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
     nVec = OBJECT_LENGTH(readVec);
     for (i = 0; i < nVec; i++) {
         PIOSTRUCT strm = get_stream(readVec->Get(i).AsObjPtr());
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF); 
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
         FD_SET(strm->device.sock, &readers);
     }
     nVec = OBJECT_LENGTH(writeVec);
     for (i = 0; i < nVec; i++) {
         PIOSTRUCT strm = get_stream(writeVec->Get(i).AsObjPtr());
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF); 
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
         FD_SET(strm->device.sock, &writers);
     }
     nVec = OBJECT_LENGTH(excVec);
     for (i = 0; i < nVec; i++) {
         PIOSTRUCT strm = get_stream(excVec->Get(i).AsObjPtr());
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF); 
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
         FD_SET(strm->device.sock, &excepts);
     }
     /* Whatever the timeout specified we simply poll here. */
@@ -1630,9 +1502,207 @@ POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord ar
     else return result->Word().AsUnsigned();
 }
 
+POLYUNSIGNED PolyNetworkGetServByName(PolyObject *threadId, PolyWord serviceName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Get service given service name only. */
+    TempCString servName(Poly_string_to_C_alloc(serviceName));
+    struct servent *serv = getservbyname (servName, NULL);
+    // If this fails the ML function returns NONE
+    Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(PolyObject *threadId, PolyWord serviceName, PolyWord protName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Get service given service name and protocol name. */
+    TempCString servName(Poly_string_to_C_alloc(serviceName));
+    TempCString protoName(Poly_string_to_C_alloc(protName));
+    struct servent *serv = getservbyname (servName, protoName);
+    Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetServByPort(PolyObject *threadId, PolyWord portNo)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Get service given port number only. */
+    long port = htons(get_C_ushort(taskData, portNo));
+    struct servent *serv = getservbyport(port, NULL);
+    Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(PolyObject *threadId, PolyWord portNo, PolyWord protName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Get service given port number and protocol name. */
+    long port = htons(get_C_ushort(taskData, portNo));
+    TempCString protoName(Poly_string_to_C_alloc(protName));
+    struct servent *serv = getservbyport (port, protoName);
+    Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetProtByName(PolyObject *threadId, PolyWord protocolName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Look up protocol entry. */
+    TempCString protoName(Poly_string_to_C_alloc(protocolName));
+    struct protoent *proto = getprotobyname(protoName);
+    // If this fails the ML function returns NONE
+    Handle result = proto == NULL ? 0 : makeProtoEntry(taskData, proto);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Look up protocol entry. */
+    int pNum = get_C_int(taskData, protoNo);
+    struct protoent *proto = getprotobynumber(pNum);
+    Handle result = proto == NULL ? 0 : makeProtoEntry(taskData, proto);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try { /* Get the current host name. */
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+        int size = 4096;
+#else
+        size_t size = 4096;
+#endif
+        TempCString hostName((char *)malloc(size));
+        if (hostName == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+        int err;
+        while ((err = gethostname(hostName, size)) != 0 && GETERROR == ENAMETOOLONG)
+        {
+            if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "gethostname needs too large a buffer");
+            size *= 2;
+            char *new_buf = (char *)realloc(hostName, size);
+            if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+            hostName = new_buf;
+        }
+
+        if (err != 0)
+            raise_syscall(taskData, "gethostname failed", GETERROR);
+
+        result = SAVE(C_string_to_Poly(taskData, hostName));
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Look up a host name. */
+    TempCString hostName(Poly_string_to_C_alloc(hName));
+    struct hostent *host = gethostbyname(hostName);
+    // If this fails the ML function returns NONE
+    Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Look up entry by address. */
+    unsigned long addr = htonl(get_C_unsigned(taskData, hostAddr));
+    /* Look up a host name given an address. */
+    struct hostent *host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
+    Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts networkingEPT[] =
 {
-    { "PolyNetworkGeneral",             (polyRTSFunction)&PolyNetworkGeneral},
+    { "PolyNetworkGeneral",                     (polyRTSFunction)&PolyNetworkGeneral},
+    { "PolyNetworkGetServByName",               (polyRTSFunction)&PolyNetworkGetServByName},
+    { "PolyNetworkGetServByNameAndProtocol",    (polyRTSFunction)&PolyNetworkGetServByNameAndProtocol},
+    { "PolyNetworkGetServByPort",               (polyRTSFunction)&PolyNetworkGetServByPort},
+    { "PolyNetworkGetServByPortAndProtocol",    (polyRTSFunction)&PolyNetworkGetServByPortAndProtocol},
+    { "PolyNetworkGetProtByName",               (polyRTSFunction)&PolyNetworkGetProtByName},
+    { "PolyNetworkGetProtByNo",                 (polyRTSFunction)&PolyNetworkGetProtByNo},
+    { "PolyNetworkGetHostName",                 (polyRTSFunction)&PolyNetworkGetHostName},
+    { "PolyNetworkGetHostByName",               (polyRTSFunction)&PolyNetworkGetHostByName},
+    { "PolyNetworkGetHostByAddr",               (polyRTSFunction)&PolyNetworkGetHostByAddr},
 
     { NULL, NULL} // End of list.
 };

@@ -15,6 +15,7 @@ Socket.connect(y, INetSock.toAddr(localhost, port));
 raise Fail "wrong"
 
 end
-) handle OS.SysErr(_, SOME e) => if e = valOf(OS.syserror "ECONNREFUSED") then () else raise Fail "bad error";
+) handle OS.SysErr(_, err) =>
+    if err = OS.syserror "ECONNREFUSED" orelse err = OS.syserror "WSAECONNREFUSED" then () else raise Fail "bad error";
 
 (* We could also get ECONNABORTED here perhaps. *)

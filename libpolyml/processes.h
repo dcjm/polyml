@@ -2,7 +2,7 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007-8, 2012, 2015 David C.J. Matthews
+    Copyright (c) 2007-8, 2012, 2015, 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -110,7 +110,7 @@ public:
     virtual Handle EnterPolyCode() = 0; // Start running ML
 
     virtual void InterruptCode() = 0;
-    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
+    virtual bool AddTimeProfileCount(SIGNALCONTEXT *context) = 0;
     // Initialise the stack for a new thread.  The parent task object is passed in because any
     // allocation that needs to be made must be made in the parent.
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;
@@ -133,7 +133,7 @@ public:
 
     virtual POLYUNSIGNED currentStackSpace(void) const = 0;
     // Add a count to the local function if we are using store profiling.
-    virtual void addAllocationProfileCount(POLYUNSIGNED words) = 0;
+    virtual void addProfileCount(POLYUNSIGNED words) = 0;
 
     // Functions called before and after an RTS call.
     virtual void PreRTSCall(void) {}
@@ -173,10 +173,11 @@ private:
 #ifdef HAVE_WINDOWS_H
     LONGLONG lastCPUTime; // Used for profiling
 #endif
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
 public:
     bool threadExited;
 private:
+#ifdef HAVE_PTHREAD_H
+    pthread_t threadId;
 #endif
 #ifdef HAVE_WINDOWS_H
 public: // Because, on Cygwin, it's used in NewThreadFunction

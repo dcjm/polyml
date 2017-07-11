@@ -83,6 +83,14 @@
 #include "machoexport.h"
 #endif
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
+#define ERRORNUMBER _doserrno
+#else
+#define NOMEMORY ENOMEM
+#define ERRORNUMBER errno
+#endif
+
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord fileName, PolyWord root);
@@ -112,7 +120,7 @@ CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
 
 void CopyScan::initialise(bool isExport/*=true*/)
 {
-    ASSERT(gMem.neSpaces == 0);
+    ASSERT(gMem.eSpaces.size() == 0);
     // Set the space sizes to a proportion of the space currently in use.
     // Computing these sizes is not obvious because CopyScan is used both
     // for export and for saved states.  For saved states in particular we
@@ -121,14 +129,14 @@ void CopyScan::initialise(bool isExport/*=true*/)
     // to waste memory.
     if (hierarchy == 0)
     {
-        graveYard = new GraveYard[gMem.npSpaces];
+        graveYard = new GraveYard[gMem.pSpaces.size()];
         if (graveYard == 0)
             throw MemoryException();
     }
-    unsigned i;
-    for (i = 0; i < gMem.npSpaces; i++)
+
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[i];
+        PermanentMemSpace *space = *i;
         if (space->hierarchy >= hierarchy) {
             // Include this if we're exporting (hierarchy=0) or if we're saving a state
             // and will include this in the new state.
@@ -151,18 +159,22 @@ void CopyScan::initialise(bool isExport/*=true*/)
             }
         }
     }
-    for (i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[i];
+        LocalMemSpace *space = *i;
         POLYUNSIGNED size = space->allocatedSpace();
         // It looks as though the mutable size generally gets
         // overestimated while the immutable size is correct.
         if (space->isMutable)
             defaultMutSize += size/4;
-        else if (space->isCode)
-            defaultCodeSize += size/2;
         else
             defaultImmSize += size/2;
+    }
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+    {
+        CodeSpace *space = *i;
+        POLYUNSIGNED size = space->spaceSize();
+        defaultCodeSize += size/2;
     }
     if (isExport)
     {
@@ -216,17 +228,6 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
             return 0;
     }
 
-    if (val.IsCodePtr())
-    {
-        // Find the start of the code segment
-        PolyObject *oldObject = ObjCodePtrToPtr(val.AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = val.AsCodePtr() - (byte*)oldObject;
-        PolyObject *newObject = ScanObjectAddress(oldObject);
-        *pt = PolyWord::FromCodePtr((byte*)newObject + offset);
-        return 0;
-    }
-
     ASSERT(OBJ_IS_DATAPTR(val));
 
     // Have we already scanned this?
@@ -276,9 +277,9 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     }
     else isCodeObj = obj->IsCodeObject();
     // Allocate a new address for the object.
-    for (unsigned i = 0; i < gMem.neSpaces; i++)
+    for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.eSpaces[i];
+        PermanentMemSpace *space = *i;
         if (isMutableObj == space->isMutable &&
             isNoOverwrite == space->noOverwrite &&
             isByteObj == space->byteOnly &&
@@ -427,7 +428,7 @@ static void exporter(TaskData *taskData, Handle fileName, Handle root, const TCH
     size_t extLen = _tcslen(extension);
     TempString fileNameBuff(Poly_string_to_T_alloc(fileName->Word(), extLen));
     if (fileNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     size_t length = _tcslen(fileNameBuff);
 
     // Does it already have the extension?  If not add it on.
@@ -439,7 +440,7 @@ static void exporter(TaskData *taskData, Handle fileName, Handle root, const TCH
     exports->exportFile = fopen(fileNameBuff, "wb");
 #endif
     if (exports->exportFile == NULL)
-        raise_syscall(taskData, "Cannot open export file", errno);
+        raise_syscall(taskData, "Cannot open export file", ERRORNUMBER);
 
     // Request a full GC  to reduce the size of fix-ups.
     FullGC(taskData);
@@ -470,26 +471,25 @@ void Exporter::RunExport(PolyObject *rootFunction)
     }
 
     // Fix the forwarding pointers.
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = *i;
         // Local areas only have objects from the allocation pointer to the top.
         FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
         FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
     }
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        MemSpace *space = gMem.pSpaces[j];
+        MemSpace *space = *i;
         // Permanent areas are filled with objects from the bottom.
         FixForwarding(space->bottom, space->top - space->bottom);
     }
-    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        MemSpace *space = gMem.cSpaces[j];
+        MemSpace *space = *i;
         // Code areas are filled with objects from the bottom.
         FixForwarding(space->bottom, space->top - space->bottom);
     }
-
 
     // Reraise the exception after cleaning up the forwarding pointers.
     if (copiedRoot == 0)
@@ -499,17 +499,18 @@ void Exporter::RunExport(PolyObject *rootFunction)
     }
 
     // Copy the areas into the export object.
-    unsigned tableEntries = gMem.neSpaces, memEntry = 0;
-    if (hierarchy != 0) tableEntries += gMem.npSpaces;
+    size_t tableEntries = gMem.eSpaces.size();
+    unsigned memEntry = 0;
+    if (hierarchy != 0) tableEntries += gMem.pSpaces.size();
     exports->memTable = new memoryTableEntry[tableEntries];
 
     // If we're constructing a module we need to include the global spaces.
     if (hierarchy != 0)
     {
         // Permanent spaces from the executable.
-        for (unsigned i = 0; i < gMem.npSpaces; i++)
+        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
-            PermanentMemSpace *space = gMem.pSpaces[i];
+            PermanentMemSpace *space = *i;
             if (space->hierarchy < hierarchy)
             {
                 memoryTableEntry *entry = &exports->memTable[memEntry++];
@@ -524,10 +525,10 @@ void Exporter::RunExport(PolyObject *rootFunction)
         newAreas = memEntry;
     }
 
-    for (unsigned i = 0; i < gMem.neSpaces; i++)
+    for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
         memoryTableEntry *entry = &exports->memTable[memEntry++];
-        PermanentMemSpace *space = gMem.eSpaces[i];
+        PermanentMemSpace *space = *i;
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = hierarchy == 0 ? memEntry-1 : space->index;

@@ -120,6 +120,7 @@ struct
            non-blocking mode would block. *)
         val eAgain = OS.syserror "EAGAIN" and eWouldBlock = OS.syserror "EWOULDBLOCK"
         and eInProgress = OS.syserror "EINPROGRESS"
+        and wsaWouldBlock = OS.syserror "WSAEWOULDBLOCK" and wsaInProgress = OS.syserror "WSAEINPROGRESS" 
     in
         (* If evaluating the function raises EAGAIN or EWOULDBLOCK we return NONE
            otherwise if it succeeds return SOME result.  Pass other exceptions back
@@ -129,6 +130,8 @@ struct
                 if (case eAgain of SOME again => e = again | NONE => false) then NONE
                 else if (case eWouldBlock of SOME wouldBlock => e = wouldBlock | NONE => false) then NONE
                 else if (case eInProgress of SOME inProgress => e = inProgress | NONE => false) then NONE
+                else if (case wsaWouldBlock of SOME wouldBlock => e = wouldBlock | NONE => false) then NONE
+                else if (case wsaInProgress of SOME inProgress => e = inProgress | NONE => false) then NONE
                 else raise exn
     end
 

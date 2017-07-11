@@ -90,4 +90,6 @@ sig
         
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string
+    and testRepr: testConditions -> string
+    and arithRepr: arithmeticOperations -> string
 end;

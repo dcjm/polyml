@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Real Signature and structure.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2008, 2016
+    Copyright   David Matthews 2000, 2005, 2008, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -529,10 +529,21 @@ struct
        function for reals installed in the bootstrap process.
        For more information see convInt in Int. *)
     local
-        fun convReal s =
-            case StringCvt.scanString scan s of
+        fun convReal (s: string) : real =
+        let
+            (* Set the rounding mode to TO_NEAREST whatever the current
+               rounding mode.  Otherwise the result of compiling a piece of
+               code with a literal constant could depend on what the rounding
+               mode was set to. *)
+            val oldRounding = IEEEReal.getRoundingMode() handle Fail _ => IEEEReal.TO_NEAREST
+            val () = IEEEReal.setRoundingMode IEEEReal.TO_NEAREST handle Fail _ => ()
+            val scanResult = StringCvt.scanString scan s
+            val () = IEEEReal.setRoundingMode oldRounding handle Fail _ => ()
+        in
+            case scanResult of
                 NONE => raise RunCall.Conversion "Invalid real constant"
               | SOME res => res
+        end
     in
         (* Install this as a conversion function for real literals. *)
         val (): unit = RunCall.addOverload convReal "convReal"
@@ -584,31 +595,11 @@ struct
     (* Get the fractional part of a real. *)
     fun realMod r = #frac(split r)
 
-    local
-        (* For normalised numbers the next in the sequence is x*(1+epsilon).
-           However for unnormalised values we may have to multiply the epsilon
-           value by the radix. *)
-
-        fun nextUp r p =
-        let
-            val nxt = r + r*p
-        in
-            if nxt == r then nextUp r (p*radixAsReal)
-            else nxt
-        end
-
-        fun nextDown r p =
-        let
-            val prev = r - r*p
-        in
-            if prev == r then nextDown r (p*radixAsReal)
-            else prev
-        end
-    in
-        fun nextAfter (r, t) =
-            if not (isFinite r) orelse r == t then r
-            else if r < t then nextUp r epsilon else nextDown r epsilon
-    end
+    (* nextAfter: This was previously implemented in ML but, at the very least,
+       needed to work with rounding to something other than TO_NEAREST.  This should
+       be implemented as a fast call but we don't currently support fast calls for
+       real * real -> real. *)
+    val nextAfter = callRealReal 26
 
 end;
 

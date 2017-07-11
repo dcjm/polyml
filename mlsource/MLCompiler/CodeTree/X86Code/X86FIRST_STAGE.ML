@@ -461,8 +461,6 @@ struct
 
     and forwardJumpLabel v = [JumpLabel v]
 
-    and jumpBackwards (v as Labels{uses, ...}) = (uses := !uses+1; [UncondBranch v])
-
     (* We're only interested in when floating point registers are freed in order to
        optimise the code.  For the moment at least we don't use FFree here because
        that actually generates code and the higher levels call freeRegister
@@ -540,7 +538,6 @@ struct
         if n < 0 then raise InternalError "resetStack: negative" else [ResetStack n]
 
     val raiseException = [RaiseException]
-    val interruptCheck = [InterruptCheck]
     
     val pushToReserveSpace = pushConstantToStack(toMachineWord 0)
 
@@ -620,11 +617,9 @@ struct
             let
                 (* Normally we won't have a stack overflow so we will skip the check. *)
                 val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
-                fun pushThenPop [] = [CallRTS entryPt]
-                |   pushThenPop (aReg::regs) = PushToStack(RegisterArg aReg) :: (pushThenPop regs @ [PopR aReg])
-            in
+           in
                 [ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex }}] @
-                skipCheck @ pushThenPop saveGenRegs @ forwardJumpLabel skipCheckLab
+                skipCheck @ [CallRTS{rtsEntry=entryPt, saveRegs=saveGenRegs}] @ forwardJumpLabel skipCheckLab
             end
         in
             if stackRequired >= minStackCheck
@@ -633,13 +628,13 @@ struct
                 (* Compute the necessary amount in edi and compare that. *)
                 val stackByteAdjust = ~wordSize * stackRequired
                 val testEdiCode =
-                    testRegAndTrap (edi, memRegStackOverflowCallEx)
+                    testRegAndTrap (edi, StackOverflowCallEx)
             in
                  [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}] @ testEdiCode
             end
          
             else if callsAProc (* check for interrupt *)
-            then testRegAndTrap (esp, memRegStackOverflowCall)
+            then testRegAndTrap (esp, StackOverflowCall)
                
             else [] (* no stack check required *)
         end
@@ -2540,12 +2535,23 @@ struct
         (makeLabels(result, label, state), branchCode)
     end;
 
-    fun jumpBack(start, Ttab { branched, ...}): operation list =
-    (
+    fun jumpBack(start as Labels{uses=startUses, ...}, table as Ttab { branched, ...}): operation list =
+    let
+        val active = findActiveRegisters table
+        val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE)(setToList active)
+        val skipCheckLab as Labels{uses=skipUses, ...} = mkLabel()
+        val () = skipUses := !skipUses+1
+    in
         branched := true;
         (* Check for interrupts when jumping backwards. *)
-        jumpBackwards start @ interruptCheck
-    )
+        startUses := !startUses+1;
+        [
+            UncondBranch start,
+            CallRTS{rtsEntry=StackOverflowCall, saveRegs=saveRegs},
+            ConditionalBranch{test=JNB, predict=PredictTaken, label=skipCheckLab},
+            ArithToGenReg{ opc=CMP, output=esp, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }
+        ]
+    end
 
     (* Record the stack limit when we diverge and then use it when we merge
        back again. *)

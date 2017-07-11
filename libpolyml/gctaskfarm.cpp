@@ -121,10 +121,7 @@ void GCTaskFarm::Terminate()
     // Wait for the threads to terminate.
 #if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     for (unsigned j = 0; j < threadCount; j++)
-    {
-        void *result;
-        pthread_join(threadHandles[j], &result);
-    }
+        pthread_join(threadHandles[j], NULL);
 #elif defined(HAVE_WINDOWS_H)
     if (threadCount != 0)
         WaitForMultipleObjects(threadCount, threadHandles, TRUE, 10000);

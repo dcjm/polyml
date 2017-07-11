@@ -5,8 +5,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -24,6 +23,7 @@
 
 #include "bitmap.h"
 #include "locking.h"
+#include <vector>
 
 // utility conversion macros
 #define Words_to_K(w) (w*sizeof(PolyWord))/1024
@@ -110,14 +110,28 @@ public:
     PolyWord    *topPointer;
 
     Bitmap      shareBitmap; // Used in sharedata
+    Bitmap      profileCode; // Used when profiling
 
     friend class MemMgr;
 };
 
 #define NSTARTS 10
 
+// Markable spaces are used as the base class for local heap
+// spaces and code spaces.
+class MarkableSpace: public MemSpace
+{
+protected:
+    MarkableSpace();
+    virtual ~MarkableSpace() {}
+public:
+    PolyWord    *fullGCRescanStart; // Upper and lower limits for rescan during mark phase.
+    PolyWord    *fullGCRescanEnd;
+    PLock       spaceLock;        // Lock used to protect forwarding pointers
+};
+
 // Local areas can be garbage collected.
-class LocalMemSpace: public MemSpace
+class LocalMemSpace: public MarkableSpace
 {
 protected:
     LocalMemSpace();
@@ -134,13 +148,10 @@ public:
     PolyWord    *lowerAllocPtr;   // Allocation pointer. Objects are allocated BEFORE this.
 
     PolyWord    *fullGCLowerLimit;// Lowest object in area before copying.
-    PolyWord    *fullGCRescanStart; // Upper and lower limits for rescan during mark phase.
-    PolyWord    *fullGCRescanEnd;
     PolyWord    *partialGCTop;    // Value of upperAllocPtr before the current partial GC.
     PolyWord    *partialGCScan;   // Scan pointer used in minor GC
     PolyWord    *partialGCRootBase; // Start of the root objects.
     PolyWord    *partialGCRootTop;// Value of lowerAllocPtr after the roots have been copied.
-    PLock       spaceLock;        // Lock used to protect forwarding pointers
     GCTaskId    *spaceOwner;      // The thread that "owns" this space during a GC.
 
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
@@ -178,12 +189,14 @@ public:
 };
 
 // Code Space.  These contain local code created by the compiler.
-class CodeSpace: public MemSpace
+class CodeSpace: public MarkableSpace
 {
     public:
-        CodeSpace() { isOwnSpace = true; }
+        CodeSpace(PolyWord *start, POLYUNSIGNED spaceSize);
 
-    PolyWord *topPointer; // Allocation point
+    Bitmap  headerMap; // Map to find the headers during GC or profiling.
+    POLYUNSIGNED largestFree; // The largest free space in the area
+    PolyWord *firstFree; // The start of the first free space in the area.
 };
 
 class MemMgr
@@ -199,8 +212,9 @@ public:
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         unsigned flags, unsigned index, unsigned hierarchy = 0);
-    // Delete a local space
-    bool DeleteLocalSpace(LocalMemSpace *sp);
+    // Delete a local space.  Takes the iterator position in lSpaces and returns the
+    // iterator after deletion.
+    void DeleteLocalSpace(std::vector<LocalMemSpace*>::iterator &iter);
 
     // Allocate an area of the heap of at least minWords and at most maxWords.
     // This is used both when allocating single objects (when minWords and maxWords
@@ -211,8 +225,9 @@ public:
     PolyWord *AllocHeapSpace(POLYUNSIGNED words)
         { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
 
+    CodeSpace *NewCodeSpace(POLYUNSIGNED size);
     // Allocate space for code.  This is initially mutable to allow the code to be built.
-    PolyWord *AllocCodeSpace(POLYUNSIGNED words);
+    PolyObject *AllocCodeSpace(PolyObject *initCell);
 
     // Check that a subsequent allocation will succeed.  Called from the GC to ensure
     bool CheckForAllocation(POLYUNSIGNED words);
@@ -238,7 +253,7 @@ public:
     bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
 
-    PermanentMemSpace *SpaceForIndex(unsigned index) const; // Return the space for a given index
+    PermanentMemSpace *SpaceForIndex(unsigned index); // Return the space for a given index
 
     // As a debugging check, write protect the immutable areas apart from during the GC.
     void ProtectImmutable(bool on);
@@ -287,35 +302,35 @@ public:
 
     // Remove unused local areas.
     void RemoveEmptyLocals();
+    // Remove unused code areas.
+    void RemoveEmptyCodeAreas();
 
     // Remove unused allocation areas to reduce the space below the limit.
     void RemoveExcessAllocation(POLYUNSIGNED words);
     void RemoveExcessAllocation() { RemoveExcessAllocation(spaceBeforeMinorGC); }
 
     // Table for permanent spaces
-    PermanentMemSpace **pSpaces;
-    unsigned npSpaces;
+    std::vector<PermanentMemSpace *> pSpaces;
 
     // Table for local spaces
-    LocalMemSpace **lSpaces;
-    unsigned nlSpaces;
+    std::vector<LocalMemSpace *> lSpaces;
 
     // Table for export spaces
-    PermanentMemSpace **eSpaces;
-    unsigned neSpaces;
+    std::vector<PermanentMemSpace *> eSpaces;
 
     // Table for stack spaces
-    StackSpace **sSpaces;
-    unsigned nsSpaces;
+    std::vector<StackSpace *> sSpaces;
     PLock stackSpaceLock;
 
     // Table for code spaces
-    CodeSpace **cSpaces;
-    unsigned ncSpaces;
+    std::vector<CodeSpace *> cSpaces;
     PLock codeSpaceLock;
 
     // Storage manager lock.
     PLock allocLock;
+
+    // Lock for creating new bitmaps for code profiling
+    PLock codeBitmapLock;
 
     unsigned nextIndex; // Used when allocating new permanent spaces.
 
@@ -331,6 +346,11 @@ public:
     POLYUNSIGNED DefaultSpaceSize() const { return defaultSpaceSize; }
 
     void ReportHeapSizes(const char *phase);
+
+    // Profiling - Find a code object or return zero if not found.
+    PolyObject *FindCodeObject(const byte *addr);
+    // Profiling - Free bitmaps to indicate start of an object.
+    void RemoveProfilingBitmaps();
 
 private:
     bool AddLocalSpace(LocalMemSpace *space);

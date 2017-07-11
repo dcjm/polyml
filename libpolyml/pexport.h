@@ -42,13 +42,12 @@ public:
 
 private:
     // ScanAddress overrides
-    virtual void ScanConstant(byte *addrOfConst, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code);
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
 
 private:
     unsigned long getIndex(PolyObject *p);
-    void printCodeAddr(byte *q);
     void printAddress(void *p);
     void printValue(PolyWord q);
     void printObject(PolyObject *p);

@@ -144,27 +144,25 @@ in
                 a :: _ => a
              |  [] => raise OS.SysErr("No address returned", NONE)
     
-        local
-            val doCall: int*unit -> string
-                 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-        in
-            fun getHostName () = doCall(0, ())
-        end
+        val getHostName: unit -> string = RunCall.rtsCallFull0 "PolyNetworkGetHostName"
         
+        (* The RTS calls return either zero or the address of the entry. *)
+        datatype result = AResult of entry | NoResult
+
         local
-            val doCall: int*string -> entry
-                 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+            val doCall: string -> result
+                 = RunCall.rtsCallFull1 "PolyNetworkGetHostByName"
         in
             fun getByName s =
-                SOME(doCall(1, s)) handle OS.SysErr _ => NONE
+                case doCall s of AResult r => SOME r | NoResult => NONE
         end
     
         local
-            val doCall: int*LargeInt.int -> entry
-                 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+            val doCall: LargeInt.int -> result
+                 = RunCall.rtsCallFull1 "PolyNetworkGetHostByAddr"
         in
             fun getByAddr n =
-                SOME(doCall(2, n)) handle OS.SysErr _ => NONE
+                case doCall n of AResult r => SOME r | NoResult => NONE
         end
     
         val scan = scan

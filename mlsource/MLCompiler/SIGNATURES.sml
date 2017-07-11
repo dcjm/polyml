@@ -1157,7 +1157,7 @@ struct
                                 |   constrs =>
                                     let
                                         val newTy =
-                                            makeTypeConstructor(tcName ty, tcIdentifier ty, tcLocations ty)
+                                            makeTypeConstructor(tcName ty, tcTypeVars ty, tcIdentifier ty, tcLocations ty)
                                     in
                                         TypeConstrSet(newTy, List.map copyConstructor constrs)
                                     end;

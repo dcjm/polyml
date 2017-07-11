@@ -156,6 +156,9 @@ struct
         (* Built-in functions. *)
     |   BICUnary of {oper: BuiltIns.unaryOps, arg1: backendIC}
     |   BICBinary of {oper: BuiltIns.binaryOps, arg1: backendIC, arg2: backendIC}
+    
+    |   BICArbitrary of
+            {oper: BuiltIns.arithmeticOperations, shortCond: backendIC, arg1: backendIC, arg2: backendIC, longCall: backendIC}
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
@@ -382,6 +385,12 @@ struct
                     [ PrettyString(BuiltIns.binaryRepr oper), PrettyBreak(1, 0), printList("", [arg1, arg2], ",") ]
                 )
 
+        |   BICArbitrary { oper, shortCond, arg1, arg2, longCall } =>
+                PrettyBlock (3, false, [],
+                    [ PrettyString(BuiltIns.arithRepr oper), PrettyBreak(1, 0),
+                        printList("", [shortCond, arg1, arg2, longCall], ",") ]
+                )
+
         |   BICAllocateWordMemory { numWords, flags, initial } =>
                 PrettyBlock (3, false, [],
                     [ PrettyString "AllocateWordMemory", PrettyBreak(1, 0), printList("", [numWords, flags, initial], ",") ]
@@ -403,7 +412,7 @@ struct
                 PrettyString str
             end
 
-       |   BICExtract (BICLoadClosure addr) =>
+        |   BICExtract (BICLoadClosure addr) =>
             let
                 val str : string =
                     concat ["CLOS(", Int.toString addr, ")"]
@@ -411,7 +420,7 @@ struct
                 PrettyString str
             end
 
-       |   BICExtract (BICLoadRecursive) =>
+        |   BICExtract (BICLoadRecursive) =>
             let
                 val str : string =
                     concat ["RECURSIVE(", ")"]
@@ -678,6 +687,8 @@ struct
         and  blockOpKind = blockOpKind
         and  unaryOps = BuiltIns.unaryOps
         and  binaryOps = BuiltIns.binaryOps
+        and  testConditions = BuiltIns.testConditions
+        and  arithmeticOperations = BuiltIns.arithmeticOperations
     end
 
 end;

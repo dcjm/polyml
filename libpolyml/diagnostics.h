@@ -55,5 +55,6 @@ extern unsigned    debugOptions; // debugging  flags
 #define DEBUG_SHARING       0x100       // Diagnostics for share-common-data
 #define DEBUG_CONTENTION    0x200       // Information about contended locks
 #define DEBUG_RTSCALLS      0x400       // Information about run-time calls.
+#define DEBUG_GC_ENHANCED   0x800       // Intermediate level GC output
 
 #endif

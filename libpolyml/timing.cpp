@@ -337,7 +337,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ut, ct, et, kt;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-                raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
+                raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
             return Make_arb_from_Filetime(taskData, ut);
 #else
             struct rusage rusage;
@@ -353,7 +353,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ct, et, kt, ut;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-                raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
+                raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
             return Make_arb_from_Filetime(taskData, kt);
 #else
             struct rusage rusage;

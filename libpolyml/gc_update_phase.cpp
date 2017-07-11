@@ -218,11 +218,11 @@ static void updateLocalArea(GCTaskId*, void *arg1, void *arg2)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
     LocalMemSpace *space = (LocalMemSpace *)arg2;
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Update local area %p\n", space);
     // Process the current generation for mutable or immutable areas.
     processUpdate->UpdateObjectsInArea(space);
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Completed local update for %p. %lu words updated\n", space, space->updated);
 }
 
@@ -231,10 +231,10 @@ static void updateNonLocalMutableArea(GCTaskId*, void *arg1, void *arg2)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
     MemSpace *space = (MemSpace *)arg2;
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Update non-local mutable area %p\n", space);
     processUpdate->ScanAddressesInRegion(space->bottom, space->top);
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Completed non-local mutable update for %p\n", space);
 }
 
@@ -251,29 +251,29 @@ void GCUpdatePhase()
     mainThreadPhase = MTP_GCPHASEUPDATE;
     
     /* Invariant: at most the first (gen_top - bottom) bits of each bitmap can be dirty here. */
-    for(unsigned j = 0; j < gMem.nlSpaces; j++)
-        gMem.lSpaces[j]->updated = 0;
+    for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
+        (*i)->updated = 0;
 
     // We can do the updates in parallel since they don't interfere at all.
     MTGCProcessUpdate processUpdate;
 
     // Process local areas.
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = *i;
         // As well as updating the addresses this also clears the bitmaps.
         gpTaskFarm->AddWorkOrRunNow(&updateLocalArea, &processUpdate, space);
     }
     // Scan the permanent mutable areas and the code areas.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[j];
+        PermanentMemSpace *space = *i;
         if (space->isMutable && ! space->byteOnly)
             gpTaskFarm->AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
     }
-    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[j];
+        CodeSpace *space = *i;
         gpTaskFarm->AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
         // We could remove the mutable bit if there are no longer any mutable code objects
         // but it's easier to leave that to the minor GC.

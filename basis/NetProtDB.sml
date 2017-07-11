@@ -30,25 +30,26 @@ end;
 structure NetProtDB :> NET_PROT_DB =
 struct
     type entry = string * string list * int
+    
+    (* The RTS calls return either zero or the address of the entry. *)
+    datatype result = AResult of entry | NoResult
 
     val name: entry -> string = #1
     val aliases : entry -> string list = #2
     val protocol : entry -> int = #3
 
     local
-        val doCall: int*string -> entry
-             = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+        val doCall: string -> result = RunCall.rtsCallFull1 "PolyNetworkGetProtByName"
     in
         fun getByName s =
-            SOME(doCall(3, s)) handle OS.SysErr _ => NONE
+            case doCall s of AResult r => SOME r | NoResult => NONE
     end
 
     local
-        val doCall: int*int -> entry
-             = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+        val doCall: int -> result = RunCall.rtsCallFull1 "PolyNetworkGetProtByNo"
     in
         fun getByNumber n =
-            SOME(doCall(4, n)) handle OS.SysErr _ => NONE
+            case doCall n of AResult r => SOME r | NoResult => NONE
     end
 
 end;

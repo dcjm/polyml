@@ -368,7 +368,10 @@ struct
           tcon         = ref(TypeConstrSet(undefConstr, [])),
           nameLoc      = typeNameLoc,
           fullLoc = fullLoc
-        };
+        }
+    
+    fun mkValueConstr (name, arg, locn) =
+        {constrName=name, constrArg=arg, idLocn=locn, constrVal=ref undefinedValue}
    
     fun mkExBinding (name, previous, typeof, nameLoc, fullLoc) : exbind =
       ExBind 

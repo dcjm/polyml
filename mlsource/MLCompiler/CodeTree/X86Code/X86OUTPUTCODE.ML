@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-16
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-17
     
     Based on original code:    
     Copyright (c) 2000
@@ -58,6 +58,7 @@ struct
     val op andb8 = Word8.andb
 
     val op andb = Word.andb (* and op andbL = LargeWord.andb *)
+    and op orb  = Word.orb
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     (*and word8ToWord = Word.fromLargeWord o Word8.toLargeWord*)
@@ -1458,7 +1459,8 @@ struct
 
             val (_, riX) = 
                 case ri of
-                    NoIndex  => (0w0, false) (* No index reg. *)
+                    (* We should call a non-indexed function if there is no index. *)
+                    NoIndex  => raise InternalError "genOpIndexedGen: No index"
                 |   Index1 i => getReg i
                 |   Index2 i => getReg i
                 |   Index4 i => getReg i
@@ -1724,6 +1726,39 @@ struct
     fun loadFpRegToStack(FloatingPtReg fp, offset, code) =
         genFloatingPt({escape=0w1, md=0w3, nnn=0w0, rm= fp + offset}, code) (* FLD ST(r1) *)
 
+    datatype trapEntries =
+        StackOverflowCall
+    |   StackOverflowCallEx
+    |   HeapOverflowCall
+
+    (* RTS call.  We need to save any registers that may contain addresses to the stack.
+       All the registers are preserved but not seen by the GC. *)
+    fun rtsCall(rtsEntry, regSet, cvec) =
+        let
+            val entry =
+                case rtsEntry of
+                    StackOverflowCall   => memRegStackOverflowCall
+                |   StackOverflowCallEx => memRegStackOverflowCallEx
+                |   HeapOverflowCall    => memRegHeapOverflowCall
+            val regSet = List.foldl(fn (r, a) => (0w1 << Word.fromInt(nReg(GenReg r))) orb a) 0w0 regSet
+        in
+            genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), cvec);
+            if regSet >= 0w256
+            then
+            (
+                gen8u(0wxca, cvec); (* This is actually a FAR RETURN *)
+                gen8u(wordToWord8 regSet (* Low byte*), cvec);
+                gen8u(wordToWord8 (regSet >> 0w8) (* High byte*), cvec)
+            )
+            else if regSet <> 0w0
+            then
+            (
+                gen8u(0wxcd, cvec); (* This is actually INT n *)
+                gen8u(wordToWord8 regSet, cvec)
+            )
+            else ()
+        end
+
     (* Allocate store and put the resulting pointer in the result register. *)
     local
         fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc, regSaveSet: genReg list) =
@@ -1773,19 +1808,10 @@ struct
                 lab2
             end
             else [putConditional(JNB, cvec)]
-
+        in
             (* If we don't have enough store for this allocation we call this
                function.  Push the registers before the call and pop them afterwards. *)
-            fun pushCallAndPop [] =
-                genOpPlus2(Group5, LargeInt.fromInt memRegHeapOverflowCall, ebp, 0w2 (* call *), cvec)
-            |   pushCallAndPop (reg::rest) =
-                (
-                    genPushPop(PUSH_R, reg, cvec);
-                    pushCallAndPop rest;
-                    genPushPop(POP_R, reg, cvec)
-                )
-        in
-            pushCallAndPop regSaveSet;
+            rtsCall(HeapOverflowCall, regSaveSet, cvec);
             fixup (lab, cvec);
             (* Update the heap pointer now we have the store.  This is also
                used by the RTS in the event of a trap to work out how much
@@ -1886,7 +1912,7 @@ struct
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
     |   TestTagR of genReg
     |   TestByteMem of { base: genReg, offset: int, bits: word }
-    |   CallRTS of int
+    |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
     |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
@@ -1901,7 +1927,6 @@ struct
     |   RaiseException
     |   UncondBranch of label
     |   ResetStack of int
-    |   InterruptCheck
     |   JumpLabel of label
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
@@ -2062,13 +2087,13 @@ struct
         |   TestByteMem { base, offset, bits } =>
                 ( stream "TestByteMem "; printBaseOffset(base, NoIndex, offset); stream " 0x"; stream(Word.toString bits) )
 
-        |   CallRTS entry =>
+        |   CallRTS {rtsEntry, ...} =>
             (
                 stream "CallRTS ";
-                if entry = memRegStackOverflowCall then stream "StackOverflowCall"
-                else if entry = memRegHeapOverflowCall then stream "HeapOverflow"
-                else if entry = memRegStackOverflowCallEx then stream "StackOverflowCallEx"
-                else stream(Int.toString entry)
+                case rtsEntry of
+                    StackOverflowCall => stream "StackOverflowCall"
+                |   HeapOverflowCall => stream "HeapOverflow"
+                |   StackOverflowCallEx => stream "StackOverflowCallEx"
             )
 
         |   AllocStore { size, output, ... } =>
@@ -2091,7 +2116,6 @@ struct
                 (stream "UncondBranch L"; stream(Int.toString lab))
         |   ResetStack i =>
                 (stream "ResetStack "; stream(Int.toString i))
-        |   InterruptCheck => stream "InterruptCheck"
         |   JumpLabel(Labels{labId=ref lab, ...}) =>
                 (stream "L"; stream(Int.toString lab); stream ":")
         |   LoadHandlerAddress { handlerLab=_, output=_ } =>
@@ -2419,7 +2443,9 @@ struct
 
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output } :: remainder) =
             (
-                genOpIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output, code);
+                case index of
+                    NoIndex => genOpEA(MOVL_A_R, LargeInt.fromInt offset, base, output, code)
+                |   _ => genOpIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output, code);
                 cgOp remainder
             )
 
@@ -2585,9 +2611,9 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(CallRTS entry :: remainder) =
+        |   cgOp(CallRTS{rtsEntry, saveRegs} :: remainder) =
             (
-                genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), code);
+                rtsCall(rtsEntry, saveRegs, code);
                 cgOp remainder
             )
 
@@ -2641,7 +2667,14 @@ struct
             (
                 if is8BitL constnt
                 then ( genop (PUSH_8, NONE, code); gen8s (LargeInt.toInt constnt, code) )
-                else ( genop (PUSH_32, NONE, code); gen32s(constnt, code) );
+                else if is32bit constnt
+                then ( genop (PUSH_32, NONE, code); gen32s(constnt, code) )
+                else (* It won't fit in the immediate; put it in the non-address area. *)
+                (
+                    genop (Group5, NONE, code);
+                    genmodrm(Based0, 0w6 (* push *), 0w5 (* PC rel *), code);
+                    addNonAddressConstant(NonAddressInt constnt, code)
+                );
                 cgOp remainder
             )
 
@@ -2674,17 +2707,18 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(StoreConstToMemory{ toStore=toStore, address } :: remainder) =
+        |   cgOp(StoreConstToMemory{ toStore=toStore, address={offset, base, index} } :: remainder) =
             (
                 (* Short constant.  In 32-bit mode this is scanned as a possible address.  That means
                    we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
                    There's a special check for using this to set the length word on newly allocated
                    memory. *)
-                (*isX64 orelse toStore mod 2 = 1 orelse raise InternalError "cgOp: StoreConstToMemory not tagged";*)
-                case address of
-                    {offset, base, index=NoIndex} =>
+                isX64 orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~wordSize
+                    orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
+                case index of
+                    NoIndex =>
                         genOpPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0, code) 
-                |   {offset, base, index} =>
+                |   index =>
                         genOpIndexed (MOVL_32_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false), code);
                 gen32s (toStore, code);
                 cgOp remainder
@@ -2855,22 +2889,6 @@ struct
                 fixup(forward, code); (* Fix up any forward branches to here. *)
                 (* Record the address. *)
                 justComeFromAddrs := reverse :: ! justComeFromAddrs;
-                cgOp remainder
-            end
-        
-        |   cgOp(InterruptCheck :: remainder) =
-            (* Put in a stack check in a loop. This is used to allow the code to be interrupted. *)
-            let
-                (* cmp reg,16(%ebp)*)
-                val () = genOpEA(Arith (CMP, 0w3), LargeInt.fromInt memRegStackLimit, ebp, esp, code)
-                (* jnb 3 *)
-                val lab = [putConditional (JNB, code)]
-            in
-                (* call *)
-                genop(Group5, NONE, code);
-                genmodrm (Based8, 0w2 (* call *), #1 (getReg ebp), code);
-                gen8u (Word8.fromInt memRegStackOverflowCall, code);
-                fixup (lab, code);
                 cgOp remainder
             end
 
@@ -3394,6 +3412,22 @@ struct
             print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
         end
 
+        fun printMask mask =
+        let
+            val wordMask = Word.fromInt mask
+            fun printAReg n =
+                if n = regs then ()
+                else
+                (
+                    if (wordMask andb (0w1 << Word.fromInt n)) <> 0w0
+                    then (print(regRepr(regN n)); print " ")
+                    else ();
+                    printAReg(n+1)
+                )
+        in
+            printAReg 0
+        end
+
     in
 
         if procName = "" (* No name *) then print "?" else print procName;
@@ -3770,6 +3804,22 @@ struct
                     print ",";
                     print32 ()
                 )
+            
+            |   0wxca => (* Register mask *)
+                let
+                    val mask = get16s (!ptr, seg) before (ptr +:= 0w2)
+                in
+                    print "SAVE\t";
+                    printMask mask
+                end
+
+            |   0wxcd => (* Register mask *)
+                let
+                    val mask = get8s (!ptr, seg) before (ptr +:= 0w1)
+                in
+                    print "SAVE\t";
+                    printMask mask
+                end
 
             |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, sizeFromRexW)
 

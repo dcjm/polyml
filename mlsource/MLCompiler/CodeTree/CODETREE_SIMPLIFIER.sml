@@ -68,6 +68,11 @@ struct
     exception InternalError = Misc.InternalError
 
     exception RaisedException
+    
+    (* The bindings are held internally as a reversed list.  This
+       is really only a check that the reversed and forward lists
+       aren't confused. *)
+    datatype revlist = RevList of codeBinding list
 
     type simpContext =
     {
@@ -106,9 +111,9 @@ struct
        special entry is discarded except for Constnt entries which are converted
        to ConstntWithInline.  That allows any inlineable code to be carried
        forward to later passes. *)
-    fun specialToGeneral(g, b as _ :: _, s) = mkEnv(b, specialToGeneral(g, [], s))
-    |   specialToGeneral(Constnt(w, p), [], s) = Constnt(w, setInline s p)
-    |   specialToGeneral(g, [], _) = g
+    fun specialToGeneral(g, RevList(b as _ :: _), s) = mkEnv(List.rev b, specialToGeneral(g, RevList [], s))
+    |   specialToGeneral(Constnt(w, p), RevList [], s) = Constnt(w, setInline s p)
+    |   specialToGeneral(g, RevList [], _) = g
 
     (* Convert a constant to a fixed value.  Used in some constant folding. *)
     val toFix: machineWord -> FixedInt.int = FixedInt.fromInt o Word.toIntX o toShort
@@ -142,42 +147,48 @@ struct
         let
             val (gen, spec) = lookupAddr ext
         in
-            SOME(specialToGeneral(envGeneralToCodetree gen, [], spec))
+            SOME(specialToGeneral(envGeneralToCodetree gen, RevList [], spec))
         end
 
     |   simpGeneral context (Newenv envArgs) =
-            SOME(specialToGeneral(simpNewenv(envArgs, context)))
+            SOME(specialToGeneral(simpNewenv(envArgs, context, RevList [])))
 
     |   simpGeneral context (Lambda lambda) =
             SOME(Lambda(#1(simpLambda(lambda, context, NONE, NONE))))
 
     |   simpGeneral context (Eval {function, argList, resultType}) =
-            SOME(specialToGeneral(simpFunctionCall(function, argList, resultType, context)))
+            SOME(specialToGeneral(simpFunctionCall(function, argList, resultType, context, RevList[])))
 
         (* BuiltIn0 functions can't be processed specially. *)
 
     |   simpGeneral context (Unary{oper, arg1}) =
-            SOME(specialToGeneral(simpUnary(oper, arg1, context)))
+            SOME(specialToGeneral(simpUnary(oper, arg1, context, RevList [])))
 
     |   simpGeneral context (Binary{oper, arg1, arg2}) =
-            SOME(specialToGeneral(simpBinary(oper, arg1, arg2, context)))
+            SOME(specialToGeneral(simpBinary(oper, arg1, arg2, context, RevList [])))
+
+    |   simpGeneral context (Arbitrary{oper=ArbCompare test, shortCond, arg1, arg2, longCall}) =
+            SOME(specialToGeneral(simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context, RevList [])))
+
+    |   simpGeneral context (Arbitrary{oper=ArbArith arith, shortCond, arg1, arg2, longCall}) =
+            SOME(specialToGeneral(simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context, RevList [])))
 
     |   simpGeneral context (AllocateWordMemory {numWords, flags, initial}) =
-            SOME(specialToGeneral(simpAllocateWordMemory(numWords, flags, initial, context)))
+            SOME(specialToGeneral(simpAllocateWordMemory(numWords, flags, initial, context, RevList [])))
 
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
-            SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
+            SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context, RevList [])))
 
     |   simpGeneral context (Tuple { fields, isVariant }) =
-            SOME(specialToGeneral(simpTuple(fields, isVariant, context)))
+            SOME(specialToGeneral(simpTuple(fields, isVariant, context, RevList [])))
 
     |   simpGeneral context (Indirect{ base, offset, isVariant }) =
-            SOME(specialToGeneral(simpFieldSelect(base, offset, isVariant, context)))
+            SOME(specialToGeneral(simpFieldSelect(base, offset, isVariant, context, RevList [])))
 
     |   simpGeneral context (SetContainer{container, tuple, filter}) =
         let
             val optCont = simplify(container, context)
-            val (cGen, cDecs, cSpec) = simpSpecial(tuple, context)
+            val (cGen, cDecs, cSpec) = simpSpecial(tuple, context, RevList [])
         in
             case cSpec of
                 (* If the tuple is a local binding it is simpler to pick it up from the
@@ -247,7 +258,7 @@ struct
     |   simpGeneral context (LoadOperation{kind, address}) =
         let
             (* Try to move constants out of the index. *)
-            val (genAddress, decAddress) = simpAddress(address, getMultiplier kind, context)
+            val (genAddress, RevList decAddress) = simpAddress(address, getMultiplier kind, context)
             (* If the base address and index are constant and this is an immutable
                load we can do this at compile time. *)
             val result =
@@ -298,15 +309,15 @@ struct
 
                 |   _ => LoadOperation{kind=kind, address=genAddress}
         in
-            SOME(mkEnv(decAddress, result))
+            SOME(mkEnv(List.rev decAddress, result))
         end
 
     |   simpGeneral context (StoreOperation{kind, address, value}) =
         let
             val (genAddress, decAddress) = simpAddress(address, getMultiplier kind, context)
-            val (genValue, decValue, _) = simpSpecial(value, context)
+            val (genValue, RevList decValue, _) = simpSpecial(value, context, decAddress)
         in 
-            SOME(mkEnv(decAddress @ decValue, StoreOperation{kind=kind, address=genAddress, value=genValue}))
+            SOME(mkEnv(List.rev decValue, StoreOperation{kind=kind, address=genAddress, value=genValue}))
         end
 
     |   simpGeneral (context as {reprocess, ...}) (BlockOperation{kind, sourceLeft, destRight, length}) =
@@ -317,9 +328,9 @@ struct
                 |   BlockOpMove{isByteMove=true} => 0w1
                 |   BlockOpEqualByte => 0w1
                 |   BlockOpCompareByte => 0w1
-            val (genSrcAddress, decSrcAddress) = simpAddress(sourceLeft, multiplier, context)
-            val (genDstAddress, decDstAddress) = simpAddress(destRight, multiplier, context)
-            val (genLength, decLength, _) = simpSpecial(length, context)
+            val (genSrcAddress, RevList decSrcAddress) = simpAddress(sourceLeft, multiplier, context)
+            val (genDstAddress, RevList decDstAddress) = simpAddress(destRight, multiplier, context)
+            val (genLength, RevList decLength, _) = simpSpecial(length, context, RevList [])
             (* If we have a short length move we're better doing it as a sequence of loads and stores.
                Comparisons are probably too complicated though it might be possible to
                handle single bytes.  This is particularly useful with string concatenation.
@@ -329,7 +340,7 @@ struct
                     Constnt(lenConst, _) =>
                         if isShort lenConst then let val l = toShort lenConst in if l <= 0w4 then SOME l else NONE end else NONE
                 |   _ => NONE
-            val combinedDecs = decSrcAddress @ decDstAddress @ decLength
+            val combinedDecs = List.rev decSrcAddress @ List.rev decDstAddress @ List.rev decLength
             val operation =
                 case (shortLength, kind) of
                     (SOME length, BlockOpMove{isByteMove}) =>
@@ -374,67 +385,67 @@ struct
        an inline function respectively if that's possible.  Getting that also involves
        various other cases as well. Because a binding may later be used in such a
        context we treat any binding in that way as well. *)
-    and simpSpecial (Extract ext, { lookupAddr, ...}) =
+    and simpSpecial (Extract ext, { lookupAddr, ...}, tailDecs) =
         let
             val (gen, spec) = lookupAddr ext
         in
-            (envGeneralToCodetree gen, [], spec)
+            (envGeneralToCodetree gen, tailDecs, spec)
         end
 
-    |   simpSpecial (Newenv envArgs, context) = simpNewenv(envArgs, context)
+    |   simpSpecial (Newenv envArgs, context, tailDecs) = simpNewenv(envArgs, context, tailDecs)
 
-    |   simpSpecial (Lambda lambda, context) =
+    |   simpSpecial (Lambda lambda, context, tailDecs) =
         let
             val (gen, spec) = simpLambda(lambda, context, NONE, NONE)
         in
-            (Lambda gen, [], spec)
+            (Lambda gen, tailDecs, spec)
         end
 
-    |   simpSpecial (Eval {function, argList, resultType}, context) =
-            simpFunctionCall(function, argList, resultType, context)
+    |   simpSpecial (Eval {function, argList, resultType}, context, tailDecs) =
+            simpFunctionCall(function, argList, resultType, context, tailDecs)
 
-    |   simpSpecial (Unary{oper, arg1}, context) =
-            simpUnary(oper, arg1, context)
+    |   simpSpecial (Unary{oper, arg1}, context, tailDecs) =
+            simpUnary(oper, arg1, context, tailDecs)
 
-    |   simpSpecial (Binary{oper, arg1, arg2}, context) =
-            simpBinary(oper, arg1, arg2, context)
+    |   simpSpecial (Binary{oper, arg1, arg2}, context, tailDecs) =
+            simpBinary(oper, arg1, arg2, context, tailDecs)
 
-    |   simpSpecial (AllocateWordMemory{numWords, flags, initial}, context) =
-            simpAllocateWordMemory(numWords, flags, initial, context)
+    |   simpSpecial (Arbitrary{oper=ArbCompare test, shortCond, arg1, arg2, longCall}, context, tailDecs) =
+            simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context, tailDecs)
 
-    |   simpSpecial (Cond(condTest, condThen, condElse), context) =
-            simpIfThenElse(condTest, condThen, condElse, context)
+    |   simpSpecial (Arbitrary{oper=ArbArith arith, shortCond, arg1, arg2, longCall}, context, tailDecs) =
+            simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context, tailDecs)
 
-    |   simpSpecial (Tuple { fields, isVariant }, context) = simpTuple(fields, isVariant, context)
+    |   simpSpecial (AllocateWordMemory{numWords, flags, initial}, context, tailDecs) =
+            simpAllocateWordMemory(numWords, flags, initial, context, tailDecs)
 
-    |   simpSpecial (Indirect{ base, offset, isVariant }, context) = simpFieldSelect(base, offset, isVariant, context)
+    |   simpSpecial (Cond(condTest, condThen, condElse), context, tailDecs) =
+            simpIfThenElse(condTest, condThen, condElse, context, tailDecs)
 
-    |   simpSpecial (c: codetree, s: simpContext): codetree * codeBinding list * envSpecial =
+    |   simpSpecial (Tuple { fields, isVariant }, context, tailDecs) = simpTuple(fields, isVariant, context, tailDecs)
+
+    |   simpSpecial (Indirect{ base, offset, isVariant }, context, tailDecs) = simpFieldSelect(base, offset, isVariant, context, tailDecs)
+
+    |   simpSpecial (c: codetree, s: simpContext, tailDecs): codetree * revlist * envSpecial =
         let
             (* Anything else - copy it and then split it into the fields. *)
-            fun split(Newenv(l, e)) =
-                let
-                    (* Pull off bindings. *)
-                    val (c, b, s) = split e
-                in
-                    (c, l @ b, s)
-                end
-            |   split(Constnt(m, p)) = (Constnt(m, p), [], findInline p)
-            |   split c = (c, [], EnvSpecNone)
+            fun split(Newenv(l, e), RevList tailDecs) = (* Pull off bindings. *)
+                    split (e, RevList(List.rev l @ tailDecs))
+            |   split(Constnt(m, p), tailDecs) = (Constnt(m, p), tailDecs, findInline p)
+            |   split(c, tailDecs) = (c, tailDecs, EnvSpecNone)
         in
-            split(simplify(c, s))
+            split(simplify(c, s), tailDecs)
         end
 
     (* Process a Newenv.  We need to add the bindings to the context. *)
-    and simpNewenv((envDecs, envExp), context as { enterAddr, nextAddress, reprocess, ...}) =
+    and simpNewenv((envDecs: codeBinding list, envExp), context as { enterAddr, nextAddress, reprocess, ...}, tailDecs): codetree * revlist * envSpecial =
     let
-        fun copyDecs [] =
-            (* End of the list - process the result expression. *)
-            simpSpecial(envExp, context)
+        fun copyDecs ([], decs) =
+            simpSpecial(envExp, context, decs) (* End of the list - process the result expression. *)
 
-        |   copyDecs (Declar{addr, value, ...} :: vs) =
+        |   copyDecs ((Declar{addr, value, ...} :: vs), decs) =
             (
-                case simpSpecial(value, context) of
+                case simpSpecial(value, context, decs) of
                     (* If this raises an exception stop here. *)
                     vBinding as (Raise _, _, _) => vBinding
 
@@ -443,28 +454,21 @@ struct
                         (* Add the declaration to the table. *)
                         val (optV, dec) = makeNewDecl(vBinding, context)
                         val () = enterAddr(addr, optV)                  
-                        (* Deal with the rest of the block. *)
-                        val (rGen, rDecs, rSpec) = copyDecs vs
                     in
-                        (rGen, dec @ rDecs, rSpec)
+                        copyDecs(vs, dec)
                     end
             )
 
-        |   copyDecs(NullBinding v :: vs) = (* Not a binding - process this and the rest.*)
+        |   copyDecs(NullBinding v :: vs, decs) = (* Not a binding - process this and the rest.*)
             (
-                case simpSpecial(v, context) of
+                case simpSpecial(v, context, decs) of
                     (* If this raises an exception stop here. *)
                     vBinding as (Raise _, _, _) => vBinding
 
-                |   (cGen, cDecs, _) =>
-                    let
-                        val (rGen, rDecs, rSpec) = copyDecs vs
-                    in
-                        (rGen, cDecs @ (NullBinding cGen :: rDecs), rSpec)
-                    end
+                |   (cGen, RevList cDecs, _) => copyDecs(vs, RevList(NullBinding cGen :: cDecs))
             )
 
-        |   copyDecs(RecDecs mutuals :: vs) =
+        |   copyDecs(RecDecs mutuals :: vs, RevList decs) =
             (* Mutually recursive declarations. Any of the declarations may
                refer to any of the others. They should all be lambdas.
 
@@ -512,20 +516,17 @@ struct
                 end
                 
                 val rlist = ListPair.map processFunction (orderedDecs, addresses)
-
-                (* Deal with the rest of the block *)
-                val (rGen, rDecs, rSpec) = copyDecs vs
             in
                 (* and put these declarations onto the list. *)
-                (rGen, partitionMutableBindings(RecDecs rlist) @ rDecs, rSpec)
+                copyDecs(vs, RevList(List.rev(partitionMutableBindings(RecDecs rlist)) @ decs))
             end
 
-        |   copyDecs (Container{addr, size, setter, ...} :: vs) =
+        |   copyDecs (Container{addr, size, setter, ...} :: vs, RevList decs) =
             let
                 (* Enter the new address immediately - it's needed in the setter. *)
                 val decAddr = nextAddress()
                 val () = enterAddr (addr, (EnvGenLoad(LoadLocal decAddr), EnvSpecNone))
-                val (setGen, setDecs, _) = simpSpecial(setter, context)
+                val (setGen, RevList setDecs, _) = simpSpecial(setter, context, RevList [])
             in
                 (* If we have inline expanded a function that sets the container
                    we're better off eliminating the container completely. *)
@@ -538,7 +539,6 @@ struct
                                 orelse raise InternalError "copyDecs: Container/SetContainer"
                         val newDecAddr = nextAddress()
                         val () = enterAddr (addr, (EnvGenLoad(LoadLocal newDecAddr), EnvSpecNone))
-                        val (rGen, rDecs, rSpec) = copyDecs vs
                         val tupleAddr = nextAddress()
                         val tupleDec = Declar{addr=tupleAddr, use=[], value=tuple}
                         val tupleLoad = mkLoadLocal tupleAddr
@@ -549,19 +549,18 @@ struct
                         val containerDec = Declar{addr=newDecAddr, use=[], value=mkTuple resultTuple}
                         val _ = reprocess := true
                     in
-                        (rGen, setDecs @ tupleDec :: containerDec :: rDecs, rSpec)
+                        copyDecs(vs, RevList(containerDec :: tupleDec :: setDecs @ decs))
                     end
 
                 |   _ =>
                     let
-                        val (rGen, rDecs, rSpec) = copyDecs vs
-                        val dec = Container{addr=decAddr, use=[], size=size, setter=mkEnv(setDecs, setGen)}
+                        val dec = Container{addr=decAddr, use=[], size=size, setter=setGen}
                     in
-                        (rGen, dec :: rDecs, rSpec)
+                        copyDecs(vs, RevList(dec :: setDecs @ decs))
                     end
             end
     in
-        copyDecs envDecs
+        copyDecs(envDecs, tailDecs)
     end
 
     (* Prepares a binding for entry into a look-up table.  Returns the entry
@@ -570,18 +569,18 @@ struct
        constant in the table. If it is a load (Extract) it is just renaming
        an existing entry so we can return it.  Otherwise we have to make
        a new binding and return a load (Extract) entry for it. *)
-    and makeNewDecl((Constnt w, decs, spec), _) = ((EnvGenConst w, spec), decs)
+    and makeNewDecl((Constnt w, RevList decs, spec), _) = ((EnvGenConst w, spec), RevList decs)
                 (* No need to create a binding for a constant. *)
 
-    |   makeNewDecl((Extract ext, decs, spec), _) = ((EnvGenLoad ext, spec), decs)
+    |   makeNewDecl((Extract ext, RevList decs, spec), _) = ((EnvGenLoad ext, spec), RevList decs)
                 (* Binding is simply giving a new name to a variable
                    - can ignore this declaration. *) 
 
-    |   makeNewDecl((gen, decs, spec), { nextAddress, ...}) =
+    |   makeNewDecl((gen, RevList decs, spec), { nextAddress, ...}) =
         let (* Create a binding for this value. *)
             val newAddr = nextAddress()
         in
-            ((EnvGenLoad(LoadLocal newAddr), spec), decs @ [mkDec(newAddr, gen)])
+            ((EnvGenLoad(LoadLocal newAddr), spec), RevList(mkDec(newAddr, gen) :: decs))
         end
 
     and simpLambda({body, isInline, name, argTypes, resultType, closure, localCount, ...},
@@ -699,13 +698,13 @@ struct
             )
         end
 
-    and simpFunctionCall(function, argList, resultType, context as { reprocess, ...}) =
+    and simpFunctionCall(function, argList, resultType, context as { reprocess, ...}, tailDecs) =
     let
         (* Function call - This may involve inlining the function. *)
 
         (* Get the function to be called and see if it is inline or
            a lambda expression. *)
-        val funct as (genFunct, decsFunct, specFunct) = simpSpecial(function, context)
+        val (genFunct, decsFunct, specFunct) = simpSpecial(function, context, tailDecs)
         (* We have to make a special check here that we are not passing in the function
            we are trying to expand.  This could result in an infinitely recursive expansion.  It is only
            going to happen in very special circumstances such as a definition of the Y combinator.
@@ -732,7 +731,6 @@ struct
                 val _ = List.length argTypes = List.length argList
                             orelse raise InternalError "simpFunctionCall: argument mismatch"
                 val () = reprocess := true (* If we expand inline we have to reprocess *)
-                val (_, functDecs, _) = funct
                 and { nextAddress, reprocess, ...} = context
 
                 (* Expand a function inline, either one marked explicitly to be inlined or one detected as "small". *)
@@ -744,16 +742,22 @@ struct
                 val localVec = Array.array(localCount, NONE)
 
                 local
-                    val (params, bindings) =
-                        ListPair.unzip(
-                            List.map (fn (h, _) => makeNewDecl(simpSpecial(h, context), context)) argList)
-
+                    fun processArgs([], bindings) = ([], bindings)
+                    |   processArgs((arg, _)::args, bindings) =
+                        let
+                            val (thisArg, newBindings) = 
+                                makeNewDecl(simpSpecial(arg, context, bindings), context)
+                            val (otherArgs, resBindings) = processArgs(args, newBindings)
+                        in
+                            (thisArg::otherArgs, resBindings)
+                        end
+                    val (params, bindings) = processArgs(argList, decsFunct)
                     val paramVec = Vector.fromList params
                 in
                     fun getParameter n = Vector.sub(paramVec, n)
 
                     (* Bindings necessary for the arguments *)
-                    val copiedArgs = List.foldr (op @) [] bindings
+                    val copiedArgs = bindings
                 end
 
                 local
@@ -769,11 +773,10 @@ struct
                         nextAddress=nextAddress, reprocess = reprocess
                     }
                 in
-                    val (cGen, cDecs, cSpec) = simpSpecial(lambdaBody,lambdaContext)
+                    val (cGen, cDecs, cSpec) = simpSpecial(lambdaBody,lambdaContext, copiedArgs)
                 end
-
             in
-                (cGen, functDecs @ (copiedArgs @ cDecs), cSpec)
+                (cGen, cDecs, cSpec)
             end
 
         |   (_, gen as Constnt _, _) => (* Not inlinable - constant function. *)
@@ -804,9 +807,9 @@ struct
        If c is a constant then we may try to fold both the shortOp and the longOp and one
        of these will be type-incorrect although never executed at run-time. *)
 
-    and simpUnary(oper, arg1, context as { reprocess, ...}) =
+    and simpUnary(oper, arg1, context as { reprocess, ...}, tailDecs) =
     let
-        val (genArg1, decArg1, specArg1) = simpSpecial(arg1, context)
+        val (genArg1, decArg1, specArg1) = simpSpecial(arg1, context, tailDecs)
     in
         case (oper, genArg1) of
             (NotBoolean, Constnt(v, _)) =>
@@ -821,6 +824,16 @@ struct
                 (if isShort v then CodeTrue else CodeFalse, decArg1, EnvSpecNone)
             )
 
+        |   (IsTaggedValue, genArg1) =>
+            (
+                (* We use this to test for nil values and if we have constructed a record
+                   (or possibly a function) it can't be null. *)
+                case specArg1 of
+                    EnvSpecTuple _ => (CodeFalse, decArg1, EnvSpecNone) before reprocess := true
+                |   EnvSpecInlineFunction _ =>
+                        (CodeFalse, decArg1, EnvSpecNone) before reprocess := true
+                |   _ => (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
+            )
         |   (MemoryCellLength, Constnt(v, _)) =>
             (
                 reprocess := true;
@@ -871,11 +884,10 @@ struct
         |   _ => (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
     end
 
-    and simpBinary(oper, arg1, arg2, context as {reprocess, ...}) =
+    and simpBinary(oper, arg1, arg2, context as {reprocess, ...}, tailDecs) =
     let
-        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context)
-        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(arg2, context)
-        val decArgs = decArg1 @ decArg2
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, tailDecs)
+        val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
     in
         case (oper, genArg1, genArg2) of
             (WordComparison{test, isSigned}, Constnt(v1, _), Constnt(v2, _)) =>
@@ -983,13 +995,91 @@ struct
         |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
     end
 
-    and simpAllocateWordMemory(numWords, flags, initial, context) =
+    (* Arbitrary precision operations.  This is a sort of mixture of a built-in and a conditional. *)
+    and simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
     let
-        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(numWords, context)
-        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(flags, context)
-        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(initial, context)
+        val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
+        val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
+        val posFlags = Address.F_bytes and negFlags = Word8.orb(Address.F_bytes, Address.F_negative)
+    in
+        (* Fold any constant/constant operations but more importantly, if we
+           have variable/constant operations where the constant is short we
+           can avoid using the full arbitrary precision call by just looking
+           at the sign bit. *)
+        case (genCond, genArg1, genArg2) of
+            (Constnt(c1, _),  _, _) =>
+                if isShort c1 andalso toShort c1 = 0w0
+                then (* One argument is definitely long - generate the long form. *)
+                    (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=simplify(longCall, context), arg2=CodeZero},
+                        decArgs, EnvSpecNone)
+                else (* Both arguments are short.  That should mean they're constants. *)
+                    (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+                         before reprocess := true
+        |   (_, genArg1, cArg2 as Constnt _) =>
+            let (* The constant must be short otherwise the test would be false. *)
+                val isNeg =
+                    case test of
+                        TestLess => true
+                    |   TestLessEqual => true
+                    |   _ => false
+                (* Translate i < c into
+                        if isShort i then toShort i < c else isNegative i *)
+                val newCode =
+                    Cond(Unary{oper=BuiltIns.IsTaggedValue, arg1=genArg1},
+                        Binary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = genArg1, arg2 = cArg2 },
+                        Binary { oper = BuiltIns.WordComparison{test=TestEqual, isSigned=false},
+                                arg1=Unary { oper = MemoryCellFlags, arg1=genArg1 },
+                                arg2=Constnt(toMachineWord(if isNeg then negFlags else posFlags), [])}
+                        )
+            in
+                (newCode, decArgs, EnvSpecNone)
+            end
+        |   (_, cArg1 as Constnt _, genArg2) =>
+            let
+                (* We're testing c < i  so the test is
+                   if isShort i then c < toShort i else isPositive i *)
+                val isPos =
+                    case test of
+                        TestLess => true
+                    |   TestLessEqual => true
+                    |   _ => false
+                val newCode =
+                    Cond(Unary{oper=BuiltIns.IsTaggedValue, arg1=genArg2},
+                        Binary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = cArg1, arg2 = genArg2 },
+                        Binary { oper = BuiltIns.WordComparison{test=TestEqual, isSigned=false},
+                                arg1=Unary { oper = MemoryCellFlags, arg1=genArg2 },
+                                arg2=Constnt(toMachineWord(if isPos then posFlags else negFlags), [])}
+                        )
+            in
+                (newCode, decArgs, EnvSpecNone)
+            end
+        |   _ => (Arbitrary{oper=ArbCompare test, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
+    end
+    
+    and simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context, tailDecs) =
+    let
+        val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
+        val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
+    in
+        case genCond of
+            Constnt(c1, _) =>
+            if isShort c1 andalso toShort c1 = 0w0
+            then (* One argument is definitely long - generate the long form. *)
+                (simplify(longCall, context), decArgs, EnvSpecNone)
+            else (* If we know they're both short they must be constants and we could fold them. N.B. We can still get an overflow. *)
+                (Arbitrary{oper=ArbArith arith, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
+        |   _ => (Arbitrary{oper=ArbArith arith, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
+    end
+
+    and simpAllocateWordMemory(numWords, flags, initial, context, tailDecs) =
+    let
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(numWords, context, tailDecs)
+        val (genArg2, decArg2, _ (*specArg2*)) = simpSpecial(flags, context, decArg1)
+        val (genArg3, decArg3, _ (*specArg3*)) = simpSpecial(initial, context, decArg2)
     in 
-        (AllocateWordMemory{numWords=genArg1, flags=genArg2, initial=genArg3}, decArg1 @ decArg2 @ decArg3, EnvSpecNone)
+        (AllocateWordMemory{numWords=genArg1, flags=genArg2, initial=genArg3}, decArg3, EnvSpecNone)
     end
 
     (* Loads, stores and block operations use address values.  The index value is initially
@@ -1001,15 +1091,15 @@ struct
        moves is an ML address i.e. unboxed. *)
     and simpAddress({base, index=NONE, offset}, _, context) =
         let
-            val (genBase, decBase, _ (*specBase*)) = simpSpecial(base, context)
+            val (genBase, decBase, _ (*specBase*)) = simpSpecial(base, context, RevList[])
         in
             ({base=genBase, index=NONE, offset=offset}, decBase)
         end
 
     |   simpAddress({base, index=SOME index, offset}, multiplier, context) =
         let
-            val (genBase, decBase, _) = simpSpecial(base, context)
-            val (genIndex, decIndex, _ (* specIndex *)) = simpSpecial(index, context)
+            val (genBase, RevList decBase, _) = simpSpecial(base, context, RevList[])
+            val (genIndex, RevList decIndex, _ (* specIndex *)) = simpSpecial(index, context, RevList[])
             val (newIndex, newOffset) =
                 case genIndex of
                     Constnt(indexOffset, _) =>
@@ -1018,7 +1108,7 @@ struct
                         else (SOME genIndex, offset)
                 |   _ => (SOME genIndex, offset)
         in
-            ({base=genBase, index=newIndex, offset=newOffset}, decBase @ decIndex)
+            ({base=genBase, index=newIndex, offset=newOffset}, RevList(decIndex @ decBase))
         end
 
 
@@ -1149,7 +1239,7 @@ struct
         end
     end
 *)
-    and simpIfThenElse(condTest, condThen, condElse, context) =
+    and simpIfThenElse(condTest, condThen, condElse, context, tailDecs) =
     (* If-then-else.  The main simplification is if we have constants in the
        test or in both the arms. *)
     let
@@ -1159,7 +1249,7 @@ struct
         val False = word0
         val True  = word1
     in
-        case simpSpecial(condTest, context) of
+        case simpSpecial(condTest, context, tailDecs) of
             (* If the test is a constant we can return the appropriate arm and
                ignore the other.  *)
             (Constnt(testResult, _), bindings, _) =>
@@ -1169,17 +1259,15 @@ struct
                         then condElse (* if false then x else y == y *)
                         (* if true then x else y == x *)
                         else condThen
-                    val (c, b, s) = simpSpecial(arm, context)
                 in
-                    (c, bindings @ b, s)
+                    simpSpecial(arm, context, bindings)
                 end
-        |   test =>
+        |   (testGen, testbindings as RevList testBList, _) =>
             let
-                val simpTest = specialToGeneral test
                 fun mkNot arg = Unary{oper=BuiltIns.NotBoolean, arg1=arg}
             in
-                case (simpSpecial(condThen, context), simpSpecial(condElse, context)) of
-                    ((thenConst as Constnt(thenVal, _), [], _), (elseConst as Constnt(elseVal, _), [], _)) =>
+                case (simpSpecial(condThen, context, RevList[]), simpSpecial(condElse, context, RevList[])) of
+                    ((thenConst as Constnt(thenVal, _), RevList [], _), (elseConst as Constnt(elseVal, _), RevList [], _)) =>
                         (* Both arms return constants.  This situation can arise in
                            situations where we have andalso/orelse where the second
                            "argument" has been reduced to a constant. *)
@@ -1188,35 +1276,35 @@ struct
                                 it.  If we're in a nested andalso/orelse that may mean we can simplify
                                 the next level out. *)
                             (thenConst (* or elseConst *),
-                             if sideEffectFree simpTest then [] else [NullBinding simpTest],
+                             if sideEffectFree testGen then testbindings else RevList(NullBinding testGen :: testBList),
                              EnvSpecNone)
               
                         (* if x then true else false == x *)
                         else if wordEq (thenVal, True) andalso wordEq (elseVal, False)
-                        then (simpTest, [], EnvSpecNone)
+                        then (testGen, testbindings, EnvSpecNone)
           
                         (* if x then false else true == not x  *)
                         else if wordEq (thenVal, False) andalso wordEq (elseVal, True)
-                        then (mkNot simpTest, [], EnvSpecNone)
+                        then (mkNot testGen, testbindings, EnvSpecNone)
           
-                        else (* can't optimise *) (Cond (simpTest, thenConst, elseConst), [], EnvSpecNone)
+                        else (* can't optimise *) (Cond (testGen, thenConst, elseConst), testbindings, EnvSpecNone)
 
                         (* Rewrite "if x then raise y else z" into "(if x then raise y else (); z)"
                            The advantage is that any tuples in z are lifted outside the "if". *)
-                |   (thenPart as (Raise _, _, _), (elsePart, elseBindings, elseSpec)) =>
+                |   (thenPart as (Raise _, _:revlist, _), (elsePart, RevList elseBindings, elseSpec)) =>
                         (* then-part raises an exception *)
-                        (elsePart, NullBinding(Cond (simpTest, specialToGeneral thenPart, CodeZero)) :: elseBindings, elseSpec)
+                        (elsePart, RevList(elseBindings @ NullBinding(Cond (testGen, specialToGeneral thenPart, CodeZero)) :: testBList), elseSpec)
 
-                |   ((thenPart, thenBindings, thenSpec), elsePart as (Raise _, _, _)) =>
+                |   ((thenPart, RevList thenBindings, thenSpec), elsePart as (Raise _, _, _)) =>
                         (* else part raises an exception *)
-                        (thenPart, NullBinding(Cond (simpTest, CodeZero, specialToGeneral elsePart)) :: thenBindings, thenSpec)
+                        (thenPart, RevList(thenBindings @ NullBinding(Cond (testGen, CodeZero, specialToGeneral elsePart)) :: testBList), thenSpec)
 
-                |   (thenPart, elsePart) => (Cond (simpTest, specialToGeneral thenPart, specialToGeneral elsePart), [], EnvSpecNone)
+                |   (thenPart, elsePart) => (Cond (testGen, specialToGeneral thenPart, specialToGeneral elsePart), testbindings, EnvSpecNone)
             end
     end
 
     (* Tuple construction.  Tuples are also used for datatypes and structures (i.e. modules) *)
-    and simpTuple(entries, isVariant, context) =
+    and simpTuple(entries, isVariant, context, tailDecs) =
      (* The main reason for optimising record constructions is that they
         appear as tuples in ML. We try to ensure that loads from locally
         created tuples do not involve indirecting from the tuple but can
@@ -1228,8 +1316,17 @@ struct
         (* The record construction is treated as a block of local
            declarations so that any expressions which might have side-effects
            are done exactly once. *)
-        val (fieldEntries, bindings) =
-            ListPair.unzip(List.map(fn h => makeNewDecl(simpSpecial(h, context), context)) entries)
+        (* We thread the bindings through here to avoid having to append the result. *)
+        fun processFields([], bindings) = ([], bindings)
+        |   processFields(field::fields, bindings) =
+            let
+                val (thisField, newBindings) = 
+                    makeNewDecl(simpSpecial(field, context, bindings), context)
+                val (otherFields, resBindings) = processFields(fields, newBindings)
+            in
+                (thisField::otherFields, resBindings)
+            end
+        val (fieldEntries, allBindings) = processFields(entries, tailDecs)
 
         (* Make sure we include any inline code in the result.  If this tuple is
            being "exported" we will lose the "special" part. *)
@@ -1243,16 +1340,23 @@ struct
             then makeConstVal(Tuple{ fields = generalFields, isVariant = isVariant })
             else Tuple{ fields = generalFields, isVariant = isVariant }
 
-        val allBindings = List.foldr(op @) [] bindings
-        
-        val specRec = EnvSpecTuple(tupleSize, fn addr => List.nth(fieldEntries, addr))
+        (* Get the field from the tuple if possible.  If it's a variant, though,
+           we may try to get an invalid field.  See Tests/Succeed/Test167. *)
+        fun getField addr =
+            if addr < tupleSize
+            then List.nth(fieldEntries, addr)
+            else if isVariant
+            then (EnvGenConst(toMachineWord 0, []), EnvSpecNone)
+            else raise InternalError "getField - invalid index"
+
+        val specRec = EnvSpecTuple(tupleSize, getField)
     in
         (genRec, allBindings, specRec)
     end
 
-    and simpFieldSelect(base, offset, isVariant, context) =
+    and simpFieldSelect(base, offset, isVariant, context, tailDecs) =
     let
-        val (genSource, decSource, specSource) = simpSpecial(base, context)
+        val (genSource, decSource, specSource) = simpSpecial(base, context, tailDecs)
     in
         (* Try to do the selection now if possible. *)
         case specSource of
@@ -1276,7 +1380,7 @@ struct
     (* Process a SetContainer.  Unlike the other simpXXX functions this is called
        after the arguments have been processed.  We try to push the SetContainer
        to the leaves of the expression. *)
-    and simpPostSetContainer(container, Tuple{fields, ...}, tupleDecs, filter) =
+    and simpPostSetContainer(container, Tuple{fields, ...}, RevList tupleDecs, filter) =
         let
             (* Apply the filter now. *)
             fun select(n, hd::tl) =
@@ -1346,55 +1450,55 @@ struct
                                         else NONE
                                 |   findContainer _ = NONE
                             in
-                                case findContainer (List.rev tupleDecs) of
+                                case findContainer tupleDecs of
                                     SOME (setter, decs) =>
                                         (* Put in a binding for the inner container address so the
                                            setter will set the outer container. *)
                                         mkEnv(List.rev(Declar{addr=localAddr, value=container, use=[]} :: decs), setter)
                                 |   NONE =>
-                                        mkEnv(tupleDecs,
+                                        mkEnv(List.rev tupleDecs,
                                                 SetContainer{container=container, tuple = Extract ext, filter=filter})
                             end
                         |   _ =>
-                            mkEnv(tupleDecs,
+                            mkEnv(List.rev tupleDecs,
                                     SetContainer{container=container, tuple = Extract ext, filter=filter})
                     end
 
             |   NONE =>
-                    mkEnv(tupleDecs,
+                    mkEnv(List.rev tupleDecs,
                          SetContainer{container=container, tuple = mkTuple selected,
                                        filter=BoolVector.tabulate(List.length selected, fn _ => true)})
         end
 
-    |   simpPostSetContainer(container, Cond(ifpt, thenpt, elsept), tupleDecs, filter) =
-            mkEnv(tupleDecs,
+    |   simpPostSetContainer(container, Cond(ifpt, thenpt, elsept), RevList tupleDecs, filter) =
+            mkEnv(List.rev tupleDecs,
                 Cond(ifpt,
-                    simpPostSetContainer(container, thenpt, [], filter),
-                    simpPostSetContainer(container, elsept, [], filter)))
+                    simpPostSetContainer(container, thenpt, RevList [], filter),
+                    simpPostSetContainer(container, elsept, RevList [], filter)))
 
-    |   simpPostSetContainer(container, Newenv(envDecs, envExp), tupleDecs, filter) =
-            simpPostSetContainer(container, envExp, tupleDecs @ envDecs, filter)
+    |   simpPostSetContainer(container, Newenv(envDecs, envExp), RevList tupleDecs, filter) =
+            simpPostSetContainer(container, envExp, RevList(List.rev envDecs @ tupleDecs), filter)
 
-    |   simpPostSetContainer(container, BeginLoop{loop, arguments}, tupleDecs, filter) =
-            mkEnv(tupleDecs,
-                BeginLoop{loop = simpPostSetContainer(container, loop, [], filter),
+    |   simpPostSetContainer(container, BeginLoop{loop, arguments}, RevList tupleDecs, filter) =
+            mkEnv(List.rev tupleDecs,
+                BeginLoop{loop = simpPostSetContainer(container, loop, RevList [], filter),
                     arguments=arguments})
 
-    |   simpPostSetContainer(_, loop as Loop _, tupleDecs, _) =
+    |   simpPostSetContainer(_, loop as Loop _, RevList tupleDecs, _) =
             (* If we are inside a BeginLoop we only set the container on leaves
                that exit the loop.  Loop entries will go back to the BeginLoop
                so we don't add SetContainer nodes. *)
-            mkEnv(tupleDecs, loop)
+            mkEnv(List.rev tupleDecs, loop)
 
-    |   simpPostSetContainer(container, Handle{exp, handler, exPacketAddr}, tupleDecs, filter) =
-            mkEnv(tupleDecs,
+    |   simpPostSetContainer(container, Handle{exp, handler, exPacketAddr}, RevList tupleDecs, filter) =
+            mkEnv(List.rev tupleDecs,
                 Handle{
-                    exp = simpPostSetContainer(container, exp, [], filter),
-                    handler = simpPostSetContainer(container, handler, [], filter),
+                    exp = simpPostSetContainer(container, exp, RevList [], filter),
+                    handler = simpPostSetContainer(container, handler, RevList [], filter),
                     exPacketAddr = exPacketAddr})
 
-    |   simpPostSetContainer(container, tupleGen, tupleDecs, filter) =
-            mkEnv(tupleDecs, mkSetContainer(container, tupleGen, filter))
+    |   simpPostSetContainer(container, tupleGen, RevList tupleDecs, filter) =
+            mkEnv(List.rev tupleDecs, mkSetContainer(container, tupleGen, filter))
 
     fun simplifier(c, numLocals) =
     let
@@ -1411,12 +1515,17 @@ struct
         fun mkAddr () = 
             ! localAddressAllocator before localAddressAllocator := ! localAddressAllocator + 1
         val reprocess = ref false
-        val code =
+        val (gen, RevList bindings, spec) =
             simpSpecial(c,
-                {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr, reprocess = reprocess})
+                {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr, reprocess = reprocess}, RevList[])
     in
-        (code, ! localAddressAllocator, !reprocess)
+        ((gen, List.rev bindings, spec), ! localAddressAllocator, !reprocess)
     end
+    
+    fun specialToGeneral(g, b as _ :: _, s) = mkEnv(b, specialToGeneral(g, [], s))
+    |   specialToGeneral(Constnt(w, p), [], s) = Constnt(w, setInline s p)
+    |   specialToGeneral(g, [], _) = g
+
 
     structure Sharing =
     struct

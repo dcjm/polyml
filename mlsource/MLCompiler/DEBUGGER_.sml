@@ -180,7 +180,7 @@ struct
         let
             val typeID = searchType state (tcIdentifier tcons)
             val newTypeCons =
-                makeTypeConstructor(tcName tcons, typeID, tcLocations tcons)
+                makeTypeConstructor(tcName tcons, tcTypeVars tcons, typeID, tcLocations tcons)
 
             val newValConstrs = (*map copyAConstructor tcConstructors*) []
         in

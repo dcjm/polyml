@@ -81,7 +81,7 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     POLYUNSIGNED words = data_words + 1;
     
     if (profileMode == kProfileStoreAllocation)
-        taskData->addAllocationProfileCount(words);
+        taskData->addProfileCount(words);
 
     PolyWord *foundSpace = processes->FindAllocationSpace(taskData, words, false);
     if (foundSpace == 0)
@@ -252,7 +252,7 @@ void raise_exception_string(TaskData *taskData, int id, const char *str)
 // The string part must match the result of OS.errorMsg
 void raiseSyscallError(TaskData *taskData, int err)
 {
-    Handle errornum = Make_fixed_precision(taskData, err);
+    Handle errornum = Make_sysword(taskData, err);
     Handle pushed_option = alloc_and_save(taskData, 1);
     DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
     Handle pushed_name = errorMsg(taskData, err); // Generate the string.
@@ -380,7 +380,7 @@ Handle Make_fixed_precision(TaskData *taskData, unsigned long uval)
     return taskData->saveVec.push(TAGGED(uval));
 }
 
-#if (SIZEOF_LONG_LONG != 0) && (SIZEOF_LONG_LONG <= SIZEOF_VOIDP)
+#ifdef HAVE_LONG_LONG
 Handle Make_fixed_precision(TaskData *taskData, long long val)
 {
     if (val > MAXTAGGED || val < -MAXTAGGED-1)

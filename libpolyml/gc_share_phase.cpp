@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Data sharing phase
 
-    Copyright (c) 2012 David C. J. Matthews
+    Copyright (c) 2012, 2017 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -170,7 +170,7 @@ public:
 protected:
     virtual bool TestForScan(PolyWord *);
     virtual void MarkAsScanning(PolyObject *);
-    virtual void StackOverflow(void) {} // Ignore stack overflow
+    virtual void StackOverflow(void) { } // Ignore stack overflow
     virtual void Completed(PolyObject *);
 
 private:
@@ -179,6 +179,8 @@ private:
     SortVector wordVectors[NUM_WORD_VECTORS];
 
     POLYUNSIGNED largeWordCount, largeByteCount, excludedCount;
+public:
+    POLYUNSIGNED totalVisited, byteAdded, wordAdded, totalSize;
 };
 
 GetSharing::GetSharing()
@@ -190,6 +192,7 @@ GetSharing::GetSharing()
         wordVectors[j].SetLengthWord(j);
 
     largeWordCount = largeByteCount = excludedCount = 0;
+    totalVisited = byteAdded = wordAdded = totalSize = 0;
 }
 
 bool GetSharing::TestForScan(PolyWord *pt)
@@ -204,14 +207,21 @@ bool GetSharing::TestForScan(PolyWord *pt)
         *pt = obj;
     }
     ASSERT(obj == (*pt).AsObjPtr());
+    
+    PolyWord *lengthWord = ((PolyWord*)obj) - 1;
 
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(obj-1);
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
 
     if (space == 0)
         return false; // Ignore it if it points to a permanent area
 
-    if (space->bitmap.TestBit(space->wordNo((PolyWord*)obj)))
+    if (space->bitmap.TestBit(space->wordNo(lengthWord)))
         return false;
+
+    ASSERT(obj->ContainsNormalLengthWord());
+
+    totalVisited += 1;
+    totalSize += obj->Length() + 1;
 
     return true;
 }
@@ -219,8 +229,10 @@ bool GetSharing::TestForScan(PolyWord *pt)
 void GetSharing::MarkAsScanning(PolyObject *obj)
 {
     ASSERT(obj->ContainsNormalLengthWord());
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(obj-1);
-    space->bitmap.SetBit(space->wordNo((PolyWord*)obj));
+    PolyWord *lengthWord = ((PolyWord*)obj) - 1;
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+    ASSERT(! space->bitmap.TestBit(space->wordNo(lengthWord)));
+    space->bitmap.SetBit(space->wordNo(lengthWord));
 }
 
 void GetSharing::Completed(PolyObject *obj)
@@ -236,6 +248,7 @@ void GetSharing::Completed(PolyObject *obj)
         if (length < NUM_WORD_VECTORS)
             wordVectors[length].AddToVector(obj, length);
         else largeWordCount++;
+        wordAdded++;
     }
     else if ((L & _OBJ_PRIVATE_FLAGS_MASK) == _OBJ_BYTE_OBJ)
     {
@@ -243,6 +256,7 @@ void GetSharing::Completed(PolyObject *obj)
         if (length < NUM_BYTE_VECTORS)
             byteVectors[length].AddToVector(obj, length);
         else largeByteCount++;
+        byteAdded++;
     }
     else if (! OBJ_IS_CODE_OBJECT(L) && ! OBJ_IS_MUTABLE_OBJECT(L))
         excludedCount++; // Code and mutables can't be shared - see what could be
@@ -547,7 +561,7 @@ void GetSharing::SortData()
         // get as much sharing by just running the final pass.  The first pass only carries
         // over any sharing from the byte objects so we need to run at least one more before
         // checking the carry over.
-        if (pass > 1 && (lastCount - postCount) * 10 < lastCount && carryOver*2 < (lastCount-postCount))
+        if (pass > 1 && (lastCount - postCount) * 10 < lastCount && (carryOver*2 < (lastCount-postCount) || (lastCount - postCount) * 1000 < lastCount ))
             break;
 
         lastCount = postCount;
@@ -576,10 +590,10 @@ void GetSharing::SortData()
         totalSize += byteVectors[k].TotalCount();
         POLYUNSIGNED shared = byteVectors[k].Shared();
         totalShared += shared;
-        totalRecovered += shared * (k+2); // Add 2 because the 0th item is one word + length word.
+        totalRecovered += shared * (k+1); // Add 1 for the length word.
         if (debugOptions & DEBUG_GC)
             Log("GC: Share: Byte objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
-                k+1, byteVectors[k].TotalCount(), byteVectors[k].Shared());
+                k, byteVectors[k].TotalCount(), byteVectors[k].Shared());
     }
 
     for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
@@ -587,10 +601,10 @@ void GetSharing::SortData()
         totalSize += wordVectors[l].TotalCount();
         POLYUNSIGNED shared = wordVectors[l].Shared();
         totalShared += shared;
-        totalRecovered += shared * (l+2);
+        totalRecovered += shared * (l+1);
         if (debugOptions & DEBUG_GC)
             Log("GC: Share: Word objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
-                l+1, wordVectors[l].TotalCount(), wordVectors[l].Shared());
+                l, wordVectors[l].TotalCount(), wordVectors[l].Shared());
     }
 
     if (debugOptions & DEBUG_GC)
@@ -610,30 +624,42 @@ void GCSharingPhase(void)
 
     GetSharing sharer;
 
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[i];
+        LocalMemSpace *lSpace = *i;
         lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
     }
 
-    // Process the permanent mutable areas and the code areas
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    // Scan the code areas to share any constants.  We don't share the code
+    // cells themselves.
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[j];
+        CodeSpace *space = *i;
+        sharer.ScanAddressesInRegion(space->bottom, space->top);
+    }
+
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Share: After scanning code: Total %" POLYUFMT " (%" POLYUFMT " words) byte %" POLYUFMT " word %" POLYUFMT ".\n",
+            sharer.totalVisited, sharer.totalSize, sharer.byteAdded, sharer.wordAdded);
+
+    // Process the permanent mutable areas and the code areas
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+    {
+        PermanentMemSpace *space = *i;
         if (space->isMutable && ! space->byteOnly)
             sharer.ScanAddressesInRegion(space->bottom, space->top);
     }
-    for (unsigned j = 0; j < gMem.ncSpaces; j++)
-    {
-        CodeSpace *space = gMem.cSpaces[j];
-        // N.B.  We must not scan beyond topPointer here.  Above that is a byte
-        // filler "cell" and the code here will attempt to share that possibly
-        // replacing its length word with a forwarding pointer.
-        sharer.ScanAddressesInRegion(space->bottom, space->topPointer);
-    }
+
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Share: After scanning permanent: Total %" POLYUFMT " (%" POLYUFMT " words) byte %" POLYUFMT " word %" POLYUFMT ".\n",
+            sharer.totalVisited, sharer.totalSize, sharer.byteAdded, sharer.wordAdded);
 
     // Process the RTS roots.
     GCModules(&sharer);
+
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Share: After scanning other roots: Total %" POLYUFMT " (%" POLYUFMT " words) byte %" POLYUFMT " word %" POLYUFMT ".\n",
+            sharer.totalVisited, sharer.totalSize, sharer.byteAdded, sharer.wordAdded);
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Table");
 

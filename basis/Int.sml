@@ -323,49 +323,7 @@ struct
         val () = RunCall.addOverload convInt "convInt"
     end
 
-    infix 7 quot rem
-    (* TODO: Handle the short precision cases. *)
-    val op quot: int * int -> int = RunCall.rtsCallFull2 "PolyDivideArbitrary"
-    and op rem:  int * int -> int = RunCall.rtsCallFull2 "PolyRemainderArbitrary"
-
-    fun x mod y =
-    let
-        val r = x rem y
-    in
-        if r = zero orelse (y >= zero) = (r >= zero) then r else r + y
-    end
-
-    fun x div y =
-    let
-        (* If the signs differ the normal quot operation will give the wrong
-           answer. We have to round the result down by subtracting either y-1 or
-           y+1. This will round down because it will have the opposite sign to x *)
-        
-        (* ...
-        val d = x - (if (y >= 0) = (x >= 0) then 0 else if y > 0 then y-1 else y+1)
-        ... *)
-        val xpos = x >= zero
-        val ypos = y >= zero
-        
-        val d =
-            if xpos = ypos 
-            then x
-            else if ypos
-            then (x - (y - fromInt 1))
-            else (x - (y + fromInt 1))
-    in
-        d quot y (* may raise Div for divide-by-zero *)
-    end
-
-    val ~ : int->int = ~
-    and op * : int*int->int = op *
-    and op + : int*int->int = op +
-    and op - : int*int->int = op -
-    
-    val op < : int*int->bool = op <
-    and op > : int*int->bool = op >
-    and op <= : int*int->bool = op <=
-    and op >= : int*int->bool = op >=
+    open LargeInt (* Everything else. *)
 end;
 
 structure FixedInt: INTEGER =
@@ -434,59 +392,12 @@ struct
     (* Can now open FixedInt. *)
     open FixedInt
 
-    infix 7 quot rem
-
-    local
-        val fquot: int * int -> int = op quot
-        val frem: int * int -> int = op rem
-    in
-        fun _ quot 0 = raise Div
-        |   x quot y = 
-                if y = ~1 andalso x = smallestInt
-                then raise Overflow
-                else fquot(x,y)
+    (* TODO: We should implement div and mod as built-ins because then they
+       can access the remainder and quotient directly.
+       Also, division by a power of two can be implemented as an
+       arithmetic shift because this rounds towards negative infinity
+       which is what we want. *)
  
-        (* This should return zero when dividing minInt by ~1.  Since we
-           are working with 31/63 bits this won't overflow and will return
-           the correct answer. *)
-        fun _ rem 0 = raise Div
-        |   x rem y = frem (x, y)
-        
-        (* TODO: We should implement div and mod as built-ins because then they
-           can access the remainder and quotient directly.
-           Also, division by a power of two can be implemented as an
-           arithmetic shift because this rounds towards negative infinity
-           which is what we want. *)
-        
-        (* mod adjusts the result of rem to give the correcly signed result. *)
-        fun _ mod 0 = raise Div
-        |   x mod y =
-            let
-                val remainder = frem(x, y)
-            in
-                if remainder = 0
-                then 0 (* If the remainder was zero the result is zero. *)
-                else if (remainder < 0) = (y < 0)
-                then remainder (* If the signs are the same there's no adjustment. *)
-                else remainder + y (* Have to add in the divisor. *)
-            end
-
-        (* div adjusts the result to round towards -infinity. *)
-        fun _ div 0 = raise Div
-        |   x div y =
-            if y = ~1 andalso x = smallestInt
-            then raise Overflow
-            else
-            let
-                val quotient = fquot(x, y)
-                and remainder = frem(x, y)
-            in
-                if remainder = 0 orelse (remainder < 0) = (y < 0)
-                then quotient
-                else quotient-1
-            end
-    end
-
     fun compare (i, j) =
         if i < j then General.LESS
         else if i > j then General.GREATER else General.EQUAL

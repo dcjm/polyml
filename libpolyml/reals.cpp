@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C.J. Matthews 2011, 2016
+    Further work copyright David C.J. Matthews 2011, 2016, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -665,6 +665,7 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
             (void)frexp(real_arg(args), &exp);
             return mdTaskData->saveVec.push(TAGGED(exp));
         }
+    case 26: /* nextafter */ return real_result(mdTaskData, nextafter(real_arg1(args), real_arg2(args)));
 
     default:
         {

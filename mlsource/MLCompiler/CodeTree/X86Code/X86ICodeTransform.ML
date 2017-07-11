@@ -432,73 +432,44 @@ struct
         |   pushRegisters((InitialisationComplete, _) :: rest, code, context) =
                 pushRegisters(rest, InitialisationComplete :: code, context)
 
-        |   pushRegisters((StartLoop{regArgs, loopLabel}, _) :: rest, code, context) =
+        |   pushRegisters((StartLoop{loopLabel}, _) :: rest, code, context) =
             let
-                (* Some of the loop registers may be marked to be pushed.  In that case we
-                   don't include them in the regArgs list.  We have to split the list between
-                   those that will be pushed and those that won't and process the ones that
-                   will be pushed first. *)
-                fun isAregArg (_, PReg(n, _)) = not(Vector.sub(pushVec, n))
-                val (regArgsToDo, stackArgsToDo) = List.partition isAregArg regArgs
-
-                fun loadStackArgs ([], ctxt) = ([], ctxt)
-                |   loadStackArgs ((source, dest as PReg(n, _)) :: rest, ctxt) =
-                    let
-                        val (sourceVal, sourceCode) = mapSource(source, ctxt)
-                        val (destVal, destCode, newContext) = mapDestReg(dest, ctxt)
-                        val (codeRest, resContext) = loadStackArgs(rest, newContext)
-                        val _ =
-                            case Array.sub(pregMap, n) of
-                                ToStack => () | _ => raise InternalError "pushRegisters - StartLoop - not stack"
-                    in
-                        (codeRest @ destCode @ [LoadArgument{source=sourceVal, dest=destVal, kind=MoveWord}] @ sourceCode, resContext)
-                    end
-                val (loadStackArgCode, stackArgContext) = loadStackArgs(stackArgsToDo, context)
-                
-                fun loadRegArgs ([], ctxt) = ([], [], ctxt)
-                |   loadRegArgs ((source, dest as PReg(n, _)) :: rest, ctxt) =
-                    let
-                        val (sourceVal, sourceCode) = mapSource(source, ctxt)
-                        val (_, destCode, newContext) = mapDestReg(dest, ctxt)
-                        val (codeRest, otherRegArgs, resContext) = loadRegArgs(rest, newContext)
-                    in
-                        case Array.sub(pregMap, n) of
-                            ToPReg newReg =>
-                                (codeRest @ destCode @ sourceCode, (sourceVal, newReg) :: otherRegArgs, resContext)
-                        |   _ => raise InternalError "pushRegisters - StartLoop - not reg"
-                    end
-                val (loadCode, newRegArgs, newContext) = loadRegArgs(regArgsToDo, stackArgContext)
-
                 (* Set up the state.  Every jump has to reset to this.  Only the
                    stack pointer is needed. *)
-                val () = addNewLabel(loopLabel, newContext)
+                val () = addNewLabel(loopLabel, context)
             in
-                pushRegisters(rest,
-                    StartLoop{regArgs=newRegArgs, loopLabel=loopLabel} :: loadCode @ loadStackArgCode @ code, newContext)
+                pushRegisters(rest, StartLoop{loopLabel=loopLabel} :: code, context)
             end
 
         |   pushRegisters((EndLoop{loopLabel, staticRegs}, _) :: rest, code, context) =
                 (* We don't really need to map the static regs since we'll call "Identify" again after this. *)
                 pushRegisters(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code, context)
 
-        |   pushRegisters((JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, ...}, _) :: rest, code, context as {newCount, ...}) =
+        |   pushRegisters((JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, checkInterrupt, ...}, _) :: rest,
+                           code, context as {newCount, ...}) =
             let
                 val {newCount=labNewCount, ...} = valOf(Array.sub(labelState, lab))
                 fun getValues [] = ([], [], [])
                 |   getValues ((source, PReg(n, _)) :: rest) =
                     let
                         val (otherRegArgs, otherStackArgs, otherCode) = getValues rest
-                        val (sourceVal, sourceCode) = mapSource(source, context)
                     in
                         case Array.sub(pregMap, n) of
-                            ToPReg lReg => ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
+                            ToPReg lReg =>
+                            let
+                                val (sourceVal, sourceCode) = mapSource(source, context)
+                            in
+                                ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
+                            end
                         |   ToStack =>
                             let
+                                val (sourceVal, sourceCode) = mapSource(source, context)
                                 val stackOff = getStackOffset(n, context)
                             in
                                 (otherRegArgs, (sourceVal, stackOff) :: otherStackArgs, sourceCode @ otherCode)
                             end
-                        |   Unset => raise InternalError "pushRegisters - JumpLoop - unset"
+                        |   Unset => (* Drop it.  It's never used. Probably a unit argument. *)
+                                (otherRegArgs, otherStackArgs, otherCode)
                     end
                 val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
                 fun loadStackArg((source, destStack), (otherLoads, otherArgs)) =
@@ -510,10 +481,11 @@ struct
                 
                 val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
                 val newStackAdjust = newCount-labNewCount
+                val check = Option.map mapSaveRegs checkInterrupt
             in
                 skipToLabel(rest,
                     JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, loopLabel=loopLabel,
-                              stackAdjust=newStackAdjust} :: sourceCode @ stackArgLoads @ code)
+                              stackAdjust=newStackAdjust, checkInterrupt=check} :: sourceCode @ stackArgLoads @ code)
             end
 
         |   pushRegisters((RaiseExceptionPacket{packet}, _) :: rest, code, context) =
@@ -552,31 +524,51 @@ struct
             end
     
         |   pushRegisters((ForwardJumpLabel{label as ILabel lab, result}, _) :: rest, code,
-                          context as {newCount=currentNewCount, stack=currentStack, ...}) =
-            (* This is a forward jump label after other code.  We have to merge the states. *)
+                    context as {newCount=currentNewCount, stack=currentStack, ...}) =
+            (* This is a forward jump label after other code.  We have to merge the states.
+               This was an allocation hot-spot. *)
             (
                 (* Get the state.  The label may never have been jumped to. *)
                 case Array.sub(labelState, lab) of
                     NONE => pushRegisters(rest, code, context)
                 |   SOME {newCount=jumpNewCount, stack=jumpStack, ...} =>
                     let
-                        (* Merge the common entries. Stop as soon as we find a difference. *)
-                        fun matchStacks((entry as NewEntry {pregNo=reg1}) :: tl1, NewEntry {pregNo=reg2} :: tl2, combined, old, new) =
-                            if reg1 = reg2
-                            then matchStacks(tl1, tl2, entry :: combined, old, new+1)
-                            else {newCount=new, oldCount=old, stack=combined}
-
-                        |   matchStacks((entry as ContainerEntry {size=size1}) :: tl1, ContainerEntry {size=size2} :: tl2, combined, old, new) =
-                            if size1 = size2
-                            then matchStacks(tl1, tl2, entry :: combined, old+size1, new+size1)
-                            else {newCount=new, oldCount=old, stack=combined}
-                            
-                        |   matchStacks(HandlerEntry :: tl1, HandlerEntry :: tl2, combined, old, new) =
-                                matchStacks(tl1, tl2, HandlerEntry :: combined, old+2, new+2)
-
-                        |   matchStacks(_, _, combined, old, new) = {newCount=new, oldCount=old, stack=combined}
-
-                        val newContext as {newCount=newSp, ...} = matchStacks(List.rev currentStack, List.rev jumpStack, [], 0, 0)
+                        (* Merge the stacks.  Because the stacks can be very deep we need to do this in a
+                           way that minimises the rebuilding necessary. *)
+                        val lenCurrent = List.length currentStack and lenJump = List.length jumpStack
+                        val (currStackTrim, jumpStackTrim) =
+                            if lenCurrent > lenJump
+                            then (List.drop(currentStack, lenCurrent-lenJump), jumpStack)
+                            else (currentStack, List.drop(jumpStack, lenJump-lenCurrent))
+                        val trimLength = Int.min(lenCurrent, lenJump)
+                        (* We now have the stacks the same length. *)
+                        fun findLastDifference(entry1 :: tl1, entry2 :: tl2, tailLen) =
+                            let
+                                val matchRest = findLastDifference(tl1, tl2, tailLen-1)
+                            in
+                                if matchRest <> tailLen-1
+                                then matchRest
+                                else case (entry1, entry2) of
+                                    (NewEntry {pregNo=reg1}, NewEntry {pregNo=reg2}) =>
+                                        if reg1 = reg2 then tailLen else tailLen-1
+                                |   (ContainerEntry {size=size1}, ContainerEntry {size=size2}) =>
+                                        if size1 = size2 then tailLen else tailLen-1
+                                |   (HandlerEntry, HandlerEntry) => tailLen
+                                |   _ => tailLen-1
+                            end
+                        |   findLastDifference([], [], 0) = 0
+                        |   findLastDifference _ = raise InternalError "findLastDifference"
+                        
+                        val commonLength = findLastDifference(currStackTrim, jumpStackTrim, trimLength)
+                        val commonStack = List.drop(currStackTrim, trimLength - commonLength)
+                        
+                        fun countSizes([], old, new) = (old, new)
+                        |   countSizes(NewEntry _ :: tl, old, new) = countSizes(tl, old, new+1)
+                        |   countSizes(ContainerEntry{size} :: tl, old, new) = countSizes(tl, old+size, new+size)
+                        |   countSizes(HandlerEntry :: tl, old, new) = countSizes(tl, old+2, new+2)
+                        
+                        val (oldCount, newCount) = countSizes(commonStack, 0, 0)
+                        val newContext as {newCount=newSp, ...} = {newCount=newCount, oldCount=oldCount, stack=commonStack}
 
                         val adjustStack =
                             if newSp = currentNewCount
@@ -608,7 +600,6 @@ struct
                         pushRegisters(rest, resultCode, newContext)
                     end
             )
-
         |   pushRegisters((UnconditionalForwardJump{label}, _) :: rest, code, context) =
             (
                 (* Save the state.  Then enter the "unconditional transfer" state. *)
@@ -890,7 +881,7 @@ struct
                     destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                         arg2Code @ arg1Code @ code, newContext)
             end
-        
+
         and skipToLabel([], code) = code
 
         |   skipToLabel((ForwardJumpLabel{label as ILabel lab, ...}, _) :: rest, code) =
@@ -904,19 +895,31 @@ struct
             )
         
         |   skipToLabel((BeginHandler{handleStart as ILabel lab, packetReg, workReg, ...}, _) :: rest, code) =
-                (* A handler should only ever occur after an unconditional transfer. *)
-            let
-                val context = valOf(Array.sub(labelState, lab))
-                val newWorkReg = mapWorkReg workReg
-                val (pktReg, pktCode, newContext) = mapDestReg(packetReg, context)
-            in
-                pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
-            end
+            (* A handler should only ever occur after an unconditional transfer. *)
+            (
+                (* It is possible that we have an exception handler inside dead code. *)
+                case Array.sub(labelState, lab) of
+                    NONE => skipToLabel(rest, code)
+                |   SOME context =>
+                    let
+                        val newWorkReg = mapWorkReg workReg
+                        val (pktReg, pktCode, newContext) = mapDestReg(packetReg, context)
+                    in
+                        pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
+                    end
+            )
         
-        |   skipToLabel((EndLoop{loopLabel, staticRegs}, _) :: rest, code) =
-                (* Normally we will have at least one branch that exits the loop
-                   but it could be that the loop is exited by raising an exception. *)
-                skipToLabel(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code)
+        |   skipToLabel((EndLoop{loopLabel as ILabel lab, staticRegs}, _) :: rest, code) =
+            (* Normally we will have at least one branch that exits the loop
+               but it could be that the loop is exited by raising an exception.
+               It is also possible that the loop has never been started because
+               the whole loop is dead code.  We have to check the label otherwise
+               mapSaveRegs could raise an exception. *)
+            (
+                case Array.sub(labelState, lab) of
+                    NONE => skipToLabel(rest, code)
+                |   _ => skipToLabel(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code)
+            )
 
             (* Any other Exited conditions. Skip the instructions.  There are various situations where this
                can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
@@ -947,30 +950,38 @@ struct
            an arithmetic operation where choosing the same register for
            each may avoid a move. *)
         val realHints = Array.array(maxPRegs, NONE: reg option)
-        val friends = Array.array(maxPRegs, []: int list)
-        
+
+        (* Sources and destinations.  These indicate the registers that are
+           the sources and destinations of the indexing register and are used
+           as hints.  If a register has been allocated for a source or destination
+           we may be able to reuse it.  *)
+        val sourceRegs = Array.array(maxPRegs, []: int list)
+        and destinationRegs = Array.array(maxPRegs, []: int list)
+
         fun addRealHint(r, reg) =
             case Array.sub(realHints, r) of
                 NONE => Array.update(realHints, r, SOME reg)
             |   SOME _ => ()
         
-        fun addFriends(f1, f2) =
+        fun addSourceAndDestinationHint{src, dst} =
         let
-            val {conflicts, ...} = Vector.sub(regStates, f1)
-            
-            fun addF (f, toF) =
-                let
-                    val currentFriends = Array.sub(friends, toF)
-                in
-                    if List.exists(fn i => i=f) currentFriends
-                    then ()
-                    else Array.update(friends, toF, f :: currentFriends)
-                end
+            val {conflicts, ...} = Vector.sub(regStates, src)
         in
-            (* Add a friend if there's no conflict. *)
-            if List.exists(fn i => i=f2) conflicts
+            (* If they conflict we can't add them. *)
+            if List.exists(fn i => i=dst) conflicts
             then ()
-            else (addF(f1, f2); addF(f2, f1))
+            else
+            let
+                val currentDests = Array.sub(destinationRegs, src)
+                val currentSources = Array.sub(sourceRegs, dst)
+            in
+                if List.exists(fn i => i=dst) currentDests
+                then ()
+                else Array.update(destinationRegs, src, dst :: currentDests);
+                if List.exists(fn i => i=src) currentSources
+                then ()
+                else Array.update(sourceRegs, dst, src :: currentSources)
+            end
         end
 
         (* Find a real register for a preg.
@@ -1003,10 +1014,59 @@ struct
                             if isFree reg then (Array.update(allocatedRegs, r, SOME reg); reg)
                             else findAReg regs
 
+
+                    (* Search the sources and destinations to see if a register has
+                       already been allocated or there is a hint. *)
+                    fun findAFriend([], [], _) = NONE
+
+                    |   findAFriend(aDest :: otherDests, sources, alreadySeen) =
+                        let
+                            val possReg =
+                                case Array.sub(allocatedRegs, aDest) of
+                                    v as SOME _ => tryAReg v
+                                |   NONE => tryAReg(Array.sub(realHints, aDest))
+                        in
+                            case possReg of
+                                reg as SOME _ => reg
+                            |   NONE =>
+                                let
+                                    (* Add the destinations of the destinations to the list
+                                       if they don't conflict and haven't been seen. *)
+                                    fun newFriend f =
+                                        not(List.exists (fn n => n=f) alreadySeen) andalso
+                                            not(List.exists (fn n => n=f) conflicts)
+                                    val fOfF = List.filter newFriend (Array.sub(destinationRegs, aDest))
+                                in
+                                    findAFriend(otherDests @ fOfF, sources, aDest :: alreadySeen)
+                                end
+                        end
+
+                    |   findAFriend([], aSrc :: otherSrcs, alreadySeen) =
+                        let
+                            val possReg =
+                                case Array.sub(allocatedRegs, aSrc) of
+                                    v as SOME _ => tryAReg v
+                                |   NONE => tryAReg(Array.sub(realHints, aSrc))
+                        in
+                            case possReg of
+                                reg as SOME _ => reg
+                            |   NONE =>
+                                let
+                                    (* Add the sources of the sources to the list
+                                       if they don't conflict and haven't been seen. *)
+                                    fun newFriend f =
+                                        not(List.exists (fn n => n=f) alreadySeen) andalso
+                                            not(List.exists (fn n => n=f) conflicts)
+                                    val fOfF = List.filter newFriend (Array.sub(sourceRegs, aSrc))
+                                in
+                                    findAFriend([], otherSrcs @ fOfF, aSrc :: alreadySeen)
+                                end
+                        end
+
                     (* See if there is a friend that has a register already or a
                        hint.  Friends are registers that don't conflict and can
                        possibly avoid an extra move. *) 
-                    fun findAFriend([], _) = NONE
+(*                    fun findAFriend([], _) = NONE
                     |   findAFriend(friend :: tail, old) =
                         let
                             val possReg =
@@ -1027,7 +1087,7 @@ struct
                                 in
                                     findAFriend(tail @ fOfF, friend :: old)
                                 end
-                        end
+                        end*)
                 in
                     case tryAReg pref of
                         SOME r => r
@@ -1037,7 +1097,7 @@ struct
                                 SOME r => r
                             |   NONE =>
                                 (
-                                    case findAFriend(Array.sub(friends, r), []) of
+                                    case findAFriend(Array.sub(destinationRegs, r), Array.sub(sourceRegs, r), []) of
                                         SOME r => r
                                         (* Look through the registers to find one that's free. *)
                                     |   NONE => findAReg regSet
@@ -1193,8 +1253,18 @@ struct
                             fun swapRegs r = if r = regA then regB else if r = regB then regA else r
                             fun swapSources{src=RegisterArgument r, dst} =
                                     {src=RegisterArgument(swapRegs r), dst=dst}
-                            |   swapSources{src=MemoryLocation _, ...} =
-                                    raise InternalError "swapSources: MemoryLocation"
+                            |   swapSources{src=MemoryLocation{base, index, offset}, dst} =
+                                let
+                                    val newIndex =
+                                        case index of
+                                            NoMemIndex => NoMemIndex
+                                        |   MemIndex1 r => MemIndex1(swapRegs r)
+                                        |   MemIndex2 r => MemIndex2(swapRegs r)
+                                        |   MemIndex4 r => MemIndex4(swapRegs r)
+                                        |   MemIndex8 r => MemIndex8(swapRegs r)
+                                in
+                                    {src=MemoryLocation{base=swapRegs base, index=newIndex, offset=offset}, dst=dst}
+                                end
                             |   swapSources sd = sd
                         in
                             ExchangeRegisters{regX=regA, regY=regB} ::
@@ -1308,7 +1378,7 @@ struct
             (* Register to register move.  Try to use the same register for the source as the destination
                to eliminate the instruction. *)
             let
-                val () = addFriends (sreg, dreg)
+                val () = addSourceAndDestinationHint {src=sreg, dst=dreg}
                 val code = codeExtended(rest, context)
             in
                 case Array.sub(allocatedRegs, dreg) of
@@ -1524,17 +1594,8 @@ struct
         |   codeExtended((InitialisationComplete, _) :: rest, context) =
                 InitialisationComplete :: codeExtended(rest, context)
 
-        |   codeExtended((StartLoop{regArgs, loopLabel}, _) :: rest, context) =
-            let
-                (* Make the loop arguments and the sources "friends". *)
-                fun makeFriends (RegisterArgument(PReg(sReg, _)), PReg(dReg, _)) = addFriends(dReg, sReg)
-                |   makeFriends _ = ()
-                val () = List.app makeFriends regArgs
-                val code = codeExtended(rest, context)
-                val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeExtArgGeneral a, dst=RegDest(findGeneralReg r)}) regArgs
-            in
-                moveMultipleValues(extRegArgs, generalRegisters) @ (StartLoop{regArgs=[], loopLabel=loopLabel} :: code)
-            end
+        |   codeExtended((StartLoop{loopLabel}, _) :: rest, context) =
+                StartLoop{loopLabel=loopLabel} :: codeExtended(rest, context)
 
         |   codeExtended((EndLoop {staticRegs, ...}, _) :: rest, context) =
             let
@@ -1547,17 +1608,21 @@ struct
                 codeExtended(rest, context)
             end
 
-        |   codeExtended((JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust}, _) :: rest, context) =
+        |   codeExtended((JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt}, _) :: rest, context) =
             let
                 (* TODO: Make the sources and destinations "friends". *)
                 val code = codeExtended(rest, context)
-                val extStackArgs = map (fn (src, stack) => {dst=StackDest stack, src=codeExtArgGeneral src}) stackArgs
-                val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeExtArgGeneral a, dst=RegDest(findGeneralReg r)}) regArgs
+                (* We must leave stack entries as stack entries for the moment as with TailCall. *)
+                fun codeArg(StackLocation stack) = StackLocation stack
+                |   codeArg arg = codeExtArgGeneral arg
+                val extStackArgs = map (fn (src, stack) => {dst=StackDest stack, src=codeArg src}) stackArgs
+                val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeArg a, dst=RegDest(findGeneralReg r)}) regArgs
                 val resetCode =
                     if stackAdjust = 0 then [] else [ResetStackPtr{numWords=stackAdjust}]
+                val check = Option.map(List.map(fn (PReg(r, _)) => findGeneralReg r)) checkInterrupt
             in
                 moveMultipleValues(extStackArgs @ extRegArgs, generalRegisters) @ resetCode @
-                    (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0} :: code)
+                    (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0, checkInterrupt=check} :: code)
             end
 
         |   codeExtended((RaiseExceptionPacket{ packet=RegisterArgument(PReg(preg, _)) }, _) :: rest, context) =
@@ -1676,7 +1741,7 @@ struct
             (* Subtraction - this is special because it can only be done one way round.  The first argument must
                be in a register. *)
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint {dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 (* Try to put the argument into the same register as the result. *)
@@ -1695,8 +1760,8 @@ struct
             (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
                we can try to put either argument into the result reg and then do the operation on the other arg. *)
             let
-                val () = addFriends (resReg, op1Reg)
-                val () = addFriends (resReg, op2Reg)
+                val () = addSourceAndDestinationHint {dst=resReg, src=op1Reg}
+                val () = addSourceAndDestinationHint {dst=resReg, src=op2Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 
@@ -1718,7 +1783,7 @@ struct
                                             operand2, ccRef}, _) :: rest, context) =
             (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
@@ -1736,7 +1801,7 @@ struct
                                             operand2=RegisterArgument(PReg(op2Reg, _)), ccRef}, _) :: rest, context) =
             (* Arithemtic operation with the second argument in a register and the first a constant or memory location. *)
             let
-                val () = addFriends (resReg, op2Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op2Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOp2Reg = findRegister(op2Reg, SOME realDestReg, generalRegisters)
@@ -1785,7 +1850,7 @@ struct
         |   codeExtended((UntagValue{source=RegisterArgument(PReg(sReg, _)), dest=PReg(dReg, _), isSigned}, _) :: rest, context) =
             (* Always generates register argument at the moment.  TODO: This should really just take a single register arg. *)
             let
-                val () = addFriends (sReg, dReg)
+                val () = addSourceAndDestinationHint{src=sReg, dst=dReg}
                 val code = codeExtended(rest, context)
             in
                 case Array.sub(allocatedRegs, dReg) of
@@ -1819,7 +1884,7 @@ struct
 
         |   codeExtended((ShiftOperation{shift, resultReg=PReg(resReg, _), operand=RegisterArgument(PReg(operReg, _)), shiftAmount=IntegerConstant i, ccRef}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, operReg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=operReg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOpReg = findRegister(operReg, SOME realDestReg, generalRegisters)
@@ -1832,7 +1897,7 @@ struct
         |   codeExtended((ShiftOperation{shift, resultReg=PReg(resReg, _), operand=RegisterArgument(PReg(operReg, _)),
                                         shiftAmount=RegisterArgument(PReg(shiftReg, _)), ccRef}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, operReg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=operReg}
                 val () = addRealHint(shiftReg, GenReg ecx)
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
@@ -1853,8 +1918,8 @@ struct
                                operand2=RegisterArgument(PReg(op2Reg, _)), ccRef}, _) :: rest, context) =
             let
                 (* Treat exactly the same as ArithmeticFunction. *)
-                val () = addFriends (resReg, op1Reg)
-                val () = addFriends (resReg, op2Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
+                val () = addSourceAndDestinationHint{dst=resReg, src=op2Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 
@@ -1984,7 +2049,7 @@ struct
 
         |   codeExtended((X87FPArith{opc, resultReg=PReg(resReg, _), arg1=RegisterArgument(PReg(op1Reg, _)), arg2}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
@@ -1998,7 +2063,7 @@ struct
     
         |   codeExtended((X87FPUnaryOps{fpOp, dest=PReg(resReg, _), source=RegisterArgument(PReg(op1Reg, _))}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
@@ -2032,7 +2097,7 @@ struct
     
         |   codeExtended((SSE2FPArith{opc, resultReg=PReg(resReg, _), arg1=RegisterArgument(PReg(op1Reg, _)), arg2}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
@@ -2125,7 +2190,6 @@ struct
         fun printCodeAndStates(identifiedCode, regStates) =
             (* Print the code before the transformation. *)
             if DEBUG.getParameter DEBUG.icodeTag debugSwitches
-
             then
             let
                 val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
@@ -2161,6 +2225,7 @@ struct
 
         fun processCode(icode, maxPRegs, maxLabels, maxStack, passes) =
         let
+            val () = printCodeAndStates(List.map (fn i => (i, [])) icode, Vector.fromList[])
             (* First pass - identify register use patterns *)
             val (identified, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
             val () = printCodeAndStates(identified, regStates)

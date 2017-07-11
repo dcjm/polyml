@@ -353,6 +353,16 @@
     <ClCompile Include="sighandler.cpp" />
     <ClCompile Include="statistics.cpp" />
     <ClCompile Include="timing.cpp" />
+    <ClCompile Include="unix_specific.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="windows_specific.cpp" />
     <ClCompile Include="x86_dep.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">true</ExcludedFromBuild>

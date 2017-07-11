@@ -1,12 +1,11 @@
 /*
     Title:      Quick copying garbage collector
 
-    Copyright (c) 2011-12 David C. J. Matthews
+    Copyright (c) 2011-12, 2016 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -244,9 +243,9 @@ LocalMemSpace *RootScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
     }
 
     // Find the space with the largest free area.
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *sp = gMem.lSpaces[i];
+        LocalMemSpace *sp = *i;
         if (sp->isMutable == isMutable && !sp->allocationSpace &&
                 (lSpace == 0 || sp->freeSpace() > lSpace->freeSpace()))
             lSpace = sp;
@@ -295,13 +294,13 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
     if (taskID != 0)
     {
         // See if we can take a space that is currently unused.
-        for (unsigned i = 0; i < gMem.nlSpaces; i++)
+        for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
-            lSpace = gMem.lSpaces[i];
+            lSpace = *i;
             if (lSpace->spaceOwner == 0 && lSpace->isMutable == isMutable &&
                 ! lSpace->allocationSpace && lSpace->freeSpace() > n /* At least n+1*/)
             {
-                if (debugOptions & DEBUG_GC)
+                if (debugOptions & DEBUG_GC_ENHANCED)
                     Log("GC: Quick: Thread %p is taking ownership of space %p\n", taskID, lSpace);
                 if (! TakeOwnership(lSpace))
                     return 0;
@@ -514,9 +513,9 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
 
     POLYUNSIGNED spaceBeforeGC = 0;
 
-    for(unsigned k = 0; k < gMem.nlSpaces; k++)
+    for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[k];
+        LocalMemSpace *lSpace = *i;
         ASSERT (lSpace->top >= lSpace->upperAllocPtr);
         ASSERT (lSpace->upperAllocPtr >= lSpace->lowerAllocPtr);
         ASSERT (lSpace->lowerAllocPtr >= lSpace->bottom);
@@ -544,16 +543,16 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
     RootScanner rootScan;
     // Scan the permanent mutable areas.  This could be parallelised but it doesn't
     // appear to be worthwhile at the moment.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[j];
+        PermanentMemSpace *space = *i;
         if (space->isMutable && ! space->byteOnly)
             rootScan.ScanAddressesInRegion(space->bottom, space->top);
     }
     // Scan code spaces.  
-    for (unsigned j=0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[j];
+        CodeSpace *space = *i;
         // Spaces are mutable if any object has been added to the area since the last GC.
         if (space->isMutable)
         {
@@ -587,9 +586,9 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
     // tasks while we are still adding tasks.  It is important that the values of
     // partialGCRootBase, partialGCRootTop and partialGCTop are properly initialised
     // for these new spaces.
-    for (unsigned l = 0; l < gMem.nlSpaces; l++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[l];
+        LocalMemSpace *space = *i;
         space->partialGCRootTop = space->lowerAllocPtr; // Top of the roots
         space->partialGCScan = space->lowerAllocPtr; // Start of scanning for new data.
     }
@@ -606,7 +605,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
                 // allocate a new space and realloc gMem.lSpaces.  We have to drop
                 // the lock before calling AddWorkOrRunNow in case we "run now".
                 PLocker lock(&localTableLock);
-                if (l >= gMem.nlSpaces)
+                if (l >= gMem.lSpaces.size())
                     break;
                 space = gMem.lSpaces[l++];
             }
@@ -627,9 +626,9 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
         globalStats.setSize(PSS_ALLOCATION, 0);
         globalStats.setSize(PSS_ALLOCATION_FREE, 0);
         // If it succeeded the allocation areas are now empty.
-        for(unsigned l = 0; l < gMem.nlSpaces; l++)
+        for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
-            LocalMemSpace *lSpace = gMem.lSpaces[l];
+            LocalMemSpace *lSpace = *i;
             POLYUNSIGNED free;
             if (lSpace->allocationSpace)
             {
@@ -644,7 +643,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
             }
             else free = lSpace->freeSpace();
 
-            if (debugOptions & DEBUG_GC)
+            if (debugOptions & DEBUG_GC_ENHANCED)
                 Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->spaceTypeString(),
                     lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                     ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());

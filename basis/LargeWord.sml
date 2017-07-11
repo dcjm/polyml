@@ -370,7 +370,7 @@ in
     val () = RunCall.addOverload convLarge "convWord"
 end;
 
-
+structure SysWord = LargeWord;
 
 (* Add the overloaded operators.  Do this outside the structure so
    that we can capture the inline code.  We've already done this for

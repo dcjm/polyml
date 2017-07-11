@@ -82,7 +82,6 @@ EXTNAME(id):
 #define Arg_SaveCStack          0x30  /* Current stack base */
 #define Arg_ThreadId            0x38  /* My thread id */
 #define Arg_StackPtr            0x40  /* Stack Pointer */
-#define Arg_ProgramCtr          0x48
 #define Arg_SaveRAX             0x68
 #define Arg_SaveRBX             0x70
 #define Arg_SaveRCX             0x78
@@ -183,7 +182,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    Arg_SaveR13(%rbp),%r13
     movq    Arg_SaveR14(%rbp),%r14
     cld                                     # Clear this just in case
-    jmp    *Arg_ProgramCtr(%rbp)            # Jump to code address
+    ret
 
 /* This is exactly the same as raisex but seems to be needed to work round a PIC problem. */
 raisexLocal:

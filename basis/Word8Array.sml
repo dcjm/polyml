@@ -36,7 +36,6 @@ local
     fun System_move_str(src: vector, dst: address, srcOffset: word, dstOffset: word, length: word): unit =
         RunCall.moveBytes(src, RunCall.unsafeCast dst, srcOffset, dstOffset, length)
 
-    val System_isShort   : vector -> bool = RunCall.isShort
     val emptyVec: vector = w8vectorFromString "" (* This is represented by a null string not a null vector. *)
 
     val maxLen = CharVector.maxLen
@@ -65,8 +64,6 @@ in
     
         fun op sub (v, i: int): elem =
             if i < 0 orelse i >= length v then raise General.Subscript
-            else if System_isShort v
-            then RunCall.unsafeCast v
             else RunCall.loadByteFromImmutable (v, intAsWord i + wordSize)
      
         (* Because Word8Vector.vector is implemented as a string and Word8.word
@@ -94,8 +91,7 @@ in
                 struct
                     type vector = vector and elem = elem
                     val length = wVecLength
-                    fun unsafeSub (s, i) =
-                        if System_isShort s then RunCall.unsafeCast s else RunCall.loadByteFromImmutable(s, i + wordSize);
+                    fun unsafeSub (s, i) = RunCall.loadByteFromImmutable(s, i + wordSize)
                     fun unsafeSet _ = raise Fail "Should not be called"
                 end);
     
@@ -197,9 +193,6 @@ in
 
         fun vector(Array(len, vec)) =
             if len = 0w0 then emptyVec
-            else if len = 0w1
-            then (* Single character string is the character itself. *)
-                RunCall.unsafeCast (RunCall.loadByte (vec, 0w0))
             else
             let
                 (* Make an array initialised to zero. *)
@@ -230,11 +223,7 @@ in
             in
                 if diW + len > dlen
                 then raise General.Subscript
-                else if System_isShort src (* i.e. length s = 1 *)
-                then (* Single character strings are represented by the character
-                        so we just need to insert the character into the array. *)
-                    RunCall.storeByte(d, diW, RunCall.unsafeCast src)
-                else System_move_str(src, d, wordSize, diW, len)
+               else System_move_str(src, d, wordSize, diW, len)
             end
 
         (* Create the other functions. *)
@@ -289,9 +278,7 @@ in
                 struct
                     type vector = vector and elem = Word8.word
                     val vecLength = wVecLength
-                    fun unsafeVecSub(s, i: word) =
-                        if System_isShort s then RunCall.unsafeCast s
-                        else RunCall.loadByteFromImmutable(s, i + wordSize)
+                    fun unsafeVecSub(s, i: word) = RunCall.loadByteFromImmutable(s, i + wordSize)
                     fun unsafeVecUpdate _ = raise Fail "Should not be called" (* Not applicable *)
                 end);
     
@@ -366,9 +353,6 @@ in
                 val (Array(_, vec), start, length) = base slice
             in
                 if length = 0 then emptyVec
-                else if length = 1
-                then (* Single character string is the character itself. *)
-                    RunCall.unsafeCast (RunCall.loadByte (vec, intAsWord start))
                 else
                 let
                     val len = intAsWord length
@@ -414,11 +398,6 @@ in
             in
                 if diW + len > dlen
                 then raise General.Subscript
-                else if System_isShort source (* i.e. length s = 1 *)
-                then (* Single character strings are represented by the character
-                        so we just need to insert the character into the array. *)
-                    RunCall.storeByte(d, diW + offset, RunCall.unsafeCast source)
-                    (* The source is represented by a string whose first word is the length. *)
                 else System_move_str(source, d, offset + wordSize, diW, len)
             end
         

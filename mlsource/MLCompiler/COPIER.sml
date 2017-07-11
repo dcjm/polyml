@@ -113,7 +113,7 @@ struct
                         val copiedId =
                             TypeId{idKind=TypeFn(args, copiedEquiv), access=access, description=description}
                     in
-                        makeTypeConstructor(makeName(tcName tcon), copiedId, tcLocations tcon) :: rest
+                        makeTypeConstructor(makeName(tcName tcon), args, copiedId, tcLocations tcon) :: rest
                     end
 
                 |   id =>
@@ -124,7 +124,7 @@ struct
                             NONE => rest (* Skip (or add to cache?) *)
                         |   SOME newId =>
                             makeTypeConstructor
-                                (makeName(tcName tcon), newId, tcLocations tcon) :: rest
+                                (makeName(tcName tcon), tcTypeVars tcon, newId, tcLocations tcon) :: rest
                     )
             end
             else rest

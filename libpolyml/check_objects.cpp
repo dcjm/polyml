@@ -80,12 +80,7 @@ void DoCheck (const PolyWord pt)
 
     if (pt.IsTagged()) return;
 
-    // It's possible that this could be a code address.
-    // That can happen, at least when pushing a value onto the save vec
-    // in a call to set_code_constant on X86/64
-    if (pt.IsCodePtr())
-        CheckAddress((PolyWord*)ObjCodePtrToPtr(pt.AsCodePtr()));
-    else CheckAddress(pt.AsStackAddr());
+    CheckAddress(pt.AsStackAddr());
 } 
 
 class ScanCheckAddress: public ScanAddress
@@ -152,16 +147,16 @@ void DoCheckMemory()
 {
     ScanCheckAddress memCheck;
     // Scan the local areas.
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[i];
+        LocalMemSpace *space = *i;
         memCheck.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
         memCheck.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }
     // Scan the permanent mutable areas.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[j];
+        PermanentMemSpace *space = *i;
         if (space->isMutable && ! space->byteOnly)
             memCheck.ScanAddressesInRegion(space->bottom, space->top);
     }

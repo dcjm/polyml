@@ -91,6 +91,7 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "processes.h"
 #include "memmgr.h"
 #include "rtsentry.h"
+#include "profiling.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
@@ -449,7 +450,7 @@ Handle Make_arbitrary_precision(TaskData *taskData, unsigned long uval)
     return ArbitraryPrecionFromUnsigned(taskData, uval);
 }
 
-#if SIZEOF_LONG_LONG != 0
+#ifdef HAVE_LONG_LONG
 #if SIZEOF_LONG_LONG <= SIZEOF_VOIDP
 Handle Make_arbitrary_precision(TaskData *taskData, long long val)
 {
@@ -1707,6 +1708,9 @@ POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     Handle pushedArg1 = taskData->saveVec.push(arg1);
     Handle pushedArg2 = taskData->saveVec.push(arg2);
     Handle result = 0;
+    
+    if (profileMode == kProfileEmulation)
+        taskData->addProfileCount(1);
 
     try {
         // Could raise an exception if out of memory.
@@ -1729,6 +1733,9 @@ POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord
     Handle pushedArg1 = taskData->saveVec.push(arg1);
     Handle pushedArg2 = taskData->saveVec.push(arg2);
     Handle result = 0;
+    
+    if (profileMode == kProfileEmulation)
+        taskData->addProfileCount(1);
 
     try {
         result = sub_longc(taskData, pushedArg2, pushedArg1);
@@ -1749,6 +1756,9 @@ POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord
     Handle pushedArg1 = taskData->saveVec.push(arg1);
     Handle pushedArg2 = taskData->saveVec.push(arg2);
     Handle result = 0;
+    
+    if (profileMode == kProfileEmulation)
+        taskData->addProfileCount(1);
 
     try {
         result = mult_longc(taskData, pushedArg2, pushedArg1);
@@ -1769,6 +1779,9 @@ POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord a
     Handle pushedArg1 = taskData->saveVec.push(arg1);
     Handle pushedArg2 = taskData->saveVec.push(arg2);
     Handle result = 0;
+    
+    if (profileMode == kProfileEmulation)
+        taskData->addProfileCount(1);
 
     try {
         // May raise divide exception
@@ -1790,6 +1803,9 @@ POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWor
     Handle pushedArg1 = taskData->saveVec.push(arg1);
     Handle pushedArg2 = taskData->saveVec.push(arg2);
     Handle result = 0;
+    
+    if (profileMode == kProfileEmulation)
+        taskData->addProfileCount(1);
 
     try {
         result = rem_longc(taskData, pushedArg2, pushedArg1);
@@ -1810,6 +1826,9 @@ POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord 
     Handle pushedArg1 = taskData->saveVec.push(arg1);
     Handle pushedArg2 = taskData->saveVec.push(arg2);
     Handle pushedArg3 = taskData->saveVec.push(arg3);
+    
+    if (profileMode == kProfileEmulation)
+        taskData->addProfileCount(1);
 
     try {
         quot_rem_c(taskData, pushedArg3, pushedArg2, pushedArg1);

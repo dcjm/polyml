@@ -74,7 +74,6 @@ EXTNAME(id):
 #define Arg_SaveCStack          0x18  /* Save C Stack pointer */
 #define Arg_ThreadId            0x1c  /* My thread id */
 #define Arg_StackPtr            0x20  /* Stack Pointer */
-#define Arg_ProgramCtr          0x24
 #define Arg_SaveRAX             0x34
 #define Arg_SaveRBX             0x38
 #define Arg_SaveRCX             0x3c
@@ -136,7 +135,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movl    Arg_SaveRSI(%ebp),%esi
     movl    Arg_SaveRDI(%ebp),%edi
     cld                                     # Clear this just in case
-    jmp     *Arg_ProgramCtr(%ebp)           # Jump to code address
+    ret
 
 
 /* Code to save the state and switch to C

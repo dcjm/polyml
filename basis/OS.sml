@@ -163,31 +163,30 @@ signature OS =
 
 structure OS:> OS =
 struct
-    type syserror = int (* Abstract. *)
+    type syserror = SysWord.word (* Implemented as a SysWord.word value. *)
 
     (* The calls themselves raise the SysCall exception.
        That has to be turned into a SysError exception. *)
     exception SysErr = RunCall.SysErr
 
-    local
-        val doCall: int*syserror -> string
-             = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-    in
-        (* Convert a numeric system error to a string. *)
-        fun errorName (s: syserror) : string = doCall(2, s)
-        fun errorMsg (s: syserror) : string = doCall(3, s)
-    end
+    (* Convert a numeric system error to a string.
+       Note: unlike Posix.Error.errorName and Posix.Error.sysError
+       the results are not defined other than that
+       SOME e = syserror(errorName e) nor is this defined to
+       be the same as the Posix.Error functions.  Those are
+       defined to return e.g. "etoobig".  Here we return "E2BIG". *)
+    val errorName: syserror -> string = RunCall.rtsCallFull1 "PolyProcessEnvErrorName"
+    and errorMsg: syserror -> string = RunCall.rtsCallFull1 "PolyProcessEnvErrorMessage"
 
     local
-        val doCall: int*string -> syserror
-             = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
+        val doCall: string -> syserror = RunCall.rtsCallFull1 "PolyProcessEnvErrorFromString"
     in
         (* Convert a string to an error message if possible. *)
         fun syserror (s: string) : syserror option =
         let
-            val n = doCall(4, s)
+            val n = doCall s
         in
-            if n = 0 then NONE else SOME n
+            if n = 0w0 then NONE else SOME n
         end
     end
 

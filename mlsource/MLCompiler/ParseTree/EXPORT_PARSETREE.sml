@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015 David C.J. Matthews
+    Copyright (c) 2013, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -66,17 +66,18 @@ struct
         datatype lType = DataT of datatypebind | TypeB of typebind | Decl of parsetree * breakPoint option ref
        
         (* Common code for datatypes, abstypes and type bindings. *)
-        fun exportTypeBinding(navigation, this as DataT(DatatypeBind{name, nameLoc, fullLoc, constrs, ...})) =
+        fun exportTypeBinding(navigation, this as DataT(DatatypeBind{name, nameLoc, fullLoc, constrs, tcon=ref(TypeConstrSet(tcon, _)), ...})) =
             let
                 fun asParent () = exportTypeBinding(navigation, this)
                 (* Ignore any type variables before the type name. *)
                 fun getName () =
-                    getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getConstrs}, name, nameLoc, [])
+                    getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getConstrs}, name, nameLoc, 
+                                    definingLocationProps(tcLocations tcon))
                 and getConstrs () =
                     let
-                        fun exportConstrs(navigation, {constrName, idLocn, ... }) =
+                        fun exportConstrs(navigation, {constrName, idLocn, constrVal=ref(Value{locations, ...}), ... }) =
                             (* TODO: the constructor type. *)
-                            getStringAsTree(navigation, constrName, idLocn, [])
+                            getStringAsTree(navigation, constrName, idLocn, definingLocationProps locations)
                     in
                         (fullLoc, (* TODO: We need a separate location for the constrs. *)
                             exportList(exportConstrs, SOME asParent) constrs @    
@@ -87,12 +88,13 @@ struct
             end
 
         |   exportTypeBinding(navigation,
-                this as TypeB(TypeBind{name, nameLoc, decType = SOME decType, fullLoc, ...})) =
+                this as TypeB(TypeBind{name, nameLoc, decType = SOME decType, fullLoc, tcon=ref(TypeConstrSet(tcon, _)), ...})) =
             let
                 fun asParent () = exportTypeBinding(navigation, this)
                 (* Ignore any type variables before the type name. *)
                 fun getName () =
-                    getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getType}, name, nameLoc, [])
+                    getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getType}, name, nameLoc,
+                        definingLocationProps(tcLocations tcon))
                 and getType () =
                     typeExportTree({parent=SOME asParent, previous=SOME getName, next=NONE}, decType)
             in
@@ -101,13 +103,14 @@ struct
 
            (* TypeBind is also used in a signature in which case decType could be NONE. *)
         |   exportTypeBinding(navigation,
-                this as TypeB(TypeBind{name, nameLoc, decType = NONE, fullLoc, ...})) =
+                this as TypeB(TypeBind{name, nameLoc, decType = NONE, fullLoc, tcon=ref(TypeConstrSet(tcon, _)), ...})) =
             let
                 fun asParent () = exportTypeBinding(navigation, this)
                 (* Ignore any type variables before the type name. *)
                 (* Retain this as a child entry in case we decide to add the type vars later. *)
                 fun getName () =
-                    getStringAsTree({parent=SOME asParent, previous=NONE, next=NONE}, name, nameLoc, [])
+                    getStringAsTree({parent=SOME asParent, previous=NONE, next=NONE}, name, nameLoc,
+                        definingLocationProps(tcLocations tcon))
             in
                 (fullLoc, PTfirstChild getName :: exportNavigationProps navigation)
             end
@@ -155,7 +158,18 @@ struct
                         in
                             ([], NONE, [PTcompletions completions])
                         end
-                    |   ref (Value{locations, references, ...}) => (mapLocationProps locations, references, [])
+                    |   ref (Value{locations, references, ...}) =>
+                        let
+                            (* If this is in a pattern it could be the defining location of the id.
+                               It's complicated trying to find out exactly which is the defining location
+                               so we check to see if this is the DeclaredAt location. *)
+                            val locProps =
+                                case List.find (fn DeclaredAt l => l = location | _ => false) locations of
+                                    SOME _ => definingLocationProps locations
+                                |   NONE => mapLocationProps locations
+                        in
+                            (locProps, references, [])
+                        end
                 val refProp =
                     case references of
                         NONE => []
@@ -216,20 +230,20 @@ struct
             let
                 (* It's easiest to put these all together into a single list. *)
                 datatype funEntry =
-                    FunIdent of { name: string, expType: types ref, location: location } * references
+                    FunIdent of { name: string, expType: types ref, location: location } * values
                 |   FunPtree of parsetree
                 |   FunConstraint of typeParsetree
                 |   FunInfixed of funEntry list * location
 
-                fun exportFunEntry(navigation, FunIdent({expType=ref expType, location, ...}, refs)) =
+                fun exportFunEntry(navigation, FunIdent({expType=ref expType, location, ...}, Value{references, locations, ...})) =
                     let
                         val refProp =
-                            case refs of
+                            case references of
                                 NONE => []
                             |   SOME {exportedRef=ref exp, localRef=ref locals, recursiveRef=ref recs} =>
-                                    [PTreferences(exp, List.map #1 recs @ locals)]
+                                    [PTreferences(exp, List.map #1 recs @ locals)] 
                     in
-                        (location, refProp @ (PTtype expType :: PTdeclaredAt location :: exportNavigationProps navigation))
+                        (location, refProp @ definingLocationProps locations @ (PTtype expType :: exportNavigationProps navigation))
                     end
                 |   exportFunEntry(navigation, FunPtree pt) = getExportTree(navigation, pt)
                 |   exportFunEntry(navigation, FunConstraint typ) = typeExportTree(navigation, typ)
@@ -243,7 +257,7 @@ struct
                     end
 
                 fun exportAClause(
-                        FValClause{dec = {ident, isInfix, args, constraint}, exp, breakPoint = ref bpt, ...}, refs, exportThis) =
+                        FValClause{dec = {ident, isInfix, args, constraint}, exp, breakPoint = ref bpt, ...}, idVal, exportThis) =
                 let
                     (* The effect of this is to have all the elements of the clause as
                        a single level except that if we have an infixed application of
@@ -251,10 +265,10 @@ struct
                     val funAndArgs =
                         case (isInfix, args) of
                             (true, TupleTree{fields=[left, right], location, ...} :: otherArgs) => (* Infixed. *)
-                                FunInfixed([FunPtree left, FunIdent(ident, refs), FunPtree right], location)
+                                FunInfixed([FunPtree left, FunIdent(ident, idVal), FunPtree right], location)
                                     :: map FunPtree otherArgs
                         |   (_, args) => (* Normal prefixed form. *)
-                                FunIdent(ident, refs) :: map FunPtree args
+                                FunIdent(ident, idVal) :: map FunPtree args
 
                     val constraint = case constraint of NONE => [] |SOME typ => [FunConstraint typ]
                     
@@ -267,17 +281,17 @@ struct
                 end
 
                 fun exportFB(navigation,
-                        fb as FValBind{clauses=[clause], location, functVar = ref(Value{references, ...}), ...}) =
+                        fb as FValBind{clauses=[clause], location, functVar = ref idVal, ...}) =
                     (* If there's just one clause go straight to it.  Otherwise we have an
                        unnecessary level of navigation. *)
                     let
                         val fbProps = exportNavigationProps navigation
-                        val asChild = exportAClause(clause, references, fn () => exportFB(navigation, fb))
+                        val asChild = exportAClause(clause, idVal, fn () => exportFB(navigation, fb))
                     in
                         (location, asChild @ fbProps)
                     end
                 
-                |   exportFB(navigation, fb as FValBind{clauses, location, functVar = ref(Value{references, ...}), ...}) =
+                |   exportFB(navigation, fb as FValBind{clauses, location, functVar = ref idVal, ...}) =
                     let
                         val fbProps = exportNavigationProps navigation
                         (* Each child gives a clause. *)
@@ -288,7 +302,7 @@ struct
                         fun exportClause(navigation, clause as FValClause{ line, ...}) =
                         let
                             val clProps = exportNavigationProps navigation
-                            val asChild = exportAClause(clause, references, fn () => exportClause(navigation, clause))
+                            val asChild = exportAClause(clause, idVal, fn () => exportClause(navigation, clause))
                         in
                             (line, asChild @ clProps)    
                         end
@@ -369,18 +383,19 @@ struct
         |   ExDeclaration(exbinds, location) =>
             let
                 (* There are three possibilities here.  exception exc; exception exc of ty; exception exc = exc' *)
-                fun exportExdec(navigation, ExBind{name, previous=EmptyTree, ofType=NONE, nameLoc, ...}) =
+                fun exportExdec(navigation, ExBind{name, previous=EmptyTree, ofType=NONE, nameLoc, value=ref(Value{locations, ...}), ...}) =
                         (* Simple, generative exception with no type. *)
-                        getStringAsTree(navigation, name, nameLoc, [PTtype exnType])
+                        getStringAsTree(navigation, name, nameLoc, PTtype exnType :: definingLocationProps locations)
 
                 |   exportExdec(navigation,
-                        eb as ExBind{name, previous=EmptyTree, ofType=SOME ofType, nameLoc, fullLoc, ...}) =
+                        eb as ExBind{name, previous=EmptyTree, ofType=SOME ofType, nameLoc, fullLoc,
+                                     value=ref(Value{locations, ...}), ...}) =
                         (* exception exc of type. *)
                     let
                         fun asParent () = exportExdec (navigation, eb)
                         fun getName () =
                             getStringAsTree({parent=SOME asParent, next=SOME getOfType, previous=NONE},
-                                name, nameLoc, [(* Type could be in here? *)])
+                                name, nameLoc, (* Type could be in here? *)definingLocationProps locations)
                         and getOfType () =
                             typeExportTree({parent=SOME asParent, previous=SOME getName, next=NONE}, ofType)
                     in
@@ -388,12 +403,12 @@ struct
                     end
 
                 |   exportExdec(navigation,
-                        eb as ExBind{name, previous, (* ofType=NONE, *) nameLoc, fullLoc, ...}) =
+                        eb as ExBind{name, previous, (* ofType=NONE, *) nameLoc, fullLoc, value=ref(Value{locations, ...}), ...}) =
                     let
                         fun asParent () = exportExdec (navigation, eb)
                         fun getName () =
                             getStringAsTree({parent=SOME asParent, next=SOME getPreviousExc, previous=NONE},
-                                name, nameLoc, [(* Type could be in here? *)])
+                                name, nameLoc, (* Type could be in here? *)definingLocationProps locations)
                         and getPreviousExc () =
                             getExportTree({parent=SOME asParent, previous=SOME getName, next=NONE}, previous)
                     in

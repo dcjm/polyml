@@ -86,7 +86,7 @@ extern Handle Make_fixed_precision(TaskData *taskData, unsigned long);
 extern Handle Make_fixed_precision(TaskData *taskData, int);
 extern Handle Make_fixed_precision(TaskData *taskData, unsigned);
 
-#if (SIZEOF_LONG_LONG != 0) && (SIZEOF_LONG_LONG <= SIZEOF_VOIDP)
+#ifdef HAVE_LONG_LONG
 extern Handle Make_fixed_precision(TaskData *taskData, long long);
 extern Handle Make_fixed_precision(TaskData *taskData, unsigned long long);
 #endif

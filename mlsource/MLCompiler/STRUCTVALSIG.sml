@@ -88,6 +88,7 @@ sig
         TypeConstrs of
         {
             name:       string,
+            typeVars:   typeVarForm list,
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
@@ -208,6 +209,7 @@ sig
 
     val tcName:            typeConstrs -> string
     val tcArity:           typeConstrs -> int
+    val tcTypeVars:        typeConstrs -> typeVarForm list
     val tcEquality:        typeConstrs -> bool
     val tcSetEquality:     typeConstrs * bool -> unit
     val tcIdentifier:      typeConstrs -> typeId
@@ -215,7 +217,7 @@ sig
     val tcIsAbbreviation:  typeConstrs -> bool
 
     val makeTypeConstructor:
-        string * typeId * locationProp list -> typeConstrs
+        string * typeVarForm list * typeId * locationProp list -> typeConstrs
 
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list

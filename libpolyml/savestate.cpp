@@ -72,6 +72,8 @@
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <tchar.h>
+#define ERRORNUMBER _doserrno
+#define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
 #else
 typedef char TCHAR;
 #define _T(x) x
@@ -84,6 +86,8 @@ typedef char TCHAR;
 #ifndef lstrcmpi
 #define lstrcmpi strcasecmp
 #endif
+#define ERRORNUMBER errno
+#define NOMEMORY ENOMEM
 #endif
 
 
@@ -283,7 +287,7 @@ public:
 
 private:
     // ScanAddress overrides
-    virtual void ScanConstant(byte *addrOfConst, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code);
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
 
@@ -324,7 +328,7 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void SaveStateExport::ScanConstant(byte *addr, ScanRelocationKind code)
+void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
     PolyWord p = GetConstantValue(addr, code);
 
@@ -376,6 +380,9 @@ protected:
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
         { return GetNewAddress(base).AsObjPtr(); }
     PolyWord GetNewAddress(PolyWord old);
+
+public:
+    void ScanCodeSpace(CodeSpace *space);
 };
 
 
@@ -392,18 +399,6 @@ PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
     if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
         return old; //  Nothing to do.
 
-    // When we are updating addresses in the stack or in code segments we may have
-    // code pointers.
-    if (old.IsCodePtr())
-    {
-        // Find the start of the code segment
-        PolyObject *oldObject = ObjCodePtrToPtr(old.AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = old.AsCodePtr() - (byte*)oldObject;
-        PolyWord newObject = GetNewAddress(oldObject);
-        return PolyWord::FromCodePtr(newObject.AsCodePtr() + offset);
-    }
-
     ASSERT(old.IsDataPtr());
 
     PolyObject *obj = old.AsObjPtr();
@@ -417,6 +412,24 @@ PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
     
     ASSERT (obj->ContainsNormalLengthWord()); // object is not moved
     return old;
+}
+
+// Fix up addresses in the code area.  Unlike ScanAddressesInRegion this updates
+// cells that have been moved.  We need to do that because we may still have
+// return addresses into those cells and we don't move return addresses.  We
+// do want the code to see updated constant addresses.
+void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
+{
+    for (PolyWord *pt = space->bottom; pt < space->top; )
+    {
+        pt++;
+        PolyObject *obj = (PolyObject*)pt;
+        PolyObject *dest = obj->FollowForwardingChain();
+        POLYUNSIGNED length = dest->Length();
+        if (length != 0)
+            ScanAddressesInObject(obj, dest->LengthWord());
+        pt += length;
+    }
 }
 
 // Called by the root thread to actually save the state and write the file.
@@ -438,7 +451,7 @@ void SaveRequest::Perform()
     if (exports.exportFile == NULL)
     {
         errorMessage = "Cannot open save file";
-        errCode = errno;
+        errCode = ERRORNUMBER;
         return;
     }
 
@@ -448,9 +461,9 @@ void SaveRequest::Perform()
     copyScan.initialise(false);
     bool success = true;
     try {
-        for (unsigned i = 0; i < gMem.npSpaces; i++)
+        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
-            PermanentMemSpace *space = gMem.pSpaces[i];
+            PermanentMemSpace *space = *i;
             if (space->isMutable && ! space->noOverwrite && ! space->byteOnly)
                 copyScan.ScanAddressesInRegion(space->bottom, space->top);
         }
@@ -462,14 +475,14 @@ void SaveRequest::Perform()
 
     // Copy the areas into the export object.  Make sufficient space for
     // the largest possible number of entries.
-    exports.memTable = new memoryTableEntry[gMem.neSpaces+gMem.npSpaces+1];
+    exports.memTable = new memoryTableEntry[gMem.eSpaces.size()+gMem.pSpaces.size()+1];
     unsigned memTableCount = 0;
 
     // Permanent spaces at higher level.  These have to have entries although
     // only the mutable entries will be written.
-    for (unsigned w = 0; w < gMem.npSpaces; w++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[w];
+        PermanentMemSpace *space = *i;
         if (space->hierarchy < newHierarchy)
         {
             memoryTableEntry *entry = &exports.memTable[memTableCount++];
@@ -490,10 +503,10 @@ void SaveRequest::Perform()
     unsigned permanentEntries = memTableCount; // Remember where new entries start.
 
     // Newly created spaces.
-    for (unsigned i = 0; i < gMem.neSpaces; i++)
+    for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
         memoryTableEntry *entry = &exports.memTable[memTableCount++];
-        PermanentMemSpace *space = gMem.eSpaces[i];
+        PermanentMemSpace *space = *i;
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = space->index;
@@ -512,18 +525,36 @@ void SaveRequest::Perform()
 
     // Update references to moved objects.
     SaveFixupAddress fixup;
-    for (unsigned l = 0; l < gMem.nlSpaces; l++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[l];
+        LocalMemSpace *space = *i;
         fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
         fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }
-    for (unsigned l = 0; l < gMem.ncSpaces; l++)
-    {
-        CodeSpace *space = gMem.cSpaces[l];
-        fixup.ScanAddressesInRegion(space->bottom, space->top);
-    }
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+        fixup.ScanCodeSpace(*i);
+
     GCModules(&fixup);
+
+    // Restore the length words in the code areas.
+    // Although we've updated any pointers to the start of the code we could have return addresses
+    // pointing to the original code.  GCModules updates the stack but doesn't update return addresses.
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+    {
+        CodeSpace *space = *i;
+        for (PolyWord *pt = space->bottom; pt < space->top; )
+        {
+            pt++;
+            PolyObject *obj = (PolyObject*)pt;
+            if (obj->ContainsForwardingPtr())
+            {
+                PolyObject *forwardedTo = obj->FollowForwardingChain();
+                POLYUNSIGNED lengthWord = forwardedTo->LengthWord();
+                obj->SetLengthWord(lengthWord);
+            }
+            pt += obj->Length();
+        }
+    }
 
     // Update the global memory space table.  Old segments at the same level
     // or lower are removed.  The new segments become permanent.
@@ -533,7 +564,7 @@ void SaveRequest::Perform()
     if (! gMem.PromoteExportSpaces(newHierarchy) || ! success)
     {
         errorMessage = "Out of Memory";
-        errCode = ENOMEM;
+        errCode = NOMEMORY;
         return;
     }
     // Remove any deeper entries from the hierarchy table.
@@ -586,6 +617,8 @@ void SaveRequest::Perform()
             if (entry->mtFlags & MTF_BYTES)
                 descrs[j].segmentFlags |= SSF_BYTES;
         }
+        if (entry->mtFlags & MTF_EXECUTABLE)
+            descrs[j].segmentFlags |= SSF_CODE;
     }
     // Write out temporarily. Will be overwritten at the end.
     saveHeader.segmentDescr = ftell(exports.exportFile);
@@ -708,7 +741,7 @@ void StateLoader::Perform(void)
         if (fileName == NULL)
         {
             errorResult = "Insufficient memory";
-            errNumber = ENOMEM;
+            errNumber = NOMEMORY;
             return;
         }
         (void)LoadFile(true, 0, p->t);
@@ -719,7 +752,7 @@ void StateLoader::Perform(void)
         if (fileName == NULL)
         {
             errorResult = "Insufficient memory";
-            errNumber = ENOMEM;
+            errNumber = NOMEMORY;
             return;
         }
         (void)LoadFile(true, 0, TAGGED(0));
@@ -833,7 +866,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     if ((FILE*)loadFile == NULL)
     {
         errorResult = "Cannot open load file";
-        errNumber = errno;
+        errNumber = ERRORNUMBER;
         return false;
     }
 
@@ -883,7 +916,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             if (fileName == NULL)
             {
                 errorResult = "Insufficient memory";
-                errNumber = ENOMEM;
+                errNumber = NOMEMORY;
                 return false;
             }
             if (! LoadFile(false, header.parentTimeStamp, p->t))
@@ -899,7 +932,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             if (newFileName == NULL)
             {
                 errorResult = "Insufficient memory";
-                errNumber = ENOMEM;
+                errNumber = NOMEMORY;
                 return false;
             }
             fileName = newFileName;
@@ -995,9 +1028,9 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             }
             // Allocate memory for the new segment.
             size_t actualSize = descr->segmentSize;
-            PolyWord *mem  =
-                (PolyWord*)osMemoryManager->Allocate(actualSize,
-                                PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+            unsigned int perms = PERMISSION_READ|PERMISSION_WRITE;
+            if (descr->segmentFlags & SSF_CODE) perms |= PERMISSION_EXEC;
+            PolyWord *mem  = (PolyWord*)osMemoryManager->Allocate(actualSize, perms);
             if (mem == 0)
             {
                 errorResult = "Unable to allocate memory";
@@ -1017,7 +1050,8 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             unsigned mFlags =
                 (descr->segmentFlags & SSF_WRITABLE ? MTF_WRITEABLE : 0) |
                 (descr->segmentFlags & SSF_NOOVERWRITE ? MTF_NO_OVERWRITE : 0) |
-                (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0);
+                (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0) |
+                (descr->segmentFlags & SSF_CODE ? MTF_EXECUTABLE : 0);
             PermanentMemSpace *newSpace =
                 gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord), mFlags,
                         descr->segmentIndex, hierarchyDepth+1);
@@ -1163,11 +1197,11 @@ Handle RenameParent(TaskData *taskData, Handle args)
     // The name of the file to modify.
     AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0)));
     if (fileNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     // The new parent name to insert.
     AutoFree<TCHAR*> parentNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(1)));
     if (parentNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
     AutoClose loadFile(_tfopen(fileNameBuff, _T("r+b"))); // Open for reading and writing
     if ((FILE*)loadFile == NULL)
@@ -1178,7 +1212,7 @@ Handle RenameParent(TaskData *taskData, Handle args)
 #else
         sprintf(buff, "Cannot open load file: %s", (TCHAR *)fileNameBuff);
 #endif
-        raise_syscall(taskData, buff, errno);
+        raise_syscall(taskData, buff, ERRORNUMBER);
     }
 
     SavedStateHeader header;
@@ -1223,7 +1257,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
 {
     AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(hFileName)));
     if (fileNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
     AutoClose loadFile(_tfopen(fileNameBuff, _T("rb")));
     if ((FILE*)loadFile == NULL)
@@ -1234,7 +1268,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
 #else
         sprintf(buff, "Cannot open load file: %s", (TCHAR *)fileNameBuff);
 #endif
-        raise_syscall(taskData, buff, errno);
+        raise_syscall(taskData, buff, ERRORNUMBER);
     }
 
     SavedStateHeader header;
@@ -1261,7 +1295,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
         size_t roundedBytes = (elems + 1) * sizeof(TCHAR);
         AutoFree<TCHAR*> parentFileName((TCHAR *)malloc(roundedBytes));
         if (parentFileName == NULL)
-            raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
         if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
             fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
@@ -1336,7 +1370,7 @@ void ModuleStorer::Perform()
     if (exporter.exportFile == NULL)
     {
         errorMessage = "Cannot open export file";
-        errCode = errno;
+        errCode = ERRORNUMBER;
         return;
     }
     // RunExport copies everything reachable from the root, except data from
@@ -1399,6 +1433,8 @@ void ModuleExport::exportStore(void)
             if (entry->mtFlags & MTF_BYTES)
                 thisDescr->segmentFlags |= SSF_BYTES;
         }
+        if (entry->mtFlags & MTF_EXECUTABLE)
+             thisDescr->segmentFlags |= SSF_CODE;
     }
     // Write out temporarily. Will be overwritten at the end.
     modHeader.segmentDescr = ftell(this->exportFile);
@@ -1480,7 +1516,7 @@ void ModuleLoader::Perform()
     if ((FILE*)loadFile == NULL)
     {
         errorResult = "Cannot open load file";
-        errNumber = errno;
+        errNumber = ERRORNUMBER;
         return;
     }
 
@@ -1555,11 +1591,30 @@ void ModuleLoader::Perform()
             }
             // Allocate memory for the new segment.
             size_t actualSize = descr->segmentSize;
-            LocalMemSpace *space = gMem.NewLocalSpace(actualSize, descr->segmentFlags & SSF_WRITABLE);
-            if (space == 0)
+            MemSpace *space;
+            if (descr->segmentFlags & SSF_CODE)
             {
-                errorResult = "Unable to allocate memory";
-                return;
+                CodeSpace *cSpace = gMem.NewCodeSpace(actualSize);
+                if (cSpace == 0)
+                {
+                    errorResult = "Unable to allocate memory";
+                    return;
+                }
+                space = cSpace;
+                cSpace->firstFree = (PolyWord*)((byte*)space->bottom + descr->segmentSize);
+                if (cSpace->firstFree != cSpace->top)
+                    gMem.FillUnusedSpace(cSpace->firstFree, cSpace->top - cSpace->firstFree);
+            }
+            else
+            {
+                LocalMemSpace *lSpace = gMem.NewLocalSpace(actualSize, descr->segmentFlags & SSF_WRITABLE);
+                if (lSpace == 0)
+                {
+                    errorResult = "Unable to allocate memory";
+                    return;
+                }
+                space = lSpace;
+                lSpace->lowerAllocPtr = (PolyWord*)((byte*)lSpace->bottom + descr->segmentSize);
             }
             if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
                 fread(space->bottom, descr->segmentSize, 1, loadFile) != 1)
@@ -1567,12 +1622,11 @@ void ModuleLoader::Perform()
                 errorResult = "Unable to read segment";
                 return;
             }
-            space->lowerAllocPtr = (PolyWord*)((byte*)space->bottom + descr->segmentSize);
             relocate.targetAddresses[descr->segmentIndex] = space->bottom;
             if (space->isMutable && (descr->segmentFlags & SSF_BYTES) != 0)
             {
                 ClearWeakByteRef cwbr;
-                cwbr.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+                cwbr.ScanAddressesInRegion(space->bottom, (PolyWord*)((byte*)space->bottom + descr->segmentSize));
             }
         }
     }

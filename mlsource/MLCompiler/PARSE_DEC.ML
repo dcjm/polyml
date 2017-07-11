@@ -2,7 +2,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further Development Copyright 2009, 2015 David C.J. Matthews.
+    Further Development Copyright 2009, 2016 David C.J. Matthews.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -493,9 +493,9 @@ struct
                         val () = insymbol lex;(* Followed by a type. *)
                         val (theType,typeLocn) = parseType (fsys ++ verticalBar, lex, typeVarEnv)
                     in
-                        ({constrName=constrName, constrArg=SOME theType, idLocn=idLocn}, locSpan(idLocn, typeLocn))
+                        (mkValueConstr(constrName, SOME theType, idLocn), locSpan(idLocn, typeLocn))
                     end
-                |   _ => ({constrName=constrName, constrArg=NONE, idLocn=idLocn}, idLocn);
+                |   _ => (mkValueConstr(constrName, NONE, idLocn), idLocn);
         in
             case sy lex of
                 VerticalBar =>

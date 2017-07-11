@@ -117,7 +117,6 @@ val () = Bootstrap.use "basis/IntArray2.sml";
 val () = Bootstrap.use "basis/SML90.sml";
 val () = Bootstrap.use "basis/Weak.sml";
 val () = Bootstrap.use "basis/Signal.sml";
-val () = Bootstrap.use "basis/SysWord.sml";
 val () = Bootstrap.use "basis/BIT_FLAGS.sml";
 val () = Bootstrap.use "basis/SingleAssignment.sml";
 

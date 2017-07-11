@@ -68,6 +68,9 @@ struct
         (* Built-in functions. *)
     |   OGCUnary of {oper: BuiltIns.unaryOps, arg1: oldGenCodeIC}
     |   OGCBinary of {oper: BuiltIns.binaryOps, arg1: oldGenCodeIC, arg2: oldGenCodeIC}
+    
+    |   OGCArbitrary of
+            {oper: BuiltIns.arithmeticOperations, shortCond: oldGenCodeIC, arg1: oldGenCodeIC, arg2: oldGenCodeIC, longCall: oldGenCodeIC}
 
     |   OGCLambda of oldGenCodeLambdaForm (* Lambda expressions. *)
 
@@ -339,6 +342,9 @@ struct
                     (* These must be processed in reverse order so the order of the arguments is
                        significant. *)
                 |   insert(BICBinary {oper, arg1, arg2}) = OGCBinary{oper=oper, arg2=insert arg2, arg1=insert arg1}
+                |   insert(BICArbitrary{oper, shortCond, arg1, arg2, longCall}) =
+                        OGCArbitrary{oper=oper, longCall=insert longCall, arg2=insert arg2, arg1=insert arg1, shortCond=insert shortCond}
+
                 |   insert(BICAllocateWordMemory {numWords, flags, initial}) =
                         OGCAllocateWordMemory{initial=insert initial, flags=insert flags, numWords=insert numWords}
 
@@ -1299,6 +1305,15 @@ struct
                 cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
         |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithMod, ...} => raise InternalError "TODO-RealArith-ArithMod"
+        
+        |   OGCArbitrary{oper, shortCond, arg1, arg2, longCall} =>
+            let
+                (* If shortCond then both args are short.  Do the fixed precision operation using the args.
+                   If it does not result in overflow we're ok.  Otherwise, or if the shortCond test fails,
+                   we need to execute the longCall code, which will be an RTS call. *)
+            in
+                raise InternalError "TODO-OGCArbitrary"
+            end
 
         |   OGCAllocateWordMemory{numWords, flags=flagValue, initial} =>
             let

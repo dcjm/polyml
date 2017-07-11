@@ -160,7 +160,7 @@ sig
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
            The loopLabel is the start of the loop and all jumps come back to it. *)
-    |   StartLoop of { regArgs: ('reg argument * 'reg) list, loopLabel: iLabel }
+    |   StartLoop of { loopLabel: iLabel }
 
         (* End a loop.  This is a marker that is used at the higher levels.
            It doesn't generate any code. *)
@@ -169,7 +169,8 @@ sig
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
     |   JumpLoop of
-            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list, stackAdjust: int, loopLabel: iLabel }
+            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
+              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }

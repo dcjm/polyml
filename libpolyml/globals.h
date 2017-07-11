@@ -124,7 +124,6 @@ public:
 
     // Tests for the various cases.
     bool IsTagged(void) const { return (contents.unsignedInt & 1) != 0; }
-    bool IsCodePtr(void) const { return (contents.unsignedInt & 3) == 2; } 
     bool IsDataPtr(void) const { return (contents.unsignedInt & (sizeof(PolyWord)-1)) == 0; }
 
     // Extract the various cases.
@@ -165,7 +164,6 @@ protected:
 //typedef PolyWord POLYWORD;
 
 inline bool OBJ_IS_AN_INTEGER(const PolyWord & a)           { return a.IsTagged(); }
-inline bool OBJ_IS_CODEPTR(const PolyWord & a)              { return a.IsCodePtr(); }
 inline bool OBJ_IS_DATAPTR(const PolyWord & a)              { return a.IsDataPtr(); }
 // The maximum tagged signed number is one less than 0x80 shifted into the top byte then shifted down
 // by the tag shift.
@@ -254,28 +252,6 @@ inline bool OBJ_HAS_PROFILE(POLYUNSIGNED L)             { return ((L & _OBJ_PROF
 inline bool OBJ_IS_MUTABLE_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_MUTABLE_BIT) != 0); }
 inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK_BIT) != 0); }
 
-
-/* Standard macro for finding the start of a code segment from
-   a code-pointer. First we normalise it to get a properly aligned
-   word pointer. Then we increment this word pointer until we
-   get the zero word which is the end-of-code marker. The next
-   word after this is the byte offset of the start of the segment,
-   so we convert back to a byte pointer to do the subtraction, then
-   return the result as a word pointer. SPF 24/1/95
-   Note that this code must work even if "cp" is not aligned as
-   a code pointer, since the initial program counter used for
-   profiling may have a random alignment. SPF 26/1/96 
-*/
-inline PolyObject *ObjCodePtrToPtr(byte *cp)
-{
-    while ((POLYUNSIGNED)cp & (sizeof(POLYUNSIGNED)-1)) cp++; // Make it word aligned
-    POLYUNSIGNED *wp = (POLYUNSIGNED*)cp;
-    while (*wp != 0) wp++;
-    wp++;
-    POLYUNSIGNED byte_offset = *wp;
-    return (PolyObject *)((byte *)wp - byte_offset);
-}
-
 /* Don't need to worry about whether shift is signed, 
    because OBJ_PRIVATE_USER_FLAGS_MASK removes the sign bit.
    We don't want the GC bit (which should be 0) anyway.
@@ -353,6 +329,13 @@ public:
         PolyWord *cp; POLYUNSIGNED count;
         GetConstSegmentForCode(cp, count);
         return cp;
+    }
+    // Follow a chain of forwarding pointers
+    PolyObject *FollowForwardingChain(void)
+    {
+        if (ContainsForwardingPtr())
+            return GetForwardingPtr()->FollowForwardingChain();
+        else return this;
     }
 };
 

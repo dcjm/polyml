@@ -411,7 +411,7 @@ struct
         mkInlproc(mkUnary(oper, mkLoadArgument 0), 1, BuiltIns.unaryRepr oper ^ "()", [], 0)
     and mkBinaryFn oper =
         mkInlproc(mkBinary(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)), 1, BuiltIns.binaryRepr oper ^ "()", [], 0)
-
+        
     local
         open BuiltIns
         (* Word equality.  The value of isSigned doesn't matter. *)
@@ -552,6 +552,19 @@ struct
 
     val mkSetContainer =
         fn (container, tuple, size) => mkSetContainer(container, tuple, BoolVector.tabulate(size, fn _ => true))
+
+    (* An arbitrary precision operation takes a tuple consisting of a pair of arguments and
+       a function.  The code that is constructed checks both arguments to see if they are
+       short.  If they are not or the short precision operation overflows the code to
+       call the function is executed. *)
+    fun mkArbitraryFn oper =
+        mkInlproc(
+            Arbitrary{oper=oper,
+                shortCond=mkCand(mkIsShort(mkInd(0, mkLoadArgument 0)), mkIsShort(mkInd(1, mkLoadArgument 0))),
+                arg1=mkInd(0, mkLoadArgument 0), arg2=mkInd(1, mkLoadArgument 0),
+                    longCall= mkEval(mkInd(2, mkLoadArgument 0), [mkTuple[mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)]])},
+            1, "Arbitrary" ^ (case oper of ArbCompare test => BuiltIns.testRepr test | ArbArith arith => BuiltIns.arithRepr arith) ^ "()", [], 0)
+
 
     structure Foreign = BACKEND.Foreign
 

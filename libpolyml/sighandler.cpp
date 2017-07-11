@@ -77,6 +77,11 @@
 #define USE_PTHREAD_SIGNALS 1
 #endif
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#define INVALIDSIGNAL ERROR_INVALID_PARAMETER
+#else
+#define INVALIDSIGNAL EINVAL
+#endif
 /*
 Signal handling is complicated in a multi-threaded environment.
 The pthread mutex and condition variables are not safe to use in a
@@ -297,7 +302,7 @@ POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyW
                     action = (int)pushedAction->Word().UnTagged();
                 else action = HANDLE_SIG; /* Set the handler. */
                 if (sign <= 0 || sign >= NSIG)
-                    raise_syscall(taskData, "Invalid signal value", EINVAL);
+                    raise_syscall(taskData, "Invalid signal value", INVALIDSIGNAL);
 
                 /* Get the old action before updating the vector. */
                 oldaction = SAVE(findHandler(sign));

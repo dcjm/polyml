@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2015
+    Modified D.C.J. Matthews 2001-2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -607,7 +607,7 @@ struct
         case s of
             StructureDec{ bindings = sbl, line = location, ...} =>
             let
-                fun exportSB(navigation, sb as {name, nameLoc, haveSig, value, line, ...}) =
+                fun exportSB(navigation, sb as {name, nameLoc, haveSig, value, line, valRef=ref structOpt, ...}) =
                     let
                         (* If we desugared this before, return it to its original form. *)
                         val (sigStruct, value) =
@@ -619,6 +619,10 @@ struct
                         (* Three groups: name, signature and structures.
                            It's all complicated because the signature
                            may not be present. *)
+                        val locProps =
+                            case structOpt of
+                                SOME(Struct{locations, ...}) => definingLocationProps locations
+                            |   _ => []
                         fun getName () =
                         let
                             val next =
@@ -626,7 +630,7 @@ struct
                                     SOME _ => getSigStruct
                                 |   NONE => getValue
                         in
-                            getStringAsTree({parent=SOME exportThis, previous=NONE, next=SOME next}, name, nameLoc, [])
+                            getStringAsTree({parent=SOME exportThis, previous=NONE, next=SOME next}, name, nameLoc, locProps)
                         end
                         
                         and getSigStruct () =
@@ -742,11 +746,13 @@ struct
 
         |   SignatureDec(sigs, location) =>
             let
-                fun exportSB(navigation, sb as {name, nameLoc, sigStruct, line, ...}) =
+                fun exportSB(navigation,
+                        sb as {name, nameLoc, sigStruct, line, sigRef=ref(Signatures{locations, ...}), ...}) =
                     let
                         fun exportThis () = exportSB(navigation, sb)
                         fun getName () =
-                            getStringAsTree({parent=SOME exportThis, previous=NONE, next=SOME getSig}, name, nameLoc, [])
+                            getStringAsTree({parent=SOME exportThis, previous=NONE, next=SOME getSig}, name, nameLoc, 
+                                definingLocationProps locations)
                         and getSig () =
                             sigExportTree({parent=SOME exportThis, previous=SOME getName, next=NONE}, sigStruct)
                     in
@@ -759,8 +765,9 @@ struct
         |   FunctorDec(fbl, location) =>
             let
                 fun exportFB(navigation,
-                        fb as {name, nameLoc, haveSig, arg={sigStruct=argStruct, ...}, body, line, ...}) =
+                        fb as {name, nameLoc, haveSig, arg={sigStruct=argStruct, ...}, body, line, valRef=ref optFunc, ...}) =
                     let
+                        val locations = case optFunc of SOME(Functor{locations, ...}) => locations | _ => []
                         val (sigStruct, body) =
                             case (haveSig, body) of
                                 (true, SigConstraint{str, csig, opaque, sigLoc, ...}) =>
@@ -772,7 +779,7 @@ struct
                            whether there's a signature. *)
                         fun getName() =
                             getStringAsTree({parent=SOME exportThis, previous=NONE, next=SOME getArg},
-                                name, nameLoc, [])
+                                name, nameLoc, definingLocationProps locations)
                         
                         and getArg() =
                         let
@@ -972,9 +979,7 @@ struct
     let
         val candidName : string = tcName candid;
         val targetName : string = tcName target;
-        val tvars =
-            List.tabulate(tcArity target  (* either will do *),
-                fn _ => mkTypeVar(generalisable, false, false, false))
+        val tvars = List.map TypeVar (tcTypeVars target); (* either will do *)
         (* If we get an error in the datatype itself print the full datatype. *)
         val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
         val errorInDatatype =
@@ -1625,7 +1630,7 @@ struct
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
                         val newConstructor =
                             makeTypeConstructor(
-                                tcName typConstr, tcIdentifier typConstr, tcLocations typConstr)
+                                tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
                     in
                         #enterType finalEnv (dName, TypeConstrSet(newConstructor, List.rev newConstrs));
                         newAddrMatch
@@ -1830,7 +1835,7 @@ struct
                 let val id = makeLocalTypeId args in typeIdsForDebug := id :: ! typeIdsForDebug; id end
 
             (* Put the new names into this environment. *)
-            fun pass2StructureBind ({name, value, valRef, line, ...}) : unit=
+            fun pass2StructureBind ({name, value, valRef, line, nameLoc, ...}) : unit=
             let (* Each element in the list is a structure binding. *)
                 val resSig =
                     structValue(value, captureIds, makeCurrentTypeCount, makeTypeIdEnv,
@@ -1838,7 +1843,7 @@ struct
                 (* Any values in the signature are counted as exported. *)
                 val () = markValsAsExported resSig;
                 (* Now make a local structure variable using this signature. *)
-                val locations = [DeclaredAt line, SequenceNo (newBindingId lex)]
+                val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val var = makeLocalStruct (name, resSig, locations)
             in
                 #enter sEnv (name, var);
@@ -2146,7 +2151,7 @@ struct
 
                 (* Put the new names into this environment. *)
                 fun pass2FunctorBind
-                    ({name,
+                    ({name, nameLoc,
                      arg = {name = argName, sigStruct = argSig, valRef = argVal},
                      body, valRef, resIds, line, matchToResult,
                      debugArgVals, debugArgStructs, debugArgTypeConstrs, ...}: functorBind) =
@@ -2164,7 +2169,9 @@ struct
                     val argumentSignature =
                         sigVal (argSig, startTopLevelIDs, topLevelEnv, Env env, lex, line)
 
-                    val locations = [DeclaredAt line, SequenceNo (newBindingId lex)]
+                    (* TODO: The location here is the location of the argument id if there is one.
+                       nameLoc is the location of the name of the functor. *)
+                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                     val resArg = makeLocalStruct (argName, argumentSignature, locations)
 
                     (* sigVal will have numbered the bound IDs to start at startTopLevelIDs.  We
@@ -2351,7 +2358,7 @@ struct
                         between them. They will then be taken as a single
                         declaration and F will be picked up as a local. *)
                       (* Set the size of the type map. *)
-                    val locations = [DeclaredAt line, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                     val var = makeFunctor (name, resArg, functorSig, makeLocal (), locations)
                 in
                     #enter sEnv (name, var);
@@ -2382,11 +2389,11 @@ struct
                 val startTopLevelIDs = topLevelIdNumber()
                 and topLevelEnv = makeTopLevelIdEnv()
 
-                fun pass2SignatureBind ({name, sigStruct, line, sigRef, ...}) =
+                fun pass2SignatureBind ({name, nameLoc, sigStruct, line, sigRef, ...}) =
                 let (* Each element in the list is a signature binding. *)
                     val Signatures { tab, typeIdMap, firstBoundIndex, boundIds, ...} =
                        sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line)
-                    val locations = [DeclaredAt line, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                     val namedSig = (* Put in the signature name. *)
                         makeSignature(name, tab, firstBoundIndex, locations, typeIdMap, boundIds)
                 in

@@ -49,6 +49,10 @@ sig
     
     structure BuiltIns: BUILTINS
 
+    datatype arbPrecisionOps =
+        ArbCompare of BuiltIns.testConditions
+    |   ArbArith of BuiltIns.arithmeticOperations
+
     (* How variables are used.  Added and examined by the optimisation pass. *)
     datatype codeUse =
         UseGeneral (* Used in some other context. *)
@@ -78,6 +82,13 @@ sig
         (* Built-in functions. *)
     |   Unary of {oper: BuiltIns.unaryOps, arg1: codetree}
     |   Binary of {oper: BuiltIns.binaryOps, arg1: codetree, arg2: codetree}
+
+        (* Arbitrary precision operations.  This combines some conditionals
+           with the operation.  shortCond is the condition that must be satisfied
+           for the short precision operation to be executed.  longCall is called
+           if either argument is long or the evaluation overflows. *)
+    |   Arbitrary of
+            {oper: arbPrecisionOps, shortCond: codetree, arg1: codetree, arg2: codetree, longCall: codetree}
 
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
@@ -193,6 +204,9 @@ sig
         and  foldControl = foldControl
         and  unaryOps = BuiltIns.unaryOps
         and  binaryOps = BuiltIns.binaryOps
+        and  arbPrecisionOps = arbPrecisionOps
+        and  testConditions = BuiltIns.testConditions
+        and  arithmeticOperations = BuiltIns.arithmeticOperations
     end
 
 end;
