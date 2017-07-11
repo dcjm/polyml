@@ -35,8 +35,22 @@ local
     val System_isShort   : string -> bool = RunCall.isShort
     val wordSize : word = LibrarySupport.wordSize
     
-    (* We use the same representation for a char and a single-character string. *)
-    val charAsString: char->string = RunCall.unsafeCast
+    fun charAsString(c: char): string =
+    let
+        val v = allocString 0w1
+        val () = RunCall.storeByte(v, wordSize, c)
+        val () = RunCall.clearMutableBit v
+    in
+        v
+    end
+    
+    (* We have to retain this for an initial bootstrap.  The equality
+       function for strings in the pre-built compiler first tests for
+       identity and then for either string being short. That means that
+       an old format string does not match a new format. *)
+    val charAsString: char -> string = RunCall.unsafeCast
+
+    (* This is mostly backwards compatibility. *)
     val singleCharStringAsChar: string->char = RunCall.unsafeCast
 
     val bcopy: string*string*word*word*word -> unit = RunCall.moveBytes
@@ -72,10 +86,10 @@ local
             let
                 val vec = LibrarySupport.allocString(a_length + b_length)
             in
-                if a_length = 0w1
+                if isShortString a
                 then RunCall.storeByte (vec, wordSize, singleCharStringAsChar a)
                 else bcopy(a, vec, wordSize, wordSize, a_length);
-                if b_length = 0w1
+                if isShortString b
                 then RunCall.storeByte (vec, wordSize+a_length, singleCharStringAsChar b)
                 else bcopy(b, vec, wordSize, wordSize+a_length, b_length);
                 RunCall.clearMutableBit vec;
@@ -197,15 +211,6 @@ local
             in
                 if chars = 0
                 then ""
-                else if chars = 1
-                then let  (* Special case for single char *)
-                    (* Find the character by first removing any empty strings. *)
-                    fun getChar []        = raise Fail ""  (* Should never occur *)
-                      | getChar ("" :: T) = getChar T
-                      | getChar (H :: _) = H (* Should be a single character *)
-                in
-                    getChar L
-                end
                 else (* Normal case *)
                 let
                     val chs = unsignedShortOrRaiseSize chars (* Check it's short. *)
@@ -216,7 +221,7 @@ local
                         let
                         val src_len = sizeAsWord H
                         in
-                        if src_len = 0w1
+                        if isShortString H
                         then (* single character strings are ints *)
                             RunCall.storeByte (vec, i, singleCharStringAsChar H)
                         else bcopy(H, vec, wordSize, i, src_len);
@@ -293,7 +298,7 @@ local
         let
             val len = sizeAsWord s
         in
-            if len = 0w1 (* Handle special case of single character. *)
+            if isShortString s (* Handle special case of single character. *)
             then f(singleCharStringAsChar s)
             else
             let
@@ -373,8 +378,8 @@ local
             val size_s1 = size s1 and size_s2 = size s2
         in
             if size_s1 <= size_s2
-            then if size_s1 = 1 (* We have to deal with the case of single chars. *)
-            then if size_s2 = 1 then singleCharStringAsChar s1 = singleCharStringAsChar s2
+            then if isShortString s1 (* We have to deal with the case of single chars. *)
+            then if isShortString s2 then singleCharStringAsChar s1 = singleCharStringAsChar s2
             else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, wordSize)
             else byteMatch s1 s2 0w0 0w0 (intAsWord size_s1)
             else false
@@ -386,8 +391,8 @@ local
             val size_s1 = size s1 and size_s2 = size s2
         in
             if size_s1 <= size_s2
-            then if size_s1 = 1 (* We have to deal with the case of single chars. *)
-            then if size_s2 = 1 then singleCharStringAsChar s1 = singleCharStringAsChar s2
+            then if isShortString s1 (* We have to deal with the case of single chars. *)
+            then if isShortString s2 then singleCharStringAsChar s1 = singleCharStringAsChar s2
             else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, wordSize+intAsWord(size_s2-1))
             else byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
             else false
@@ -404,7 +409,7 @@ local
             then true
             else doMatch (i+0w1) (s-1)
         in
-            if size_s1 = 1
+            if isShortString s1
             then Char.contains s2 (singleCharStringAsChar s1) 
             else doMatch 0w0 size_s2
         end
@@ -445,7 +450,7 @@ local
             val len = sizeAsWord vec
         in
             if len = 0w0 then ""
-            else if len = 0w1 (* Special case. Single character strings. *)
+            else if isShortString vec (* Special case. Single character strings. *)
             then charAsString(f(singleCharStringAsChar vec))
             else (* len > 1 *)
             let
@@ -828,7 +833,7 @@ in
             val len = sizeAsWord vec
         in
             if len = 0w0 then ""
-            else if len = 0w1 (* Special case. Single character strings. *)
+            else if isShortString vec (* Special case. Single character strings. *)
             then charAsString(f (0, singleCharStringAsChar vec))
             else (* len >= 2 *)
             let
@@ -869,7 +874,7 @@ in
                 NONE => NONE
             |   SOME("", strm') => (* May be end-of-string or we may have read a format sequence. *)
                     (case getc strm' of NONE => (* end-of-string *) NONE | _ => scan getc strm')
-            |   SOME(s, strm') => SOME(singleCharStringAsChar s, strm') (* Only ever a single character *)
+            |   SOME(s, strm') => SOME(unsafeStringSub(s, 0w0), strm') (* Only ever a single character *)
     
         (* Convert from a string. *)
         (* TODO: More efficient conversion using the string directly rather
@@ -986,7 +991,7 @@ in
                 val len = sizeAsWord s
             in
                 (* Handle the special case of a single character string first. *)
-                if len = 0w1
+                if isShortString s
                 then convert(singleCharStringAsChar s)
                 else
                 let
@@ -1015,7 +1020,7 @@ in
                             val conv = convert(RunCall.loadByteFromImmutable(s, i+wordSize))
                             val convSize = sizeAsWord conv
                         in
-                            if convSize = 0w1
+                            if isShortString conv
                             then RunCall.storeByte (newVec, j, singleCharStringAsChar conv)
                             else bcopy(conv, newVec, wordSize, j, convSize);
                             copyToOut (i+0w1) (j+convSize)
@@ -1429,7 +1434,7 @@ in
         in
             if size_s1 > l
             then false
-            else if size_s1 = 0w1
+            else if System_isShort s1
             then if System_isShort s2
             then singleCharStringAsChar s1 = singleCharStringAsChar s2
             else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + wordSize)
@@ -1443,7 +1448,7 @@ in
         in
             if size_s1 > l
             then false
-            else if size_s1 = 0w1
+            else if System_isShort s1
             then if System_isShort s2
             then singleCharStringAsChar s1 = singleCharStringAsChar s2
             else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + l - 0w1 + wordSize)
@@ -1458,7 +1463,7 @@ in
             fun doMatch i s =
             if s < size_s1 then false (* The remainder of the string is too small to match. *)
             else if (
-               if size_s1 = 0w1
+               if System_isShort s1
                then singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + wordSize)
                else byteMatch s1 s2 0w0 i size_s1
                )
@@ -1466,7 +1471,7 @@ in
             else doMatch (i+0w1) (s-0w1)
         in
             if System_isShort s2
-            then size_s1 = 0w0 orelse (size_s1 = 0w1 andalso singleCharStringAsChar s1 = singleCharStringAsChar s2)
+            then size_s1 = 0w0 orelse (System_isShort s1 andalso singleCharStringAsChar s1 = singleCharStringAsChar s2)
             else doMatch start length
         end
 

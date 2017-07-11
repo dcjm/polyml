@@ -111,7 +111,6 @@ struct
           
         val callProcessEnv = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         val maxString = callProcessEnv (101, ())
-        val charAsVec: char->string = RunCall.unsafeCast
     in
         (* Get the maximum allocation size.  This is the maximum value that can
            fit in the length field of a segment. *)
@@ -189,17 +188,17 @@ struct
         in
             if i = 0w0 andalso l = baseLen then s
             else if l = 0w0 then "" (* Empty string. *)
-            else if l = 0w1 (* Result is a single character string (and s isn't). *)
-            then charAsVec(RunCall.loadByte(s, i + wordSize))
             else
-                let
-                    (* Multiple character string. *)
-                    val vec = allocString l
-                in
-                    RunCall.moveBytes(s, vec, wordSize+i, wordSize, l);
-                    RunCall.clearMutableBit vec;
-                    vec
-                end
+            let
+                (* Multiple character string. *)
+                val vec = allocString l
+            in
+                if RunCall.isShort s
+                then RunCall.storeByte(vec, wordSize, s)
+                else RunCall.moveBytes(s, vec, wordSize+i, wordSize, l);
+                RunCall.clearMutableBit vec;
+                vec
+            end
         end
         (* Create non-overwritable mutables for mutexes and condition variables.
            A non-overwritable mutable in the executable or a saved state is not

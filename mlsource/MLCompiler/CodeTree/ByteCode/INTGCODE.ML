@@ -488,13 +488,13 @@ struct
                 genOpcode(opcode_equalWord, cvec)
             )
 
-        |   BICBuiltIn0 { oper=BuiltIns.CurrentThreadId } =>
+        |   BICGetThreadId =>
             (
                 genOpcode(opcode_getThreadId, cvec);
                 incsp()
             )
 
-        |   BICBuiltIn1 { oper, arg1 } =>
+        |   BICUnary { oper, arg1 } =>
             let
                 open BuiltIns
                 val () = gencde (arg1, ToStack, NotEnd, loopAddr)
@@ -517,7 +517,7 @@ struct
                 |   FloatFixedInt => genOpcode(opcode_floatFixedInt, cvec)
             end
 
-        |   BICBuiltIn2 { oper, arg1, arg2 } =>
+        |   BICBinary { oper, arg1, arg2 } =>
             let
                 open BuiltIns
                 val () = gencde (arg1, ToStack, NotEnd, loopAddr)
@@ -595,29 +595,28 @@ struct
                 decsp() (* Removes one item from the stack. *)
             end
             
-        |   BICBuiltIn3 {
-                oper=BuiltIns.AllocateWordMemory, arg1 as BICConstnt(length, _), arg2 as BICConstnt(flags, _), arg3 } =>
-            if isShort length andalso toShort length = 0w1 andalso isShort flags andalso toShort flags = 0wx40
+        |   BICAllocateWordMemory {numWords as BICConstnt(length, _), flags as BICConstnt(flagByte, _), initial } =>
+            if isShort length andalso toShort length = 0w1 andalso isShort flagByte andalso toShort flagByte = 0wx40
             then (* This is a very common case. *)
             (
-                gencde (arg3, ToStack, NotEnd, loopAddr);
+                gencde (initial, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_alloc_ref, cvec)
             )
             else
             let
-                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
+                val () = gencde (numWords, ToStack, NotEnd, loopAddr)
+                val () = gencde (flags, ToStack, NotEnd, loopAddr)
+                val () = gencde (initial, ToStack, NotEnd, loopAddr)
             in
                 genOpcode(opcode_allocWordMemory, cvec);
                 decsp(); decsp()
             end
 
-        |   BICBuiltIn3 { oper=BuiltIns.AllocateWordMemory, arg1, arg2, arg3 } =>
+        |   BICAllocateWordMemory { numWords, flags, initial } =>
             let
-                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                val () = gencde (arg3, ToStack, NotEnd, loopAddr)
+                val () = gencde (numWords, ToStack, NotEnd, loopAddr)
+                val () = gencde (flags, ToStack, NotEnd, loopAddr)
+                val () = gencde (initial, ToStack, NotEnd, loopAddr)
             in
                 genOpcode(opcode_allocWordMemory, cvec);
                 decsp(); decsp()

@@ -66,10 +66,7 @@ PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffL
     if (buffer == NULL) return EmptyString();
 
     if (buffLen == (size_t)-1) buffLen = strlen(buffer);
-    
-    /* Return the character itself if the length is 1 */
-    if (buffLen == 1) return TAGGED(((unsigned char *)buffer)[0]);
-    
+
     /* Get the number of words required, plus 1 for length word,
        plus flag bit. */
     PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(buffLen) + 1, F_BYTE_OBJ));

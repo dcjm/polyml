@@ -308,7 +308,9 @@ local
         val convS = Bootstrap.convString s
     in
         (* Should be exactly a single character i.e. a single short value. *)
-        if isShortString convS then RunCall.unsafeCast convS
+        if isShortString convS then RunCall.unsafeCast convS (* Backwards compatibility. *)
+        else if String.lengthWordAsWord convS = 0w1
+        then RunCall.loadByte(convS, RunCall.bytesPerWord)
         else raise RunCall.Conversion "Bad character"
     end;
 

@@ -299,7 +299,6 @@ int IntTaskData::SwitchToPoly()
     PolyWord        *tailPtr;
     POLYUNSIGNED    returnCount;
     POLYUNSIGNED    storeWords;
-    int             instrBytes;
 
     sl = (PolyWord*)this->stack->stack()+OVERFLOW_STACK_SIZE;
 
@@ -954,9 +953,9 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_get_store_2: storeWords = 2; instrBytes = 0; goto GET_STORE;
-        case INSTR_get_store_3: storeWords = 3; instrBytes = 0; goto GET_STORE;
-        case INSTR_get_store_4: storeWords = 4; instrBytes = 0; goto GET_STORE;
+        case INSTR_get_store_2: storeWords = 2; goto GET_STORE;
+        case INSTR_get_store_3: storeWords = 3; goto GET_STORE;
+        case INSTR_get_store_4: storeWords = 4; goto GET_STORE;
         case INSTR_get_store_b: storeWords = *pc; pc++; goto GET_STORE;
 
         case INSTR_tuple_w:
@@ -971,9 +970,9 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_tuple_2: storeWords = 2; instrBytes = 0; goto TUPLE;
-        case INSTR_tuple_3: storeWords = 3; instrBytes = 0; goto TUPLE;
-        case INSTR_tuple_4: storeWords = 4; instrBytes = 0; goto TUPLE;
+        case INSTR_tuple_2: storeWords = 2; goto TUPLE;
+        case INSTR_tuple_3: storeWords = 3; goto TUPLE;
+        case INSTR_tuple_4: storeWords = 4; goto TUPLE;
         case INSTR_tuple_b: storeWords = *pc; pc++; goto TUPLE;
 
         case INSTR_non_local:

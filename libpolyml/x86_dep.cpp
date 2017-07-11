@@ -1543,9 +1543,8 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         if (((POLYUNSIGNED)pt & (0-sizeof(POLYUNSIGNED))) && ((PolyWord*)pt)->AsUnsigned() == 0)
             break;
         // Escape prefixes come before any Rex byte
-        byte escPrefix = 0;
         if (*pt == 0xf2 || *pt == 0xf3 || *pt == 0x66)
-            escPrefix = *pt++;
+            pt++;
 #ifdef HOSTARCHITECTURE_X86_64
         // REX prefixes.  Set this first.
         byte lastRex;
