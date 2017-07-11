@@ -20,11 +20,11 @@ sig
     type 'reg x86ICode and reg and abstract
 
     datatype pushState = MustPush | MustNotPush | MayPush
-    
+
     type regState =
     { 
-        active: int, defs: int, refs: int, sourceReal: reg option,
-        destReal: reg option, pushState: pushState
+        active: int, defs: int, refs: int, pushState: pushState,
+        conflicts: int list, realConflicts: reg list
     }
     
     val identifyRegisters:

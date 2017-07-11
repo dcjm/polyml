@@ -19,10 +19,13 @@
 
 functor CODETREE_FUNCTIONS(
     structure BASECODETREE: BaseCodeTreeSig
+    structure STRONGLY: sig type node val stronglyConnectedComponents: node list -> node list list end
+        where type node = { addr: int, lambda: BASECODETREE.lambdaForm, use: BASECODETREE.codeUse list }
 ) : CodetreeFunctionsSig
 =
 struct
     open BASECODETREE
+    open STRONGLY
     open Address
     exception InternalError = Misc.InternalError
     
@@ -104,7 +107,6 @@ struct
                         (* MemoryCellFlags could return a different result if a mutable cell was locked. *)
                     |   MemoryCellFlags => applicative
                     |   ClearMutableFlag => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
-                    |   StringLengthWord => applicative
                     |   AtomicIncrement => PROPWORD_NORAISE
                     |   AtomicDecrement => PROPWORD_NORAISE
                     |   AtomicReset => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
@@ -129,7 +131,6 @@ struct
                         WordComparison _ => applicative
                     |   FixedPrecisionArith _ => mayRaise
                     |   WordArith _ => applicative (* Quot and Rem don't raise exceptions - zero checking is done before. *)
-                    |   SetStringLengthWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
                     |   WordLogical _ => applicative
                     |   WordShift _ => applicative
                     |   AllocateByteMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
@@ -419,94 +420,23 @@ struct
         mkEnv(splitLast [] decs)
     end
 
-    fun partitionMutableBindings(RecDecs rlist) =
     (* In general any mutually recursive declaration can refer to any
        other.  It's better to partition the recursive declarations into
        strongly connected components i.e. those that actually refer
        to each other.  *)
-    let
-        local
-            val anAddr = #addr (hd rlist) (* Must be at least one *)
-        in
-            val (startAddress, lastAddress) =
-                List.foldl (fn({addr, ...}, (mn, mx)) => (Int.min(addr, mn), Int.max(addr+1, mx))) (anAddr, anAddr) rlist
-        end
-        (* *)
-        val mapArray = Array.array(lastAddress - startAddress, NONE)
-        
-        fun updateMin(addr, try) =
+    fun partitionMutableBindings(RecDecs rlist) =
         let
-            val off = addr - startAddress
-            val { lowLink, index } = valOf(Array.sub(mapArray, off))
+            val processed = stronglyConnectedComponents rlist
+            (* Convert the result.  Note that stronglyConnectedComponents returns the
+               dependencies in the reverse order i.e. if X depends on Y but not the other
+               way round then X will appear before Y in the list.  We need to reverse
+               it so that X goes after Y. *)
+            fun rebuild ([], _) = raise InternalError "partitionMutableBindings" (* Should not happen *)
+            |   rebuild ([{addr, lambda, use}], tl) = Declar{addr=addr, use=use, value=Lambda lambda} :: tl
+            |   rebuild (multiple, tl) = RecDecs multiple :: tl
         in
-            Array.update(mapArray, off, SOME{ index = index, lowLink = Int.min(lowLink, try) })
+            List.foldl rebuild [] processed
         end
-
-        fun addrInList a = List.exists(fn{addr, ...} => a = addr)
-
-        fun strongcomponent(item as {addr, lambda = { closure, ...}, ...}, (thisIndex, stack, resList)) =
-        let
-            val newStack = item :: stack
-            val v = addr - startAddress
-            (* Mark this item as processed. *)
-            val () = Array.update(mapArray, v, SOME{index = thisIndex, lowLink = thisIndex})
-
-            (* Process links that refer to other items *)
-            fun processLink(LoadLocal a, args as (_, stack, _)) =
-                if addrInList a rlist
-                then (* It refers to another within this declaration *)
-                let
-                    val w = a - startAddress
-                in
-                    case Array.sub(mapArray, w) of
-                        NONE => (*  Not yet processed. *)
-                        let
-                            val result = strongcomponent(valOf(List.find(fn {addr, ...} => addr = a) rlist), args);
-                        in
-                            updateMin(addr, #lowLink(valOf(Array.sub(mapArray, w))));
-                            result
-                        end
-                    |   SOME _ =>
-                        (
-                            (* Already processed - was it in this pass or a previous? *)
-                            if addrInList a stack (* On the stack so in the current SCC *)
-                            then updateMin(addr, #index(valOf(Array.sub(mapArray, w))))
-                            else (); (* Processed in previous pass *)
-                            args
-                        )
-                end
-                else args
-            |   processLink (_, args) = args
-            
-            val (nextIndex, stack', subRes) = List.foldl processLink (thisIndex+1, newStack, resList) closure
-        in
-            (* Process references from this function. *)
-            if #lowLink(valOf(Array.sub(mapArray, v))) = thisIndex (* This is the minimum *)
-            then (* Create an SCC *)
-            let
-                fun popItems([], _) = raise InternalError "stack empty"
-                |   popItems((item as {addr=a, ...}) :: r, l) =
-                        if a = addr
-                        then (r, item :: l)
-                        else popItems(r, item :: l)
-                val (newStack, scc) = popItems(stack', [])
-            in
-                (nextIndex, newStack, RecDecs scc :: subRes)
-            end
-            else (nextIndex, stack', subRes)
-        end
-
-        (* Process items that have not yet been reached *)
-        fun processUnprocessed (item as {addr, ...}, args) =
-            case Array.sub(mapArray, addr-startAddress) of 
-                NONE => strongcomponent(item, args)
-            |   _ => args
-
-        val (_, _, result) = List.foldl processUnprocessed (0, [], []) rlist;
-        val recBindings = List.rev result
-    in
-        recBindings
-    end
         (* This is only intended for RecDecs but it's simpler to handle all bindings. *)
     |   partitionMutableBindings other = [other]
 

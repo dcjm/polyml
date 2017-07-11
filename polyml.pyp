@@ -197,6 +197,7 @@
 	<source name="mlsource\MLCompiler\Skips.ML" />
 	<source name="mlsource\MLCompiler\SKIPS_.ML" />
 	<source name="mlsource\MLCompiler\StretchArray.ML" />
+	<source name="mlsource\MLCompiler\StronglyConnected.sml" />
 	<source name="mlsource\MLCompiler\STRUCT_VALS.ML" />
 	<source name="mlsource\MLCompiler\Structures.ML" />
 	<source name="mlsource\MLCompiler\STRUCTURES_.ML" />

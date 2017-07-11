@@ -55,7 +55,6 @@ struct
         |   MemoryCellLength
         |   MemoryCellFlags
         |   ClearMutableFlag
-        |   StringLengthWord
         |   AtomicIncrement
         |   AtomicDecrement
         |   AtomicReset
@@ -70,7 +69,6 @@ struct
             WordComparison of { test: testConditions, isSigned: bool }
         |   FixedPrecisionArith of arithmeticOperations
         |   WordArith of arithmeticOperations
-        |   SetStringLengthWord
         |   WordLogical of logicalOperations
         |   WordShift of shiftOperations
         |   AllocateByteMemory
@@ -86,7 +84,6 @@ struct
         |   unaryRepr MemoryCellLength = "MemoryCellLength"
         |   unaryRepr MemoryCellFlags = "MemoryCellFlags"
         |   unaryRepr ClearMutableFlag = "ClearMutableFlag"
-        |   unaryRepr StringLengthWord = "StringLengthWord"
         |   unaryRepr AtomicIncrement = "AtomicIncrement"
         |   unaryRepr AtomicDecrement = "AtomicDecrement"
         |   unaryRepr AtomicReset = "AtomicReset"
@@ -101,7 +98,6 @@ struct
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
         |   binaryRepr (FixedPrecisionArith arithOp) = (arithRepr arithOp) ^ "Fixed"
         |   binaryRepr (WordArith arithOp) =  (arithRepr arithOp) ^ "Word"
-        |   binaryRepr SetStringLengthWord = "SetStringLengthWord"
         |   binaryRepr (WordLogical logOp) =  (logicRepr logOp) ^ "Word"
         |   binaryRepr (WordShift shiftOp) =  (shiftRepr shiftOp) ^ "Word"
         |   binaryRepr AllocateByteMemory = "AllocateByteMemory"
@@ -184,8 +180,6 @@ struct
 
     |   BICTuple of backendIC list (* Tuple *)
 
-    |   BICContainer of int (* Create a container for a tuple on the stack. *)
-
     |   BICSetContainer of (* Copy a tuple to a container. *)
         {
             container: backendIC,
@@ -210,6 +204,7 @@ struct
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
     |   BICRecDecs of { addr: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
     |   BICNullBinding of backendIC (* Just evaluate the expression and discard the result. *)
+    |   BICDecContainer of { addr: int, size: int } (* Create a container for a tuple on the stack. *)
 
     and caseType =
         CaseInt
@@ -231,6 +226,7 @@ struct
     |   LoadStoreC64
     |   LoadStoreCFloat
     |   LoadStoreCDouble
+    |   LoadStoreUntaggedUnsigned
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}
@@ -299,6 +295,7 @@ struct
     |   loadStoreKindRepr LoadStoreC64 = "C64Bit"
     |   loadStoreKindRepr LoadStoreCFloat = "CFloat"
     |   loadStoreKindRepr LoadStoreCDouble = "CDouble"
+    |   loadStoreKindRepr LoadStoreUntaggedUnsigned = "MLWordUntagged"
 
     fun blockOpKindRepr (BlockOpMove{isByteMove=false}) = "MoveWord"
     |   blockOpKindRepr (BlockOpMove{isByteMove=true}) = "MoveByte"
@@ -565,8 +562,6 @@ struct
          
         |   BICTuple ptl => printList("RECCONSTR", ptl, ",")
         
-        |   BICContainer size => PrettyString ("CONTAINER " ^ Int.toString size)
-        
         |   BICSetContainer{container, tuple, filter} =>
             let
                 val source = BoolVector.length filter
@@ -655,7 +650,11 @@ struct
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
         end
+
     |   prettyBinding(BICNullBinding c) = pretty c
+        
+    |   prettyBinding(BICDecContainer{addr, size}) =
+            PrettyString (concat ["CONTAINER #", Int.toString addr, "=", Int.toString size])
 
     and prettySimpleBinding{value, addr} =
         PrettyBlock (1, false, [],

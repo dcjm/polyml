@@ -299,7 +299,7 @@ struct
                                    better when we're using equality for pattern matching since it
                                    gets the length of the constant string.  It also works better
                                    for the, to me, more natural ordering of variable=constant. *)
-                                mkUnary(BuiltIns.StringLengthWord, mkLoadArgument 1)
+                                mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 1, CodeZero)
                            )
                     },
                     2, "stringEquality", [], 0)

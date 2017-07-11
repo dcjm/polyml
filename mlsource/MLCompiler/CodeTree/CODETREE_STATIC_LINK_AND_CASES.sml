@@ -371,7 +371,7 @@ struct
                             val rest = copyDeclarations vs
                             val setCode = insert setter
                         in
-                            BICDeclar{addr=newAddr, value=BICContainer size} :: BICNullBinding setCode :: rest
+                            BICDecContainer{addr=newAddr, size=size} :: BICNullBinding setCode :: rest
                         end
 
                     val insElist = copyDeclarations(ptElist @ [NullBinding ptExp])

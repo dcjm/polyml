@@ -415,6 +415,7 @@ public:
 static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
+    Handle hSave = taskData->saveVec.mark();
 TryAgain: // Used for various retries.
           // N.B.  If we call ThreadPause etc we may GC.  We MUST reload any handles so for
           // safety we always come back here.
@@ -571,10 +572,13 @@ TryAgain: // Used for various retries.
                         if (emfileFlag) /* Previously had an EMFILE error. */
                             raise_syscall(taskData, "socket failed", EMFILE);
                         emfileFlag = true;
+                        taskData->saveVec.reset(hSave);
                         FullGC(taskData); /* May clear emfileFlag if we close a file. */
                         goto TryAgain;
                     }
-                case EINTR: goto TryAgain;
+                case EINTR:
+                    taskData->saveVec.reset(hSave);
+                    goto TryAgain;
                 default: raise_syscall(taskData, "socket failed", GETERROR);
                 }
             }
@@ -824,12 +828,14 @@ TryAgain: // Used for various retries.
                     switch (GETERROR)
                     {
                     case EINTR:
+                        taskData->saveVec.reset(hSave);
                         goto TryAgain; /* Have to retry if we got EINTR. */
                     case EMFILE: /* Too many files. */
                         {
                             if (emfileFlag) /* Previously had an EMFILE error. */
                                 raise_syscall(taskData, "accept failed", EMFILE);
                             emfileFlag = true;
+                            taskData->saveVec.reset(hSave);
                             FullGC(taskData); /* May clear emfileFlag if we close a file. */
                             goto TryAgain;
                         }
@@ -840,6 +846,7 @@ TryAgain: // Used for various retries.
                         if (c == 46 /* blocking version. */) {
                             WaitNet waiter(strm->device.sock);
                             processes->ThreadPauseForIO(taskData, &waiter);
+                            taskData->saveVec.reset(hSave);
                             goto TryAgain;
                         }
                         /* else drop through. */
@@ -1007,6 +1014,7 @@ TryAgain: // Used for various retries.
                     WaitNetSend waiter(strm->device.sock);
                     processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
+                    taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 }
                 else if (err != EINTR)
@@ -1067,6 +1075,7 @@ TryAgain: // Used for various retries.
                     WaitNetSend waiter(strm->device.sock);
                     processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
+                    taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 }
                 else if (err != EINTR)
@@ -1116,6 +1125,7 @@ TryAgain: // Used for various retries.
                     WaitNet waiter(strm->device.sock, outOfBand != 0);
                     processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
+                    taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 }
                 else if (err != EINTR)
@@ -1175,6 +1185,7 @@ TryAgain: // Used for various retries.
                     WaitNet waiter(strm->device.sock, outOfBand != 0);
                     processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
+                    taskData->saveVec.reset(hSave);
                     goto TryAgain;
                 }
                 else if (err != EINTR)
@@ -1214,9 +1225,12 @@ TryAgain: // Used for various retries.
                             raise_syscall(taskData, "socket failed", EMFILE);
                         emfileFlag = true;
                         FullGC(taskData); /* May clear emfileFlag if we close a file. */
+                        taskData->saveVec.reset(hSave);
                         goto TryAgain;
                     }
-                case EINTR: goto TryAgain;
+                case EINTR:
+                    taskData->saveVec.reset(hSave);
+                    goto TryAgain;
                 default: raise_syscall(taskData, "socketpair failed", GETERROR);
                 }
             }
@@ -1494,6 +1508,7 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
    minus one.  */
 static Handle selectCall(TaskData *taskData, Handle args, int blockType)
 {
+    Handle hSave = taskData->saveVec.mark();
     TryAgain:
     // We should check for interrupts even if we're not going to block.
     processes->TestAnyEvents(taskData);
@@ -1539,12 +1554,10 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             {
             /* The time argument is an absolute time. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            Handle hSave = taskData->saveVec.mark();
             FILETIME ftTime, ftNow;
             /* Get the file time. */
             getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(3)), &ftTime);
             GetSystemTimeAsFileTime(&ftNow);
-            taskData->saveVec.reset(hSave);
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
             if (CompareFileTime(&ftTime, &ftNow) <= 0)
@@ -1552,7 +1565,6 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             /* else drop through and block. */
 #else /* Unix */
             struct timeval tv;
-            Handle hSave = taskData->saveVec.mark();
             /* We have a value in microseconds.  We need to split
                it into seconds and microseconds. */
             Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(3));
@@ -1561,7 +1573,6 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
                 get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
             unsigned long usecs =
                 get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
-            taskData->saveVec.reset(hSave);
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
             if (gettimeofday(&tv, NULL) != 0)
@@ -1574,6 +1585,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
         }
         case 1: /* Block until one of the descriptors is ready. */
             processes->ThreadPause(taskData);
+            taskData->saveVec.reset(hSave);
             goto TryAgain;
         case 2: /* Just a simple poll - drop through. */
             break;

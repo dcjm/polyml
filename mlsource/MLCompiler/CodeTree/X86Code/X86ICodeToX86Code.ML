@@ -59,6 +59,7 @@ struct
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location.  Could be the stack. *)
+    |   StackLocation of { wordOffset: int, adjustment: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
@@ -80,51 +81,73 @@ struct
     datatype boxKind = BoxLargeWord | BoxFloat
 
     datatype 'reg x86ICode =
-        (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
-           are supported. *)
-        MoveArgument of { source: 'reg argument, dest: 'reg argument, kind: moveKind }
-
-        (* Load an entry from the real stack. *)
-    |   LoadStack of { offset: int, dest: 'reg }
+        (* Move a value into a register. *)
+        LoadArgument of { source: 'reg argument, dest: 'reg, kind: moveKind }
+        
+        (* Store a value into memory.  The source will usually be a register but could be
+           a constant depending on the value. *)
+    |   StoreArgument of { source: 'reg argument, base: 'reg, offset: int, index: 'reg memoryIndex, kind: moveKind }
 
         (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
     |   LoadMemReg of { offset: int, dest: 'reg }
 
+        (* Exchange two registers. *)
+    |   ExchangeRegisters of { regX: 'reg, regY: 'reg }
+
         (* Start of function.  Set the register arguments. *)
     |   BeginFunction of { regArgs: ('reg * reg) list }
 
-        (* Call or jump to a function.  If the code address is a constant it is passed here.
+        (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
-           as one of the argument registers.  The result is stored in the destination register.
-           If isTail is true this is tail-recursive and should be a jump. *)
+           as one of the argument registers.  The result is stored in the destination register. *)
     |   FunctionCall of
-            { callKind: callKinds, regArgs: ('reg argument * genReg) list,
-              stackArgs: 'reg argument list, dest: 'reg, isTail: bool}
+            { callKind: callKinds, regArgs: ('reg argument * reg) list,
+              stackArgs: 'reg argument list, dest: 'reg}
+
+        (* Jump to a tail-recursive function.  This is similar to FunctionCall
+           but complicated for stack arguments because the stack and the return
+           address need to be overwritten.  We could actually include the
+           return address among the stackArgs but leave that for the moment.
+           stackAdjust is the number of words to remove (positive) or add
+           (negative) to the stack before the call. *)
+    |   TailRecursiveCall of
+            { callKind: callKinds, regArgs: ('reg argument * reg) list,
+              stackArgs: {src: 'reg argument, stack: int} list,
+              returnAddr: {srcStack: int, stack: int},
+              stackAdjust: int }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
-           required.  This sets the length word including the flags bits. *)
-    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg}
+           required.  This sets the length word including the flags bits.
+           saveRegs is the list of registers that need to be saved if we
+           need to do a garbage collection. *)
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg, saveRegs: 'reg list }
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
-           argument is the number of words.  If the initialiser is provided
-           each word of the new memory is set to the value. *)
-    |   AllocateMemoryVariable of { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option }
+           argument is the number of words. *)
+    |   AllocateMemoryVariable of { size: 'reg, dest: 'reg, saveRegs: 'reg list }
+
+        (* Initialise a piece of memory.  N.B. The size is an untagged value containing
+           the number of words.  This uses REP STOSL/Q so addr must be rdi, size must be
+           rcx and init must be rax. *)
+    |   InitialiseMem of { size: 'reg, addr: 'reg, init: 'reg }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
-    |   InitialisationComplete of { dest: 'reg}
+    |   InitialisationComplete
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
-           The loopLabel in all of these is for checking only, at least at the moment. *)
-    |   StartLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
+           The loopLabel is the start of the loop and all jumps come back to it. *)
+    |   StartLoop of { regArgs: ('reg argument * 'reg) list, loopLabel: iLabel }
 
-        (* End a loop.  Causes the loop stack to be popped. *)
-    |   EndLoop of { loopLabel: iLabel }
+        (* End a loop.  This is a marker that is used at the higher levels.
+           It doesn't generate any code. *)
+    |   EndLoop of { loopLabel: iLabel, staticRegs: 'reg list }
 
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
-    |   JumpLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
-    
+    |   JumpLoop of { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list, stackAdjust: int, loopLabel: iLabel }
+
+        (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
@@ -134,7 +157,7 @@ struct
     |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list, startValue: word }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
-    |   LockMutable of { addr: 'reg argument }
+    |   LockMutable of { addr: 'reg }
 
         (* Forward branches. *)
     |   ForwardJumpLabel of { label: iLabel, result: 'reg option }
@@ -148,10 +171,10 @@ struct
     |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
-    |   PushExceptionHandler of { handlerAddr: 'reg, handleStart: iLabel }
+    |   PushExceptionHandler of { workReg: 'reg, handleStart: iLabel }
 
         (* End of a handled section.  Restore the previous handler. *)
-    |   PopExceptionHandler of { handlerAddr: 'reg, resultReg: 'reg, workReg: 'reg }
+    |   PopExceptionHandler of { resultReg: 'reg option, workReg: 'reg }
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 
@@ -193,31 +216,32 @@ struct
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
            puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
-           these by pRegs. *)
-    |   Division of { isSigned: bool, dividend: 'reg argument, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
+           these by pRegs.  The divisor can be either a register or a memory location. *)
+    |   Division of { isSigned: bool, dividend: 'reg, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
 
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
            Before the operation the source contains an increment.  After the operation
            the source contains the old value of the destination and the destination
-           has been updated with its old value added to the increment. *)
-    |   AtomicExchangeAndAdd of { destAddr: 'reg argument, source: 'reg }
+           has been updated with its old value added to the increment.
+           The destination is actually the word pointed at by "base". *)
+    |   AtomicExchangeAndAdd of { base: 'reg, source: 'reg }
 
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and
            then unboxed and remove unnecessary allocation. *)
-    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg }
+    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg, saveRegs: 'reg list }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            In general vec1Addr and vec2Addr will be pointers inside memory cells
            so have to be untagged registers. *)
     |   CompareByteVectors of
-            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg argument, ccRef: ccRef }
+            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg, ccRef: ccRef }
 
         (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
            number of items (bytes or words) to move. *)
-    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg argument, isByteMove: bool }
+    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg, isByteMove: bool }
 
         (* Floating point comparison. *)
     |   CompareFloatingPt of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
@@ -237,10 +261,16 @@ struct
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
-
+ 
     local
 
         fun printLabel(ILabel i, stream) = stream("L"^Int.toString i)
+        
+        fun printIndex(NoMemIndex, _, _) = ()
+        |   printIndex(MemIndex1 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*1]")
+        |   printIndex(MemIndex2 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*2]")
+        |   printIndex(MemIndex4 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*4]")
+        |   printIndex(MemIndex8 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*8]")
 
         fun printArg(RegisterArgument reg, stream, printReg) = printReg(reg, stream)
         |   printArg(AddressConstant m, stream, _) = stream(stringOfWord m)
@@ -250,33 +280,52 @@ struct
                 stream(Int.toString offset ^ "(");
                 printReg(base, stream);
                 stream ")";
-                case index of
-                    NoMemIndex => ()
-                |   MemIndex1 i => (stream "["; printReg(i, stream); stream "*1]")
-                |   MemIndex2 i => (stream "["; printReg(i, stream); stream "*2]")
-                |   MemIndex4 i => (stream "["; printReg(i, stream); stream "*4]")
-                |   MemIndex8 i => (stream "["; printReg(i, stream); stream "*8]")
+                printIndex(index, stream, printReg)
             )
+        |   printArg(StackLocation{wordOffset, adjustment}, stream, _) =
+                stream(Int.toString wordOffset ^ "+" ^ Int.toString adjustment ^ "(stackptr)")
+            
+        fun printSaves([], _, _) = ()
+        |   printSaves([areg], printReg, stream) = printReg(areg, stream)
+        |   printSaves(areg::more, printReg, stream) =
+                (printReg(areg, stream); stream ","; printSaves(more, printReg, stream))
 
-        fun printICode(MoveArgument{source, dest, kind}, stream, printReg) =
+        fun printICode(LoadArgument{source, dest, kind}, stream, printReg) =
             (
                 case kind of
-                    MoveWord => stream "\tMoveWord\t"
-                |   MoveByte => stream "\tMoveByte\t"
-                |   Move16Bit => stream "\tMove16Bit\t"
-                |   Move32Bit => stream "\tMove32Bit\t"
-                |   MoveFloat => stream "\tMoveFloat\t"
-                |   MoveDouble => stream "\tMoveDouble\t";
+                    MoveWord => stream "\tLoadWord\t"
+                |   MoveByte => stream "\tLoadByte\t"
+                |   Move16Bit => stream "\tLoad16Bit\t"
+                |   Move32Bit => stream "\tLoad32Bit\t"
+                |   MoveFloat => stream "\tLoadFloat\t"
+                |   MoveDouble => stream "\tLoadDouble\t";
                 printArg(source,  stream, printReg);
                 stream " => ";
-                printArg(dest, stream, printReg)
+                printReg(dest, stream)
             )
 
-        |   printICode(LoadStack { offset, dest}, stream, printReg) =
-                ( stream "\tLoadStack\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
+        |   printICode(StoreArgument{source, base, offset, index, kind}, stream, printReg) =
+            (
+                case kind of
+                    MoveWord => stream "\tStoreWord\t"
+                |   MoveByte => stream "\tStoreByte\t"
+                |   Move16Bit => stream "\tStore16Bit\t"
+                |   Move32Bit => stream "\tStore32Bit\t"
+                |   MoveFloat => stream "\tStoreFloat\t"
+                |   MoveDouble => stream "\tStoreDouble\t";
+                printArg(source,  stream, printReg);
+                stream " => ";
+                stream(Int.toString offset ^ "(");
+                printReg(base, stream);
+                stream ")";
+                printIndex(index, stream, printReg)
+            )
 
         |   printICode(LoadMemReg { offset, dest}, stream, printReg) =
                 ( stream "\tLoadMemReg\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
+
+        |   printICode(ExchangeRegisters { regX, regY}, stream, printReg) =
+                ( stream "\tExchangeRegs\t"; printReg(regX, stream); stream " <=> "; printReg(regY, stream) )
 
         |   printICode(BeginFunction {regArgs}, stream, printReg) =
             (
@@ -284,56 +333,81 @@ struct
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printReg(arg, stream); stream " ")) regArgs
             )
 
-        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, isTail}, stream, printReg) =
+        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest}, stream, printReg) =
             (
-                if isTail then stream "\tTailCall\t"
-                else stream "\tFunctionCall\t";
+                stream "\tFunctionCall\t";
                 case callKind of
                     Recursive => stream "recursive "
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
                 |   FullCall => ()
                 |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
-                List.app(fn (arg, r) => (stream(regRepr(GenReg r)); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream, printReg); stream " ")) stackArgs;
                 stream "=> "; printReg(dest, stream)
             )
 
-        |   printICode(AllocateMemoryOperation{size, flags, dest}, stream, printReg) =
+        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust}, stream, printReg) =
+            (
+                stream "\tTailCall\t";
+                case callKind of
+                    Recursive => stream "recursive "
+                |   ConstantCode m => (stream(stringOfWord m); stream " ")
+                |   FullCall => ()
+                |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
+                List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream, printReg); stream " ")) stackArgs;
+                stream "ret "; stream(Int.toString stack); stream "<="; stream(Int.toString srcStack);
+                stream "adj="; stream(Int.toString stackAdjust)
+            )
+
+        |   printICode(AllocateMemoryOperation{size, flags, dest, saveRegs}, stream, printReg) =
             (
                 stream "\tAllocateMemory\t";
                 stream(concat["s=", Int.toString size, ",f=", Word8.toString flags, " => "]);
-                printReg(dest, stream)
+                printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
-        |   printICode(AllocateMemoryVariable{size, flags, dest, initialiser}, stream, printReg) =
+        |   printICode(AllocateMemoryVariable{size, dest, saveRegs}, stream, printReg) =
             (
                 stream "\tAllocateMemory\t";
-                stream "s="; printArg(size, stream, printReg);
-                stream "f="; printArg(flags, stream, printReg);
-                case initialiser of NONE => () | SOME init => (stream "i="; printReg(init, stream));
-                stream " => "; printReg(dest, stream)
+                stream "s="; printReg(size, stream);
+                stream " => "; printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
-        |   printICode(InitialisationComplete{dest}, stream, printReg) = (stream "\tInitComplete\t"; printReg(dest, stream))
-
-        |   printICode(StartLoop{arguments, loopLabel}, stream, printReg) =
+        |   printICode(InitialiseMem{size, addr, init}, stream, printReg) =
             (
-                stream "\tStartLoop\t";
-                List.app(
-                    fn {source, loopReg} => (printReg(loopReg, stream); stream "="; printArg(source, stream, printReg); stream " ")
-                    ) arguments;
-                printLabel(loopLabel, stream)
+                stream "\tInitialiseMem\t";
+                stream "s="; printReg(size, stream);
+                stream ",i="; printReg(init, stream);
+                stream ",a="; printReg(addr, stream)
             )
 
-        |   printICode(EndLoop{loopLabel}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
+        |   printICode(InitialisationComplete, stream, _) = stream "\tInitComplete"
 
-        |   printICode(JumpLoop{arguments, loopLabel}, stream, printReg) =
+        |   printICode(StartLoop{regArgs, loopLabel}, stream, printReg) =
+            (
+                printLabel(loopLabel, stream);
+                stream ":\tStartLoop\t";
+                List.app(
+                    fn (source, loopReg) => (printReg(loopReg, stream); stream "="; printArg(source, stream, printReg); stream " ")
+                    ) regArgs
+            )
+
+        |   printICode(EndLoop{loopLabel, ...}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
+
+        |   printICode(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust }, stream, printReg) =
             (
                 stream "\tJumpLoop\t";
                 List.app(
-                    fn {source, loopReg} => (printReg(loopReg, stream); stream "="; printArg(source, stream, printReg); stream " ")
-                    ) arguments;
-                printLabel(loopLabel, stream)
+                    fn (source, loopReg) => (printReg(loopReg, stream); stream "="; printArg(source, stream, printReg); stream " ")
+                    ) regArgs;
+                List.app(
+                    fn (source, stack) => (stream("sp" ^ Int.toString stack); stream "="; printArg(source, stream, printReg); stream " ")
+                    ) stackArgs;
+                printLabel(loopLabel, stream);
+                stream " adj="; stream(Int.toString stackAdjust)
             )
 
         |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printArg(packet, stream, printReg))
@@ -350,7 +424,7 @@ struct
                 List.app(fn l => (stream " "; printLabel(l, stream))) cases
             )
 
-        |   printICode(LockMutable{addr}, stream, printReg) = (stream "\tLockMutable\t"; printArg(addr, stream, printReg))
+        |   printICode(LockMutable{addr}, stream, printReg) = (stream "\tLockMutable\t"; printReg(addr, stream))
         
         |   printICode(ForwardJumpLabel{label, ...}, stream, _) = (printLabel(label, stream); stream ":\t\t")
 
@@ -379,26 +453,25 @@ struct
         |   printICode(WordComparison{arg1, arg2, ...}, stream, printReg) =
                 (stream "\tWordComparison\t"; printArg(arg1, stream, printReg); stream ","; printArg(arg2, stream, printReg))
 
-        |   printICode(PushExceptionHandler{handlerAddr, handleStart}, stream, printReg) =
+        |   printICode(PushExceptionHandler{workReg, handleStart}, stream, printReg) =
             (
-                stream "\tPushExceptionHandler\t";
+                stream "\tPushExcHandler\t";
                 printLabel(handleStart, stream);
-                stream "=>";
-                printReg(handlerAddr, stream)
+                stream " with ";
+                printReg(workReg, stream)
             )
 
-        |   printICode(PopExceptionHandler{handlerAddr, resultReg=_, workReg}, stream, printReg) =
+        |   printICode(PopExceptionHandler{resultReg=_, workReg}, stream, printReg) =
             (
                 stream "\tPopExceptionHandler\t";
-                printReg(handlerAddr, stream);
-                stream " with ";
+                stream "with ";
                 printReg(workReg, stream)
             )
 
         |   printICode(BeginHandler{handleStart, packetReg, workReg}, stream, printReg) =
             (
-                stream "\tBeginHandler\t";
                 printLabel(handleStart, stream);
+                stream ":\tBeginHandler\t";
                 printReg(packetReg, stream);
                 stream " with ";
                 printReg(workReg, stream)
@@ -439,16 +512,11 @@ struct
 
         |   printICode(LoadEffectiveAddress{base, offset, index, dest}, stream, printReg) =
             (
-                stream "\tLoadEffectiveAddress\t"; 
+                stream "\tLoadEffectiveAddr\t"; 
                 stream(Int.toString offset ^ "(");
                 case base of NONE => stream "_" | SOME b => printReg(b, stream);
                 stream ")";
-                case index of
-                    NoMemIndex => ()
-                |   MemIndex1 i => (stream "["; printReg(i, stream); stream "*1]")
-                |   MemIndex2 i => (stream "["; printReg(i, stream); stream "*2]")
-                |   MemIndex4 i => (stream "["; printReg(i, stream); stream "*4]")
-                |   MemIndex8 i => (stream "["; printReg(i, stream); stream "*8]");
+                printIndex(index, stream, printReg);
                 stream " => ";
                 printReg(dest, stream)
             )
@@ -477,25 +545,26 @@ struct
         |   printICode(Division{isSigned, dividend, divisor, quotient, remainder}, stream, printReg) =
             (
                 stream "\tDivision"; stream(if isSigned then "Signed\t" else "Unsigned\t");
-                printArg(dividend, stream, printReg); stream " by ";
+                printReg(dividend, stream); stream " by ";
                 printArg(divisor, stream, printReg); stream " => ";
                 printReg(quotient, stream); stream " rem ";
                 printReg(remainder, stream)
             )
 
-        |   printICode(AtomicExchangeAndAdd{destAddr, source}, stream, printReg) =
+        |   printICode(AtomicExchangeAndAdd{base, source}, stream, printReg) =
             (
                 stream "\tAtomicExchangeAndAdd\t";
-                stream "addr="; printArg(destAddr, stream, printReg);
-                stream ",with="; printReg(source, stream)
+                stream "addr=0("; printReg(base, stream);
+                stream "),with="; printReg(source, stream)
             )
 
-        |   printICode(BoxValue{boxKind, source, dest}, stream, printReg) =
+        |   printICode(BoxValue{boxKind, source, dest, saveRegs}, stream, printReg) =
             (
                 case boxKind of BoxLargeWord => stream "\tBoxLarge\t" | BoxFloat => stream "\tBoxFloat\t";
                 printReg(source, stream);
                 stream " => ";
-                printReg(dest, stream)
+                printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
         |   printICode(CompareByteVectors{vec1Addr, vec2Addr, length, ...}, stream, printReg) =
@@ -503,7 +572,7 @@ struct
                 stream "\tCompareByteVectors\t";
                 printReg(vec1Addr, stream); stream ",";
                 printReg(vec2Addr, stream); stream ",";
-                printArg(length, stream, printReg)
+                printReg(length, stream)
             )
 
         |   printICode(BlockMove{srcAddr, destAddr, length, isByteMove}, stream, printReg) =
@@ -511,7 +580,7 @@ struct
                 stream(if isByteMove then "\tBlockByteMove\t" else "\tBlockWordMove\t");
                 stream "src="; printReg(srcAddr, stream);
                 stream ",dest="; printReg(destAddr, stream);
-                stream ",len="; printArg(length, stream, printReg)
+                stream ",len="; printReg(length, stream)
             )
 
         |   printICode(CompareFloatingPt{arg1, arg2, ...}, stream, printReg) =
@@ -575,12 +644,19 @@ struct
         fun printICodeConcrete(icode, stream) = printICode(icode, stream, printConcreteReg)
         and printICodeAbstract(icode, stream) = printICode(icode, stream, printAbstractReg)
     end
+
+    (* We frequently just want to know the register. *)
+    fun indexRegister NoMemIndex = NONE
+    |   indexRegister (MemIndex1 r) = SOME r
+    |   indexRegister (MemIndex2 r) = SOME r
+    |   indexRegister (MemIndex4 r) = SOME r
+    |   indexRegister (MemIndex8 r) = SOME r
     
     exception InternalError = Misc.InternalError
 
     (* Generate code from the ICode.  This assumes that all pseudo-registers have been replaced by
        real registers or locations.  Only certain patterns of arguments are accepted. *)
-    fun codeAsX86Code{icode, maxLabels, stackRequired, inputRegisters, functionName, debugSwitches} =
+    fun codeAsX86Code{icode, maxLabels, stackRequired, inputRegisters: reg list, functionName, debugSwitches} =
     let
         (* The profile object is a single mutable with the F_bytes bit set. *)
         local
@@ -647,6 +723,8 @@ struct
         and sourceAsGenRegOrMem(RegisterArgument((GenReg r))) = RegisterArg r
         |   sourceAsGenRegOrMem(MemoryLocation{offset, base=(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
+        |   sourceAsGenRegOrMem(StackLocation{adjustment, wordOffset}) =
+                MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}
         |   sourceAsGenRegOrMem(IntegerConstant v) = NonAddressConstArg v
         |   sourceAsGenRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsGenRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
@@ -654,6 +732,8 @@ struct
         and sourceAsXMMRegOrMem(RegisterArgument((XMMReg r))) = RegisterArg r
         |   sourceAsXMMRegOrMem(MemoryLocation{offset, base=(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
+        |   sourceAsXMMRegOrMem(StackLocation{adjustment, wordOffset}) =
+                MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}
         |   sourceAsXMMRegOrMem(IntegerConstant v) = NonAddressConstArg v
         |   sourceAsXMMRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
@@ -663,60 +743,65 @@ struct
 
         |   codeGenICode(
                 (* Load to a general register or move to a general register. *)
-                MoveArgument{ source, dest=RegisterArgument((GenReg destReg)), kind=MoveWord} :: rest, code) =
+                LoadArgument{ source, dest=GenReg destReg, kind=MoveWord} :: rest, code) =
                     codeGenICode(rest, MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg } :: code)
 
         |   codeGenICode(
                 (* Load from memory. *)
-                MoveArgument{ source=MemoryLocation mLoc, dest=RegisterArgument((GenReg destReg)), kind=MoveByte} :: rest, code) =
+                LoadArgument{ source=MemoryLocation mLoc, dest=GenReg destReg, kind=MoveByte} :: rest, code) =
                 codeGenICode(rest, LoadNonWord{size=Size8Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
         |   codeGenICode(
                 (* Load from memory. *)
-                MoveArgument{ source=MemoryLocation mLoc, dest=RegisterArgument(GenReg destReg), kind=Move16Bit} :: rest, code) =
+                LoadArgument{ source=MemoryLocation mLoc, dest=GenReg destReg, kind=Move16Bit} :: rest, code) =
                 codeGenICode(rest, LoadNonWord{size=Size16Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
         |   codeGenICode(
                 (* Load from memory. *)
-                MoveArgument{ source=MemoryLocation mLoc, dest=RegisterArgument(GenReg destReg), kind=Move32Bit} :: rest, code) =
+                LoadArgument{ source=MemoryLocation mLoc, dest=GenReg destReg, kind=Move32Bit} :: rest, code) =
                 codeGenICode(rest, LoadNonWord{size=Size32Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
                 (* Store to memory *)
         |   codeGenICode(
-                MoveArgument{ source=RegisterArgument(GenReg sourceReg), dest=MemoryLocation mLoc, kind=MoveWord} :: rest, code) =
+                StoreArgument{ source=RegisterArgument(GenReg sourceReg), base, offset, index, kind=MoveWord} :: rest, code) =
                 codeGenICode(rest,
-                    StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
+                    StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset{base=base, offset=offset, index=index}} :: code)
 
         |   codeGenICode(
-                MoveArgument{ source=RegisterArgument(GenReg sourceReg), dest=MemoryLocation mLoc, kind=MoveByte} :: rest, code) =
+                StoreArgument{ source=RegisterArgument(GenReg sourceReg), base, offset, index, kind=MoveByte} :: rest, code) =
                 codeGenICode(rest,
-                    StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
+                    StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
         |   codeGenICode(
-                MoveArgument{ source=RegisterArgument(GenReg sourceReg), dest=MemoryLocation mLoc, kind=Move16Bit} :: rest, code) =
+                StoreArgument{ source=RegisterArgument(GenReg sourceReg), base, offset, index, kind=Move16Bit} :: rest, code) =
                 codeGenICode(rest,
-                    StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
+                    StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
         |   codeGenICode(
-                MoveArgument{ source=RegisterArgument(GenReg sourceReg), dest=MemoryLocation mLoc, kind=Move32Bit} :: rest, code) =
+                StoreArgument{ source=RegisterArgument(GenReg sourceReg), base, offset, index, kind=Move32Bit} :: rest, code) =
                 codeGenICode(rest,
-                    StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset mLoc} :: code)
+                    StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
                 (* Store a short constant to memory *)
         |   codeGenICode(
-                MoveArgument{ source=IntegerConstant srcValue, dest=MemoryLocation mLoc, kind=MoveWord} :: rest, code) =
+                StoreArgument{ source=IntegerConstant srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
                 codeGenICode(rest,
-                    StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset mLoc} :: code)
+                    StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
+
+        |   codeGenICode(
+                StoreArgument{ source=IntegerConstant srcValue, base, offset, index, kind=MoveByte} :: rest, code) =
+                codeGenICode(rest,
+                    StoreNonWordConst{size=Size8Bit, toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
                 (* Store a long constant to memory *)
         |   codeGenICode(
-                MoveArgument{ source=AddressConstant srcValue, dest=MemoryLocation mLoc, kind=MoveWord} :: rest, code) =
+                StoreArgument{ source=AddressConstant srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
                 codeGenICode(rest,
-                    StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset mLoc} :: code)
+                    StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
                 (* Load a floating point value. *)
-        |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=(GenReg baseReg), index},
-                                dest=RegisterArgument(FPReg fpReg), kind=MoveDouble} :: rest, code) =
+        |   codeGenICode(LoadArgument{source=MemoryLocation{offset, base=(GenReg baseReg), index},
+                                dest=FPReg fpReg, kind=MoveDouble} :: rest, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
             in
@@ -724,25 +809,25 @@ struct
             end
 
                 (* Load or move from an XMM reg. *)
-        |   codeGenICode(MoveArgument{source, dest=RegisterArgument(XMMReg xmmRegReg), kind=MoveDouble} :: rest, code) =
+        |   codeGenICode(LoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveDouble} :: rest, code) =
                 codeGenICode(rest, XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
 
                 (* Store a floating point value. *)
-        |   codeGenICode(MoveArgument{source=RegisterArgument(FPReg fpReg),
-                         dest=MemoryLocation{offset, base=(GenReg baseReg), index}, kind=MoveDouble} :: rest, code) =
+        |   codeGenICode(StoreArgument{source=RegisterArgument(FPReg fpReg),
+                         offset, base=(GenReg baseReg), index, kind=MoveDouble} :: rest, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
             in
                 codeGenICode(rest, FPStoreToMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision, andPop=true } :: code)
             end
 
-        |   codeGenICode(MoveArgument{source=RegisterArgument(XMMReg xmmRegReg),
-                         dest=MemoryLocation{offset, base=(GenReg baseReg), index}, kind=MoveDouble} :: rest, code) =
+        |   codeGenICode(StoreArgument{source=RegisterArgument(XMMReg xmmRegReg),
+                         offset, base=(GenReg baseReg), index, kind=MoveDouble} :: rest, code) =
                 codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision } :: code)
 
                 (* Load a floating point value. *)
-        |   codeGenICode(MoveArgument{source=MemoryLocation{offset, base=(GenReg baseReg), index},
-                                dest=RegisterArgument(FPReg fpReg), kind=MoveFloat} :: rest, code) =
+        |   codeGenICode(LoadArgument{source=MemoryLocation{offset, base=(GenReg baseReg), index},
+                                dest=FPReg fpReg, kind=MoveFloat} :: rest, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
             in
@@ -750,40 +835,46 @@ struct
             end
 
                 (* Load or move from an XMM reg. *)
-        |   codeGenICode(MoveArgument{source, dest=RegisterArgument(XMMReg xmmRegReg), kind=MoveFloat} :: rest, code) =
+        |   codeGenICode(LoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveFloat} :: rest, code) =
                 codeGenICode(rest, XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
 
                 (* Store a floating point value. *)
-        |   codeGenICode(MoveArgument{source=RegisterArgument(FPReg fpReg),
-                         dest=MemoryLocation{offset, base=(GenReg baseReg), index}, kind=MoveFloat} :: rest, code) =
+        |   codeGenICode(StoreArgument{source=RegisterArgument(FPReg fpReg),
+                         offset, base=(GenReg baseReg), index, kind=MoveFloat} :: rest, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
             in
                 codeGenICode(rest, FPStoreToMemory{address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision, andPop=true } :: code)
             end
 
-        |   codeGenICode(MoveArgument{source=RegisterArgument(XMMReg xmmRegReg),
-                         dest=MemoryLocation{offset, base=(GenReg baseReg), index}, kind=MoveFloat} :: rest, code) =
+        |   codeGenICode(StoreArgument{source=RegisterArgument(XMMReg xmmRegReg),
+                         offset, base=(GenReg baseReg), index, kind=MoveFloat} :: rest, code) =
                 codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision } :: code)
 
-        |   codeGenICode(MoveArgument _ :: _, _) =
-                raise InternalError "codeGenICode: TODO MoveArgument"
+            (* Any other combinations are not allowed. *)
+        |   codeGenICode(LoadArgument _ :: _, _) = raise InternalError "codeGenICode: LoadArgument"
 
-            (* These two should have been transformed into MoveArgument. *)
-        |   codeGenICode(LoadStack _ :: _, _) = raise InternalError "codeGenICode - LoadStack"
-        |   codeGenICode(LoadMemReg _ :: _, _) = raise InternalError "codeGenICode - LoadStack"
+        |   codeGenICode(StoreArgument _ :: _, _) = raise InternalError "codeGenICode: StoreArgument"
+
+            (* This should have been transformed into MoveArgument. *)
+        |   codeGenICode(LoadMemReg _ :: _, _) = raise InternalError "codeGenICode - LoadMemReg"
+
+            (* Exchange two general registers. *)
+        |   codeGenICode(ExchangeRegisters{ regX, regY} :: rest, code) =
+                codeGenICode(rest, XChngRegisters { regX=asGenReg regX, regY=asGenReg regY } :: code)
 
         |   codeGenICode(BeginFunction _ :: rest, code) = codeGenICode(rest, code) (* Don't need to do anything. *)
 
-        |   codeGenICode(FunctionCall {isTail=false, callKind, ...} :: rest, code) =
+        |   codeGenICode(FunctionCall {callKind, ...} :: rest, code) =
                 codeGenICode(rest, CallFunction callKind :: code)
 
-        |   codeGenICode(FunctionCall {isTail=true, callKind, ...} :: rest, code) =
+        |   codeGenICode(TailRecursiveCall {callKind, ...} :: rest, code) =
                 codeGenICode(rest, JumpToFunction callKind :: code)
 
-        |   codeGenICode(AllocateMemoryOperation { size, flags, dest} :: rest, code) =
+        |   codeGenICode(AllocateMemoryOperation { size, flags, dest, saveRegs} :: rest, code) =
             let
                 val toReg = asGenReg dest
+                val preserve = map asGenReg saveRegs
 
                 (* Allocate memory.  N.B. Instructions are in reverse order. *)
                 fun allocStore{size, flags, output, preserve} =
@@ -804,32 +895,29 @@ struct
                     (* If we need to add the profile object *)
                     if addAllocatingFunction
                     then
-                        allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=[]} @
+                        allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=preserve} @
                             [StoreLongConstToMemory{ toStore=profileObject, address={base=toReg, offset=size*wordSize, index=NoIndex}}]
-                    else allocStore {size=size, flags=flags, output=toReg, preserve=[]}
+                    else allocStore {size=size, flags=flags, output=toReg, preserve=preserve}
             in
                 codeGenICode(rest, allocCode @ code)
             end
 
-        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser} :: rest, code) =
+        |   codeGenICode(AllocateMemoryVariable{ size, dest, saveRegs} :: rest, code) =
             let
-                val sReg = argAsGenReg size and fReg = argAsGenReg flags and dReg = asGenReg dest
-                val _ = sReg <> fReg andalso sReg <> dReg andalso fReg <> dReg
+                val sReg = asGenReg size and dReg = asGenReg dest
+                val _ = sReg <> dReg
                             orelse raise InternalError "codeGenICode-AllocateMemoryVariable"
+                val preserve = map asGenReg saveRegs
 
                 val allocCode =
                 [
-                    (* Store in the top byte *)
-                    StoreNonWord{size=Size8Bit, toStore=fReg, address={base=dReg, offset= ~1, index=NoIndex}},
-                    (* Untag the flags. *)
-                    ShiftConstant{ shiftType=SHR, output=fReg, shift=0w1},
                     (* Store it as the length field. *)
                     StoreRegToMemory{toStore=sReg,
                         address={base=dReg, offset= ~wordSize, index=NoIndex}},
                     (* Untag the length *)
                     ShiftConstant{ shiftType=SHR, output=sReg, shift=0w1},
                     (* Allocate the memory *)
-                    AllocStoreVariable{ output=dReg, saveRegs=[]},
+                    AllocStoreVariable{ output=dReg, saveRegs=preserve},
                     (* Compute the number of bytes into dReg. The length in sReg is the number
                        of words as a tagged value so we need to multiply it, add wordSize to
                        include one word for the header then subtract the, multiplied, tag. *)
@@ -837,30 +925,22 @@ struct
                     then LoadAddress{output=dReg, base=NONE, offset=wordSize-2, index=Index2 sReg }
                     else LoadAddress{output=dReg, base=NONE, offset=wordSize-4, index=Index4 sReg }
                 ]
-                
-                (* Initialiser *)
-                val initCode =
-                    case initialiser of
-                        NONE => [] (* Byte segments are not initialised - Should we clear last word? Length could be zero. *)
-                    |   SOME init =>
-                        let
-                            (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and edi is free. *)
-                            val iReg = asGenReg init
-                            val _ = sReg = ecx orelse raise InternalError "codeGenICode: AllocateMemoryVariable"
-                            val _ = iReg = eax orelse raise InternalError "codeGenICode: AllocateMemoryVariable"
-                        in
-                            [
-                                (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and edi is free. *)
-                                RepeatOperation STOSL,
-                                (* Move the base address to edi.  It will be updated by the move. *)
-                                MoveToRegister { source=RegisterArg dReg, output=edi }
-                            ]
-                        end
             in
-                codeGenICode(rest, initCode @ allocCode @ code)
+                codeGenICode(rest, allocCode @ code)
             end
 
-        |   codeGenICode(InitialisationComplete _ :: rest, code) =
+        |   codeGenICode(InitialiseMem{size, addr, init} :: rest, code) =
+            let
+                val sReg = asGenReg size and iReg = asGenReg init and aReg = asGenReg addr
+                (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and aReg = edi. *)
+                val _ = sReg = ecx orelse raise InternalError "codeGenICode: InitialiseMem"
+                val _ = iReg = eax orelse raise InternalError "codeGenICode: InitialiseMem"
+                val _ = aReg = edi orelse raise InternalError "codeGenICode: InitialiseMem"
+            in
+                codeGenICode(rest, RepeatOperation STOSL :: code)
+            end
+
+        |   codeGenICode(InitialisationComplete :: rest, code) =
                 codeGenICode(rest, StoreInitialised :: code)
 
         |   codeGenICode(StartLoop {loopLabel, ...} :: rest, code) = (* Same as ForwardLabel. *)
@@ -878,13 +958,14 @@ struct
         |   codeGenICode(IndexedCaseOperation { testReg, workReg, cases, startValue} :: rest, code) =
             let
                 val rReg = asGenReg testReg and wReg = asGenReg workReg
+                val _ = rReg <> wReg orelse raise InternalError "IndexedCaseOperation - same registers"
                 val caseLabels = map findLabelRef cases
             in
                 codeGenICode(rest, IndexedCase{testReg=rReg, workReg=wReg, min=startValue, cases=caseLabels} :: code)
             end
 
         |   codeGenICode(LockMutable { addr } :: rest, code) =
-                codeGenICode(rest, LockMutableSegment (argAsGenReg addr) :: code)
+                codeGenICode(rest, LockMutableSegment (asGenReg addr) :: code)
 
         |   codeGenICode(ForwardJumpLabel { label, ... } :: rest, code) =
                 codeGenICode(rest, JumpLabel(findLabelDef label) :: code)
@@ -901,9 +982,11 @@ struct
         |   codeGenICode(WordComparison _ :: _, _) =
                 raise InternalError "codeGenICode: TODO WordComparison"
 
-        |   codeGenICode(PushExceptionHandler { handlerAddr, handleStart=ILabel hStart, ... } :: rest, code) =
+        |   codeGenICode(PushExceptionHandler { workReg, handleStart=ILabel hStart, ... } :: rest, code) =
             let (* Set up an exception handler. *)
-                val handleReg = asGenReg handlerAddr
+                (* Although we're pushing this to the stack we need to use LEA on the
+                   X86/64 and some arithmetic on the X86/32.  We need a work reg for that. *)
+                val handleReg = asGenReg workReg
                 val labelRef =
                     case Array.sub(labelArray, hStart) of
                         HandlerLab addr => addr
@@ -969,17 +1052,33 @@ struct
         |   codeGenICode(ArithmeticFunction _ :: _, _) =
                 raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
 
-        |   codeGenICode(TestTagBit {arg, ...} :: rest, code) =
-                codeGenICode(rest, TestTagR(argAsGenReg arg) :: code)
+        |   codeGenICode(TestTagBit {arg = RegisterArgument reg, ...} :: rest, code) =
+                codeGenICode(rest, TestTagR(asGenReg reg) :: code)
 
-        |   codeGenICode(PushValue { arg = RegisterArgument(GenReg r) } :: rest, code) =
-                codeGenICode(rest, PushToStack(RegisterArg r) :: code)
+        |   codeGenICode(TestTagBit {arg = StackLocation {adjustment, wordOffset}, ...} :: rest, code) =
+                (* Since the X86 is little-endian we check the addressed byte. *)
+                codeGenICode(rest, TestByteMem{base=esp, offset=(adjustment+wordOffset)*wordSize, bits=0w1} :: code)
+
+        |   codeGenICode(TestTagBit {arg = MemoryLocation {offset, base, index=NoMemIndex}, ...} :: rest, code) =
+                codeGenICode(rest, TestByteMem{base=asGenReg base, offset=offset, bits=0w1} :: code)
+
+        |   codeGenICode(TestTagBit _ :: _, _) = raise InternalError "codeGenICode: TestTagBit"
+
+        |   codeGenICode(PushValue { arg = RegisterArgument reg } :: rest, code) =
+                codeGenICode(rest, PushToStack(RegisterArg(asGenReg reg)) :: code)
 
         |   codeGenICode(PushValue { arg = IntegerConstant v } :: rest, code) =
                 codeGenICode(rest, PushToStack(NonAddressConstArg v) :: code)
 
-        |   codeGenICode(PushValue _ :: _, _) =
-                raise InternalError "codeGenICode: TODO PushValue"
+        |   codeGenICode(PushValue { arg = AddressConstant v } :: rest, code) =
+                codeGenICode(rest, PushToStack(AddressConstArg v) :: code)
+
+        |   codeGenICode(PushValue { arg = StackLocation {adjustment, wordOffset} } :: rest, code) =
+                (* The X86 manual says that the address is computed before the push. *)
+                codeGenICode(rest, PushToStack(MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}) :: code)
+
+        |   codeGenICode(PushValue { arg = MemoryLocation {offset, base, index} } :: rest, code) =
+                codeGenICode(rest, PushToStack(MemoryArg{base=asGenReg base, offset=offset, index=memoryIndexAsIndex index}) :: code)
 
         |   codeGenICode(ResetStackPtr {numWords} :: rest, code) =
             (
@@ -1039,7 +1138,7 @@ struct
 
         |   codeGenICode(Division { isSigned, dividend, divisor, quotient, remainder } :: rest, code) =
             let
-                val dividendReg = argAsGenReg dividend and divisorReg = argAsGenReg divisor
+                val dividendReg = asGenReg dividend and divisorReg = argAsGenReg divisor
                 and quotientReg = asGenReg quotient and remainderReg = asGenReg remainder
                 val _ = dividendReg = eax orelse raise InternalError "codeGenICode: Division"
                 val _ = divisorReg <> eax andalso divisorReg <> edx orelse raise InternalError "codeGenICode: Division"
@@ -1054,9 +1153,9 @@ struct
                 codeGenICode(rest, DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX :: code)
             end
 
-        |   codeGenICode(AtomicExchangeAndAdd{ destAddr, source } :: rest, code) =
+        |   codeGenICode(AtomicExchangeAndAdd{ base, source } :: rest, code) =
             let
-                val baseReg = argAsGenReg destAddr and outReg = asGenReg source
+                val baseReg = asGenReg base and outReg = asGenReg source
             in
                 codeGenICode(rest, AtomicXAdd{base=baseReg, output=outReg} :: code)
             end
@@ -1066,7 +1165,7 @@ struct
                 (* The arguments must be in specific registers. *)
                 val _ = asGenReg vec1Addr = esi orelse raise InternalError "CompareByteVectors: esi"
                 val _ = asGenReg vec2Addr = edi orelse raise InternalError "CompareByteVectors: edi"
-                val _ = argAsGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
+                val _ = asGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
             in
                 codeGenICode(rest, RepeatOperation CMPSB :: code)
             end
@@ -1076,7 +1175,7 @@ struct
                 (* The arguments must be in specific registers. *)
                 val _ = asGenReg srcAddr = esi orelse raise InternalError "BlockMove: esi"
                 val _ = asGenReg destAddr = edi orelse raise InternalError "BlockMove: edi"
-                val _ = argAsGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
+                val _ = asGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
             in
                 codeGenICode(rest, RepeatOperation(if isByteMove then MOVSB else MOVSL) :: code)
             end
@@ -1127,6 +1226,14 @@ struct
                     opc, resultReg=(XMMReg xmmResReg), arg1=RegisterArgument(XMMReg xmmArgReg), arg2 } :: rest, code) =
             let
                 val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
+                (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
+                val _ =
+                    case (opc, arg2) of
+                        (SSE2Xor, RegisterArgument _) => ()
+                    |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
+                    |   (SSE2And, RegisterArgument _) => ()
+                    |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
+                    |   _ => ()
             in
                 codeGenICode(rest, XMMArith{ opc=opc, output=xmmResReg, source=sourceAsXMMRegOrMem arg2} :: code)
             end
@@ -1182,7 +1289,7 @@ struct
         let
             (* If we need to take the trap we save the argument and closure registers
                across the trap. *)
-            val saveRegs = inputRegisters
+            val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) inputRegisters
             fun pushThenPop [] = [CallRTS entryPt]
             |   pushThenPop (aReg::regs) = PushToStack(RegisterArg aReg) :: (pushThenPop regs @ [PopR aReg])
             (* Normally we won't have a stack overflow so we will skip the check. *)
@@ -1217,6 +1324,8 @@ struct
     in
         createCodeSegment(X86OPTIMISE.optimise(newCode, preludeCode @ List.rev ops), newCode)
     end
+    
+    datatype destinations = RegDest of reg | StackDest of int
 
     structure Sharing =
     struct
@@ -1227,6 +1336,7 @@ struct
         and  branchOps      = branchOps
         and  reg            = reg
         and abstract        = abstract
+        and destinations    = destinations
     end
 
 end;

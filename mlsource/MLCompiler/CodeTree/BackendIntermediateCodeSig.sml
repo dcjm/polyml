@@ -71,8 +71,6 @@ sig
 
     |   BICTuple of backendIC list (* Tuple *)
 
-    |   BICContainer of int (* Create a container for a tuple on the stack. *)
-
     |   BICSetContainer of (* Copy a tuple to a container. *)
         {
             container: backendIC,
@@ -98,6 +96,7 @@ sig
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
     |   BICRecDecs of { addr: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
     |   BICNullBinding of backendIC (* Just evaluate the expression and discard the result. *)
+    |   BICDecContainer of { addr: int, size: int } (* Create a container for a tuple on the stack. *)
 
     and caseType =
         CaseInt
@@ -119,6 +118,7 @@ sig
     |   LoadStoreC64
     |   LoadStoreCFloat
     |   LoadStoreCDouble
+    |   LoadStoreUntaggedUnsigned
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}

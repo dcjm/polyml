@@ -805,6 +805,7 @@ struct
     |   RET
     |   RET_16
     |   CondJump of branchOps
+    |   CondJump32 of branchOps
     |   Arith of arithOp * Word8.word
     |   Group3_A
     |   Group3_a
@@ -816,6 +817,7 @@ struct
     |   TEST_ACC8
     |   LOCK_XADD
     |   FPESC of Word8.word
+    |   XCHNG
     |   REP (* Rep prefix *)
     |   MOVZB (* Needs escape code. *)
     |   MOVZW (* Needs escape code. *)
@@ -850,6 +852,7 @@ struct
     |   opToInt RET           = 0wxc3
     |   opToInt RET_16        = 0wxc2
     |   opToInt (CondJump opc) = 0wx70 + branchOpToWord opc
+    |   opToInt (CondJump32 opc) = 0wx80 + branchOpToWord opc (* Needs 0F prefix *)
     |   opToInt (Arith (ao,dw)) = arithOpToWord ao * 0w8 + dw
     |   opToInt Group3_A      = 0wxf7
     |   opToInt Group3_a      = 0wxf6
@@ -861,6 +864,7 @@ struct
     |   opToInt TEST_ACC8     = 0wxa8
     |   opToInt LOCK_XADD     = 0wxC1 (* Needs lock and escape prefixes. *)
     |   opToInt (FPESC n)     = 0wxD8 orb8 n
+    |   opToInt XCHNG         = 0wx87
     |   opToInt REP           = 0wxf3
     |   opToInt MOVZB         = 0wxb6 (* Needs escape code. *)
     |   opToInt MOVZW         = 0wxb7 (* Needs escape code. *)
@@ -1214,26 +1218,40 @@ struct
        branch. *)
     val maxInstrSize = if isX64 then 15 else 12
     
-    (* A few instructions require an escape. *)
-    fun genEscape(MOVZB, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(MOVZW, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(IMUL, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2StoreSingle, cvec) = (gen8u(0wxf3, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(SSE2StoreDouble, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(SSE2Ops SSE2Comp, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(SSE2Ops SSE2And, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(SSE2Ops SSE2Xor, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(SSE2Ops SSE2MoveSingle, cvec) = (gen8u(0wxf3, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(SSE2Ops _, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(CVTSI2SD, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(MOVL_R_A16, cvec) = gen8u(0wx66, cvec) (* Requires OPSIZE prefix. *)
-    |   genEscape _ = ()
+    (* Lock, Opsize and REPNE prefixes come before the REX. *)
+    fun genPrefix(LOCK_XADD, cvec)              = gen8u(0wxF0, cvec) (* Requires LOCK prefix. *)
+    |   genPrefix(MOVL_R_A16, cvec)             = gen8u(0wx66, cvec) (* Requires OPSIZE prefix. *)
+    |   genPrefix(SSE2StoreSingle, cvec)        = gen8u(0wxf3, cvec)
+    |   genPrefix(SSE2StoreDouble, cvec)        = gen8u(0wxf2, cvec)
+    |   genPrefix(SSE2Ops SSE2Comp, cvec)       = gen8u(0wx66, cvec)
+    |   genPrefix(SSE2Ops SSE2And, cvec)        = gen8u(0wx66, cvec)
+    |   genPrefix(SSE2Ops SSE2Xor, cvec)        = gen8u(0wx66, cvec)
+    |   genPrefix(SSE2Ops SSE2MoveSingle, cvec) = gen8u(0wxf3, cvec)
+    |   genPrefix(SSE2Ops _, cvec)              = gen8u(0wxf2, cvec)
+    |   genPrefix(CVTSI2SD, cvec)               = gen8u(0wxf2, cvec)
+    |   genPrefix _ = ()
+    
+    (* A few instructions require an escape.  Escapes come after the REX. *)
+    fun genEscape(MOVZB, cvec)                  = gen8u(0wx0f, cvec)
+    |   genEscape(MOVZW, cvec)                  = gen8u(0wx0f, cvec)
+    |   genEscape(LOCK_XADD, cvec)              = gen8u(0wx0f, cvec)
+    |   genEscape(IMUL, cvec)                   = gen8u(0wx0f, cvec)
+    |   genEscape(CondJump32 _ , cvec)          = gen8u(0wx0f, cvec)
+    |   genEscape(SSE2StoreSingle, cvec)        = gen8u(0wx0f, cvec)
+    |   genEscape(SSE2StoreDouble, cvec)        = gen8u(0wx0f, cvec)
+    |   genEscape(SSE2Ops SSE2Comp, cvec)       = gen8u(0wx0f, cvec)
+    |   genEscape(SSE2Ops SSE2And, cvec)        = gen8u(0wx0f, cvec)
+    |   genEscape(SSE2Ops SSE2Xor, cvec)        = gen8u(0wx0f, cvec)
+    |   genEscape(SSE2Ops SSE2MoveSingle, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(SSE2Ops _, cvec)              = gen8u(0wx0f, cvec)
+    |   genEscape(CVTSI2SD, cvec)               = gen8u(0wx0f, cvec)
+    |   genEscape _                             = ()
 
     (* Generate an opCode byte after doing any pending operations. *)
     fun genop(opb:opCode, rx, cvec) =
     (
         doPending (cvec, maxInstrSize);
+        genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
         case rx of
             NONE => ()
         |   SOME rxx =>
@@ -1352,6 +1370,7 @@ struct
             |   Arith _ => isX64
             |   MOVL_A_R => isX64 (* Needed *)
             |   MOVL_R_A => isX64 (* Needed *)
+            |   XCHNG => isX64
             |   LEAL => isX64 (* Needed to ensure the result is 64-bits *)
             |   MOVZB => isX64 (* Needed to ensure the result is 64-bits *)
             |   MOVZW => isX64 (* Needed to ensure the result is 64-bits *)
@@ -1385,8 +1404,8 @@ struct
             val (rbC, rbX) = getReg rb
         in
             doPending (cvec, maxInstrSize);
-            (* Any lock prefix comes before any REX prefix. *)
-            case opb of LOCK_XADD => gen8u(0wxF0, cvec) | _ => ();
+            (* Any lock or opsize prefix comes before any REX prefix. *)
+            genPrefix(opb, cvec);
             (* Add any necessary prefix. *)
             genRex(opb, rrX, rbX, false, cvec);
             (* Generate the escape codes for the opcodes that need them. *)
@@ -1412,6 +1431,7 @@ struct
         val (rrC, rrX) = getReg rd
     in
         doPending (cvec, maxInstrSize);
+        genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
         genRex(opb, rrX, rbX, false, cvec);
         genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
         gen8u(opToInt opb, cvec);
@@ -1460,8 +1480,8 @@ struct
                 end
         in
             doPending (cvec, maxInstrSize);
+            genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
             genRex(opb, rrX, rbX, riX, cvec);
-
             genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
             gen8u(opToInt opb, cvec);
 
@@ -1910,6 +1930,7 @@ struct
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
+    |   XChngRegisters of { regX: genReg, regY: genReg }
 
     type operations = operation list
 
@@ -2134,6 +2155,7 @@ struct
                 stream "ConvertFromInt "; printGReg source; stream " => "; printXMMReg output
             )
         |   SignExtendForDivide => stream "SignExtendForDivide"
+        |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
         ;
  
         stream "\n"
@@ -2537,12 +2559,29 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(ConditionalBranch{ test=opc, label=Labels{forward, reverse, ...}, ... } :: remainder) =
+        |   cgOp(ConditionalBranch{ test=opc, label=Labels{forward, reverse=ref reverse, ...}, ... } :: remainder) =
             (
-                !reverse = addrUnsetLabel orelse raise InternalError "Conditional jump back";
-                genop(CondJump opc, NONE, code);
-                gen8u(0w0, code);
-                forward := makeShortLabel (!ic addrPlus ~1, code) :: !forward;
+                (* Almost always conditional branches are forward but it is possible that a
+                   conditional branch has been combined with a loop jump to give a backwards jump. *)
+                if reverse = addrUnsetLabel (* Destination is after this. *)
+                then
+                (
+                    genop(CondJump opc, NONE, code);
+                    gen8u(0w0, code);
+                    forward := makeShortLabel (!ic addrPlus ~1, code) :: !forward
+                )
+                else
+                let
+                    (* Do any pending instructions before calculating the offset, just
+                       in case we put in some instructions first. *)
+                    val () = doPending (code, maxInstrSize)
+                    val offset  = reverse addrMinus (!ic); (* Negative *)
+                    val offset2 = offset - 2;
+                in
+                    if is8Bit offset2
+                    then ( genop (CondJump opc, NONE, code); gen8s (offset2, code) )
+                    else ( genop (CondJump32 opc, NONE, code); gen32s (LargeInt.fromInt(offset - 6), code) )
+                end;
                 cgOp remainder
             )
 
@@ -2592,6 +2631,12 @@ struct
                 cgOp remainder
             )
 
+        |   cgOp(PushToStack(MemoryArg{base, offset, index}) :: remainder) =
+            (
+                genOpIndexed(Group5, LargeInt.fromInt offset, SOME base, index, mkReg(0w6 (* push *), false), code);
+                cgOp remainder
+            )
+
         |   cgOp(PushToStack(NonAddressConstArg constnt) :: remainder) = 
             (
                 if is8BitL constnt
@@ -2616,9 +2661,6 @@ struct
 		        );
                 cgOp remainder
             )
-            
-        |   cgOp(PushToStack _ :: _) =
-                raise InternalError "cgOp: PushToStack"
 
         |   cgOp(PopR reg :: remainder) = (genPushPop(POP_R, reg, code); cgOp remainder)
 
@@ -2659,11 +2701,9 @@ struct
                 val (rrC, _) = getReg toStore
                 (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
                    must use a REX prefix.  This isn't possible in 32-bit mode. *)
-                val opcode = MOVB_R_A{forceRex= rrC >= 0w4} 
+                val opcode = MOVB_R_A{forceRex= rrC >= 0w4}
+                val _ = isX64 orelse rrC < 0w4 orelse raise InternalError "High byte register"
             in
-                case toStore of
-                    GeneralReg (r, false) => if r >= 0w4 then raise InternalError "High byte register" else ()
-                |   _ => ();
                 case address of
                     {offset, base, index=NoIndex} =>
                         genOpEA(opcode, LargeInt.fromInt offset, base, toStore, code) 
@@ -3065,7 +3105,8 @@ struct
                 val oper = SSE2Ops opc
             in
                 doPending (code, maxInstrSize);
-                (* We don't currently need a REX byte but if we did it would sandwiched in here. *)
+                genPrefix(oper, code);
+                (* We don't currently need a REX byte but if we did it would be sandwiched in here. *)
                 genEscape(oper, code);
                 gen8u(opToInt oper, code);
                 genmodrm(Register, rrC, rrS, code);
@@ -3106,6 +3147,13 @@ struct
         |   cgOp (SignExtendForDivide :: remainder) =
             (
                 genop(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE, code);
+                cgOp remainder
+            )
+            
+       |    cgOp (XChngRegisters { regX, regY} :: remainder) =
+            (
+                (* We only use register-to-register exchange.  That doesn't cause a lock. *)
+                genOpReg(XCHNG, regX, regY, code);
                 cgOp remainder
             )
     in
@@ -3290,6 +3338,7 @@ struct
             (
                 case (escNo, nnn, opByte2 andb8 0wx7 (* modrm *)) of
                     (0w1, 0w4, 0w0) => print "fchs"
+                |   (0w1, 0w4, 0w1) => print "fabs"
                 |   (0w1, 0w5, 0w6) => print "fldz"
                 |   (0w1, 0w5, 0w1) => print "flf1"
                 |   (0w7, 0w4, 0w0) => print "fnstsw\tax"
@@ -3382,7 +3431,6 @@ struct
         
             val rexW = (rex andb8 0wx8) <> 0w0
             val rexR = (rex andb8 0wx4) <> 0w0
-            val rexX = (rex andb8 0wx2) <> 0w0
             val rexB = (rex andb8 0wx1) <> 0w0
 
             val opByte = get8u (!ptr, seg) before ptr +:= 0w1
@@ -3544,7 +3592,6 @@ struct
             |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
             |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
 
-
             |   0wx68 =>(print "push\t"; print32 ())
          
             |   0wx6a =>(print "push\t"; print8 ())
@@ -3602,6 +3649,18 @@ struct
                     print8 ()
                 end
 
+            |   0wx87 =>
+                let (* xchng *)
+                    (* Register is in next byte. *)
+                    val nb = csegGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "xchng \t";
+                    printEA(rex, sizeFromRexW);
+                    print ",";
+                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
+                end
+
             |   0wx88 =>
                 let (* mov eb,gb i.e a store *)
                     (* Register is in next byte. *)
@@ -3611,7 +3670,7 @@ struct
                     print "mov \t";
                     printEA(rex, SZByte);
                     print ",";
-                    if rexX
+                    if rexR
                     then print ("r" ^ Int.toString(reg+8) ^ "B")
                     else case reg of
                         0 => print "al"
@@ -3665,21 +3724,21 @@ struct
             |   0wx8f => (print "pop \t"; printEA(rex, sz32_64))
             |   0wx90 => print "nop"
             
-            |   0wx99 => if rexW then print "cqo\n" else print "cdq\n"
+            |   0wx99 => if rexW then print "cqo" else print "cdq"
             
             |   0wx9e => print "sahf\n"
 
-            |   0wxa4 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsb\n")
-            |   0wxa5 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsl\n")
-            |   0wxa6 => (if legacyPrefix = 0wxf3 then print "repe " else (); print "cmpsb\n")
+            |   0wxa4 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsb")
+            |   0wxa5 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsl")
+            |   0wxa6 => (if legacyPrefix = 0wxf3 then print "repe " else (); print "cmpsb")
 
             |   0wxa8 => (print "test\tal,"; print8 ())
 
-            |   0wxaa => (if legacyPrefix = 0wxf3 then print "rep " else (); print "stosb\n")
+            |   0wxaa => (if legacyPrefix = 0wxf3 then print "rep " else (); print "stosb")
             |   0wxab =>
                 (
                     if legacyPrefix = 0wxf3 then print "rep " else ();
-                    if rexW then print "stosq\n" else print "stosl\n"
+                    if rexW then print "stosq" else print "stosl"
                 )
 
             |   0wxb8 => printMovCToR (opByte, sizeFromRexW, rexB)

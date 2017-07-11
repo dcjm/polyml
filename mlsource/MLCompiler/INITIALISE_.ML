@@ -339,6 +339,11 @@ struct
                     makePolymorphic([a], mkBlockOperationFn (BlockOpMove{isByteMove=true})), mkProductType[a, a, Word, Word, Word] ->> Unit)
             val () = enterRunCall ("moveWords",
                     makePolymorphic([a], mkBlockOperationFn (BlockOpMove{isByteMove=false})), mkProductType[a, a, Word, Word, Word] ->> Unit)
+            (* Untagged loads and stores. *)
+            val () = enterRunCall ("loadUntagged",
+                    mkLoadOperationFn LoadStoreUntaggedUnsigned, String ** Word ->> Word)
+            val () = enterRunCall ("storeUntagged",
+                    mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit)
         end
 
         local
@@ -702,15 +707,8 @@ struct
 
         local
             val stringEnv = makeStructure(globalEnv, "String")
-            (* This isn't exactly "size" because it doesn't check for single character strings. *)
-            val lengthWordAsWord =
-                mkGvar ("lengthWordAsWord", String ->> Word, mkUnaryFn BuiltIns.StringLengthWord, declInBasis)
-            val setLengthWord =
-                mkGvar ("setLengthWord", String ** Word ->> Unit, mkBinaryFn BuiltIns.SetStringLengthWord, declInBasis)
         in
             val () = #enterType stringEnv ("string", TypeConstrSet(stringConstr, []))
-            val () = #enterVal stringEnv ("lengthWordAsWord", lengthWordAsWord)
-            val () = #enterVal stringEnv ("setLengthWord", setLengthWord)
         end
 
         local

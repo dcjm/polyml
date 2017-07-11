@@ -178,6 +178,7 @@ sig
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
+    |   XChngRegisters of { regX: genReg, regY: genReg }
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit

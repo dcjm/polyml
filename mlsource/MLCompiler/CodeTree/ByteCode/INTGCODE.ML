@@ -205,7 +205,7 @@ struct
 
                 fun codeDecls(BICRecDecs dl) = genMutualDecs dl
 
-                |   codeDecls(BICDeclar{value=BICContainer size, addr, ...}) =
+                |   codeDecls(BICDecContainer{size, addr}) =
                     (
                         (* If this is a container we have to process it here otherwise it
                            will be removed in the stack adjustment code. *)
@@ -425,8 +425,6 @@ struct
                 genTuple (size, cvec);
                 realstackptr := !realstackptr - (size - 1)
             end
-
-        |   BICContainer _ => raise InternalError "BICContainer" (* This must be processed in codeDecls. *)
 
         |   BICSetContainer{container, tuple, filter} =>
             (* Copy the contents of a tuple into a container.  If the tuple is a

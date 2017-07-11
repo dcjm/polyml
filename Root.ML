@@ -25,6 +25,7 @@ use "mlsource/MLCompiler/Address.ML";
 use "mlsource/MLCompiler/Misc.ML";
 use "mlsource/MLCompiler/HashTable.ML";
 use "mlsource/MLCompiler/UniversalTable.ML";
+use "mlsource/MLCompiler/StronglyConnected.sml";
 use "mlsource/MLCompiler/StretchArray.ML";
 use "mlsource/MLCompiler/STRUCTVALSIG.sml";
 use "mlsource/MLCompiler/PRETTYSIG.sml";

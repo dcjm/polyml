@@ -155,8 +155,8 @@ void SortVector::AddToVector(PolyObject *obj, POLYUNSIGNED length)
 // Byte objects include strings so it is more likely that
 // larger objects will share.  Word objects that share
 // are much more likely to be 2 or 3 words.
-#define NUM_BYTE_VECTORS    22
-#define NUM_WORD_VECTORS    10
+#define NUM_BYTE_VECTORS    23
+#define NUM_WORD_VECTORS    11
 
 class GetSharing: public RecursiveScanWithStack
 {
@@ -184,10 +184,10 @@ private:
 GetSharing::GetSharing()
 {
     for (unsigned i = 0; i < NUM_BYTE_VECTORS; i++)
-        byteVectors[i].SetLengthWord((POLYUNSIGNED)(i+1) | _OBJ_BYTE_OBJ);
+        byteVectors[i].SetLengthWord((POLYUNSIGNED)i | _OBJ_BYTE_OBJ);
 
     for (unsigned j = 0; j < NUM_WORD_VECTORS; j++)
-        wordVectors[j].SetLengthWord(j+1);
+        wordVectors[j].SetLengthWord(j);
 
     largeWordCount = largeByteCount = excludedCount = 0;
 }
@@ -233,17 +233,15 @@ void GetSharing::Completed(PolyObject *obj)
     if ((L & _OBJ_PRIVATE_FLAGS_MASK) == 0)
     {
         POLYUNSIGNED length = obj->Length();
-        ASSERT(length != 0);
-        if (length <= NUM_WORD_VECTORS)
-            wordVectors[length-1].AddToVector(obj, length);
+        if (length < NUM_WORD_VECTORS)
+            wordVectors[length].AddToVector(obj, length);
         else largeWordCount++;
     }
     else if ((L & _OBJ_PRIVATE_FLAGS_MASK) == _OBJ_BYTE_OBJ)
     {
         POLYUNSIGNED length = obj->Length();
-        ASSERT(length != 0);
-        if (length <= NUM_BYTE_VECTORS)
-            byteVectors[length-1].AddToVector(obj, length);
+        if (length < NUM_BYTE_VECTORS)
+            byteVectors[length].AddToVector(obj, length);
         else largeByteCount++;
     }
     else if (! OBJ_IS_CODE_OBJECT(L) && ! OBJ_IS_MUTABLE_OBJECT(L))

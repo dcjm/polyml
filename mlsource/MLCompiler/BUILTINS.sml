@@ -51,7 +51,6 @@ sig
     |   MemoryCellLength (* Return the length of a memory cell (heap object) *)
     |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
     |   ClearMutableFlag (* Remove the mutable flag from the flags byte *)
-    |   StringLengthWord (* Load the length word from a string.  N.B. Doesn't check for single char strings. *)
     |   AtomicIncrement
     |   AtomicDecrement
     |   AtomicReset (* Set a value to (tagged) zero atomically. *)
@@ -75,7 +74,6 @@ sig
         (* Load a word at a specific offset in a heap object.  If this is immutable and the
            arguments are constants it can be folded at compile time since the result will
            never change. *)
-    |   SetStringLengthWord (* Untag the second argument and store it at the address in the first. *)
     |   WordLogical of logicalOperations (* Logical operations on words. *)
     |   WordShift of shiftOperations (* Shift operations on words. *)
          (* Allocate a heap cell for byte data.  The first argument is the number of words (not bytes)

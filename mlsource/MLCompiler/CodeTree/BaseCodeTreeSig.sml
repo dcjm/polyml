@@ -40,6 +40,7 @@ sig
     |   LoadStoreC64
     |   LoadStoreCFloat
     |   LoadStoreCDouble
+    |   LoadStoreUntaggedUnsigned
 
     datatype blockOpKind =
         BlockOpMove of {isByteMove: bool}

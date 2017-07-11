@@ -131,6 +131,7 @@ struct
         |   getMultiplier LoadStoreC64          = 0w8
         |   getMultiplier LoadStoreCFloat       = ffiSizeFloat()
         |   getMultiplier LoadStoreCDouble      = ffiSizeDouble()
+        |   getMultiplier LoadStoreUntaggedUnsigned = RunCall.bytesPerWord
     end
 
     fun simplify(c, s) = mapCodetree (simpGeneral s) c
@@ -281,6 +282,20 @@ struct
                         else Constnt(toMachineWord(loadByte(addr, offset)), [])
                     end
 
+                |   ({base=Constnt(baseAddr, _), index=NONE, offset}, LoadStoreUntaggedUnsigned) =>
+                    if isShort baseAddr
+                    then LoadOperation{kind=kind, address=genAddress}
+                    else
+                    let
+                        val addr = toAddress baseAddr
+                        (* We don't currently have loadWordUntagged in Address but it's only ever
+                           used to load the string length word so we can use that. *)
+                    in
+                        if isMutable addr orelse not(isBytes addr) orelse offset <> 0w0
+                        then LoadOperation{kind=kind, address=genAddress}
+                        else Constnt(toMachineWord(String.size(RunCall.unsafeCast addr)), [])
+                    end
+
                 |   _ => LoadOperation{kind=kind, address=genAddress}
         in
             SOME(mkEnv(decAddress, result))
@@ -294,7 +309,7 @@ struct
             SOME(mkEnv(decAddress @ decValue, StoreOperation{kind=kind, address=genAddress, value=genValue}))
         end
 
-    |   simpGeneral context (BlockOperation{kind, sourceLeft, destRight, length}) =
+    |   simpGeneral (context as {reprocess, ...}) (BlockOperation{kind, sourceLeft, destRight, length}) =
         let
             val multiplier =
                 case kind of
@@ -305,9 +320,42 @@ struct
             val (genSrcAddress, decSrcAddress) = simpAddress(sourceLeft, multiplier, context)
             val (genDstAddress, decDstAddress) = simpAddress(destRight, multiplier, context)
             val (genLength, decLength, _) = simpSpecial(length, context)
-        in 
-            SOME(mkEnv(decSrcAddress @ decDstAddress @ decLength, 
-                BlockOperation{kind=kind, sourceLeft=genSrcAddress, destRight=genDstAddress, length=genLength}))
+            (* If we have a short length move we're better doing it as a sequence of loads and stores.
+               Comparisons are probably too complicated though it might be possible to
+               handle single bytes.  This is particularly useful with string concatenation.
+               Small here means four. *)
+            val shortLength =
+                case genLength of
+                    Constnt(lenConst, _) =>
+                        if isShort lenConst then let val l = toShort lenConst in if l <= 0w4 then SOME l else NONE end else NONE
+                |   _ => NONE
+            val combinedDecs = decSrcAddress @ decDstAddress @ decLength
+            val operation =
+                case (shortLength, kind) of
+                    (SOME length, BlockOpMove{isByteMove}) =>
+                    let
+                        val _ = reprocess := true (* Frequently the source will be a constant. *)
+                        val {base=baseSrc, index=indexSrc, offset=offsetSrc} = genSrcAddress
+                        and {base=baseDst, index=indexDst, offset=offsetDst} = genDstAddress
+                        (* We don't know if the source is immutable but the destination definitely isn't *)
+                        val moveKind =
+                            if isByteMove then LoadStoreMLByte{isImmutable=false} else LoadStoreMLWord{isImmutable=false}
+                        fun makeMoves offset =
+                        if offset = length
+                        then []
+                        else NullBinding(
+                                StoreOperation{kind=moveKind,
+                                    address={base=baseDst, index=indexDst, offset=offsetDst+offset*multiplier},
+                                    value=LoadOperation{kind=moveKind, address={base=baseSrc, index=indexSrc, offset=offsetSrc+offset*multiplier}}}) ::
+                                makeMoves(offset+0w1)
+                    in
+                        mkEnv(combinedDecs @ makeMoves 0w0, CodeZero (* unit result *))
+                    end
+                |   _ =>
+                    mkEnv(combinedDecs, 
+                        BlockOperation{kind=kind, sourceLeft=genSrcAddress, destRight=genDstAddress, length=genLength})
+        in
+            SOME operation
         end
 
     |   simpGeneral (context as {enterAddr, nextAddress, ...}) (Handle{exp, handler, exPacketAddr}) =
@@ -785,12 +833,6 @@ struct
                 (if isShort v then CodeZero else Constnt(toMachineWord(Address.flags(toAddress v)), []), decArg1, EnvSpecNone)
             )
 
-        |   (StringLengthWord, Constnt(v, _)) =>
-            (
-                reprocess := true;
-                (Constnt(toMachineWord(String.size(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
-            )
-
         |   (LongWordToTagged, Constnt(v, _)) =>
             (
                 reprocess := true;
@@ -882,6 +924,23 @@ struct
                 (resultCode, decArgs, EnvSpecNone)
             end
 
+            (* Addition and subtraction of zero.  These can arise as a result of
+               inline expansion of more general functions. *)
+        |   (FixedPrecisionArith ArithAdd, arg1, Constnt(v2, _)) =>
+            if isShort v2 andalso toShort v2 = 0w0
+            then (arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (FixedPrecisionArith ArithAdd, Constnt(v1, _), arg2) =>
+            if isShort v1 andalso toShort v1 = 0w0
+            then (arg2, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (FixedPrecisionArith ArithSub, arg1, Constnt(v2, _)) =>
+            if isShort v2 andalso toShort v2 = 0w0
+            then (arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
         |   (WordArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
             if not(isShort v1) orelse not(isShort v2)
             then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
@@ -903,6 +962,23 @@ struct
             in
                (resultCode, decArgs, EnvSpecNone)
             end
+
+        |   (WordArith ArithAdd, arg1, Constnt(v2, _)) =>
+            if isShort v2 andalso toShort v2 = 0w0
+            then (arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (WordArith ArithAdd, Constnt(v1, _), arg2) =>
+            if isShort v1 andalso toShort v1 = 0w0
+            then (arg2, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (WordArith ArithSub, arg1, Constnt(v2, _)) =>
+            if isShort v2 andalso toShort v2 = 0w0
+            then (arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+        
+            (* TODO: Constant folding of logical operations. *)
 
         |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
     end

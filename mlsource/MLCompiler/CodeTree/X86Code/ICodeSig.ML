@@ -33,6 +33,7 @@ sig
     |   XMMReg of xmmReg
     
     val regRepr: reg -> string
+    val nReg:   reg -> int
 
     val isX64: bool and is32bit: LargeInt.int -> bool
 
@@ -80,7 +81,9 @@ sig
         RegisterArgument of 'reg
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location.  Could be the stack. *)
+    |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location. *)
+        (* Offset on the stack.  The "adjustment" is a temporary hack. *)
+    |   StackLocation of { wordOffset: int, adjustment: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
@@ -101,51 +104,74 @@ sig
     datatype ccRef = CcRef of int
 
     datatype 'reg x86ICode =
-        (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
-           are supported. *)
-        MoveArgument of { source: 'reg argument, dest: 'reg argument, kind: moveKind }
-
-        (* Load an entry from the real stack. *)
-    |   LoadStack of { offset: int, dest: 'reg }
+        (* Move a value into a register. *)
+        LoadArgument of { source: 'reg argument, dest: 'reg, kind: moveKind }
+        
+        (* Store a value into memory.  The source will usually be a register but could be
+           a constant depending on the value. *)
+    |   StoreArgument of { source: 'reg argument, base: 'reg, offset: int, index: 'reg memoryIndex, kind: moveKind }
 
         (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
     |   LoadMemReg of { offset: int, dest: 'reg }
 
+        (* Exchange two registers. *)
+    |   ExchangeRegisters of { regX: 'reg, regY: 'reg }
+
         (* Start of function.  Set the register arguments. *)
     |   BeginFunction of { regArgs: ('reg * reg) list }
 
-        (* Call or jump to a function.  If the code address is a constant it is passed here.
+        (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
-           as one of the argument registers.  The result is stored in the destination register.
-           If isTail is true this is tail-recursive and should be a jump. *)
+           as one of the argument registers.  The result is stored in the destination register. *)
     |   FunctionCall of
-            { callKind: callKinds, regArgs: ('reg argument * genReg) list,
-              stackArgs: 'reg argument list, dest: 'reg, isTail: bool}
+            { callKind: callKinds, regArgs: ('reg argument * reg) list,
+              stackArgs: 'reg argument list, dest: 'reg}
+
+        (* Jump to a tail-recursive function.  This is similar to FunctionCall
+           but complicated for stack arguments because the stack and the return
+           address need to be overwritten.  We could actually include the
+           return address among the stackArgs but leave that for the moment.
+           stackAdjust is the number of words to remove (positive) or add
+           (negative) to the stack before the call. *)
+    |   TailRecursiveCall of
+            { callKind: callKinds, regArgs: ('reg argument * reg) list,
+              stackArgs: {src: 'reg argument, stack: int} list,
+              returnAddr: {srcStack: int, stack: int},
+              stackAdjust: int }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
-           required.  This sets the length word including the flags bits. *)
-    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg}
+           required.  This sets the length word including the flags bits.
+           saveRegs is the list of registers that need to be saved if we
+           need to do a garbage collection. *)
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg, saveRegs: 'reg list }
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
-           argument is the number of words.  If the initialiser is provided
-           each word of the new memory is set to the value. *)
-    |   AllocateMemoryVariable of { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option }
+           argument is the number of words. *)
+    |   AllocateMemoryVariable of { size: 'reg, dest: 'reg, saveRegs: 'reg list }
+
+        (* Initialise a piece of memory.  N.B. The size is an untagged value containing
+           the number of words.  This uses REP STOSL/Q so addr must be rdi, size must be
+           rcx and init must be rax. *)
+    |   InitialiseMem of { size: 'reg, addr: 'reg, init: 'reg }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
-    |   InitialisationComplete of { dest: 'reg}
+    |   InitialisationComplete
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
-           The loopLabel in all of these is for checking only, at least at the moment. *)
-    |   StartLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
+           The loopLabel is the start of the loop and all jumps come back to it. *)
+    |   StartLoop of { regArgs: ('reg argument * 'reg) list, loopLabel: iLabel }
 
-        (* End a loop.  Causes the loop stack to be popped. *)
-    |   EndLoop of { loopLabel: iLabel }
+        (* End a loop.  This is a marker that is used at the higher levels.
+           It doesn't generate any code. *)
+    |   EndLoop of { loopLabel: iLabel, staticRegs: 'reg list }
 
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
-    |   JumpLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
-    
+    |   JumpLoop of
+            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list, stackAdjust: int, loopLabel: iLabel }
+
+        (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
@@ -155,7 +181,7 @@ sig
     |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list, startValue: word }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
-    |   LockMutable of { addr: 'reg argument }
+    |   LockMutable of { addr: 'reg }
 
         (* Forward branches. *)
     |   ForwardJumpLabel of { label: iLabel, result: 'reg option }
@@ -169,10 +195,10 @@ sig
     |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
-    |   PushExceptionHandler of { handlerAddr: 'reg, handleStart: iLabel }
+    |   PushExceptionHandler of { workReg: 'reg, handleStart: iLabel }
 
         (* End of a handled section.  Restore the previous handler. *)
-    |   PopExceptionHandler of { handlerAddr: 'reg, resultReg: 'reg, workReg: 'reg }
+    |   PopExceptionHandler of { resultReg: 'reg option, workReg: 'reg }
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 
@@ -214,31 +240,32 @@ sig
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
            puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
-           these by pRegs. *)
-    |   Division of { isSigned: bool, dividend: 'reg argument, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
+           these by pRegs.  The divisor can be either a register or a memory location. *)
+    |   Division of { isSigned: bool, dividend: 'reg, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
 
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
            Before the operation the source contains an increment.  After the operation
            the source contains the old value of the destination and the destination
-           has been updated with its old value added to the increment. *)
-    |   AtomicExchangeAndAdd of { destAddr: 'reg argument, source: 'reg }
+           has been updated with its old value added to the increment.
+           The destination is actually the word pointed at by "base". *)
+    |   AtomicExchangeAndAdd of { base: 'reg, source: 'reg }
 
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and
            then unboxed and remove unnecessary allocation. *)
-    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg }
+    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg, saveRegs: 'reg list }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            In general vec1Addr and vec2Addr will be pointers inside memory cells
            so have to be untagged registers. *)
     |   CompareByteVectors of
-            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg argument, ccRef: ccRef }
+            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg, ccRef: ccRef }
 
         (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
            number of items (bytes or words) to move. *)
-    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg argument, isByteMove: bool }
+    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg, isByteMove: bool }
 
         (* Floating point comparison. *)
     |   CompareFloatingPt of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
@@ -259,11 +286,16 @@ sig
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
 
-    val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
+    val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: reg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 
     val printICodeConcrete: reg x86ICode * (string -> unit) -> unit
     and printICodeAbstract: abstract x86ICode * (string -> unit) -> unit
+    
+    val indexRegister: 'reg memoryIndex -> 'reg option
+    
+    (* Destinations used in move. *)
+    datatype destinations = RegDest of reg | StackDest of int
 
     structure Sharing:
     sig
@@ -274,5 +306,6 @@ sig
         and  branchOps      = branchOps
         and  reg            = reg
         and abstract        = abstract
+        and destinations    = destinations
     end
 end;

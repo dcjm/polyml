@@ -70,7 +70,7 @@ struct
     end
 
     (* This is always a short non-negative integer so can be cast as word or int. *)
-    fun sizeAsWord(s: string): word = RunCall.loadUntagged(s, 0w0)
+    fun sizeAsWord(s: string): word = String.lengthWordAsWord s
 
     (* Provide the implementation of CharArray.array, Word8Array.array
        and Word8Array.vector (= Word8Vector.vector) here so that they
@@ -106,7 +106,7 @@ struct
     local
         val F_mutable_bytes : word = 0wx41
         (* This is put in by Initialise and filtered out later. *)
-        val setLengthWord: string * word -> unit = fn (s, n) => RunCall.storeUntagged(s, 0w0, n)
+        val SetLengthWord: string * word -> unit = String.setLengthWord
           
         val callProcessEnv = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         val maxString = callProcessEnv (101, ())
@@ -138,15 +138,21 @@ struct
         let
             val words : word =
                 if bytes > maxString
-                then raise Size
                 (* The maximum string size is slightly smaller than the
                    maximum array size because strings have a length word.
-                   It seems best to use the same maximum size for CharArray/Word8Array. *) 
+                   That means that System_alloc will not raise Size if "bytes"
+                   size is between maxString and maxString+3. It seems best to
+                   use the same maximum size for CharArray/Word8Array and
+                   for String/Word8Vector so we need to check here. *) 
+                then raise Size
                 else (bytes + wordSize - 0w1) div wordSize
             val mem = RunCall.allocateByteMemory(words, F_mutable_bytes)
-            (* Zero the last word. *)
-            val () =
-                if words = 0w0 then () else RunCall.storeUntagged(RunCall.unsafeCast mem, words-0w1, 0w0)
+            (* Zero any extra bytes we've needed for rounding to a number of words. *)
+            val full = words * wordSize
+            fun clearExtra i =
+                if i = full then ()
+                else (RunCall.storeByte(mem, i, 0w0); clearExtra(i+0w1))
+            val _ = clearExtra bytes
         in
             mem
         end
@@ -158,16 +164,19 @@ struct
                 (* The space is the number of characters plus space for the length word
                    plus rounding. *)
                 val words : word = (charsW + 0w2 * wordSize - 0w1) div wordSize
-                val _ = words <= maxAllocation orelse raise Size
                 val vec = RunCall.allocateByteMemory(words, F_mutable_bytes)
                 (* Zero any extra bytes we've needed for rounding to a number of words.
                    This isn't essential but ensures that RTS sharing passes will
                    merge strings that are otherwise the same. *)
-                val () = RunCall.storeUntagged(vec, words-0w1, 0w0)
+                val full = words * wordSize
+                fun clearExtra i =
+                    if i = full then ()
+                    else (RunCall.storeByte(vec, i, 0w0); clearExtra(i+0w1))
+                val _ = clearExtra (charsW+wordSize)
             in
                 (* Set the length word.  Since this is untagged we can't simply
                    use assign_word.*)
-                setLengthWord(vec, charsW);
+                SetLengthWord(vec, charsW);
                 vec
             end
 
