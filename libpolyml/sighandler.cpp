@@ -2,12 +2,11 @@
     Title:      Signal handling
     Author:     David C.J. Matthews
 
-    Copyright (c) 2000-8 David C.J. Matthews
+    Copyright (c) 2000-8, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -270,69 +269,6 @@ static Handle waitForSignal(TaskData *taskData)
         // This releases sigLock after acquiring schedLock.
         if (! processes->WaitForSignal(taskData, &sigLock))
             raise_exception_string(taskData, EXC_Fail, "Only one thread may wait for signals");
-    }
-
-}
-
-
-/* This function behaves fairly similarly to the Unix and Windows signal
-   handler.  It takes a signal number and a handler which may be a function
-   or may be 0 (default) or 1 (ignore) and returns the value corresponding
-   to the previous handler. 
-   I've used a general dispatch function here to allow for future expansion. */
-Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
-{
-    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
-    switch (c)
-    {
-    case 0: /* Set up signal handler. */
-        {
-            int sign;
-            int action;
-            Handle oldaction;
-            {
-                // Lock while we look at the signal vector but release
-                // it before making a root request.
-                PLocker locker(&sigLock);
-                // We have to pass this to the main thread to 
-                // set up the signal handler.
-                sign = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
-                /* Decode the action if it is Ignore or Default. */
-                if (IS_INT(DEREFHANDLE(args)->Get(1)))
-                    action = (int)UNTAGGED(DEREFHANDLE(args)->Get(1));
-                else action = HANDLE_SIG; /* Set the handler. */
-                if (sign <= 0 || sign >= NSIG)
-                    raise_syscall(taskData, "Invalid signal value", EINVAL);
-
-                /* Get the old action before updating the vector. */
-                oldaction = SAVE(findHandler(sign));
-                // Now update it.
-                sigData[sign].handler = DEREFWORDHANDLE(args)->Get(1);
-            }
-
-            // Request a change in the masking by the root thread.
-            // This doesn't do anything in Windows so the only "signal"
-            // we affect is SIGINT and that is handled by RequestConsoleInterrupt.
-            if (! sigData[sign].nonMaskable)
-            {
-#ifdef USE_PTHREAD_SIGNALS
-                SignalRequest request(sign, action);
-                processes->MakeRootRequest(taskData, &request);
-#endif
-            }
-            return oldaction;
-        }
-
-    case 1: // Called by the signal handler thread.  Blocks until a signal is available.
-        return waitForSignal(taskData);
-
-    default:
-        {
-            char msg[100];
-            sprintf(msg, "Unknown signal function: %d", c);
-            raise_exception_string(taskData, EXC_Fail, msg);
-            return 0;
-        }
     }
 }
 

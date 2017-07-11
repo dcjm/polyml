@@ -458,7 +458,8 @@ struct
     fun mkTagTest(test: codetree, tagValue: word, maxTag: word) =
         TagTest {test=test, tag=tagValue, maxTag=maxTag }
 
-    fun mkHandle (exp, handler) = Handle {exp = exp, handler = handler};
+    fun mkHandle (exp, handler, exId) =
+        Handle {exp = exp, handler = handler, exPacketAddr = exId}
 
     fun mkStr (strbuff:string) = Constnt (toMachineWord strbuff, [])
 

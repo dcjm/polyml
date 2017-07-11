@@ -273,8 +273,9 @@ struct
         
         (* The low-level code-generators print strings a bit at a time and separate the lines
            with new-line characters.  This provides a simple string printer for backwards
-           compatibility. *)
-        fun getSimplePrinter parameters =
+           compatibility.  It has now been extended with explicit tab stops.  By default
+           tabs are inserted every eight characters. *)
+        fun getSimplePrinter(parameters, tabStops) =
         let
             val compilerOut: pretty -> unit = getTag compilerOutputTag parameters
             val buff = ref ""
@@ -286,11 +287,35 @@ struct
                 if Substring.size b = 0 (* No newline. *)
                 then buff := Substring.string a
                 else
-                (
-                    compilerOut(PrettyString(Substring.string a));
+                let
+                    val str = Substring.string a
+                    (* Split at the tabs. *)
+                    val fields = String.fields (fn #"\t" => true | _ => false) str
+                    fun nSpaces n = if n <= 0 then "" else CharVector.tabulate(n, fn _ => #" ")
+                    fun rebuild(f::l, tabs) =
+                        let
+                            fun findTab(length, []) =
+                                (8 - Int.rem(length, 8), [])
+                            |   findTab(length, tab::tabs) =
+                                if length >= tab
+                                then
+                                let
+                                    val (t, ts) = findTab(length-tab, tabs)
+                                in
+                                    (t+length, ts)
+                                end
+                                else (tab-length, tabs)
+                            val (spaces, nextTab) = findTab(size f, tabs)
+                        in
+                            f :: nSpaces spaces :: rebuild(l, nextTab)
+                        end
+
+                    |   rebuild([], _) = []
+                in
+                    compilerOut(PrettyString(String.concat(rebuild(fields, tabStops))));
                     buff := "";
                     printStream(Substring.string(Substring.slice(b, 1, NONE))) 
-                )
+                end
             end
         in
             printStream

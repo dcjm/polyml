@@ -89,9 +89,7 @@ sig
 
     |   Raise of codetree (* Raise an exception *)
 
-    |   Ldexc (* Load the exception (used at the start of a handler) *)
-    
-    |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree }
+    |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree, exPacketAddr: int }
 
     |   Tuple of { fields: codetree list, isVariant: bool } (* Tuples and datatypes *)
 

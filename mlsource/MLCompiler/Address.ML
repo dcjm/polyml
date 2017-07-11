@@ -66,8 +66,6 @@ sig
     val isBytes : address -> bool
     val isCode  : address -> bool
     val isMutable:address -> bool
-
-    val isIoAddress : address -> bool
 end
 
 structure Address :> AddressSig =
@@ -158,13 +156,6 @@ struct
     val F_gc           : Word8.word = 0wx80 (* object is (pointer or depth) tombstone *)
 
   local
-        val doCall: int*address -> bool
-             = Compat560.processEnvGeneral
-  in
-        fun isIoAddress (a: address) : bool = doCall(102, a)
-  end
-  
-  local
     val typeMask : Word8.word = 0wx03
 
     fun isType (t: Word8.word) (a: address):bool = 
@@ -201,10 +192,7 @@ struct
     let
         val v = toAddress w
     in
-        if isIoAddress v
-        then "IO Address"
-        
-        else if isCode v
+        if isCode v
         then "CODE \"" ^ functionName w ^ "\""
         
         else if isBytes v

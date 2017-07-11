@@ -76,7 +76,7 @@ struct
         |   codeProps (Newenv(decs, exp)) =
                 List.foldl (fn (d, r) => bindingProps d andb r) (codeProps exp) decs
 
-        |   codeProps (Handle { exp, handler }) =
+        |   codeProps (Handle { exp, handler, ... }) =
                 (* A handler processes all the exceptions in the body *)
                 (codeProps exp orb PROPWORD_NORAISE) andb codeProps handler
 
@@ -161,8 +161,6 @@ struct
         |   codeProps(BeginLoop _) = 0w0
 
         |   codeProps(Loop _) = 0w0
-
-        |   codeProps Ldexc = 0w0
 
         |   codeProps (SetContainer _) = 0w0
 
@@ -320,9 +318,10 @@ struct
         r (* We may well have the situation where one branch of an "if" raises an
              exception.  We can simply raise the exception on that branch. *)
 
-    |   mkSetContainer(container, Handle {exp, handler}, filter) =
+    |   mkSetContainer(container, Handle {exp, handler, exPacketAddr}, filter) =
             Handle{exp=mkSetContainer(container, exp, filter),
-                   handler=mkSetContainer(container, handler, filter)}
+                   handler=mkSetContainer(container, handler, filter),
+                   exPacketAddr = exPacketAddr}
 
     |   mkSetContainer(container, tuple, filter) =
             SetContainer{container = container, tuple = tuple, filter = filter }

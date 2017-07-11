@@ -41,9 +41,6 @@ extern struct _userOptions {
 
 class PolyWord;
 
-// Return the entry in the io vector corresponding to the Poly system call.
-extern PolyWord *IoEntry(unsigned SYS_op);
-
 NORETURNFN(extern void finish(int n));
 
 extern char *RTSArgHelp(void);

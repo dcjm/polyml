@@ -189,8 +189,6 @@ private:
 
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
 
-Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
-
 class ScanAddress;
 
 // Indicate what the main thread is doing if the profile
@@ -349,8 +347,6 @@ extern unsigned NumberOfProcessors(void);
 extern unsigned NumberOfPhysicalProcessors(void);
 
 extern ProcessExternal *processes;
-
-#define IO_SPACING 8 // This is a bit of a mess.
 
 extern struct _entrypts processesEPT[];
 

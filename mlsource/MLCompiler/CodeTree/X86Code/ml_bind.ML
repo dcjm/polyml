@@ -42,10 +42,18 @@ local
             structure X86OPTIMISE   = X86Optimise
         )
         
+    structure X86ICodeIdentify =
+        X86ICodeIdentifyReferences (
+            structure DEBUG         = Debug
+            structure ICODE         = X86ICode
+        )
+        
     structure X86ICodeTransform =
         X86ICodeTransform (
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
+            structure IDENTIFY      = X86ICodeIdentify
+            structure PRETTY        = Pretty
         )
 
     structure X86OldCodeCons =

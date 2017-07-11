@@ -52,7 +52,7 @@ static void CheckAddress(PolyWord *pt)
         Log("Check: Bad pointer %p (no space found)\n", pt);
         ASSERT(space != 0);
     }
-    if (space->spaceType == ST_IO || space->spaceType == ST_STACK) // These may not have valid length words.
+    if (space->spaceType == ST_STACK) // This may not have valid length words.
         return;
     PolyObject *obj = (PolyObject*)pt;
     POLYUNSIGNED length = obj->Length();
@@ -85,10 +85,7 @@ void DoCheck (const PolyWord pt)
     // in a call to set_code_constant on X86/64
     if (pt.IsCodePtr())
         CheckAddress((PolyWord*)ObjCodePtrToPtr(pt.AsCodePtr()));
-    // Normally we never return the address of the base of an area;
-    // there's always a length word.  The exception is the base of the IO area.
-    else if (pt.AsStackAddr() != gMem.IoSpace()->bottom)
-        CheckAddress(pt.AsStackAddr());
+    else CheckAddress(pt.AsStackAddr());
 } 
 
 class ScanCheckAddress: public ScanAddress
@@ -139,8 +136,6 @@ void DoCheckPointer (const PolyWord pt)
     if (pt == PolyWord::FromUnsigned(0)) return;
 
     if (OBJ_IS_AN_INTEGER(pt)) return;
-
-    if (gMem.IsIOPointer(pt.AsAddress())) return;
 
     DoCheck (pt);
 

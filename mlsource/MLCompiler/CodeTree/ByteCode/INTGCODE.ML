@@ -288,7 +288,7 @@ struct
                 exited := true
             end
   
-        |   BICHandle {exp, handler} =>
+        |   BICHandle {exp, handler, exPacketAddr} =>
             let
                 (* Save old handler *)
                 val () = genPushHandler cvec
@@ -314,15 +314,20 @@ struct
                 val () = fixup (genTag, cvec)
                 (* If we were executing machine code we must re-enter the interpreter. *)
                 val () = genEnterIntCatch cvec
+                (* Push the exception packet and set the address. *)
+                val () = genLdexc cvec
+                val () = incsp ()
+                val () = StretchArray.update (decVec, exPacketAddr, StackAddr(!realstackptr))
                 val () = gencde (handler, ToStack, NotEnd, loopAddr)
+                (* Have to remove the exception packet. *)
+                val () = resetStack(1, true, cvec)
+                val () = decsp()
           
                 (* Finally fix-up the jump around the handler *)
                 val () = fixup (skipHandler, cvec)
             in
                 exited := false
             end
-  
-        |   BICLdexc => (genLdexc cvec; incsp ())
   
         |   BICCase ({cases, caseType, test, default, ...}) =>
             let

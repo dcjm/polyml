@@ -742,7 +742,7 @@ struct
   fun codeCreate (name : string, parameters) : code = 
   let
     val words : int = codesize div wordLength
-    val printStream = PRETTY.getSimplePrinter parameters;
+    val printStream = PRETTY.getSimplePrinter(parameters, []);
   in
     Code
       { 
@@ -1704,9 +1704,7 @@ struct
     else let
       val a : address = toAddress w;
     in
-      if isIoAddress a
-        then printStream "RTS entry"
-      else if isCode a
+      if isCode a
         then printConstCode(a, printStream)
       else if isBytes a
         then printBytes(a, printStream)
@@ -1718,7 +1716,7 @@ struct
           then let
             val a' : address = toAddress w';
           in
-            if not (isIoAddress a') andalso isCode a'
+            if isCode a'
             then printConstClosure(a', printStream)
             else printWords(a, printStream) (* First element of tuple is not a code segment *) 
           end

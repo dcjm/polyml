@@ -28,6 +28,7 @@ sig
     val errorDepthTag : FixedInt.int Universal.tag
     val fileNameTag : string Universal.tag
     val getParameter : 'a Universal.tag -> Universal.universal list -> 'a
+    val icodeTag : bool Universal.tag
     val inlineFunctorsTag : bool Universal.tag
     val lineLengthTag : FixedInt.int Universal.tag
     val lineNumberTag : (unit -> FixedInt.int) Universal.tag
@@ -38,7 +39,6 @@ sig
     val parsetreeTag : bool Universal.tag
     val printDepthFunTag : (unit -> FixedInt.int) Universal.tag
     val profileAllocationTag : FixedInt.int Universal.tag
-    val pstackTraceTag : bool Universal.tag
     val reportExhaustiveHandlersTag : bool Universal.tag
     val reportUnreferencedIdsTag : bool Universal.tag
     val reportDiscardedValuesTag: FixedInt.int Universal.tag

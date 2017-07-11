@@ -394,8 +394,6 @@ struct
                 end (* isNewEnv *)
                 
             |   insert(Tuple { fields, ...}) = BICTuple (map insert fields)
-
-            |   insert Ldexc = BICLdexc (* just a constant so return it *)
       
             |   insert(Lambda lam) =
                     (* Using a lambda in a context other than a call or being passed
@@ -403,14 +401,15 @@ struct
                        requires a heap closure. *)
                     insertLambda(lam, true)
 
-            |   insert(Handle { exp, handler }) =
+            |   insert(Handle { exp, handler, exPacketAddr }) =
                 let
                     (* The order here is important.  We want to make sure that
                        the last reference to a variable really is the last. *)
+                    val newAddr = makeDecl exPacketAddr
                     val hand = insert handler
                     val exp = insert exp
                 in
-                    BICHandle {exp = exp, handler = hand}
+                    BICHandle {exp = exp, handler = hand, exPacketAddr=newAddr}
                 end
 
             |   insert(SetContainer {container, tuple, filter}) =

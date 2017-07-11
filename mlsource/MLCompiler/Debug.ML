@@ -57,8 +57,8 @@ struct
         val codetreeTag: bool tag                    = tag()
         (* Print the optimised code after compiling? default false *)
         val codetreeAfterOptTag: bool tag            = tag()
-        (* Print pseudo-stack in code-generator? default false *)
-        val pstackTraceTag: bool tag                 = tag()
+        (* Print x86 intermediate code in code-generator? default false *)
+        val icodeTag: bool tag                       = tag()
         (* Switch on/off low-level optimisation. *)
         val lowlevelOptimiseTag: bool tag            = tag()
         (* Print assembly code in code-generator? default false *)
@@ -98,7 +98,7 @@ struct
             tagInject profileAllocationTag 0,
             tagInject parsetreeTag false,
             tagInject codetreeTag false,
-            tagInject pstackTraceTag false,
+            tagInject icodeTag false,
             tagInject lowlevelOptimiseTag true,
             tagInject assemblyCodeTag false,
             tagInject codetreeAfterOptTag false,

@@ -242,7 +242,6 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     this->sp--;
     *(this->sp) = PolyWord::FromStackAddr(this->sp);
     *(--this->sp) = SPECIAL_PC_END_THREAD; /* Default return address. */
-    *(--this->sp) = Zero; /* Default handler. */
     this->hr = this->sp;
 
     /* If this function takes an argument store it on the stack. */
@@ -251,7 +250,7 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     *(--this->sp) = SPECIAL_PC_END_THREAD; /* Return address. */
     *(--this->sp) = closure; /* Closure address */
 
-    // Make packets for exceptions.
+    // Make packets for exceptions.             
     Handle exn = make_exn(parentTask, EXC_overflow, parentTask->saveVec.push(TAGGED(0)));
     overflowPacket = exn->WordP();
     exn = make_exn(parentTask, EXC_divide, parentTask->saveVec.push(TAGGED(0)));
@@ -493,20 +492,11 @@ int IntTaskData::SwitchToPoly()
             RAISE_EXCEPTION:
                 PolyException *exn = (PolyException*)((*sp).AsObjPtr());
                 this->exception_arg = exn; /* Get exception data */
-                this->sp = sp; /* Save this in case of trace. */
-                PolyWord *t = this->hr;  /* First handler */
-                PolyWord *endStack = this->stack->top;
-                // The legacy version pushes an identifier which is always zero.
-                if (*t == Zero) t++;
-                if (*t == SPECIAL_PC_END_THREAD)
+                sp = this->hr;
+                if (*sp == SPECIAL_PC_END_THREAD)
                     exitThread(this);  // Default handler for thread.
-                this->pc = (*t).AsCodePtr();
-                /* Now remove this handler. */
-                sp = t;
-                while ((t = (*sp).AsStackAddr()) < sp || t > endStack)
-                    sp++;
-                this->hr = t; /* Restore old handler */
-                sp++; /* Remove that entry. */
+                this->pc = (*sp++).AsCodePtr();
+                this->hr = (*sp++).AsStackAddr();
                 break;
             }
 
@@ -538,7 +528,7 @@ int IntTaskData::SwitchToPoly()
             storeWords = arg1; pc += 2;
         TUPLE: /* Common code for tupling. */
             PolyObject *p = this->allocateMemory(storeWords);
-            if (p == 0) goto RAISE_EXCEPTION;; // Exception
+            if (p == 0) goto RAISE_EXCEPTION; // Exception
             p->SetLengthWord(storeWords, 0);
             for(; storeWords > 0; ) p->Set(--storeWords, *sp++);
             *(--sp) = p;
@@ -661,9 +651,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_11: { PolyWord u = sp[11]; *(--sp) = u; break; }
 
         case INSTR_indirect_0:
-            if ((*sp) == PolyWord::FromStackAddr(IoEntry(55)))
-                *sp = TAGGED(401); // We still seem to have some of the old AHL version number references.
-            else *sp = (*sp).AsObjPtr()->Get(0); break;
+            *sp = (*sp).AsObjPtr()->Get(0); break;
 
         case INSTR_indirect_1:
             *sp = (*sp).AsObjPtr()->Get(1); break;
@@ -1559,11 +1547,12 @@ int IntTaskData::SwitchToPoly()
         case INSTR_allocWordMemory:
         {
             // Allocate word segment.  This must be initialised.
-            PolyWord initialiser = *sp++;
-            POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp);
+            // We mustn't pop the initialiser until after any potential GC.
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(sp[2]);
             PolyObject *t = this->allocateMemory(length);
             if (t == 0) goto RAISE_EXCEPTION;
+            PolyWord initialiser = *sp++;
+            POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp++);
             t->SetLengthWord(length, (byte)flags);
             *sp = t;
             // Have to initialise the data.
@@ -1574,9 +1563,9 @@ int IntTaskData::SwitchToPoly()
         case INSTR_alloc_ref:
         {
             // Allocate a single word mutable cell.  This is more common than allocWordMemory on its own.
-            PolyWord initialiser = *sp;
             PolyObject *t = this->allocateMemory(1);
             if (t == 0) goto RAISE_EXCEPTION;
+            PolyWord initialiser = *sp;
             t->SetLengthWord(1, F_MUTABLE_BIT);
             t->Set(0, initialiser);
             *sp = t;
@@ -1915,15 +1904,6 @@ void IntTaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
     ASSERT(newp == ((PolyWord*)new_stack)+new_length);
 }
 
-static Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp);
-static Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp);
-static Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp);
-
-static Handle ThreadSelf(TaskData *taskData)
-{
-    return taskData->saveVec.push(taskData->threadObject);
-}
-
 Handle IntTaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
@@ -1974,7 +1954,7 @@ Handle IntTaskData::EnterPolyCode()
 // code to do it.  These are defaults that are used where there is no
 // machine-specific code.
 
-Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
+static Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
     PolyObject *p = DEREFHANDLE(mutexp);
@@ -1984,20 +1964,10 @@ Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
     return taskData->saveVec.push(newValue);
 }
 
-// Decrement the value contained in the first word of the mutex.
-Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
-{
-    PLocker l(&mutexLock);
-    PolyObject *p = DEREFHANDLE(mutexp);
-    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
-    p->Set(0, newValue);
-    return taskData->saveVec.push(newValue);
-}
-
 // Release a mutex.  We need to lock the mutex to ensure we don't
 // reset it in the time between one of atomic operations reading
 // and writing the mutex.
-Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
+static Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
     DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.

@@ -31,6 +31,8 @@ sig
         GenReg of genReg
     |   FPReg of fpReg
     |   XMMReg of xmmReg
+    
+    val regRepr: reg -> string
 
     val isX64: bool and is32bit: LargeInt.int -> bool
 
@@ -101,8 +103,6 @@ sig
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
         MoveArgument of { source: argument, dest: argument, kind: moveKind }
-
-    |   MoveStackArgToPreg of { offset: int, dest: argument } (* Load an argument or the return address *)
     
         (* Call or jump to a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
@@ -254,6 +254,8 @@ sig
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 
+    val printICode: x86ICode * (string -> unit) -> unit
+
     structure Sharing:
     sig
         type genReg         = genReg
@@ -261,5 +263,6 @@ sig
         and  iLabel         = iLabel
         and  x86ICode       = x86ICode
         and  branchOps      = branchOps
+        and  reg            = reg
     end
 end;

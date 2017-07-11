@@ -248,7 +248,7 @@ local
     val assemblyCode = ref false
     and codetree = ref false
     and codetreeAfterOpt = ref false
-    and icode = ref false
+    and pstackTrace = ref false
     and parsetree = ref false
     and reportUnreferencedIds = ref false
     and reportExhaustiveHandlers = ref false
@@ -519,7 +519,7 @@ local
                     tagInject maxInlineSizeTag (FixedInt.fromInt(! maxInlineSize)),
                     tagInject parsetreeTag (! parsetree),
                     tagInject codetreeTag (! codetree),
-                    tagInject icodeTag (! icode),
+                    tagInject pstackTraceTag (! pstackTrace),
                     tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                     tagInject assemblyCodeTag (! assemblyCode),
                     tagInject codetreeAfterOptTag (! codetreeAfterOpt),
@@ -1224,7 +1224,7 @@ in
             and allocationProfiling = allocationProfiling
             
             val assemblyCode = assemblyCode and codetree = codetree
-            and codetreeAfterOpt = codetreeAfterOpt and icode = icode
+            and codetreeAfterOpt = codetreeAfterOpt and pstackTrace = pstackTrace
             and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
             and lowlevelOptimise = lowlevelOptimise and reportExhaustiveHandlers = reportExhaustiveHandlers
             and narrowOverloadFlexRecord = narrowOverloadFlexRecord
@@ -1989,7 +1989,7 @@ in
                             tagInject compilerOutputTag compilerOut,
                             tagInject maxInlineSizeTag (FixedInt.fromInt(! maxInlineSize)),
                             tagInject codetreeTag (! codetree),
-                            tagInject icodeTag (! icode),
+                            tagInject pstackTraceTag (! pstackTrace),
                             tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                             tagInject assemblyCodeTag (! assemblyCode),
                             tagInject codetreeAfterOptTag (! codetreeAfterOpt)

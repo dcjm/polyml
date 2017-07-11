@@ -390,7 +390,6 @@ struct
         and polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
         and timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
         and processEnvGeneralCall = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        and realGeneralCall = RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun setCodeConstant(addr:'a , offset: word, cnstnt: 'b, flags: word): unit =
             RunCall.unsafeCast(setCodeConstantCall (RunCall.unsafeCast(addr, offset, cnstnt, flags)))
@@ -403,9 +402,6 @@ struct
         and polySpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(polySpecificGeneralCall(RunCall.unsafeCast(code, arg)))
         and timingGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
         and processEnvGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(processEnvGeneralCall(RunCall.unsafeCast(code, arg)))
-        and realGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(realGeneralCall(RunCall.unsafeCast(code, arg)))
         val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
-        and ffiSizeFloat: unit -> word = RunCall.rtsCallFast1 "PolySizeFloat"
-        and ffiSizeDouble: unit -> word = RunCall.rtsCallFast1 "PolySizeDouble"
     end
 end;

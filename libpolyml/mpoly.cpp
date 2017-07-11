@@ -92,12 +92,6 @@ FILE *polyStdout, *polyStderr; // Redirected in the Windows GUI
 static void  InitHeaderFromExport(exportDescription *exports);
 NORETURNFN(static void Usage(const char *message, ...));
 
-// Return the entry in the io vector corresponding to the Poly system call.
-PolyWord *IoEntry(unsigned sysOp)
-{
-    MemSpace *space = gMem.IoSpace();
-    return space->bottom + sysOp * IO_SPACING;
-}
 
 struct _userOptions userOptions;
 
@@ -525,18 +519,10 @@ void InitHeaderFromExport(exportDescription *exports)
     for (unsigned i = 0; i < exports->memTableEntries; i++)
     {
         // Construct a new space for each of the entries.
-        if (i == exports->ioIndex)
-        {
-            if (gMem.InitIOSpace((PolyWord*)memTable[i].mtAddr, memTable[i].mtLength/sizeof(PolyWord)) == 0)
-                Exit("Unable to initialise the memory space");
-        }
-        else
-        {
-            if (gMem.NewPermanentSpace(
-                    (PolyWord*)memTable[i].mtAddr,
-                    memTable[i].mtLength/sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
-                    (unsigned)memTable[i].mtIndex) == 0)
-                Exit("Unable to initialise a permanent memory space");
-        }
+        if (gMem.NewPermanentSpace(
+                (PolyWord*)memTable[i].mtAddr,
+                memTable[i].mtLength/sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
+                (unsigned)memTable[i].mtIndex) == 0)
+            Exit("Unable to initialise a permanent memory space");
     }
 }

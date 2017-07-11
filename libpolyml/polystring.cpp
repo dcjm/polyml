@@ -53,6 +53,7 @@
 
 #define SAVE(x) mdTaskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
+#define DEREFSTRINGHANDLE(_x)    ((PolyStringObject *)(_x)->WordP())
 
 // Return empty string.
 PolyWord EmptyString(TaskData *mdTaskData)
@@ -84,12 +85,6 @@ POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen)
 /* Copies the characters from the string into the destination buffer.
    Returns original length of string. */
 {
-    if (IS_INT(ps))
-    {
-        buff[0] = (char)(UNTAGGED(ps));
-        buff[1] = '\0';
-        return(1);
-    }
     PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
     POLYUNSIGNED chars = str->length >= bufflen ? bufflen-1 : str->length;
     if (chars != 0) strncpy(buff, str->chars, chars);
@@ -101,24 +96,12 @@ char *Poly_string_to_C_alloc(PolyWord ps, size_t extraChars)
 /* Similar to Poly_string_to_C except that the string is allocated using
    malloc and must be freed by the caller. */
 {
-    char    *res;
-
-    if (IS_INT(ps))
-    {
-        res = (char*)malloc(2 + extraChars);
-        if (res == 0) return 0;
-        res[0] = (char)(UNTAGGED(ps));
-        res[1] = '\0';
-    }
-    else
-    {
-        PolyStringObject * str = (PolyStringObject *)ps.AsObjPtr();
-        POLYUNSIGNED chars = str->length;
-        res = (char*)malloc(chars + extraChars + 1);
-        if (res == 0) return 0;
-        if (chars != 0) strncpy(res, str->chars, chars);
-        res[chars] = '\0';
-    }
+    PolyStringObject * str = (PolyStringObject *)ps.AsObjPtr();
+    POLYUNSIGNED chars = str->length;
+    char    *res = (char*)malloc(chars + extraChars + 1);
+    if (res == 0) return 0;
+    if (chars != 0) strncpy(res, str->chars, chars);
+    res[chars] = '\0';
     return res;
 } /* Poly_string_to_C_alloc */
 
@@ -176,28 +159,15 @@ PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer, size_t buff
 
 POLYUNSIGNED Poly_string_to_C(PolyWord ps, WCHAR *buff, POLYUNSIGNED bufflen)
 {
-    char iBuff[1];
-    int iLength = 0;
-    const char *iPtr;
-
-    if (IS_INT(ps))
+    PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
+    int iLength = (int)str->length;
+    if (iLength == 0)
     {
-        iLength = 1;
-        iBuff[0] = (char)UNTAGGED(ps);
-        iPtr = iBuff;
+        // Null string.
+        if (bufflen != 0) buff[0] = 0;
+        return 0;
     }
-    else
-    {
-        PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
-        iLength = (int)str->length;
-        if (iLength == 0)
-        {
-            // Null string.
-            if (bufflen != 0) buff[0] = 0;
-            return 0;
-        }
-        iPtr = str->chars;
-    }
+    const char *iPtr = str->chars;
     // We can convert it directly using the maximum string length.
     int space = MultiByteToWideChar(codePage, 0, iPtr, iLength, buff, (int)bufflen-1);
 
@@ -213,23 +183,10 @@ POLYUNSIGNED Poly_string_to_C(PolyWord ps, WCHAR *buff, POLYUNSIGNED bufflen)
 
 WCHAR *Poly_string_to_U_alloc(PolyWord ps, size_t extraChars)
 {
-    char iBuff[1];
-    int iLength = 0;
-    const char *iPtr;
-
-    if (IS_INT(ps))
-    {
-        iLength = 1;
-        iBuff[0] = (char)UNTAGGED(ps);
-        iPtr = iBuff;
-    }
-    else
-    {
-        PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
-        iLength = (int)str->length;
-        if (iLength == 0 && extraChars == 0) return _wcsdup(L"");
-        iPtr = str->chars;
-    }
+    PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
+    int iLength = (int)str->length;
+    if (iLength == 0 && extraChars == 0) return _wcsdup(L"");
+    const char *iPtr = str->chars;
 
     // Find the space required.
     int chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, NULL, 0);
@@ -330,160 +287,41 @@ void freeStringVector(char **vec)
     free(vec);
 }
 
-// Concatenate two strings.  Now used only internally in the RTS.
+// Concatenate two strings.  Now used only internally in the RTS in process_env.cpp
 Handle strconcatc(TaskData *mdTaskData, Handle y, Handle x)
 /* Note: arguments are in the reverse order from Poly */
 {
-    Handle result;
-    POLYUNSIGNED len, xlen, ylen;
-    char *from_ptr, *to_ptr;
-    
-    if (IS_INT(DEREFWORD(x)))
-        xlen = 1;
-    else 
-        xlen = DEREFSTRINGHANDLE(x)->length;
-    
+    POLYUNSIGNED xlen = DEREFSTRINGHANDLE(x)->length;
     /* Don't concatenate with null strings */
     if (xlen == 0) return y;
     
-    if (IS_INT(DEREFWORD(y)))
-        ylen = 1;
-    else
-        ylen = DEREFSTRINGHANDLE(y)->length;
-    
+    POLYUNSIGNED ylen = DEREFSTRINGHANDLE(y)->length;
     if (ylen == 0) return x;
     
-    len = xlen + ylen;
+    POLYUNSIGNED len = xlen + ylen;
     
     /* Get store for combined string. Include rounding up to next word and
     room for the length word and add in the flag. */
-    result = alloc_and_save(mdTaskData, (len + sizeof(PolyWord)-1)/sizeof(PolyWord) + 1, F_BYTE_OBJ);
+    Handle result = alloc_and_save(mdTaskData, (len + sizeof(PolyWord)-1)/sizeof(PolyWord) + 1, F_BYTE_OBJ);
     
     DEREFSTRINGHANDLE(result)->length = len;
     
     /* Copy first string */
-    to_ptr = DEREFSTRINGHANDLE(result)->chars;
-    if (xlen == 1)
-    {
-        *to_ptr++ = (char)UNTAGGED(DEREFSTRINGHANDLE(x));
-    }
-    else
-    {
-        from_ptr = DEREFSTRINGHANDLE(x)->chars;
-        while (xlen-- > 0) (*to_ptr++ = *from_ptr++);
-    }
-    
-    
+    char *to_ptr = DEREFSTRINGHANDLE(result)->chars;
+    char *from_ptr = DEREFSTRINGHANDLE(x)->chars;
+    while (xlen-- > 0) (*to_ptr++ = *from_ptr++);
+
     /* Add on second */
-    if (ylen == 1)
-    {
-        *to_ptr = (char)UNTAGGED(DEREFSTRINGHANDLE(y));
-    }
-    else
-    {
-        from_ptr = DEREFSTRINGHANDLE(y)->chars;
-        while (ylen-- > 0) (*to_ptr++ = *from_ptr++);
-    }
-    
+    from_ptr = DEREFSTRINGHANDLE(y)->chars;
+    while (ylen-- > 0) (*to_ptr++ = *from_ptr++);
+
     return(result);
 } /* strconcat */
 
+// Only used in Xwindows and then only for debugging.
 void print_string(PolyWord s)
 {
     extern FILE *polyStdout;
-    if (IS_INT(s))
-        putc((char)UNTAGGED(s), polyStdout);
-    else {
         PolyStringObject * str = (PolyStringObject *)s.AsObjPtr();
         fwrite(str->chars, 1, str->length, polyStdout);
-    }
-}
-
-Handle string_length_c(TaskData *mdTaskData, Handle string)    /* Length of a string */
-{
-    PolyWord str = string->Word();
-    if (str.IsTagged()) // Short form
-        return Make_fixed_precision(mdTaskData, 1);
-    
-    POLYUNSIGNED length = ((PolyStringObject *)str.AsObjPtr())->length;
-    return Make_fixed_precision(mdTaskData, length);
-}
-
-static PolyStringObject s_test_x, s_test_y;
-
-// These functions are used in the interpreter.  They are generally replaced by
-// hand-coded versions in the assembly code section.
-static int string_test(PolyWord x, PolyWord y) 
-/* Returns -1, 0, +1 if the first string is less, equal to or greater than the
-   second. These are addresses of the strings because calling
-   fix_persistent_address could result in a garbage-collection which could
-   move the other string. */
-{
-    POLYUNSIGNED i;
-    PolyStringObject *xs, *ys;
-    /* Deal with single characters. */
-    if (IS_INT(x))
-    {
-        s_test_x.length = 1;
-        s_test_x.chars[0] = (char)UNTAGGED(x);
-        xs = &s_test_x;
-    }
-    else xs = (PolyStringObject*)x.AsObjPtr();
-
-    if (IS_INT(y))
-    {
-        s_test_y.length = 1;
-        s_test_y.chars[0] = (char)UNTAGGED(y);
-        ys = &s_test_y;
-    }
-    else ys = (PolyStringObject*)y.AsObjPtr();
-    /* Now do the comparison. */
-
-    for(i = 0; i < xs->length && i < ys->length; i++)
-    {
-        if (xs->chars[i] != ys->chars[i])
-            return xs->chars[i] < ys->chars[i] ? -1 : 1;
-    }
-    /* They must be equal or one must be a leading substring of the other. */
-    if (i < xs->length)
-        return 1; /* y must be the substring. */
-    else if (i < ys->length)
-        return -1; /* x must be the substring */
-    else
-        return 0; /* They must be equal. */
-}
-
-Handle compareStrings(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return mdTaskData->saveVec.push(TAGGED(string_test(DEREFWORD(x), DEREFWORD(y))));
-}
-
-Handle testStringEqual(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) == 0 ? TAGGED(1) : TAGGED(0));
-}
-
-Handle testStringNotEqual(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) != 0 ? TAGGED(1) : TAGGED(0));
-}
-
-Handle testStringGreater(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) > 0 ? TAGGED(1) : TAGGED(0));
-}
-
-Handle testStringLess(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) < 0 ? TAGGED(1) : TAGGED(0));
-}
-
-Handle testStringGreaterOrEqual(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) >= 0 ? TAGGED(1) : TAGGED(0));
-}
-
-Handle testStringLessOrEqual(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) <= 0 ? TAGGED(1) : TAGGED(0));
 }

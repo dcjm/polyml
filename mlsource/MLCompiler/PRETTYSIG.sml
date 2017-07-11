@@ -62,7 +62,7 @@ sig
     val getPrintOutput : Universal.universal list -> pretty -> unit
     and getCompilerOutput : Universal.universal list -> pretty -> unit
     (* getSimplePrinter prints strings through compilerOutput. *)
-    and getSimplePrinter: Universal.universal list -> string -> unit
+    and getSimplePrinter: Universal.universal list * int list -> string -> unit
 
     val tagPrettyBlock: word
     and tagPrettyBreak: word

@@ -113,20 +113,25 @@ struct
     (* Convert a constant to a fixed value.  Used in some constant folding. *)
     val toFix: machineWord -> FixedInt.int = FixedInt.fromInt o Word.toIntX o toShort
 
-    (* If we have a constant index value we convert that into a byte offset. We need
-       to know the size of the item on this platform.  We have to make this check
-       when we actually compile the code because the interpreted version will
-       generally be run on a platform different from the one the pre-built
-       compiler was compiled on. The ML word length will be the same because
-       we have separate pre-built compilers for 32 and 64-bit. *)
-    fun getMultiplier (LoadStoreMLWord _)   = RunCall.bytesPerWord
-    |   getMultiplier (LoadStoreMLByte _)   = 0w1
-    |   getMultiplier LoadStoreC8           = 0w1
-    |   getMultiplier LoadStoreC16          = 0w2
-    |   getMultiplier LoadStoreC32          = 0w4
-    |   getMultiplier LoadStoreC64          = 0w8
-    |   getMultiplier LoadStoreCFloat       = Compat560.ffiSizeFloat()
-    |   getMultiplier LoadStoreCDouble      = Compat560.ffiSizeDouble()
+    local
+        val ffiSizeFloat: unit -> word = RunCall.rtsCallFast1 "PolySizeFloat"
+        and ffiSizeDouble: unit -> word = RunCall.rtsCallFast1 "PolySizeDouble"
+    in
+        (* If we have a constant index value we convert that into a byte offset. We need
+           to know the size of the item on this platform.  We have to make this check
+           when we actually compile the code because the interpreted version will
+           generally be run on a platform different from the one the pre-built
+           compiler was compiled on. The ML word length will be the same because
+           we have separate pre-built compilers for 32 and 64-bit. *)
+        fun getMultiplier (LoadStoreMLWord _)   = RunCall.bytesPerWord
+        |   getMultiplier (LoadStoreMLByte _)   = 0w1
+        |   getMultiplier LoadStoreC8           = 0w1
+        |   getMultiplier LoadStoreC16          = 0w2
+        |   getMultiplier LoadStoreC32          = 0w4
+        |   getMultiplier LoadStoreC64          = 0w8
+        |   getMultiplier LoadStoreCFloat       = ffiSizeFloat()
+        |   getMultiplier LoadStoreCDouble      = ffiSizeDouble()
+    end
 
     fun simplify(c, s) = mapCodetree (simpGeneral s) c
 
@@ -303,6 +308,16 @@ struct
         in 
             SOME(mkEnv(decSrcAddress @ decDstAddress @ decLength, 
                 BlockOperation{kind=kind, sourceLeft=genSrcAddress, destRight=genDstAddress, length=genLength}))
+        end
+
+    |   simpGeneral (context as {enterAddr, nextAddress, ...}) (Handle{exp, handler, exPacketAddr}) =
+        let (* We need to make a new binding for the exception packet. *)
+            val expBody = simplify(exp, context)
+            val newAddr = nextAddress()
+            val () = enterAddr(exPacketAddr, (EnvGenLoad(LoadLocal newAddr), EnvSpecNone))
+            val handleBody = simplify(handler, context)
+        in
+            SOME(Handle{exp=expBody, handler=handleBody, exPacketAddr=newAddr})
         end
 
     |   simpGeneral _ _ = NONE
@@ -714,15 +729,6 @@ struct
             end
 
         |   (_, gen as Constnt _, _) => (* Not inlinable - constant function. *)
-            (*if isIoAddress(toAddress w)
-            then (* If it is the address of a built-in function convert it. *)
-            let
-                val () = reprocess := true
-                val (evCopiedCode, decs, evSpec) = simpBuiltIn(rtsCodeFromAddress w, map #1 argList, context)
-            in
-                (evCopiedCode, decsFunct @ decs, evSpec)
-            end
-            else*)
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
                 val evCopiedCode =
@@ -1304,11 +1310,12 @@ struct
                so we don't add SetContainer nodes. *)
             mkEnv(tupleDecs, loop)
 
-    |   simpPostSetContainer(container, Handle{exp, handler}, tupleDecs, filter) =
+    |   simpPostSetContainer(container, Handle{exp, handler, exPacketAddr}, tupleDecs, filter) =
             mkEnv(tupleDecs,
                 Handle{
                     exp = simpPostSetContainer(container, exp, [], filter),
-                    handler = simpPostSetContainer(container, handler, [], filter)})
+                    handler = simpPostSetContainer(container, handler, [], filter),
+                    exPacketAddr = exPacketAddr})
 
     |   simpPostSetContainer(container, tupleGen, tupleDecs, filter) =
             mkEnv(tupleDecs, mkSetContainer(container, tupleGen, filter))

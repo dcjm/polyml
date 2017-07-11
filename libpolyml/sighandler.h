@@ -1,12 +1,11 @@
 /*
     Title:  sighandler.h
 
-    Copyright (c) 2000-7 David C.J. Matthews
+    Copyright (c) 2000-7, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,11 +21,7 @@
 #ifndef _SIGHANDLER_H
 #define _SIGHANDLER_H 1
 
-class SaveVecEntry;
-typedef SaveVecEntry *Handle;
 class TaskData;
-
-extern Handle Sig_dispatch_c(TaskData *taskData, Handle handler, Handle sig);
 
 extern void markSignalInuse(int sig);
 

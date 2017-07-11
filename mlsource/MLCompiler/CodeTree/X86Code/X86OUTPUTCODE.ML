@@ -217,7 +217,7 @@ struct
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
     let
-        val printStream = PRETTY.getSimplePrinter parameters;
+        val printStream = PRETTY.getSimplePrinter(parameters, [])
     in
         Code
         { 

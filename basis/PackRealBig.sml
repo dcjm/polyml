@@ -33,7 +33,11 @@ local
     open LibrarySupport
     open LibrarySupport.Word8Array
 
-    val realSize: word = Compat560.realGeneral (28, ())
+    local
+        val realSizeCall: unit -> word = RunCall.rtsCallFast1 "PolyRealSize"
+    in
+        val realSize: word = realSizeCall ()
+    end
 
     local
         val System_move_bytes: address*address*word*word*word->unit = RunCall.moveBytes

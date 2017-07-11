@@ -24,12 +24,6 @@
 #ifndef POLY_SPECIFIC_H_INCLUDED
 #define POLY_SPECIFIC_H_INCLUDED
 
-class SaveVecEntry;
-typedef SaveVecEntry *Handle;
-class TaskData;
-
-extern Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code);
-
 extern struct _entrypts polySpecificEPT[];
 
 #endif

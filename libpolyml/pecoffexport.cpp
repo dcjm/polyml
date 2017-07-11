@@ -229,14 +229,7 @@ void PECOFFExport::exportStore(void)
         sections[i].SizeOfRawData = (DWORD)memTable[i].mtLength;
         sections[i].Characteristics = IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_8BYTES;
 
-        if (i == ioMemEntry)
-        {
-            ASSERT(memTable[i].mtFlags & MTF_WRITEABLE);
-            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE));
-            strcpy((char*)sections[i].Name, ".bss");
-            sections[i].Characteristics |= IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_UNINITIALIZED_DATA;
-        }
-        else if (memTable[i].mtFlags & MTF_WRITEABLE)
+        if (memTable[i].mtFlags & MTF_WRITEABLE)
         {
             // Mutable data
             ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
@@ -268,45 +261,42 @@ void PECOFFExport::exportStore(void)
 
     for (i = 0; i < memTableEntries; i++)
     {
-        if (i != ioMemEntry) // Don't relocate the IO area
-        {
-            // Relocations.  The first entry is special and is only used if
-            // we have more than 64k relocations.  It contains the number of relocations but is
-            // otherwise ignored.
-            sections[i].PointerToRelocations = ftell(exportFile);
-            memset(&reloc, 0, sizeof(reloc));
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount = 1;
+        // Relocations.  The first entry is special and is only used if
+        // we have more than 64k relocations.  It contains the number of relocations but is
+        // otherwise ignored.
+        sections[i].PointerToRelocations = ftell(exportFile);
+        memset(&reloc, 0, sizeof(reloc));
+        fwrite(&reloc, sizeof(reloc), 1, exportFile);
+        relocationCount = 1;
 
-            // Create the relocation table and turn all addresses into offsets.
-            char *start = (char*)memTable[i].mtAddr;
-            char *end = start + memTable[i].mtLength;
-            for (p = (PolyWord*)start; p < (PolyWord*)end; )
-            {
-                p++;
-                PolyObject *obj = (PolyObject*)p;
-                POLYUNSIGNED length = obj->Length();
-                // Update any constants before processing the object
-                // We need that for relative jumps/calls in X86/64.
-                if (length != 0 && obj->IsCodeObject())
-                    machineDependent->ScanConstantsWithinCode(obj, this);
-                relocateObject(obj);
-                p += length;
-            }
-             // If there are more than 64k relocations set this bit and set the value to 64k-1.
-            if (relocationCount >= 65535) {
-                sections[i].NumberOfRelocations = 65535;
-                sections[i].Characteristics |= IMAGE_SCN_LNK_NRELOC_OVFL;
-                // We have to go back and patch up the first (dummy) relocation entry
-                // which contains the count.
-                fseek(exportFile, sections[i].PointerToRelocations, SEEK_SET);
-                memset(&reloc, 0, sizeof(reloc));
-                reloc.VirtualAddress = relocationCount;
-                fwrite(&reloc, sizeof(reloc), 1, exportFile);
-                fseek(exportFile, 0, SEEK_END); // Return to the end of the file.
-            }
-            else sections[i].NumberOfRelocations = relocationCount;
+        // Create the relocation table and turn all addresses into offsets.
+        char *start = (char*)memTable[i].mtAddr;
+        char *end = start + memTable[i].mtLength;
+        for (p = (PolyWord*)start; p < (PolyWord*)end; )
+        {
+            p++;
+            PolyObject *obj = (PolyObject*)p;
+            POLYUNSIGNED length = obj->Length();
+            // Update any constants before processing the object
+            // We need that for relative jumps/calls in X86/64.
+            if (length != 0 && obj->IsCodeObject())
+                machineDependent->ScanConstantsWithinCode(obj, this);
+            relocateObject(obj);
+            p += length;
         }
+            // If there are more than 64k relocations set this bit and set the value to 64k-1.
+        if (relocationCount >= 65535) {
+            sections[i].NumberOfRelocations = 65535;
+            sections[i].Characteristics |= IMAGE_SCN_LNK_NRELOC_OVFL;
+            // We have to go back and patch up the first (dummy) relocation entry
+            // which contains the count.
+            fseek(exportFile, sections[i].PointerToRelocations, SEEK_SET);
+            memset(&reloc, 0, sizeof(reloc));
+            reloc.VirtualAddress = relocationCount;
+            fwrite(&reloc, sizeof(reloc), 1, exportFile);
+            fseek(exportFile, 0, SEEK_END); // Return to the end of the file.
+        }
+        else sections[i].NumberOfRelocations = relocationCount;
     }
 
     // We don't need to handle relocation overflow here.
@@ -347,11 +337,8 @@ void PECOFFExport::exportStore(void)
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
     {
-        if (i != ioMemEntry)
-        {
-            sections[i].PointerToRawData = ftell(exportFile);
-            fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
-        }
+        sections[i].PointerToRawData = ftell(exportFile);
+        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
     }
 
     sections[memTableEntries].PointerToRawData = ftell(exportFile);
@@ -359,11 +346,9 @@ void PECOFFExport::exportStore(void)
     exports.structLength = sizeof(exportDescription);
     exports.memTableSize = sizeof(memoryTableEntry);
     exports.memTableEntries = memTableEntries;
-    exports.ioIndex = 0; // The io entry is the first in the memory table
     exports.memTable = (memoryTableEntry *)sizeof(exports); // It follows immediately after this.
     exports.rootFunction = (void*)((char*)rootFunction - (char*)memTable[rootAddrArea].mtAddr);
     exports.timeStamp = now;
-    exports.ioSpacing = ioSpacing;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
 
@@ -382,13 +367,9 @@ void PECOFFExport::exportStore(void)
     // First write symbols for each section and for poly_exports.
     for (i = 0; i < memTableEntries; i++)
     {
-        if (i == ioMemEntry)
-            writeSymbol("ioarea", 0, i+1, false);
-        else {
-            char buff[50];
-            sprintf(buff, "area%0d", i);
-            writeSymbol(buff, 0, i+1, false);
-        }
+        char buff[50];
+        sprintf(buff, "area%0d", i);
+        writeSymbol(buff, 0, i+1, false);
     }
 
     // Exported symbol for table.

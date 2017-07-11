@@ -454,7 +454,7 @@ POLYUNSIGNED ProcessFixupAddress::ScanAddressAt(PolyWord *pt)
 // has moved, otherwise returns the original.
 PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
 {
-    if (old.IsTagged() || old == PolyWord::FromUnsigned(0) || gMem.IsIOPointer(old.AsAddress()))
+    if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
         return old; //  Nothing to do.
 
     // When we are updating addresses in the stack or in code segments we may have
@@ -556,7 +556,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
         return 0;
 
     MemSpace *space = gMem.SpaceForAddress(old.AsStackAddr()-1);
-    if (space == 0 || space->spaceType == ST_IO)
+    if (space == 0)
         return 0;
 
     PolyObject *obj = old.AsObjPtr();

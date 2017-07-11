@@ -112,13 +112,7 @@ void PExport::printCodeAddr(byte *q)
 /* Get the index corresponding to an address. */
 void PExport::printAddress(void *p)
 {
-    unsigned area = findArea(p);
-    if (area == ioMemEntry)
-    {
-        ASSERT(0);
-    }
-    else
-        fprintf(exportFile, "@%lu", getIndex((PolyObject*)p));
+    fprintf(exportFile, "@%lu", getIndex((PolyObject*)p));
 }
 
 void PExport::printValue(PolyWord q)
@@ -273,13 +267,10 @@ void PExport::exportStore(void)
     void *startAddr = 0;
     for (i = 0; i < memTableEntries; i++)
     {
-        if (i != ioMemEntry)
-        {
-            totalBytes += (unsigned long)memTable[i].mtLength;
-            // Get the lowest address.
-            if (startAddr == 0 || memTable[i].mtAddr < startAddr)
-                startAddr = memTable[i].mtAddr;
-        }
+        totalBytes += (unsigned long)memTable[i].mtLength;
+        // Get the lowest address.
+        if (startAddr == 0 || memTable[i].mtAddr < startAddr)
+            startAddr = memTable[i].mtAddr;
     }
     // Create a map entry for each entry.  Allow five words per object.
     nMapSize = totalBytes/(sizeof(PolyWord)*5);
@@ -291,26 +282,23 @@ void PExport::exportStore(void)
     // We want the entries in pMap to be in ascending
     // order of address to make searching easy so we need to process the areas
     // in order of increasing address, which may not be the order in memTable.
-    indexOrder = (unsigned*)calloc(sizeof(unsigned), memTableEntries-1);
+    indexOrder = (unsigned*)calloc(sizeof(unsigned), memTableEntries);
     if (indexOrder == 0)
         throw MemoryException();
 
     unsigned items = 0;
     for (i = 0; i < memTableEntries; i++)
     {
-        if (i != ioMemEntry)
+        unsigned j = items;
+        while (j > 0 && memTable[i].mtAddr < memTable[indexOrder[j-1]].mtAddr)
         {
-            unsigned j = items;
-            while (j > 0 && memTable[i].mtAddr < memTable[indexOrder[j-1]].mtAddr)
-            {
-                indexOrder[j] = indexOrder[j-1];
-                j--;
-            }
-            indexOrder[j] = i;
-            items++;
+            indexOrder[j] = indexOrder[j-1];
+            j--;
         }
+        indexOrder[j] = i;
+        items++;
     }
-    ASSERT(items == memTableEntries-1);
+    ASSERT(items == memTableEntries);
 
     // Process the area in order of ascending address.
     for (i = 0; i < items; i++)
@@ -330,7 +318,6 @@ void PExport::exportStore(void)
                 if (newMap == 0)
                     throw MemoryException();
                 pMap = newMap;
-
             }
             POLYUNSIGNED length = obj->Length();
             pMap[nObjects++] = obj;
@@ -342,22 +329,18 @@ void PExport::exportStore(void)
     fprintf(exportFile, "Objects\t%lu\n", nObjects);
     fprintf(exportFile, "Root\t%lu\n", getIndex(rootFunction));
 
-
-    // Generate each of the areas apart from the IO area.
+    // Generate each of the areas.
     for (i = 0; i < memTableEntries; i++)
     {
-        if (i != ioMemEntry) // Don't relocate the IO area
+        char *start = (char*)memTable[i].mtAddr;
+        char *end = start + memTable[i].mtLength;
+        for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
         {
-            char *start = (char*)memTable[i].mtAddr;
-            char *end = start + memTable[i].mtLength;
-            for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
-            {
-                p++;
-                PolyObject *obj = (PolyObject*)p;
-                POLYUNSIGNED length = obj->Length();
-                printObject(obj);
-                p += length;
-            }
+            p++;
+            PolyObject *obj = (PolyObject*)p;
+            POLYUNSIGNED length = obj->Length();
+            printObject(obj);
+            p += length;
         }
     }
 
@@ -535,13 +518,6 @@ bool PImport::GetValue(PolyWord *result)
         }
         else ASSERT(0);
     }
-    else if (ch == 'J')
-    {
-        /* IO entry number with offset. */
-        POLYUNSIGNED j, offset;
-        fscanf(f, "%" POLYUFMT "+%" POLYUFMT, &j, &offset);
-        ASSERT(0);
-    }
     else
     {
         fprintf(stderr, "Unexpected character in stream");
@@ -569,14 +545,6 @@ bool PImport::DoImport()
 
     ASSERT(gMem.npSpaces == 0);
     ASSERT(gMem.neSpaces == 0);
-    ASSERT(gMem.ioSpace->bottom == 0);
-    PolyWord *ioSpace = (PolyWord*)calloc(256*IO_SPACING, sizeof(PolyWord));
-    if (ioSpace == 0)
-    {
-        fprintf(stderr, "Unable to allocate memory\n");
-        return false;
-    }
-    gMem.InitIOSpace(ioSpace, 256*IO_SPACING);
 
     ch = getc(f);
     /* Skip the "Mapping" line. */

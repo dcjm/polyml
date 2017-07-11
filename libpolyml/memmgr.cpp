@@ -121,7 +121,6 @@ MemMgr::MemMgr(): allocLock("Memmgr alloc")
     currentAllocSpace = currentHeapSize = 0;
     defaultSpaceSize = 1024 * 1024 / sizeof(PolyWord); // 1Mbyte segments.
     spaceTree = new SpaceTreeTree;
-    ioSpace = new MemSpace;
 }
 
 MemMgr::~MemMgr()
@@ -143,7 +142,6 @@ MemMgr::~MemMgr()
     for (i = 0; i < ncSpaces; i++)
         delete(cSpaces[i]);
     free(cSpaces);
-    delete ioSpace;
 }
 
 // Create and initialise a new local space and add it to the table.
@@ -341,18 +339,6 @@ void MemMgr::RemoveEmptyLocals()
             DeleteLocalSpace(space);
     }
 }
-
-// Create an entry for the IO space.
-MemSpace* MemMgr::InitIOSpace(PolyWord *base, POLYUNSIGNED words)
-{
-    ioSpace->bottom = base;
-    ioSpace->top = ioSpace->bottom + words;
-    ioSpace->spaceType = ST_IO;
-    ioSpace->isMutable = false;
-    AddTree(ioSpace);
-    return ioSpace;
-}
-
 
 // Create and initialise a new export space and add it to the table.
 PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv, bool code)

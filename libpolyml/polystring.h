@@ -27,8 +27,7 @@ class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class TaskData;
 
-// A string object.  N.B. Poly strings can be either a single tagged integer or
-// a pointer to this.
+// A string object.
 class PolyStringObject: public PolyObject {
 
 public:
@@ -36,7 +35,7 @@ public:
     char chars[1];
 };
 
-inline POLYUNSIGNED PolyStringLength(PolyWord ps) { return IS_INT(ps) ? 1 : ((PolyStringObject*)ps.AsObjPtr())->length; }
+inline POLYUNSIGNED PolyStringLength(PolyWord ps) { return ((PolyStringObject*)ps.AsObjPtr())->length; }
 
 // We often want to be able to allocate a temporary C string from a Poly string
 // and have it automatically deallocated when the context has been exited.
@@ -113,18 +112,7 @@ extern void freeStringVector(char **vec);
 extern void print_string(PolyWord s);
 
 // These should no longer be used in the RTS except internally.
-// They are currently used by the ML code during bootstrapping.
 extern Handle strconcatc(TaskData *mdTaskData, Handle x, Handle y);
-Handle string_length_c(TaskData *mdTaskData, Handle string);
 
-#define DEREFSTRINGHANDLE(_x)    ((PolyStringObject *)(_x)->WordP())
-
-extern Handle compareStrings(TaskData *mdTaskData, Handle y, Handle x);
-extern Handle testStringEqual(TaskData *mdTaskData, Handle y, Handle x);
-extern Handle testStringNotEqual(TaskData *mdTaskData, Handle y, Handle x);
-extern Handle testStringGreater(TaskData *mdTaskData, Handle y, Handle x);
-extern Handle testStringLess(TaskData *mdTaskData, Handle y, Handle x);
-extern Handle testStringGreaterOrEqual(TaskData *mdTaskData, Handle y, Handle x);
-extern Handle testStringLessOrEqual(TaskData *mdTaskData, Handle y, Handle x);
 
 #endif /* POLYSTRING_H */

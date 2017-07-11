@@ -235,7 +235,7 @@ struct
                                  tagInject parsetreeTag false,
                                  tagInject codetreeTag false,
                                  tagInject codetreeAfterOptTag false,
-                                 tagInject pstackTraceTag false,
+                                 tagInject icodeTag false,
                                  tagInject assemblyCodeTag false
                               ] ) of
                         (_, NONE) => raise Fail "Static Errors"

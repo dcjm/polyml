@@ -728,13 +728,14 @@ struct
                 (mkRaise excPacket, raiseEnv)
             end
 
-    |   codeGenerate(c as HandleTree {exp, hrules, ...}, context as { debugEnv, ...}) =
+    |   codeGenerate(c as HandleTree {exp, hrules, ...}, context as { debugEnv, mkAddr, ...}) =
           (* Execute an expression in the scope of a handler *)
             let
+                val exPacketAddr = mkAddr 1
                 val handleExp = codegen (exp, context)          
-                val handlerCode = codeMatch (c, hrules, Ldexc, true, context)
+                val handlerCode = codeMatch (c, hrules, mkLoadLocal exPacketAddr, true, context)
             in
-                (mkHandle (handleExp, handlerCode), debugEnv)
+                (mkHandle (handleExp, handlerCode, exPacketAddr), debugEnv)
             end
 
     |   codeGenerate(While {test, body, breakPoint, ...}, context as { debugEnv, ...}) =

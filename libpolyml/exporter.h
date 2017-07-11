@@ -63,8 +63,6 @@ protected:
     unsigned int hierarchy;
     struct _memTableEntry *memTable;
     unsigned memTableEntries;
-    unsigned ioMemEntry; // The index corresponding to the IO area.
-    unsigned ioSpacing;
     PolyObject *rootFunction; // Address of the root function.
     unsigned newAreas;
 };

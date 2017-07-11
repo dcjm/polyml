@@ -35,7 +35,6 @@ class GCTaskId;
 class TaskData;
 
 typedef enum {
-    ST_IO,          // The io area forms an interface with the RTS
     ST_PERMANENT,   // Permanent areas are part of the object code
                     // Also loaded saved state.
     ST_LOCAL,       // Local heaps contain volatile data
@@ -200,8 +199,6 @@ public:
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         unsigned flags, unsigned index, unsigned hierarchy = 0);
-    // Create an entry for the IO space.
-    MemSpace   *InitIOSpace(PolyWord *base, POLYUNSIGNED words);
     // Delete a local space
     bool DeleteLocalSpace(LocalMemSpace *sp);
 
@@ -279,8 +276,6 @@ public:
         else return 0;
     }
 
-    bool IsIOPointer(const void *pt) const { return pt >= ioSpace->bottom && pt < ioSpace->top; }
-
     void SetReservation(POLYUNSIGNED words) { reservedSpace = words; }
 
     // In several places we assume that segments are filled with valid
@@ -296,10 +291,6 @@ public:
     // Remove unused allocation areas to reduce the space below the limit.
     void RemoveExcessAllocation(POLYUNSIGNED words);
     void RemoveExcessAllocation() { RemoveExcessAllocation(spaceBeforeMinorGC); }
-
-    MemSpace *IoSpace() { return ioSpace; } // Return pointer to the IO space.
-
-    MemSpace *ioSpace; // The IO space
 
     // Table for permanent spaces
     PermanentMemSpace **pSpaces;

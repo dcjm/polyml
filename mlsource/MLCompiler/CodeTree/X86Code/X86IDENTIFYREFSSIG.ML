@@ -1,7 +1,5 @@
-/*
-    Title:      Process environment.
-    Copyright (c) 2000, 2016
-        David C. J. Matthews
+(*
+    Copyright (c) 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,11 +13,27 @@
     You should have received a copy of the GNU Lesser General Public
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*)
 
-*/
-#ifndef PROCESS_ENV_H
-#define PROCESS_ENV_H
+signature X86IDENTIFYREFSSIG =
+sig
+    type x86ICode and reg
 
-extern struct _entrypts processEnvEPT[];
+    datatype pushState = MustPush | MustNotPush | MayPush
+    
+    type regState =
+    { 
+        active: int, defs: int, refs: int, sourceReal: reg option,
+        destReal: reg option, pushState: pushState
+    }
+    
+    val identifyRegisters:
+        {icode: x86ICode list, maxPRegs: int} -> (x86ICode * int list) list * regState vector
 
-#endif
+    structure Sharing:
+    sig
+        type x86ICode = x86ICode
+        and reg = reg
+        and pushState = pushState
+    end;
+end;

@@ -128,9 +128,11 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CodetreeToICode.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86FIRST_STAGE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86FOREIGNCALL.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeIdentifyReferences.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeToX86Code.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeTransform.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODETRANSFORMSIG.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86IDENTIFYREFSSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OLDFIRSTSTAGESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OPTIMISE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OUTPUTCODE.ML" />

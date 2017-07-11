@@ -177,8 +177,7 @@ struct
                 checkUse isMain (loop, List.foldl (fn (({value, ...}, _), n) => checkUse isMain (value, n, false)) cl arguments, false)
         |   checkUse isMain (Loop args, cl, _) = List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) cl args
         |   checkUse isMain (Raise c, cl, _) = checkUse isMain (c, cl -- 1, false)
-        |   checkUse _      (Ldexc, cl, _) = cl -- 1
-        |   checkUse isMain (Handle {exp, handler}, cl, isTail) =
+        |   checkUse isMain (Handle {exp, handler, ...}, cl, isTail) =
                 checkUse isMain (exp, checkUse isMain (handler, cl, isTail), false)
         |   checkUse isMain (Tuple{ fields, ...}, cl, _) = checkUseList isMain (fields, cl)
 
@@ -1300,8 +1299,8 @@ struct
                    values.  Loop entries go back to the BeginLoop so
                    these are unchanged. *)
 
-        |   pushContainer(Handle{exp, handler}, leafFn) =
-                Handle{exp=pushContainer(exp, leafFn), handler=pushContainer(handler, leafFn)}
+        |   pushContainer(Handle{exp, handler, exPacketAddr}, leafFn) =
+                Handle{exp=pushContainer(exp, leafFn), handler=pushContainer(handler, leafFn), exPacketAddr=exPacketAddr}
 
         |   pushContainer(tuple, leafFn) = leafFn tuple (* Anything else. *)
 

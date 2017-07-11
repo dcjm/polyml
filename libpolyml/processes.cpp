@@ -318,13 +318,6 @@ static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
     return UNTAGGED_UNSIGNED(taskData->threadObject->flags);
 }
 
-// Called from interface vector.  This is the normal entry point for
-// the thread functions.
-Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code)
-{
-    return processesModule.ThreadDispatch(taskData, args, code);
-}
-
 // General interface to thread.  Ideally the various cases will be made into
 // separate functions.
 POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)

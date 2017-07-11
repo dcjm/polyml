@@ -7214,12 +7214,6 @@ static void DebugPrintWord(PolyWord P /* was X_Object *P */)
         return;
     }
     
-    if (gMem.IsIOPointer(P.AsAddress()))
-    {
-        printf("IO %p",P.AsAddress());
-        return;
-    }
-    
     if (isPossibleString(P.AsObjPtr()))
     {
         if (((PolyStringObject*)P.AsObjPtr())->length <= 40)

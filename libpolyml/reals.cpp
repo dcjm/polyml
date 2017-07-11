@@ -134,6 +134,9 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyRealTrunc(double arg);
     POLYEXTERNALSYMBOL double PolyRealRound(double arg);
     POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg);
+    POLYEXTERNALSYMBOL POLYSIGNED PolyGetRoundingMode(PolyWord);
+    POLYEXTERNALSYMBOL POLYSIGNED PolySetRoundingMode(PolyWord);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealSize(PolyWord);
 }
 
 static Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
@@ -417,31 +420,32 @@ static Handle powerOf(TaskData *mdTaskData, Handle args)
 #define POLY_ROUND_DOWNWARD     1
 #define POLY_ROUND_UPWARD       2
 #define POLY_ROUND_TOZERO       3
+#define POLY_ROUND_ERROR        -1
 
 #if defined(__SOFTFP__)
 // soft-float lacks proper rounding mode support
 // While some systems will support fegetround/fesetround, it will have no
 // effect on the actual rounding performed, as the software implementation only
 // ever rounds to nearest.
-static int getrounding(TaskData *)
+static int getrounding()
 {
     return POLY_ROUND_TONEAREST;
 }
 
-static void setrounding(TaskData *taskData, Handle args)
+static int setrounding(int rounding)
 {
-    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
+    switch (rounding)
     {
-    case POLY_ROUND_TONEAREST: return; // The only mode supported
+    case POLY_ROUND_TONEAREST: return 0; // The only mode supported
     }
-    raise_exception_string(taskData, EXC_Fail, "setRound: Not implemented");
+    return -1; // Error - unsupported
 }
 
 // It would be nice to be able to use autoconf to test for these as functions
 // but they are frequently inlined 
 #elif defined(HAVE_FENV_H)
 // C99 version.  This is becoming the most common.
-static int getrounding(TaskData *taskData)
+static int getrounding()
 {
     switch (fegetround())
     {
@@ -452,26 +456,26 @@ static int getrounding(TaskData *taskData)
 #endif
     case FE_TOWARDZERO: return POLY_ROUND_TOZERO;
     }
-    raise_exception_string(taskData, EXC_Fail, "Set to an unknown rounding mode");
+    return POLY_ROUND_ERROR;
 }
 
-static void setrounding(TaskData *taskData, Handle args)
+static int setrounding(int rounding)
 {
-    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
+    switch (rounding)
     {
-    case POLY_ROUND_TONEAREST: fesetround(FE_TONEAREST); break; // Choose nearest
+    case POLY_ROUND_TONEAREST: fesetround(FE_TONEAREST); return 0; // Choose nearest
 #ifndef HOSTARCHITECTURE_SH
-    case POLY_ROUND_DOWNWARD: fesetround(FE_DOWNWARD); break; // Towards negative infinity
-    case POLY_ROUND_UPWARD: fesetround(FE_UPWARD); break; // Towards positive infinity
+    case POLY_ROUND_DOWNWARD: fesetround(FE_DOWNWARD); return 0; // Towards negative infinity
+    case POLY_ROUND_UPWARD: fesetround(FE_UPWARD); return 0; // Towards positive infinity
 #endif
-    case POLY_ROUND_TOZERO: fesetround(FE_TOWARDZERO); break; // Truncate towards zero
-    default: raise_exception_string(taskData, EXC_Fail, "Unsupported rounding mode");
+    case POLY_ROUND_TOZERO: fesetround(FE_TOWARDZERO); return 0; // Truncate towards zero
+    default: return -1;
     }
 }
 
 #elif (defined(HAVE_IEEEFP_H) && ! defined(__CYGWIN__))
 // Older FreeBSD.  Cygwin has the ieeefp.h header but not the functions!
-static int getrounding(TaskData *)
+static int getrounding()
 {
     switch (fpgetround())
     {
@@ -479,24 +483,25 @@ static int getrounding(TaskData *)
     case FP_RM: return POLY_ROUND_DOWNWARD;
     case FP_RP: return POLY_ROUND_UPWARD;
     case FP_RZ: return POLY_ROUND_TOZERO;
-    default: return 0; /* Shouldn't happen. */ 
+    default: return POLY_ROUND_ERROR; /* Shouldn't happen. */ 
     }
 }
 
-static void setrounding(TaskData *taskData, Handle args)
+static int setrounding(int rounding)
 {
-    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
+    switch (rounding)
     {
     case POLY_ROUND_TONEAREST: fpsetround(FP_RN); break; /* Choose nearest */
     case POLY_ROUND_DOWNWARD: fpsetround(FP_RM); break; /* Towards negative infinity */
     case POLY_ROUND_UPWARD: fpsetround(FP_RP); break; /* Towards positive infinity */
     case POLY_ROUND_TOZERO: fpsetround(FP_RZ); break; /* Truncate towards zero */
     }
+    return 0
 }
 
 #elif defined(_WIN32)
 // Windows version
-static int getrounding(TaskData *)
+static int getrounding()
 {
     switch (_controlfp(0,0) & _MCW_RC)
     {
@@ -505,23 +510,24 @@ static int getrounding(TaskData *)
     case _RC_UP: return POLY_ROUND_UPWARD;
     case _RC_CHOP: return POLY_ROUND_TOZERO;
     }
-    return 0; // Keep the compiler happy
+    return POLY_ROUND_ERROR;
 }
 
-static void setrounding(TaskData *mdTaskData, Handle args)
+static int setrounding(int rounding)
 {
-    switch (get_C_long(mdTaskData, DEREFWORDHANDLE(args)))
+    switch (rounding)
     {
-    case POLY_ROUND_TONEAREST: _controlfp(_RC_NEAR, _MCW_RC); break; // Choose nearest
-    case POLY_ROUND_DOWNWARD: _controlfp(_RC_DOWN, _MCW_RC); break; // Towards negative infinity
-    case POLY_ROUND_UPWARD: _controlfp(_RC_UP, _MCW_RC); break; // Towards positive infinity
-    case POLY_ROUND_TOZERO: _controlfp(_RC_CHOP, _MCW_RC); break; // Truncate towards zero
+    case POLY_ROUND_TONEAREST: _controlfp(_RC_NEAR, _MCW_RC); return 0; // Choose nearest
+    case POLY_ROUND_DOWNWARD: _controlfp(_RC_DOWN, _MCW_RC); return 0; // Towards negative infinity
+    case POLY_ROUND_UPWARD: _controlfp(_RC_UP, _MCW_RC); return 0; // Towards positive infinity
+    case POLY_ROUND_TOZERO: _controlfp(_RC_CHOP, _MCW_RC); return 0; // Truncate towards zero
     }
+    return -1;
 }
 
 #elif defined(_FPU_GETCW) && defined(_FPU_SETCW)
 // Older Linux version
-static int getrounding(TaskData *)
+static int getrounding()
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
@@ -532,15 +538,15 @@ static int getrounding(TaskData *)
     case _FPU_RC_UP: return POLY_ROUND_UPWARD;
     case _FPU_RC_ZERO: return POLY_ROUND_TOZERO;
     }
-    return 0; /* Never reached but this avoids warning message. */
+    return POLY_ROUND_ERROR; /* Never reached but this avoids warning message. */
 }
 
-static void setrounding(TaskData *taskData, Handle args)
+static int setrounding(int rounding)
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
     ctrl &= ~_FPU_RC_ZERO; /* Mask off any existing rounding. */
-    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
+    switch (rounding)
     {
     case POLY_ROUND_TONEAREST: ctrl |= _FPU_RC_NEAREST;
     case POLY_ROUND_DOWNWARD: ctrl |= _FPU_RC_DOWN;
@@ -548,53 +554,31 @@ static void setrounding(TaskData *taskData, Handle args)
     case POLY_ROUND_TOZERO: ctrl |= _FPU_RC_ZERO;
     }
     _FPU_SETCW(ctrl);
-}
-
-#elif (defined(HOSTARCHITECTURE_PPC) && defined(MACOSX))
-// Older versions of the Mac OS X didn't have a suitable function.
-
-static void getround(union db *res)
-{
-    __asm__ ("mffs f0");
-    __asm__ ("stfd f0,0(r3)");
-}
-
-static int getrounding(TaskData *)
-{
-    union db roundingRes;
-    getround(&roundingRes);
-    switch (roundingRes.wrd[1] & 3)
-    {
-    case 0: return POLY_ROUND_TONEAREST; /* Choose nearest */
-    case 1: return POLY_ROUND_TOZERO; /* Round towards zero */
-    case 2: return POLY_ROUND_UPWARD; /* Towards positive infinity */
-    case 3: return POLY_ROUND_DOWNWARD; /* Towards negative infinity */
-    }
-    return 0; /* Never reached but this avoids warning message. */
-}
-
-static void setrounding(TaskData *taskData, Handle args)
-{
-    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
-    {
-    case POLY_ROUND_TONEAREST: __asm__("mtfsfi 7,0"); break; /* Choose nearest */
-    case POLY_ROUND_DOWNWARD: __asm__("mtfsfi 7,3"); break; /* Towards negative infinity */
-    case POLY_ROUND_UPWARD: __asm__("mtfsfi 7,2"); break; /* Towards positive infinity */
-    case POLY_ROUND_TOZERO: __asm__("mtfsfi 7,1"); break; /* Truncate towards zero */
-    }
+    return 0;
 }
 #else
 // Give up.
-static int getrounding(TaskData *mdTaskData)
+static int getrounding()
 {
-    raise_exception_string(mdTaskData, EXC_Fail, "Unable to get floating point rounding control");
+    return POLY_ROUND_ERROR;
 }
 
-static void setrounding(TaskData *mdTaskData, Handle)
+static int setrounding()
 {
-    raise_exception_string(mdTaskData, EXC_Fail, "Unable to set floating point rounding control");
+    return -1;
 }
 #endif
+
+POLYSIGNED PolyGetRoundingMode(PolyWord)
+{
+    // Get the rounding and turn the result into a tagged integer.
+    return TAGGED(getrounding()).AsSigned();
+}
+
+POLYSIGNED PolySetRoundingMode(PolyWord arg)
+{
+    return TAGGED(setrounding((int)arg.UnTagged())).AsSigned();
+}
 
 Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
 {
@@ -646,41 +630,8 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
     unsigned c = get_C_unsigned(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
     {
-    case 0: /* tan */ return real_result(mdTaskData, tan(real_arg(args)));
-    case 1: /* asin */
-        {
-            double x = real_arg(args);
-            if (x < -1.0 || x > 1.0)
-                return real_result(mdTaskData, notANumber);
-            else return real_result(mdTaskData, asin(x));
-        }
-    case 2: /* acos */
-        {
-            double x = real_arg(args);
-            if (x < -1.0 || x > 1.0)
-                return real_result(mdTaskData, notANumber);
-            else return real_result(mdTaskData, acos(x));
-        }
     case 3: /* atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
     case 4: /* pow */ return powerOf(mdTaskData, args);
-    case 5: /* log10 */
-        {
-            double x = real_arg(args);
-            /* Make sure the result conforms to the definition. */
-            if (x < 0.0)
-                return real_result(mdTaskData, notANumber); /* Nan. */
-            else if (x == 0.0) /* x may be +0.0 or -0.0 */
-                return real_result(mdTaskData, negInf); /* -infinity. */
-            else return real_result(mdTaskData, log10(x));
-        }
-    case 6: /* sinh */ return real_result(mdTaskData, sinh(real_arg(args)));
-    case 7: /* cosh */ return real_result(mdTaskData, cosh(real_arg(args)));
-    case 8: /* tanh */ return real_result(mdTaskData, tanh(real_arg(args)));
-    case 9: /* setroundingmode */
-        setrounding(mdTaskData, args);
-        return mdTaskData->saveVec.push(TAGGED(0)); /* Unit */
-    case 10: /* getroundingmode */
-        return mdTaskData->saveVec.push(TAGGED(getrounding(mdTaskData)));
     /* Floating point representation queries. */
 #ifdef _DBL_RADIX
     case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(_DBL_RADIX));
@@ -694,36 +645,10 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
        number which can be represented is DBL_MIN*2**(-DBL_MANT_DIG) */
     case 14: /* Minimum normalised number. */
         return real_result(mdTaskData, DBL_MIN);
-#if (0)
-    case 15: /* Is finite */ /* No longer used - implemented in ML. */
-        return mdTaskData->saveVec.push(finite(real_arg(args)) ? TAGGED(1) : TAGGED(0));
-    case 16: /* Is Nan */ /* No longer used - implemented in ML. */
-        return mdTaskData->saveVec.push(isnan(real_arg(args)) ? TAGGED(1) : TAGGED(0));
-#endif
     case 17: /* Get sign bit.  There may be better ways to find this. */
         return mdTaskData->saveVec.push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
     case 18: /* Copy sign. */
         return real_result(mdTaskData, copysign(real_arg1(args), real_arg2(args)));
-    case 19: /* Return largest integral value (as a real) <= x. */
-        return real_result(mdTaskData, floor(real_arg(args)));
-    case 20: /* Return smallest integral value (as a real) >= x  */
-        return real_result(mdTaskData, ceil(real_arg(args)));
-    case 21:
-        { /* Truncate towards zero */
-            double dx = real_arg(args);
-            if (dx >= 0.0) return real_result(mdTaskData, floor(dx));
-            else return real_result(mdTaskData, ceil(dx));
-        }
-    case 22: /* Round to nearest integral value. */
-        {
-            double dx = real_arg(args);
-            double drem = fmod(dx, 2.0);
-            if (drem == 0.5 || drem == -1.5)
-                /* If the value was exactly positive even + 0.5 or
-                   negative odd -0.5 round it down, otherwise round it up. */
-                return real_result(mdTaskData, ceil(dx-0.5));
-            else return real_result(mdTaskData, floor(dx+0.5));
-        }
     case 23: /* Compute ldexp */
         {
             int exp = get_C_int(mdTaskData, DEREFHANDLE(args)->Get(1));
@@ -740,39 +665,6 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
             (void)frexp(real_arg(args), &exp);
             return mdTaskData->saveVec.push(TAGGED(exp));
         }
-    case 26: /* Return the mantissa from a Nan as a real number. */
-        // I think this is no longer used.
-        {
-            union db r_arg_x, r_arg_y;
-            /* We want to simply replace the exponent by the exponent
-               value for 0.5<=x<1.
-               I think there may be a more portable way of doing this. */
-            r_arg_x.dble = posInf; /* Positive infinity. */
-            r_arg_y.dble = 0.5;
-            /* Use the infinity value as a mask, removing any bits set
-               and replace by the exponent from 0.5. */
-            byte *barg = DEREFBYTEHANDLE(args);
-            for(unsigned i = 0; i < DBLE; i++)
-            {
-                r_arg_x.bytes[i] = (barg[i] & ~r_arg_x.bytes[i]) | r_arg_y.bytes[i];
-            }
-            return real_result(mdTaskData, r_arg_x.dble);
-        }
-    case 27: /* Construct a Nan from a given mantissa. */
-        // I think this is no longer used.
-        {
-            union db r_arg;
-            r_arg.dble = posInf; /* Positive infinity. */
-            /* OR in the exponent. */
-            byte *barg = DEREFBYTEHANDLE(args);
-            for(unsigned i = 0; i < DBLE; i++)
-            {
-                r_arg.bytes[i] = r_arg.bytes[i] | barg[i];
-            }
-            return real_result(mdTaskData, r_arg.dble);
-        }
-    case 28: /* Return the number of bytes for a real.  */
-        return mdTaskData->saveVec.push(TAGGED(sizeof(double)));
 
     default:
         {
@@ -782,6 +674,12 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
             return 0;
         }
     }
+}
+
+POLYUNSIGNED PolyRealSize(PolyWord)
+{
+    // Return the number of bytes for a real.  This is used in PackRealBig/Little.
+    return TAGGED(sizeof(double)).AsUnsigned();
 }
 
 POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
@@ -828,6 +726,9 @@ struct _entrypts realsEPT[] =
     { "PolyRealTrunc",                  (polyRTSFunction)&PolyRealTrunc},
     { "PolyRealRound",                  (polyRTSFunction)&PolyRealRound},
     { "PolyFloatArbitraryPrecision",    (polyRTSFunction)&PolyFloatArbitraryPrecision},
+    { "PolyGetRoundingMode",            (polyRTSFunction)&PolyGetRoundingMode},
+    { "PolySetRoundingMode",            (polyRTSFunction)&PolySetRoundingMode},
+    { "PolyRealSize",                   (polyRTSFunction)&PolyRealSize},
 
     { NULL, NULL} // End of list.
 };

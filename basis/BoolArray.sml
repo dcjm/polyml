@@ -41,16 +41,23 @@ local
     in
         (* Allocate memory for a vector or an array. *)
         fun alloc (bits: int) =
-            let
-                val words : word =
-                    if bits < 0 orelse bits > maxLen
-                    then raise General.Size
-                    else Word.fromInt bits + (bitsPerWord - 0w1) div bitsPerWord
-            in
-                (* TODO: It would be better to clear the last word because it
-                   may not be initialised.  *)
-                RunCall.allocateByteMemory(words, F_mutable_bytes)
-            end
+        let
+            val words : word =
+                if bits < 0 orelse bits > maxLen
+                then raise General.Size
+                else (Word.fromInt bits + (bitsPerWord - 0w1)) div bitsPerWord
+            val vec = RunCall.allocateByteMemory(words, F_mutable_bytes)
+            val bytes = words * wordSize
+            fun fill n =
+                if n = bytes
+                then ()
+                else (RunCall.storeByte(vec, n, 0w0); fill(n+0w1))
+            (* We will only set the bits that we actually use.  Unused bytes will be uninitialised.
+               The equality function we're using tests all the bytes so we need to initialise them. *)
+        in
+            if bytes = 0w0 then () else fill(bytes - wordSize);
+            vec
+        end
     end
 
     val andb = Word.andb and orb = Word.orb and notb = Word.notb
@@ -80,10 +87,10 @@ local
                 in
                     if bit = 0wx80
                     then
-                        (
+                    (
                         RunCall.storeByte(vec, byteno, byte);
                         init(byteno+0w1, 0w0, 0w1, b)
-                        )
+                    )
                     else init(byteno, byte, bit << 0w1, b)
                 end
         in

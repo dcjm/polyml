@@ -236,44 +236,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 51: // LCM
         raise_exception_string(taskData, EXC_Fail, "Old LCM call no longer used");
 
-        // These next ones were originally in process_env and have now been moved here,
-    case 100: /* Return the maximum word segment size. */
-            return taskData->saveVec.push(TAGGED(MAX_OBJECT_SIZE));
-    case 101: /* Return the maximum string size (in bytes).
-                 It is the maximum number of bytes in a segment
-                 less one word for the length field. */
-            return taskData->saveVec.push(TAGGED((MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord)));
-    case 102: /* Test whether the supplied address is in the io area.
-                 This was previously done by having get_flags return
-                 256 but this was changed so that get_flags simply
-                 returns the top byte of the length word. */
-        {
-            PolyWord *pt = (PolyWord*)DEREFWORDHANDLE(args);
-            if (gMem.IsIOPointer(pt))
-                return Make_arbitrary_precision(taskData, 1);
-            else return Make_arbitrary_precision(taskData, 0);
-        }
-    case 103:
-        raise_exception_string(taskData, EXC_Fail, "RTS properties no longer used");
-
-    case 104: return Make_arbitrary_precision(taskData, POLY_version_number);
-
-    case 105: /* Get the name of the function. */
-        {
-            PolyObject *pt = DEREFWORDHANDLE(args);
-            if (pt->IsCodeObject()) /* Should now be a code object. */ 
-            {
-                /* Compiled code.  This is the first constant in the constant area. */
-                PolyWord *codePt = pt->ConstPtrForCode();
-                PolyWord name = codePt[0];
-                /* May be zero indicating an anonymous segment - return null string. */
-                if (name == PolyWord::FromUnsigned(0))
-                    return SAVE(C_string_to_Poly(taskData, ""));
-                else return SAVE(name);
-            }
-            else raise_syscall(taskData, "Not a code pointer", 0);
-        }
-
     case 106: // Lock a mutable code segment and return the executable address.
         {
             PolyObject *codeObj = args->WordP();

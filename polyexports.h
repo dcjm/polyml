@@ -66,13 +66,11 @@ typedef struct _exportDescription {
     unsigned structLength;         // The length of this structure
     unsigned memTableSize;         // The size of each entry in the memory table
     unsigned memTableEntries;      // The number of entries in the memory table
-    unsigned ioIndex;              // The index in the memory table for the io interface area
     memoryTableEntry *memTable;    // Pointer to the memory table.
     void *rootFunction;            // Points to the start-up function
-    time_t timeStamp;        // Creation time stamp
+    time_t timeStamp;              // Creation time stamp
     unsigned architecture;         // Machine architecture
     unsigned rtsVersion;           // Run-time system version
-    unsigned ioSpacing;            // Size of each entry in the io interface area.
 } exportDescription;
 
 extern exportDescription poly_exports;

@@ -86,6 +86,8 @@
 #include "rts_module.h"
 #include "rtsentry.h"
 
+static Handle poly_ffi (TaskData *taskData, Handle args, Handle code);
+
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat();
@@ -468,182 +470,6 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
     }
 }
 
-// General interface to IO.  Ideally the various cases will be made into
-// separate functions.
-POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(code);
-    Handle pushedArg = taskData->saveVec.push(arg);
-    Handle result = 0;
-
-    try {
-        result = poly_ffi(taskData, pushedArg, pushedCode);
-    } catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
-// Load and store functions.  These are implemented in assembly code or the code-generator
-// so are only provided for the interpreter.
-// These functions all take a base address, an offset and an index.  The offset is
-// a byte addition to the base.  The index is added after multiplying by the size.
-Handle cmem_load_8(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    return Make_arbitrary_precision(taskData, baseAddr[index]);
-}
-
-Handle cmem_load_16(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    return Make_arbitrary_precision(taskData, ((uint16_t*)baseAddr)[index]);
-}
-
-#if (SIZEOF_VOIDP == 8)
-Handle cmem_load_32(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    // Return a tagged value in 64-bit mode.
-    return Make_arbitrary_precision(taskData, ((uint32_t*)baseAddr)[index]);
-}
-
-Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    // Box the result.
-    return Make_sysword(taskData, ((uint64_t*)baseAddr)[index]);
-}
-#else
-Handle cmem_load_32(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
-{
-    // Load 32-bit int - In 32-bit mode this needs to be boxed
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    return Make_sysword(taskData, ((uint32_t*)baseAddr)[index]);
-}
-#endif
-
-Handle cmem_load_float(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    return real_result(taskData, ((float*)baseAddr)[index]);
-}
-
-Handle cmem_load_double(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    return real_result(taskData, ((double*)baseAddr)[index]);
-}
-
-Handle cmem_store_8(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    uint8_t value = get_C_unsigned(taskData, valueH->Word());
-    baseAddr[index] = value;
-    return taskData->saveVec.push(TAGGED(0));
-}
-
-Handle cmem_store_16(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    uint16_t value = get_C_unsigned(taskData, valueH->Word());
-    ((uint16_t*)baseAddr)[index] = value;
-    return taskData->saveVec.push(TAGGED(0));
-}
-
-#if (SIZEOF_VOIDP == 8)
-Handle cmem_store_32(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    uint32_t value = get_C_unsigned(taskData, valueH->Word());
-    ((uint32_t*)baseAddr)[index] = value;
-    return taskData->saveVec.push(TAGGED(0));
-}
-
-Handle cmem_store_64(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    // This is boxed.
-    uint64_t value = *(uint64_t*)(valueH->Word().AsAddress());
-    ((uint64_t*)baseAddr)[index] = value;
-    return taskData->saveVec.push(TAGGED(0));
-}
-#else
-Handle cmem_store_32(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    // This is boxed in 32-bit mode.
-    uint32_t value = *(uint32_t*)(valueH->Word().AsAddress());
-    ((uint32_t*)baseAddr)[index] = value;
-    return taskData->saveVec.push(TAGGED(0));
-}
-#endif
-
-Handle cmem_store_float(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    float value = (float)real_arg(taskData->saveVec.push(valueH->Word()));
-    ((float*)baseAddr)[index] = value;
-    return taskData->saveVec.push(TAGGED(0));
-}
-
-Handle cmem_store_double(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
-{
-    uint8_t *baseAddr =
-        *((uint8_t**)baseH->Word().AsAddress()) +
-        getPolySigned(taskData, offsetH->Word());
-    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    double value = real_arg(taskData->saveVec.push(valueH->Word()));
-    ((double*)baseAddr)[index] = value;
-    return taskData->saveVec.push(TAGGED(0));
-}
-
-
 // Construct an entry in the ABI table.
 static Handle mkAbitab(TaskData *taskData, void *arg, char *p)
 {
@@ -715,25 +541,6 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     processes->ThreadReleaseMLMemory(taskData);
 }
 
-// These functions are needed in the compiler
-POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat()
-{
-    return TAGGED(ffi_type_float.size).AsUnsigned();
-}
-
-POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble()
-{
-    return TAGGED(ffi_type_double.size).AsUnsigned();
-}
-
-struct _entrypts polyFFIEPT[] =
-{
-    { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
-    { "PolySizeFloat",                  (polyRTSFunction)&PolySizeFloat},
-    { "PolySizeDouble",                 (polyRTSFunction)&PolySizeDouble},
-
-    { NULL, NULL} // End of list.
-};
 
 class PolyFFI: public RtsModule
 {
@@ -762,3 +569,46 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
     raise_exception_string(taskData, EXC_foreign, "The foreign function interface is not available on this platform");
 }
 #endif
+
+// General interface to IO.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = poly_ffi(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// These functions are needed in the compiler
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat()
+{
+    return TAGGED(ffi_type_float.size).AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble()
+{
+    return TAGGED(ffi_type_double.size).AsUnsigned();
+}
+
+struct _entrypts polyFFIEPT[] =
+{
+    { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
+    { "PolySizeFloat",                  (polyRTSFunction)&PolySizeFloat},
+    { "PolySizeDouble",                 (polyRTSFunction)&PolySizeDouble},
+
+    { NULL, NULL} // End of list.
+};
+

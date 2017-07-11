@@ -847,7 +847,6 @@ void X86TaskData::SetException(poly_exn *exc)
 {
     // Do we need to set the PC value any longer?  It may be necessary if
     // we have taken a trap because another thread has sent a broadcast interrupt.
-//    regDX() = (PolyObject*)IoEntry(POLY_SYS_raisex);
     regPC()  = (byte*)X86AsmRaiseException;
     regAX() = exc; /* put exception data into eax */
     assemblyInterface.exceptionPacket = exc; // Set for direct calls.

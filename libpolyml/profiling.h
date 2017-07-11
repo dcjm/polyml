@@ -43,7 +43,6 @@ extern ProfileMode profileMode;
 #include "processes.h" // For SIGNALCONTEXT
 
 extern void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context);
-extern Handle profilerc(TaskData *taskData, Handle mode_handle);
 extern void add_count(TaskData *taskData, POLYCODEPTR pc, PolyWord *sp, POLYUNSIGNED incr);
 extern void AddObjectProfile(PolyObject *obj);
 

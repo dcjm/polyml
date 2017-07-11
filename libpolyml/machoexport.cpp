@@ -326,15 +326,7 @@ void MachoExport::exportStore(void)
     {
         memset(&(sections[i]), 0, sectionSize);
 
-        if (i == ioMemEntry)
-        {
-            ASSERT(memTable[i].mtFlags & MTF_WRITEABLE);
-            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE));
-            sprintf(sections[i].sectname, "__bss");
-            sprintf(sections[i].segname, "__DATA");
-            sections[i].flags = S_ZEROFILL;
-        }
-        else if (memTable[i].mtFlags & MTF_WRITEABLE)
+        if (memTable[i].mtFlags & MTF_WRITEABLE)
         {
             // Mutable areas
             ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
@@ -391,25 +383,22 @@ void MachoExport::exportStore(void)
     // Create and write out the relocations.
     for (i = 0; i < memTableEntries; i++)
     {
-        if (i != ioMemEntry) // Don't relocate the IO area
+        sections[i].reloff = ftell(exportFile);
+        relocationCount = 0;
+        // Create the relocation table and turn all addresses into offsets.
+        char *start = (char*)memTable[i].mtAddr;
+        char *end = start + memTable[i].mtLength;
+        for (p = (PolyWord*)start; p < (PolyWord*)end; )
         {
-            sections[i].reloff = ftell(exportFile);
-            relocationCount = 0;
-            // Create the relocation table and turn all addresses into offsets.
-            char *start = (char*)memTable[i].mtAddr;
-            char *end = start + memTable[i].mtLength;
-            for (p = (PolyWord*)start; p < (PolyWord*)end; )
-            {
-                p++;
-                PolyObject *obj = (PolyObject*)p;
-                POLYUNSIGNED length = obj->Length();
-                if (length != 0 && obj->IsCodeObject())
-                    machineDependent->ScanConstantsWithinCode(obj, this);
-                relocateObject(obj);
-                p += length;
-            }
-            sections[i].nreloc = relocationCount;
+            p++;
+            PolyObject *obj = (PolyObject*)p;
+            POLYUNSIGNED length = obj->Length();
+            if (length != 0 && obj->IsCodeObject())
+                machineDependent->ScanConstantsWithinCode(obj, this);
+            relocateObject(obj);
+            p += length;
         }
+        sections[i].nreloc = relocationCount;
     }
 
     // Additional relocations for the descriptors.
@@ -487,13 +476,11 @@ void MachoExport::exportStore(void)
     exports.structLength = sizeof(exportDescription);
     exports.memTableSize = sizeof(memoryTableEntry);
     exports.memTableEntries = memTableEntries;
-    exports.ioIndex = 0; // The io entry is the first in the memory table
     exports.memTable = (memoryTableEntry *)sizeof(exportDescription); // It follows immediately after this.
     // Set the value to be the offset relative to the base of the area.  We have set a relocation
     // already which will add the base of the area.
     exports.rootFunction = (void*)rootOffset;
     exports.timeStamp = getBuildTime();
-    exports.ioSpacing = ioSpacing;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
 
@@ -512,16 +499,9 @@ void MachoExport::exportStore(void)
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
     {
-        if (i == ioMemEntry)
-        {
-            sections[i].offset = 0;
-        }
-        else
-        {
-            alignFile(4);
-            sections[i].offset = ftell(exportFile);
-            fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
-        }
+        alignFile(4);
+        sections[i].offset = ftell(exportFile);
+        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
     }
     // Rewind to rewrite the headers with the actual offsets.
     rewind(exportFile);

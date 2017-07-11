@@ -93,8 +93,6 @@ public:
 
     POLYUNSIGNED total_length;
     bool     show_size;
-    void     *io_bottom;
-    void     *io_top;
     VisitBitmap  **bitmaps;
     unsigned   nBitmaps;
     // Counts of objects of each size for mutable and immutable data.
@@ -109,9 +107,6 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
     // and gMem.lSpaces changing under our feet.
     PLocker lock(&gMem.allocLock);
 
-    MemSpace *ioSpace = gMem.IoSpace();
-    io_bottom    = ioSpace->bottom;
-    io_top       = ioSpace->top;
     total_length = 0;
     show_size    = show;
 
@@ -276,9 +271,6 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
     if (IS_INT(w))
         return 0; /* not a pointer */
     
-    if (w.AsAddress() >= io_bottom && w.AsAddress() < io_top)
-        return 0; /* IO segment */
-     
     if (w == PolyWord::FromUnsigned(0))
         return 0;
     

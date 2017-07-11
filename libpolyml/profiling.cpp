@@ -440,7 +440,7 @@ void AddObjectProfile(PolyObject *obj)
 }
 
 // Called from ML to control profiling.
-Handle profilerc(TaskData *taskData, Handle mode_handle)
+static Handle profilerc(TaskData *taskData, Handle mode_handle)
 /* Profiler - generates statistical profiles of the code.
    The parameter is an integer which determines the value to be profiled.
    When profiler is called it always resets the profiling and prints out any

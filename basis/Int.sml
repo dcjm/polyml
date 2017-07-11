@@ -191,6 +191,9 @@ struct
                     toChars(toInt r, chars, q, shortChars)
                 end
         in
+            if i = zero
+            then "0" (* This is the only case where we print a leading zero. *)
+            else
             let
                 val (result, _) = toCharGroup(abs i, 0w0)
             in

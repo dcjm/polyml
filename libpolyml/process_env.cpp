@@ -1,12 +1,11 @@
 /*
     Title:      Process environment.
-    Copyright (c) 2000-8
+    Copyright (c) 2000-8, 2016
         David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -92,8 +91,7 @@ typedef char TCHAR;
 #include "locking.h"
 #include "errors.h"
 #include "rtsentry.h"
-
-#include "poly_specific.h" // For the functions that have been moved.
+#include "version.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL void PolyFinish(PolyObject *threadId, PolyWord arg);
@@ -157,7 +155,7 @@ void CygwinSpawnRequest::Perform()
 
 #endif
 
-Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
+static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
@@ -564,10 +562,34 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 #endif
         }
 
-        // A group of calls have now been moved to poly_specific.
-        // This entry is returned for backwards compatibility.
-    case 100: case 101: case 102: case 103: case 104: case 105:
-        return poly_dispatch_c(mdTaskData, args, code);
+        // These were supposed to have been moved to poly-specific but don't seem to have been.
+    case 100: /* Return the maximum word segment size. */
+            return mdTaskData->saveVec.push(TAGGED(MAX_OBJECT_SIZE));
+    case 101: /* Return the maximum string size (in bytes).
+                 It is the maximum number of bytes in a segment
+                 less one word for the length field. */
+            return mdTaskData->saveVec.push(TAGGED((MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord)));
+    // This is no longer in use but still seems to be in the pre-built compilers.
+    case 102: /* Test whether the supplied address is in the io area. */
+            return Make_arbitrary_precision(mdTaskData, 0);
+ 
+    case 104: return Make_arbitrary_precision(mdTaskData, POLY_version_number);
+ 
+    case 105: /* Get the name of the function. */
+        {
+            PolyObject *pt = DEREFWORDHANDLE(args);
+            if (pt->IsCodeObject()) /* Should now be a code object. */ 
+            {
+                /* Compiled code.  This is the first constant in the constant area. */
+                PolyWord *codePt = pt->ConstPtrForCode();
+                PolyWord name = codePt[0];
+                /* May be zero indicating an anonymous segment - return null string. */
+                if (name == PolyWord::FromUnsigned(0))
+                    return SAVE(C_string_to_Poly(mdTaskData, ""));
+                else return SAVE(name);
+            }
+            else raise_syscall(mdTaskData, "Not a code pointer", 0);
+        }
 
     default:
         {
@@ -626,18 +648,6 @@ void PolyTerminate(PolyObject *threadId, PolyWord arg)
     taskData->PreRTSCall();
     int i = get_C_int(taskData, arg);
     _exit(i); // Doesn't return.
-}
-
-// Retain for the moment.  It's needed for bootstrapping.
-Handle finishc(TaskData *taskData, Handle h)
-{
-    int i = get_C_int(taskData, DEREFWORDHANDLE(h));
-    // Cause the other threads to exit.
-    processes->Exit(i);
-    // Exit this thread
-    processes->ThreadExit(taskData); // Doesn't return.
-    // Push a dummy result to keep lint happy
-    return taskData->saveVec.push(TAGGED(0));
 }
 
 struct _entrypts processEnvEPT[] =

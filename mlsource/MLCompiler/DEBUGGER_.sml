@@ -487,21 +487,22 @@ struct
                 (* If an exception is raised we need to call the onExitException entry, restore the state
                    and reraise the exception. *)
                 (* There are potential race conditions here if we have asynchronous exceptions. *)
-                val savedExn = multipleUses(Ldexc, fn () => mkAddr 1, level)
+                val exPacketAddr = mkAddr 1
                 val onExitExcFn = multipleUses(onExitExcCode, fn () => mkAddr 1, level)
                 (* OnExitException has an extra curried argument - the exception packet. *)
                 val optCallOnExitExc =
                     mkIf(mkTagTest(#load onExitExcFn level, 0w0, 0w0), CodeZero,
-                        mkEval(mkEval(#load onExitExcFn level, onArgs), [#load savedExn level]))
+                        mkEval(mkEval(#load onExitExcFn level, onArgs), [mkLoadLocal exPacketAddr]))
             in
+                val exPacketAddr = exPacketAddr
                 val exceptionCase =
-                    mkEnv(#dec savedExn @ #dec onExitExcFn @  [mkNullDec optCallOnExitExc]  @ restoreState,
-                        mkRaise(#load savedExn level))
+                    mkEnv(#dec onExitExcFn @  [mkNullDec optCallOnExitExc]  @ restoreState,
+                        mkRaise(mkLoadLocal exPacketAddr))
             end
             
             (* Code for the body and the exception. *)
             val bodyCode =
-                multipleUses(mkHandle(codeBody bodyDebugEnv, exceptionCase), fn () => mkAddr 1, level)
+                multipleUses(mkHandle(codeBody bodyDebugEnv, exceptionCase, exPacketAddr), fn () => mkAddr 1, level)
 
             (* Code for normal exit. *)
             local

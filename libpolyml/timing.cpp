@@ -174,7 +174,7 @@ static PLock timeLock("Timing");
 #define XSTR(X) STR(X)
 #define STR(X)  #X
 
-Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
+static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
     switch (c)

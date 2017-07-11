@@ -180,9 +180,7 @@ struct
 
     |   BICRaise of backendIC (* Raise an exception *)
 
-    |   BICLdexc (* Load the exception (used at the start of a handler) *)
-
-    |   BICHandle of (* Exception handler. *) { exp: backendIC, handler: backendIC }
+    |   BICHandle of (* Exception handler. *) { exp: backendIC, handler: backendIC, exPacketAddr: int }
 
     |   BICTuple of backendIC list (* Tuple *)
 
@@ -520,20 +518,18 @@ struct
                 ]
             )
         
-        |   BICHandle {exp, handler, ...} =>
+        |   BICHandle {exp, handler, exPacketAddr} =>
             PrettyBlock (3, false, [],
                 [
                     PrettyString "HANDLE(",
                     pretty exp,
-                    PrettyString "WITH",
+                    PrettyString ("WITH exid=" ^ Int.toString exPacketAddr),
                     PrettyBreak (1, 0),
                     pretty handler,
                     PrettyString ")"
                 ]
             )
-        
-        |   BICLdexc => PrettyString "LDEXC"
-        
+
         |   BICCase {cases, test, default, caseType} =>
             PrettyBlock (1, true, [],
                 PrettyString

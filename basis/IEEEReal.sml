@@ -39,30 +39,37 @@ struct
        | TO_POSINF
        | TO_ZERO
 
-    (* This is used for newly added functions in the Standard Basis. *)
-    fun callReal (code: int) args =
-        Compat560.realGeneral (code,args);
-
-    fun setRoundingMode (r: rounding_mode) : unit =
-    let
-        (* Although the datatype values are almost certainly integers it's
-           much safer to map them to known values here. *)
-        val rv =
-            case r of
-                TO_NEAREST => 0
-              | TO_NEGINF => 1
-              | TO_POSINF => 2
-              | TO_ZERO => 3
+    local
+        val setRoundCall: int -> int = RunCall.rtsCallFast1 "PolySetRoundingMode"
     in
-        callReal 9 rv
+        fun setRoundingMode (r: rounding_mode) : unit =
+        let
+            (* Although the datatype values are almost certainly integers it's
+               much safer to map them to known values here. *)
+            val rv =
+                case r of
+                    TO_NEAREST => 0
+                |   TO_NEGINF => 1
+                |   TO_POSINF => 2
+                |   TO_ZERO => 3
+        in
+            if setRoundCall rv < 0
+            then raise Fail "setRoundingMode failed"
+            else ()
+        end
     end;
     
-    fun getRoundingMode () =
-        case callReal 10 () of
-            0 => TO_NEAREST
-          | 1 => TO_NEGINF
-          | 2 => TO_POSINF
-          | _ => TO_ZERO
+    local
+        val getRoundCall : unit -> int = RunCall.rtsCallFast1 "PolyGetRoundingMode"
+    in
+        fun getRoundingMode () =
+            case getRoundCall () of
+                0 => TO_NEAREST
+            |   1 => TO_NEGINF
+            |   2 => TO_POSINF
+            |   3 => TO_ZERO
+            |   _ => raise Fail "getRoundingMode failed"
+    end
 
     type decimal_approx =
         { class : float_class, sign : bool, digits : int list, exp : int }

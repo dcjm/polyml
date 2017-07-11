@@ -82,8 +82,6 @@ struct
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
         MoveArgument of { source: argument, dest: argument, kind: moveKind }
-
-    |   MoveStackArgToPreg of { offset: int, dest: argument } (* Load an argument or the return address *)
     
         (* Call or jump to a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
@@ -232,6 +230,291 @@ struct
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: argument, arg1: argument, arg2: argument }
+    
+    
+    local
+        fun printArg(PReg(i, PRegGeneral), stream) = stream("G" ^ Int.toString i)
+        |   printArg(PReg(i, PRegUntagged), stream) = stream("U" ^ Int.toString i)
+        |   printArg(RealRegister r, stream) = stream(regRepr r)
+        |   printArg(AddressConstant m, stream) = stream(stringOfWord m)
+        |   printArg(IntegerConstant i, stream) = stream(LargeInt.toString i)
+        |   printArg(MemoryLocation{base, offset, index}, stream) =
+            (
+                stream(Int.toString offset ^ "(");
+                printArg(base, stream);
+                stream ")";
+                case index of
+                    NoMemIndex => ()
+                |   MemIndex1 i => (stream "["; printArg(i, stream); stream "*1]")
+                |   MemIndex2 i => (stream "["; printArg(i, stream); stream "*2]")
+                |   MemIndex4 i => (stream "["; printArg(i, stream); stream "*4]")
+                |   MemIndex8 i => (stream "["; printArg(i, stream); stream "*8]")
+            )
+            
+        fun printLabel(ILabel i, stream) = stream("L"^Int.toString i)
+    in
+        fun printICode(MoveArgument{source, dest, kind}, stream) =
+            (
+                case kind of
+                    MoveWord => stream "\tMoveWord\t"
+                |   MoveByte => stream "\tMoveByte\t"
+                |   Move16Bit => stream "\tMove16Bit\t"
+                |   Move32Bit => stream "\tMove32Bit\t"
+                |   MoveFloat => stream "\tMoveFloat\t"
+                |   MoveDouble => stream "\tMoveDouble\t";
+                printArg(source, stream);
+                stream " => ";
+                printArg(dest, stream)
+            )
+
+        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, isTail}, stream) =
+            (
+                if isTail then stream "\tTailCall\t"
+                else stream "\tFunctionCall\t";
+                case callKind of
+                    Recursive => stream "recursive "
+                |   ConstantCode m => (stream(stringOfWord m); stream " ")
+                |   FullCall => ()
+                |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
+                List.app(fn (arg, r) => (stream(regRepr(GenReg r)); stream "="; printArg(arg, stream); stream " ")) regArgs;
+                List.app(fn arg => (stream "p="; printArg(arg, stream); stream " ")) stackArgs;
+                stream "=> "; printArg(dest, stream)
+            )
+
+        |   printICode(AllocateMemoryOperation{size, flags, dest}, stream) =
+            (
+                stream "\tAllocateMemory\t";
+                stream(concat["s=", Int.toString size, ",f=", Word8.toString flags, " => "]);
+                printArg(dest, stream)
+            )
+
+        |   printICode(AllocateMemoryVariable{size, flags, dest, initialiser}, stream) =
+            (
+                stream "\tAllocateMemory\t";
+                stream "s="; printArg(size, stream);
+                stream "f="; printArg(flags, stream);
+                case initialiser of NONE => () | SOME init => (stream "i="; printArg(init, stream));
+                stream " => "; printArg(dest, stream)
+            )
+
+        |   printICode(InitialisationComplete{dest}, stream) = (stream "\tInitComplete\t"; printArg(dest, stream))
+
+        |   printICode(StartLoop{arguments, loopLabel}, stream) =
+            (
+                stream "\tStartLoop\t";
+                List.app(
+                    fn {source, loopReg} => (printArg(loopReg, stream); stream "="; printArg(source, stream); stream " ")
+                    ) arguments;
+                printLabel(loopLabel, stream)
+            )
+
+        |   printICode(EndLoop{loopLabel}, stream) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
+
+        |   printICode(JumpLoop{arguments, loopLabel}, stream) =
+            (
+                stream "\tJumpLoop\t";
+                List.app(
+                    fn {source, loopReg} => (printArg(loopReg, stream); stream "="; printArg(source, stream); stream " ")
+                    ) arguments;
+                printLabel(loopLabel, stream)
+            )
+
+        |   printICode(RaiseExceptionPacket{packet}, stream) = (stream "\tRaise\t"; printArg(packet, stream))
+
+        |   printICode(ReserveContainer{size, address}, stream) =
+            (stream "\tReserveContainer\t"; stream(Int.toString size); stream "=>"; printArg(address, stream))
+
+        |   printICode(IndexedCaseOperation{testReg, workReg, cases, startValue}, stream) =
+            (
+                stream "\tIndexedCase\t";
+                stream "test="; printArg(testReg, stream);
+                stream "work="; printArg(workReg, stream);
+                stream "from="; stream(Word.toString startValue);
+                List.app(fn l => (stream " "; printLabel(l, stream))) cases
+            )
+
+        |   printICode(LockMutable{addr}, stream) = (stream "\tLockMutable\t"; printArg(addr, stream))
+        
+        |   printICode(ForwardJumpLabel{label, ...}, stream) = (printLabel(label, stream); stream ":\t\t")
+
+        |   printICode(UnconditionalForwardJump{label}, stream) = (stream "\tJump\t"; printLabel(label, stream))
+
+        |   printICode(ConditionalForwardJump{condition, label, ...}, stream) =
+            (
+                case condition of
+                    JO => stream "\tJumpOverflow\t"
+                |   JNO => stream "\tJumpNoOverflow\t"
+                |   JE => stream "\tJumpEqual\t"
+                |   JNE => stream "\tJumpNotEqual\t"
+                |   JL => stream "\tJumpLessSigned\t"
+                |   JGE => stream "\tJumpGeqSigned\t"
+                |   JLE => stream "\tJumpLeqSigned\t"
+                |   JG => stream "\tJumpGrtSigned\t"
+                |   JB => stream "\tJumpLessUnsigned\t"
+                |   JNB => stream "\tJumpGeqUnsigned\t"
+                |   JNA => stream "\tJumpLeqUnsigned\t"
+                |   JA => stream "\tJumpGrtUnsigned\t"
+                |   JP => stream "\tJumpParitySet"
+                |   JNP => stream "\tJumpParityClear\t";
+                printLabel(label, stream)
+            )
+
+        |   printICode(WordComparison{arg1, arg2, ...}, stream) =
+                (stream "\tWordComparison\t"; printArg(arg1, stream); stream ","; printArg(arg2, stream))
+
+        |   printICode(PushExceptionHandler{...}, stream) = stream "\tPushExceptionHandler\t"
+        |   printICode(PopExceptionHandler{...}, stream) = stream "\tPopExceptionHandler\t"
+        |   printICode(BeginHandler{...}, stream) = stream "\tBeginHandler\t"
+
+        |   printICode(ReturnResultFromFunction{resultReg, numStackArgs}, stream) =
+                (stream "\tReturnFromFunction\t"; printArg(resultReg, stream); stream("," ^ Int.toString numStackArgs))
+
+        |   printICode(ArithmeticFunction{oper, resultReg, operand1, operand2, ...}, stream) =
+            (
+                case oper of
+                    ADD => stream "\tAdd\t"
+                |   OR => stream "\tOrBits\t"
+                |   AND => stream "\tAndBits\t"
+                |   SUB => stream "\tSubtract\t"
+                |   XOR => stream "\tExclusiveOrBits\t"
+                |   CMP => stream "\tCompare\t";
+                printArg(operand1, stream);
+                stream ",";
+                printArg(operand2, stream);
+                stream " => ";
+                printArg(resultReg, stream)
+            )
+
+        |   printICode(TestTagBit{...}, stream) = stream "\tTestTagBit\t"
+
+        |   printICode(PushValue{arg}, stream) = (stream "\tPushValue\t"; printArg(arg, stream))
+
+        |   printICode(ResetStackPtr{numWords}, stream) = (stream "\tResetStackPtr\t"; stream(Int.toString numWords))
+
+        |   printICode(TagValue{source, dest}, stream) =
+                (stream "\tTagValue\t"; printArg(source, stream); stream " => "; printArg(dest, stream))
+
+        |   printICode(UntagValue{source, dest, isSigned=true}, stream) =
+                (stream "\tUntagSigned\t"; printArg(source, stream); stream " => "; printArg(dest, stream))
+        |   printICode(UntagValue{source, dest, isSigned=false}, stream) =
+                (stream "\tUntagSigned\t"; printArg(source, stream); stream " => "; printArg(dest, stream))
+
+        |   printICode(LoadEffectiveAddress{...}, stream) = stream "\tLoadEffectiveAddress\t"
+
+        |   printICode(ShiftOperation{shift, resultReg, operand, shiftAmount, ...}, stream) =
+            (
+                case shift of
+                    SHL => stream "\tShiftLeft\t"
+                |   SHR => stream "\tShiftRLogical\t"
+                |   SAR => stream "\tShiftRArith\t";
+                printArg(operand, stream); stream ",";
+                printArg(shiftAmount, stream); stream " => ";
+                printArg(resultReg, stream)
+            )
+
+        |   printICode(Multiplication{resultReg, operand1, operand2, ...}, stream) =
+            (
+                stream "\tMultiplication\t";
+                printArg(operand1, stream);
+                stream ",";
+                printArg(operand2, stream);
+                stream " => ";
+                printArg(resultReg, stream)
+            )
+
+        |   printICode(Division{isSigned, dividend, divisor, quotient, remainder}, stream) =
+            (
+                stream "\tDivision"; stream(if isSigned then "Signed\t" else "Unsigned\t");
+                printArg(dividend, stream); stream " by ";
+                printArg(divisor, stream); stream " => ";
+                printArg(quotient, stream); stream " rem ";
+                printArg(remainder, stream)
+            )
+
+        |   printICode(AtomicExchangeAndAdd{destAddr, source}, stream) =
+            (
+                stream "\tAtomicExchangeAndAdd\t";
+                stream "addr="; printArg(destAddr, stream);
+                stream ",with="; printArg(source, stream)
+            )
+
+        |   printICode(BoxValue{boxKind, source, dest}, stream) =
+            (
+                case boxKind of BoxLargeWord => stream "\tBoxLarge\t" | BoxFloat => stream "\tBoxFloat\t";
+                printArg(source, stream);
+                stream " => ";
+                printArg(dest, stream)
+            )
+
+        |   printICode(CompareByteVectors{vec1Addr, vec2Addr, length, ...}, stream) =
+            (
+                stream "\tCompareByteVectors\t";
+                printArg(vec1Addr, stream); stream ",";
+                printArg(vec2Addr, stream); stream ",";
+                printArg(length, stream)
+            )
+
+        |   printICode(BlockMove{srcAddr, destAddr, length, isByteMove}, stream) =
+            (
+                stream(if isByteMove then "\tBlockByteMove\t" else "\tBlockWordMove\t");
+                stream "src="; printArg(srcAddr, stream);
+                stream ",dest="; printArg(destAddr, stream);
+                stream ",len="; printArg(length, stream)
+            )
+
+        |   printICode(CompareFloatingPt{arg1, arg2, ...}, stream) =
+                (stream "\tCompareFloatingPt\t"; printArg(arg1, stream); stream ","; printArg(arg2, stream))
+
+        |   printICode(X87FPGetCondition{dest, ...}, stream) = (stream "\tX87FPGetCondition\t => "; printArg(dest, stream))
+
+        |   printICode(X87FPArith{opc, resultReg, arg1, arg2}, stream) =
+            (
+                case opc of
+                    FADD => stream "\tX87FPAdd\t"
+                |   FMUL => stream "\tX87FPMul"
+                |   FCOM => stream "\tX87FPCompare\t"
+                |   FCOMP => stream "\tX87FPComparePop\t"
+                |   FSUB => stream "\tX87FPSub\t"
+                |   FSUBR => stream "\tX87FPRevSub\t"
+                |   FDIV => stream "\tX87FPDiv\t"
+                |   FDIVR => stream "\tX87FPRevDiv\t";
+                printArg(arg1, stream); stream ",";
+                printArg(arg2, stream); stream " => ";
+                printArg(resultReg, stream)
+            )
+        
+        |   printICode(X87FPUnaryOps{fpOp, dest, source}, stream) =
+            (
+                case fpOp of
+                    FABS => stream "\tX87FPAbs\t"
+                |   FCHS => stream "\tX87FPNegate\t"
+                |   FLD1 => stream "\tX87FPLoad1\t"
+                |   FLDZ => stream "\tX87FPLoad0\t";
+                printArg(source, stream); stream " => ";
+                printArg(dest, stream)
+            )
+        
+        |   printICode(FloatFixedInt{dest, source}, stream) =
+                (stream "\tFloatFixedInt\t"; printArg(source, stream); stream " => "; printArg(dest, stream))
+        
+        |   printICode(SSE2FPArith{opc, resultReg, arg1, arg2}, stream) =
+            (
+                case opc of
+                    SSE2Move => stream "\tSSE2FPMove\t"
+                |   SSE2Comp => stream "\tSSE2FPComp\t"
+                |   SSE2Add => stream "\tSSE2FPAdd\t"
+                |   SSE2Sub => stream "\tSSE2FPSub\t"
+                |   SSE2Mul => stream "\tSSE2FPMul\t"
+                |   SSE2Div => stream "\tSSE2FPDiv\t"
+                |   SSE2Xor => stream "\tSSE2FPXor\t"
+                |   SSE2And => stream "\tSSE2FPAnd\t"
+                |   SSE2MoveSingle => stream "\tSSE2FPMoveSingle\t"
+                |   SSE2DoubleToFloat => stream "\tSSE2FPDoubleToFloat\t";
+                printArg(arg1, stream); stream ",";
+                printArg(arg2, stream); stream " => ";
+                printArg(resultReg, stream)
+            )
+    end
     
     exception InternalError = Misc.InternalError
 
@@ -805,10 +1088,6 @@ struct
         |   codeGenICode(FloatFixedInt _ :: _, _) =
                 raise InternalError "codeGenICode: FloatFixedInt: TODO"
 
-            (* MoveStackArgToPreg should have been removed by earlier passes. *)
-        |   codeGenICode(MoveStackArgToPreg _ :: _, _) =
-                raise InternalError "codeGenICode: MoveStackArgToPreg"
-
             (* ReserveContainer should have been removed by earlier passes. *)
         |   codeGenICode(ReserveContainer _ :: _, _) =
                 raise InternalError "codeGenICode: ReserveContainer"
@@ -876,6 +1155,7 @@ struct
         and  iLabel         = iLabel
         and  x86ICode       = x86ICode
         and  branchOps      = branchOps
+        and  reg            = reg
     end
 
 end;

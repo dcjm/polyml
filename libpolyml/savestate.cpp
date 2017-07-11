@@ -389,7 +389,7 @@ POLYUNSIGNED SaveFixupAddress::ScanAddressAt(PolyWord *pt)
 // has moved, otherwise returns the original.
 PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
 {
-    if (old.IsTagged() || old == PolyWord::FromUnsigned(0) || gMem.IsIOPointer(old.AsAddress()))
+    if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
         return old; //  Nothing to do.
 
     // When we are updating addresses in the stack or in code segments we may have
@@ -463,15 +463,7 @@ void SaveRequest::Perform()
     // Copy the areas into the export object.  Make sufficient space for
     // the largest possible number of entries.
     exports.memTable = new memoryTableEntry[gMem.neSpaces+gMem.npSpaces+1];
-    exports.ioMemEntry = 0;
-    // The IO vector.
     unsigned memTableCount = 0;
-    MemSpace *ioSpace = gMem.IoSpace();
-    exports.memTable[0].mtAddr = ioSpace->bottom;
-    exports.memTable[0].mtLength = (char*)ioSpace->top - (char*)ioSpace->bottom;
-    exports.memTable[0].mtFlags = 0;
-    exports.memTable[0].mtIndex = 0;
-    memTableCount++;
 
     // Permanent spaces at higher level.  These have to have entries although
     // only the mutable entries will be written.
@@ -517,7 +509,6 @@ void SaveRequest::Perform()
     }
 
     exports.memTableEntries = memTableCount;
-    exports.ioSpacing = IO_SPACING;
 
     // Update references to moved objects.
     SaveFixupAddress fixup;
@@ -983,8 +974,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     for (unsigned i = 0; i < relocate.nDescrs; i++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[i];
-        MemSpace *space =
-            descr->segmentIndex == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(descr->segmentIndex);
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
         if (space != NULL) relocate.targetAddresses[descr->segmentIndex] = space->bottom;
 
         if (descr->segmentData == 0)
@@ -1045,8 +1035,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     for (unsigned j = 0; j < relocate.nDescrs; j++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        MemSpace *space =
-            descr->segmentIndex == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(descr->segmentIndex);
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
         ASSERT(space != NULL); // We should have created it.
         if (descr->segmentFlags & SSF_OVERWRITE)
         {
@@ -1090,8 +1079,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                     errorResult = "Unable to read relocation segment";
                     return false;
                 }
-                MemSpace *toSpace =
-                    reloc.targetSegment == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(reloc.targetSegment);
+                MemSpace *toSpace = gMem.SpaceForIndex(reloc.targetSegment);
                 if (toSpace == NULL)
                 {
                     errorResult = "Unknown space reference in relocation";
@@ -1546,8 +1534,7 @@ void ModuleLoader::Perform()
     for (unsigned i = 0; i < relocate.nDescrs; i++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[i];
-        MemSpace *space =
-            descr->segmentIndex == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(descr->segmentIndex);
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
 
         if (descr->segmentData == 0)
         { // No data - just an entry in the index.

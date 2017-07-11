@@ -262,9 +262,11 @@ static PLock volLock; // Mutex to protect vols.
 // ML memory but another thread could block waiting for the mutex.
 // N.B. raising an exception involves an allocation.
 
-#define FIRST_VOL 0
+// Index zero is special - this is always null.
+#define VOL_NULL_INDEX 0
+#define FIRST_VOL 1
 
-static POLYUNSIGNED num_vols = 0;
+static POLYUNSIGNED num_vols = 1;
 static POLYUNSIGNED next_vol = FIRST_VOL;
 
 
@@ -372,6 +374,9 @@ static void* DEREFVOL (TaskData *taskData, PolyWord v)
         info (("Invalid volatile -- bad magic number, index=<%" POLYUFMT ">\n", index));
         RAISE_EXN("Bad volatile magic number");
     }
+
+    // The Null vol is persistent and doesn't have an ML pointer
+    if (index == VOL_NULL_INDEX) return vols[index].C_pointer;
     
     if (index < num_vols) {
         if (vols[index].ML_pointer == v.AsObjPtr()) {
@@ -634,16 +639,12 @@ void Foreign::Init()
 
 void Foreign::Start()
 {
-#if (0)
+    // Set up the NULL entry
     static void *nullValue = 0;
-    PolyVolData *nullV = (PolyVolData*)IoEntry(POLY_SYS_foreign_null);
-    V_INDEX(nullV) = next_vol++;
-    MakeVolMagic(nullV);
-    ML_POINTER(nullV) = nullV;
-    C_POINTER(nullV) = &nullValue;
-    OWN_C_SPACE(nullV) = false; // Not freed
-    FINALISER(nullV) = 0; // No finaliser
-#endif
+    vols[VOL_NULL_INDEX].ML_pointer = 0;
+    vols[VOL_NULL_INDEX].C_pointer = &nullValue;
+    vols[VOL_NULL_INDEX].Own_C_space = false; // Not freed
+    vols[VOL_NULL_INDEX].C_finaliser = 0; // No finaliser
 }
 
 void Foreign::Stop()
@@ -1654,13 +1655,14 @@ static Handle set_final (TaskData *taskData, Handle pair)
 }
 
 // Return the NULL vol.  This is a persistent vol which always contains null.
+// There is no associated back pointer.
 static Handle getNull(TaskData *taskData, Handle)
 {
-#if (0)
-    return SAVE((PolyObject*)IoEntry(POLY_SYS_foreign_null));
-#else
-    return SAVE(TAGGED(0));
-#endif
+    PolyVolData* v = (PolyVolData*)alloc(taskData, VOL_BOX_SIZE, F_MUTABLE_BIT|F_BYTE_OBJ);
+    Handle result = SAVE(v);
+    V_INDEX(v) = VOL_NULL_INDEX;
+    MakeVolMagic(v);
+    return result;
 }
 
 /**********************************************************************

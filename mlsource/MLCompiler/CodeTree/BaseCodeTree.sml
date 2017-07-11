@@ -76,9 +76,7 @@ struct
 
     |   Raise of codetree (* Raise an exception *)
 
-    |   Ldexc (* Load the exception (used at the start of a handler) *)
-
-    |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree }
+    |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree, exPacketAddr: int }
 
     |   Tuple of { fields: codetree list, isVariant: bool } (* Tuples and datatypes *)
 
@@ -415,19 +413,17 @@ struct
                 ]
             )
 
-        |   Handle {exp, handler, ...} =>
+        |   Handle {exp, handler, exPacketAddr} =>
             PrettyBlock (3, false, [],
                 [
                     PrettyString "HANDLE(",
                     pretty exp,
-                    PrettyString "WITH",
+                    PrettyString ("WITH exid=" ^ Int.toString exPacketAddr),
                     PrettyBreak (1, 0),
                     pretty handler,
                     PrettyString ")"
                 ]
             )
-        
-        | Ldexc => PrettyString "LDEXC"
          
         |   Tuple { fields, isVariant } =>
                 printList(if isVariant then "DATATYPE" else "TUPLE", fields, ",")
@@ -644,8 +640,8 @@ struct
                 }
         |   mapt (Loop l) = Loop (map(fn(c, t) => (mapCodetree f c, t)) l)
         |   mapt (Raise r) = Raise(mapCodetree f r)
-        |   mapt Ldexc = Ldexc
-        |   mapt (Handle{exp, handler}) = Handle{exp=mapCodetree f exp, handler=mapCodetree f handler }
+        |   mapt (Handle{exp, handler, exPacketAddr}) =
+                Handle{exp=mapCodetree f exp, handler=mapCodetree f handler, exPacketAddr=exPacketAddr }
         |   mapt (Tuple { fields, isVariant} ) = Tuple { fields = map (mapCodetree f) fields, isVariant = isVariant }
         |   mapt (SetContainer{container, tuple, filter}) =
                 SetContainer{
@@ -703,8 +699,7 @@ struct
                 foldtree f (foldl (fn (({value, ...}, _), w) => foldtree f w value) v arguments) loop
         |   ftree (Loop l, v) = foldl (fn ((c, _), w) => foldtree f w c) v l
         |   ftree (Raise r, v) = foldtree f v r
-        |   ftree (Ldexc, v) = v
-        |   ftree (Handle{exp, handler}, v) = foldtree f (foldtree f v exp) handler
+        |   ftree (Handle{exp, handler, ...}, v) = foldtree f (foldtree f v exp) handler
         |   ftree (Tuple { fields, ...}, v) = foldl (fn (c, w) => foldtree f w c) v fields
         |   ftree (SetContainer { container, tuple, ...}, v) = foldtree f (foldtree f v container) tuple
         |   ftree (TagTest{test, ...}, v) = foldtree f v test

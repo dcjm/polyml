@@ -80,10 +80,9 @@ sig
     val mkRaise:            codetree -> codetree
     val mkCor:              codetree * codetree -> codetree
     val mkCand:             codetree * codetree -> codetree
-    val mkHandle:           codetree * codetree -> codetree
+    val mkHandle:           codetree * codetree * int -> codetree
     val mkEval:             codetree * codetree list -> codetree
     val identityFunction:   string -> codetree
-    val Ldexc:              codetree
 
     val mkSetContainer:     codetree * codetree * int -> codetree
     val mkTupleFromContainer: int * int -> codetree

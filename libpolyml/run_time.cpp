@@ -67,13 +67,6 @@ extern "C" {
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
-// used heavily by MD_init_interface_vector in machine_dep.c
-void add_word_to_io_area (unsigned sysop, PolyWord val)
-{
-    ASSERT (sysop > 0 && sysop < 256);
-    PolyWord *objAddr = IoEntry(sysop);
-    objAddr[0] = val;
-}
 
 /******************************************************************************/
 /*                                                                            */

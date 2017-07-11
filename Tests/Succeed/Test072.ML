@@ -3,7 +3,7 @@
    The definition of OS.FileSys.access says that it should accept
    but ignore A_EXEC if it doesn't make sense.
 *)
-if RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0) <> 0
+if OS.Path.concat("a", "b") = "a\\b"
 then () (* Windows *)
 else
 let

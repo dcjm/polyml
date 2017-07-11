@@ -67,9 +67,7 @@ sig
 
     |   BICRaise of backendIC (* Raise an exception *)
 
-    |   BICLdexc (* Load the exception (used at the start of a handler) *)
-
-    |   BICHandle of (* Exception handler. *) { exp: backendIC, handler: backendIC }
+    |   BICHandle of (* Exception handler. *) { exp: backendIC, handler: backendIC, exPacketAddr: int }
 
     |   BICTuple of backendIC list (* Tuple *)
 

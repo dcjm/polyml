@@ -201,9 +201,6 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     // when we write out the memory
     MemSpace *space = gMem.SpaceForAddress(val.AsStackAddr()-1);
     ASSERT(space != 0);
-    if (space->spaceType == ST_IO)
-        return 0;
-
     // We may sometimes get addresses that have already been updated
     // to point to the new area.  e.g. (only?) in the case of constants
     // that have been updated in ScanConstantsWithinCode.
@@ -504,18 +501,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     // Copy the areas into the export object.
     unsigned tableEntries = gMem.neSpaces, memEntry = 0;
     if (hierarchy != 0) tableEntries += gMem.npSpaces;
-    tableEntries++; // One extra for the IO area
     exports->memTable = new memoryTableEntry[tableEntries];
-    exports->ioMemEntry = 0;
-
-    // The IO vector.  Should we actually create a blank area?  This needs to be
-    // writable by the RTS but not normally by ML.
-    MemSpace *ioSpace = gMem.IoSpace();
-    exports->memTable[0].mtAddr = ioSpace->bottom;
-    exports->memTable[0].mtLength = (char*)ioSpace->top - (char*)ioSpace->bottom;
-    exports->memTable[0].mtFlags = MTF_WRITEABLE; // Needs to be written during initialisation.
-    exports->memTable[0].mtIndex = 0;
-    memEntry = 1;
 
     // If we're constructing a module we need to include the global spaces.
     if (hierarchy != 0)
@@ -557,10 +543,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
 
     ASSERT(memEntry == tableEntries);
     exports->memTableEntries = memEntry;
-
-    exports->ioSpacing = IO_SPACING;
     exports->rootFunction = copiedRoot;
-
     exports->exportStore();
     return;
 }
