@@ -62,7 +62,7 @@ sig
         SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
         SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
 
-    val memRegThreadSelf: int (* Copied from X86CodeSgig *)
+    val memRegThreadSelf: int (* Copied from X86CodeSig *)
 
     datatype callKinds =
         Recursive
@@ -74,15 +74,16 @@ sig
         PRegGeneral     (* A general register.  This can contain and address and be pushed to the stack. *)
     |   PRegUntagged    (* An untagged general register. Just used for short-term storage. Not valid on the stack. *)
 
-    datatype argument =
-        PReg of int * pregKind (* A pseudo-register - an abstract register. *)
-    |   RealRegister of reg (* A real register. *)
+    datatype abstract = PReg of int * pregKind (* A pseudo-register - an abstract register. *)
+
+    datatype 'reg argument =
+        RegisterArgument of 'reg
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   MemoryLocation of { base: argument, offset: int, index: memoryIndex } (* A memory location.  Could be the stack. *)
+    |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location.  Could be the stack. *)
 
-    and memoryIndex =
-        NoMemIndex | MemIndex1 of argument | MemIndex2 of argument | MemIndex4 of argument | MemIndex8 of argument
+    and 'reg memoryIndex =
+        NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
 
     (* Kinds of moves.
        MoveWord - Move a whole word - 64-bits in 64-bit mode, 32-bits in 32-bit mode.
@@ -99,56 +100,65 @@ sig
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int
 
-    datatype x86ICode =
+    datatype 'reg x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
-        MoveArgument of { source: argument, dest: argument, kind: moveKind }
-    
+        MoveArgument of { source: 'reg argument, dest: 'reg argument, kind: moveKind }
+
+        (* Load an entry from the real stack. *)
+    |   LoadStack of { offset: int, dest: 'reg }
+
+        (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
+    |   LoadMemReg of { offset: int, dest: 'reg }
+
+        (* Start of function.  Set the register arguments. *)
+    |   BeginFunction of { regArgs: ('reg * reg) list }
+
         (* Call or jump to a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
            as one of the argument registers.  The result is stored in the destination register.
            If isTail is true this is tail-recursive and should be a jump. *)
     |   FunctionCall of
-            { callKind: callKinds, regArgs: (argument * genReg) list,
-              stackArgs: argument list, dest: argument, isTail: bool}
+            { callKind: callKinds, regArgs: ('reg argument * genReg) list,
+              stackArgs: 'reg argument list, dest: 'reg, isTail: bool}
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
            required.  This sets the length word including the flags bits. *)
-    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: argument}
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg}
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
            argument is the number of words.  If the initialiser is provided
            each word of the new memory is set to the value. *)
-    |   AllocateMemoryVariable of { size: argument, flags: argument, dest: argument, initialiser: argument option }
+    |   AllocateMemoryVariable of { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
-    |   InitialisationComplete of { dest: argument}
+    |   InitialisationComplete of { dest: 'reg}
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
            The loopLabel in all of these is for checking only, at least at the moment. *)
-    |   StartLoop of { arguments: {source: argument, loopReg: argument} list, loopLabel: iLabel }
+    |   StartLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
 
         (* End a loop.  Causes the loop stack to be popped. *)
     |   EndLoop of { loopLabel: iLabel }
 
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
-    |   JumpLoop of { arguments: {source: argument, loopReg: argument} list, loopLabel: iLabel }
+    |   JumpLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
     
-    |   RaiseExceptionPacket of { packet: argument }
+    |   RaiseExceptionPacket of { packet: 'reg argument }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
-    |   ReserveContainer of { size: int, address: argument }
+    |   ReserveContainer of { size: int, address: 'reg }
 
         (* Indexed case. *)
-    |   IndexedCaseOperation of { testReg: argument, workReg: argument, cases: iLabel list, startValue: word }
+    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list, startValue: word }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
-    |   LockMutable of { addr: argument }
+    |   LockMutable of { addr: 'reg argument }
 
         (* Forward branches. *)
-    |   ForwardJumpLabel of { label: iLabel, result: argument option }
+    |   ForwardJumpLabel of { label: iLabel, result: 'reg option }
     
     |   UnconditionalForwardJump of { label: iLabel }
 
@@ -156,113 +166,113 @@ sig
     |   ConditionalForwardJump of { ccRef: ccRef, condition: branchOps, label: iLabel }
 
         (* Compare two word values. *)
-    |   WordComparison of { arg1: argument, arg2: argument, ccRef: ccRef }
+    |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
-    |   PushExceptionHandler of { handlerAddr: argument, handleStart: iLabel }
+    |   PushExceptionHandler of { handlerAddr: 'reg, handleStart: iLabel }
 
         (* End of a handled section.  Restore the previous handler. *)
-    |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument, workReg: argument }
+    |   PopExceptionHandler of { handlerAddr: 'reg, resultReg: 'reg, workReg: 'reg }
 
         (* Marks the start of a handler.  This sets the stack pointer and
-           restores the old handler.  As a special case it must ensure that rax is
-           preserved because that contains the exception packet. *) 
-    |   BeginHandler of { handleStart: iLabel, workReg: argument }
+           restores the old handler.  Sets the exception packet register. *) 
+    |   BeginHandler of { handleStart: iLabel, packetReg: 'reg, workReg: 'reg }
 
         (* Return from the function. *)
-    |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
+    |   ReturnResultFromFunction of { resultReg: 'reg, numStackArgs: int }
     
         (* Arithmetic or logical operation.  These can set the condition codes. *)
     |   ArithmeticFunction of
-            { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument, ccRef: ccRef }
+            { oper: arithOp, resultReg: 'reg, operand1: 'reg argument, operand2: 'reg argument, ccRef: ccRef }
 
         (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
-    |   TestTagBit of { arg: argument, ccRef: ccRef }
+    |   TestTagBit of { arg: 'reg argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
-    |   PushValue of { arg: argument }
+    |   PushValue of { arg: 'reg argument }
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
 
         (* Tag a value by shifting and setting the tag bit. *)
-    |   TagValue of { source: argument, dest: argument }
+    |   TagValue of { source: 'reg, dest: 'reg }
 
         (* Shift a value to remove the tag bit. *)
-    |   UntagValue of { source: argument, dest: argument, isSigned: bool }
+    |   UntagValue of { source: 'reg argument, dest: 'reg, isSigned: bool }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
-    |   LoadEffectiveAddress of { base: argument option, offset: int, index: memoryIndex, dest: argument }
+    |   LoadEffectiveAddress of { base: 'reg option, offset: int, index: 'reg memoryIndex, dest: 'reg }
 
         (* Shift a word by an amount that can either be a constant or a register. *)
-    |   ShiftOperation of { shift: shiftType, resultReg: argument, operand: argument, shiftAmount: argument, ccRef: ccRef }
+    |   ShiftOperation of { shift: shiftType, resultReg: 'reg, operand: 'reg argument, shiftAmount: 'reg argument, ccRef: ccRef }
 
         (* Multiplication.  We can use signed multiplication for both fixed precision and word (unsigned)
            multiplication.  There are various forms of the instruction including a three-operand
            version. *)
-    |   Multiplication of { resultReg: argument, operand1: argument, operand2: argument, ccRef: ccRef }
+    |   Multiplication of { resultReg: 'reg, operand1: 'reg argument, operand2: 'reg argument, ccRef: ccRef }
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
            puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
            these by pRegs. *)
-    |   Division of { isSigned: bool, dividend: argument, divisor: argument,
-                      quotient: argument, remainder: argument }
+    |   Division of { isSigned: bool, dividend: 'reg argument, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
 
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
            Before the operation the source contains an increment.  After the operation
            the source contains the old value of the destination and the destination
            has been updated with its old value added to the increment. *)
-    |   AtomicExchangeAndAdd of { destAddr: argument, source: argument }
+    |   AtomicExchangeAndAdd of { destAddr: 'reg argument, source: 'reg }
 
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and
            then unboxed and remove unnecessary allocation. *)
-    |   BoxValue of { boxKind: boxKind, source: argument, dest: argument }
+    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            In general vec1Addr and vec2Addr will be pointers inside memory cells
            so have to be untagged registers. *)
     |   CompareByteVectors of
-            { vec1Addr: argument, vec2Addr: argument, length: argument, ccRef: ccRef }
+            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg argument, ccRef: ccRef }
 
         (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
            number of items (bytes or words) to move. *)
-    |   BlockMove of { srcAddr: argument, destAddr: argument, length: argument, isByteMove: bool }
+    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg argument, isByteMove: bool }
 
         (* Floating point comparison. *)
-    |   CompareFloatingPt of { arg1: argument, arg2: argument, ccRef: ccRef }
+    |   CompareFloatingPt of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
-    |   X87FPGetCondition of { ccRef: ccRef, dest: argument }
+    |   X87FPGetCondition of { ccRef: ccRef, dest: 'reg }
 
         (* Binary floating point operations on the X87. *)
-    |   X87FPArith of { opc: fpOps, resultReg: argument, arg1: argument, arg2: argument }
+    |   X87FPArith of { opc: fpOps, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
 
         (* Floating point operations: negate and set sign positive. *)
-    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: argument, source: argument }
+    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: 'reg, source: 'reg argument }
 
         (* Load a fixed point value as a floating point value. *)
-    |   FloatFixedInt of { dest: argument, source: argument }
+    |   FloatFixedInt of { dest: 'reg, source: 'reg argument }
 
         (* Binary floating point operations using SSE2 instructions. *)
-    |   SSE2FPArith of { opc: sse2Operations, resultReg: argument, arg1: argument, arg2: argument }
+    |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
 
-    val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
+    val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 
-    val printICode: x86ICode * (string -> unit) -> unit
+    val printICodeConcrete: reg x86ICode * (string -> unit) -> unit
+    and printICodeAbstract: abstract x86ICode * (string -> unit) -> unit
 
     structure Sharing:
     sig
         type genReg         = genReg
-        and  argument       = argument
+        and  'reg argument  = 'reg argument
         and  iLabel         = iLabel
-        and  x86ICode       = x86ICode
+        and  'reg x86ICode  = 'reg x86ICode
         and  branchOps      = branchOps
         and  reg            = reg
+        and abstract        = abstract
     end
 end;

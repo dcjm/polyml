@@ -80,7 +80,7 @@ extern "C" {
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-#include <Windows.h>
+#include <windows.h>
 
 # ifdef LIBPOLYML_BUILD
 #  ifdef DLL_EXPORT

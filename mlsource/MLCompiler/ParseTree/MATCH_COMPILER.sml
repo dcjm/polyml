@@ -352,9 +352,9 @@ struct
            top-level exception or it could be in a top-level structure. *)
         local
             fun testAccess(Global code) = evalue code
-            |   testAccess(Selected{addr, base = Struct{access, ...}}) =
+            |   testAccess(Selected{addr, base}) =
                 (
-                    case testAccess access of
+                    case testAccess base of
                         NONE => NONE
                     |   SOME c => evalue(mkInd(addr, mkConst c))
                 )

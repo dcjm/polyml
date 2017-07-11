@@ -12,5 +12,5 @@ install-exec-local:
 uninstall-local:
 	-rm -f $(DESTDIR)$(moduledir)/IntAsIntInf
 
-IntAsIntInf: ../../poly ROOT.sml
-	echo "use \"$(srcdir)/ROOT.sml\";" | ../../poly -q -error-exit
+IntAsIntInf: ../../poly$(EXEEXT) ROOT.sml
+	echo "use \"$(srcdir)/ROOT.sml\";" | ../../poly$(EXEEXT) -q -error-exit

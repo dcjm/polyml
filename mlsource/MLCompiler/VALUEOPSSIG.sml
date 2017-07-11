@@ -52,29 +52,6 @@ sig
     val mkGex:         string * types * codetree * locationProp list -> values
     val mkEx:          string * types * locationProp list -> values
 
-    type nameSpace =
-    { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-    };
 
     type printTypeEnv =
         { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
@@ -87,8 +64,6 @@ sig
     val displayFunctors:   functors   * FixedInt.int * printTypeEnv -> pretty
     val displayValues: values * FixedInt.int * printTypeEnv -> pretty
     val printValues: values * FixedInt.int -> pretty
-
-    val nullEnvironment : nameSpace
 
     val codeStruct:     structVals * level -> codetree
     val codeAccess:     valAccess  * level -> codetree
@@ -114,6 +89,10 @@ sig
     val lookupTyp:   {lookupType: string -> typeConstrSet option,
                       lookupStruct: string -> structVals option} * 
                         string * (string -> unit) -> typeConstrSet
+
+    val makeSelectedValue: values * structVals -> values
+    and makeSelectedStructure: structVals * structVals -> structVals
+    and makeSelectedType: typeConstrSet * structVals -> typeConstrSet
 
     val codeLocation: location -> codetree
 

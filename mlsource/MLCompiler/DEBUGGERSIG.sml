@@ -42,30 +42,6 @@ sig
 
     val envTypeId: typeId -> environEntry
 
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      }
-
     type breakPoint = bool ref
 
     (* Functions to make debug entries for various values, types etc. *)

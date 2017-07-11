@@ -108,14 +108,11 @@ void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
     }
     
     /* Set as many full bytes as possible */
-    while (8 <= length)
+    if (8 <= length)
     {
-        /* Invariant: 8 <= length */
-        byte_index ++;
-//        ASSERT(m_bits[byte_index] == 0);
-        m_bits[byte_index] = 0xff;
-        length -= 8;
-        /* Invariant: 0 <= length */
+        memset(m_bits + byte_index + 1, 0xff, length >> 3);
+        byte_index += length >> 3;
+        length &= 7;
     }
     
     /* Invariant: 0 <= length < 8 */

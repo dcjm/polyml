@@ -64,7 +64,7 @@
 #include "mpoly.h"
 #include "run_time.h"
 #include "sighandler.h"
-#include "console.h"
+#include "Console.h"
 #include "../polyexports.h"
 #include "processes.h"
 #include "polystring.h"

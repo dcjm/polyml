@@ -17,17 +17,18 @@
 
 signature X86ICODETRANSFORMSIG =
 sig
-    type x86ICode
-    type genReg
+    type 'reg x86ICode
+    type genReg and abstract
     type address = Address.address
 
-    val codeICodeFunctionToX86: {icode: x86ICode list, functionName: string, maxLabels: int, maxPRegs: int,
+    val codeICodeFunctionToX86: {icode: abstract x86ICode list, functionName: string, maxLabels: int, maxPRegs: int,
             argRegsUsed: genReg list, hasFullClosure: bool, currentStackArgs: int,
             debugSwitches: Universal.universal list } -> address
 
     structure Sharing:
     sig
-        type x86ICode = x86ICode
-        and  genReg   = genReg
+        type 'reg x86ICode = 'reg x86ICode
+        and abstract = abstract
+        and genReg   = genReg
     end
 end;

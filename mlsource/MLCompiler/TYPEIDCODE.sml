@@ -68,16 +68,14 @@ struct
     infix 7 orb;
     val mutableFlags = F_words orb F_mutable
 
-    (* codeStruct and codeAccess are copied from ValueOps. *)
-    fun codeStruct (Struct{access, ...}, level) = codeAccess (access, level)
-
-    and codeAccess (Global code, _) = code
+    (* codeAccess is copied from ValueOps. *)
+    fun codeAccess (Global code, _) = code
       
     |   codeAccess (Local{addr=ref locAddr, level=ref locLevel}, level) =
             mkLoad (locAddr, level, locLevel)
      
     |   codeAccess (Selected{addr, base}, level) =
-            mkInd (addr, codeStruct (base, level))
+            mkInd (addr, codeAccess (base, level))
      
     |   codeAccess _ = raise InternalError "No access"
 

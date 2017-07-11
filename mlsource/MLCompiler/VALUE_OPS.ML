@@ -112,11 +112,19 @@ struct
 
     (* Value in a local structure or a functor argument.  May be simple value, exception
         or constructor. *)
-    fun mkSelectedVar (Value { access = Formal addr, name, typeOf, class, locations, ...}, base, openLocs) =
+    fun mkSelectedVar (Value { access = Formal addr, name, typeOf, class, locations, ...}, Struct{access=sAccess, ...}, openLocs) =
         (* If the argument is "formal" set the base to the base structure. *)
-        Value{name=name, typeOf=typeOf, class=class,
-              access=Selected{addr=addr, base=base},
-              locations=openLocs @ locations, references = NONE, instanceTypes=NONE}
+        let
+            (* If the base structure is a constant do the selection now.  This is redundant
+               unless we're being called from PolyML.NameSpace.Structures.contents.  *)
+            val access =
+                case sAccess of
+                    Global code => Global(mkInd (addr, code))
+                |   _ => Selected{addr=addr, base=sAccess}
+        in
+            Value{name=name, typeOf=typeOf, class=class, access=access,
+                  locations=openLocs @ locations, references = NONE, instanceTypes=NONE}
+        end
 
     |   mkSelectedVar (Value { access = Global code, name, typeOf, class, locations, ...}, _, openLocs) =
         (* Global: We need to add the location information. *)
@@ -155,6 +163,56 @@ struct
 (*****************************************************************************)
   (* Look-up functions. *)
 
+    (* These are used locally and also exported to INITIALISE to be used in PolyML.NameSpace.Structures.contents. *)
+    fun makeSelectedValue(
+            Value{ name, typeOf, access, class, locations, ... },
+            baseStruct as Struct{signat=Signatures { typeIdMap, ...}, name=baseName, ...}) =
+    let
+        fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(typeIdMap offset)
+        |   copyId _ = NONE
+        val copiedType =
+            copyType (typeOf, fn x => x,
+                fn tcon =>
+                    copyTypeConstr (tcon, copyId, fn x => x, fn s => baseName^"."^s))                            
+        val baseLoc =
+            case List.find (fn DeclaredAt _ => true | _ => false) locations of
+                SOME (DeclaredAt loc) => [StructureAt loc]
+            |   _ => []
+    in
+        mkSelectedVar (
+                Value{ name=name, typeOf=copiedType, access=access, class=class, locations=locations,
+                       references = NONE, instanceTypes=NONE },
+                baseStruct, baseLoc)
+    end
+
+    fun makeSelectedStructure(
+            Struct {signat, access, name=structName, locations, ...},
+            Struct {signat=Signatures { typeIdMap, firstBoundIndex, ...}, access=baseAccess, ...}) =
+    let
+        val Signatures { name=sigName, tab, typeIdMap = childMap, locations=sigLocs, ... } = signat
+        (* We need to apply the map from the parent structure to the child. *)
+        val copiedSig =
+            makeSignature(sigName, tab, firstBoundIndex, sigLocs, composeMaps(childMap, typeIdMap), [])
+        (* Convert Formal access to Selected and leave the others (Global?).  If this is
+           Formal but the base structure is global do the selection now.  This is only needed
+           if we're called from PolyML.NameSpace.Structures.contents. *)
+        val newAccess =
+            case (access, baseAccess) of
+                (Formal sel, Global code) => Global(mkInd(sel, code))
+            |   (Formal sel, baseAccess) => Selected { addr = sel, base = baseAccess }
+            |   (access, _) => access
+        (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
+        val baseLoc =
+        case List.find (fn DeclaredAt _ => true | _ => false) locations of
+            SOME (DeclaredAt loc) => [StructureAt loc]
+        |   _ => []
+    in
+        Struct { name = structName, signat = copiedSig, access = newAccess, locations = baseLoc @ locations}
+    end
+    
+    fun makeSelectedType(typeConstr, Struct { signat=Signatures { typeIdMap, name=baseName, ...}, ...}) =
+        fullCopyDatatype(typeConstr, typeIdMap, baseName^".")
+
     (* Look up a structure. *)
     fun lookupStructure (kind, {lookupStruct:string -> structVals option},
                name, errorMessage) =
@@ -166,35 +224,12 @@ struct
             else case lookupStructure
                         ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage) of
                 NONE => NONE (* Already reported *)
-            |   SOME(str as Struct { signat, locations, ...}) =>
+            |   SOME(baseStruct as Struct { signat=Signatures { tab, ... }, ...}) =>
                 let  (* Look up the first part in the structure environment. *)
-                    val Signatures { tab, typeIdMap, firstBoundIndex, ... } = signat
                     val Env{lookupStruct, ...} = makeEnv tab
-                    (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
-                    val baseLoc =
-                    case List.find (fn DeclaredAt _ => true | _ => false) locations of
-                        SOME (DeclaredAt loc) => [StructureAt loc]
-                    |   _ => []
                 in
                     case lookupStruct suffix of
-                        SOME (Struct {signat, access, name=structName, locations, ...})  =>
-                        let
-                            val Signatures { name=sigName, tab, typeIdMap = childMap, locations=sigLocs, ... } = signat
-                            (* We need to apply the map from the parent structure to the child. *)
-                            val copiedSig =
-                                makeSignature(sigName, tab, firstBoundIndex, sigLocs, composeMaps(childMap, typeIdMap), [])
-                            (* Convert Formal access to Selected and leave the others (Global?). *)
-                            val newAccess =
-                                case access of
-                                    Formal sel => makeSelected (sel, str)
-                                |   access => access
-                        
-                            val newStruct =
-                                Struct { name = structName, signat = copiedSig,
-                                         access = newAccess, locations = baseLoc @ locations}
-                        in
-                            SOME newStruct
-                        end
+                        SOME foundStruct  => SOME(makeSelectedStructure(foundStruct, baseStruct))
                     |   NONE => NONE
                 end
     in
@@ -226,32 +261,12 @@ struct
         else case lookupStructure
                     ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage) of
             NONE => SOME undefinedValue
-        |   SOME (baseStruct as Struct { signat, locations, ...}) =>
-            let
-                val Signatures { tab, typeIdMap, ...} = signat
-                (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
-                val baseLoc =
-                    case List.find (fn DeclaredAt _ => true | _ => false) locations of
-                        SOME (DeclaredAt loc) => [StructureAt loc]
-                    |   _ => []
-            in
+        |   SOME (baseStruct as Struct { signat=Signatures { tab, ...}, ...}) =>
+            (
                 case #lookupVal (mkEnv tab) suffix of
-                    SOME (Value{ name, typeOf, access, class, locations, ... }) =>
-                    let
-                        fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(typeIdMap offset)
-                        |   copyId _ = NONE
-                        val copiedType =
-                            copyType (typeOf, fn x => x,
-                                fn tcon =>
-                                    copyTypeConstr (tcon, copyId, fn x => x, fn s => prefix^"."^s))                            
-                    in
-                        SOME(mkSelectedVar (
-                                Value{ name=name, typeOf=copiedType, access=access, class=class, locations=locations,
-                                       references = NONE, instanceTypes=NONE },
-                                baseStruct, baseLoc))
-                    end
+                    SOME foundValue => SOME(makeSelectedValue(foundValue, baseStruct))
                 |   NONE => NONE
-            end
+            )
     in
         case found of
             SOME v => v
@@ -272,14 +287,12 @@ struct
             case lookupStructure
                     ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage) of
             NONE => SOME(TypeConstrSet(undefConstr, []))
-        |   SOME (Struct { signat, ...}) =>
-            let
-                val Signatures { tab, typeIdMap, ...} = signat
-            in
+        |   SOME (baseStruct as Struct { signat=Signatures { tab, ...}, ...}) =>
+            (
                 case #lookupType (mkEnv tab) suffix of
-                    SOME typeConstr => SOME(fullCopyDatatype(typeConstr, typeIdMap, prefix^"."))
+                    SOME typeConstr => SOME(makeSelectedType(typeConstr, baseStruct))
                 |   NONE => NONE
-            end
+            )
     in
         case found of
             SOME v => v
@@ -294,54 +307,6 @@ struct
  
       (* Printing. *)
 
-    (* This name space is used to help find type identifiers.
-       However, because the functions are passed through to the resulting environment
-       by INITIALISE we have to use the same type as the normal top-level environment. *)
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-
-  val nullEnvironment : nameSpace =
-     {
-        lookupVal = fn _ => NONE,
-        lookupType = fn _ => NONE,
-        lookupFix = fn _ => NONE,
-        lookupStruct = fn _ => NONE,
-        lookupSig = fn _ => NONE,
-        lookupFunct = fn _ => NONE,
-        enterVal = fn _ => (),
-        enterType = fn _ => (),
-        enterFix = fn _ => (),
-        enterStruct = fn _ => (),
-        enterSig = fn _ => (),
-        enterFunct = fn _ => (),
-        allVal = fn () => [],
-        allType = fn () => [],
-        allFix = fn () => [],
-        allStruct = fn () => [],
-        allSig = fn () => [],
-        allFunct = fn () => []
-        }
 
     (* Print a value given its type. *)
     fun printValueForType (value:machineWord, types, depth): pretty =
@@ -698,7 +663,7 @@ struct
             mkLoad (locAddr, level, locLevel) (* Argument or local *)
      
     |   codeAccess (Selected{addr, base}, level) = (* Select from a structure. *)
-            mkInd (addr, codeStruct (base, level))
+            mkInd (addr, codeAccess (base, level))
      
     | codeAccess _ = raise InternalError "No access"
 
@@ -787,7 +752,7 @@ struct
 
   |  codeVal (Value{access = Selected{addr, base}, class, ...}, level: level, typeVarMap, instance, _, _) =
        (* Select from a structure. *)
-       applyToInstanceType(instance, class, level, typeVarMap, fn level => mkInd (addr, codeStruct (base, level)))
+       applyToInstanceType(instance, class, level, typeVarMap, fn level => mkInd (addr, codeAccess (base, level)))
 
   |  codeVal (Value{access = Formal _, ...}, _, _, _, _, _) =
           raise InternalError "codeVal - Formal"

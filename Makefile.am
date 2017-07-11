@@ -116,7 +116,7 @@ polyexport.o: polyimport exportPoly.sml polytemp.txt
 	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml
 
 # Windows.  When building on Windows make sure that we provide both stdin and stdout to suppress the GUI.
-polyexport.obj: polyimport exportPoly.sml polytemp.txt
+polyexport.obj: polyimport$(EXEEXT) exportPoly.sml polytemp.txt
 	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml | cat
 
 polyresource.o: PolyML.rc poly.ico

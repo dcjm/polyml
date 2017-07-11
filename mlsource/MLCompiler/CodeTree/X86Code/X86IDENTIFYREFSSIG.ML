@@ -17,7 +17,7 @@
 
 signature X86IDENTIFYREFSSIG =
 sig
-    type x86ICode and reg
+    type 'reg x86ICode and reg and abstract
 
     datatype pushState = MustPush | MustNotPush | MayPush
     
@@ -28,12 +28,13 @@ sig
     }
     
     val identifyRegisters:
-        {icode: x86ICode list, maxPRegs: int} -> (x86ICode * int list) list * regState vector
+        {icode: abstract x86ICode list, maxPRegs: int} -> (abstract x86ICode * int list) list * regState vector
 
     structure Sharing:
     sig
-        type x86ICode = x86ICode
+        type 'reg x86ICode = 'reg x86ICode
         and reg = reg
         and pushState = pushState
+        and abstract = abstract
     end;
 end;

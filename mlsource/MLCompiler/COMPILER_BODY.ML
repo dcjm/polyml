@@ -93,13 +93,36 @@ struct
     open PRETTY;
     open LEX;
 
-    type nameSpace = VALUEOPS.nameSpace
     open STRUCTURES
     open EXPORTTREE
 
+    type nameSpace =
+      { 
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrSet option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrSet -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit,
+
+        allVal:       unit -> (string*values) list,
+        allType:      unit -> (string*typeConstrSet) list,
+        allFix:       unit -> (string*fixStatus) list,
+        allStruct:    unit -> (string*structVals) list,
+        allSig:       unit -> (string*signatures) list,
+        allFunct:     unit -> (string*functors) list
+      }
+
     val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
 
-    fun baseCompiler (lex : lexan, nameSpace: nameSpace, debugSwitches) : 
+    fun baseCompiler (lex : lexan, nameSpace: nameSpace, debugSwitches) :
        exportTree option * (unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
              structures: (string * structVals) list, signatures: (string * signatures) list,

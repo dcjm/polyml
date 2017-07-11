@@ -53,10 +53,25 @@ functor INITIALISE_ (
        val versionNumber: int
     end
 
+    structure UNIVERSALTABLE:
+    sig
+        type universal = Universal.universal
+        type univTable
+        type 'a tag = 'a Universal.tag
+
+        val univLookup: univTable * 'a tag * string -> 'a option
+
+        val fold: (string * universal * 'a -> 'a) -> 'a -> univTable -> 'a
+    end
+
     sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
             = PRETTY.Sharing = CODETREE.Sharing = MAKE.Sharing = ADDRESS = DATATYPEREP.Sharing
             = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = PRINTTABLE.Sharing
 
+    sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
+            = PRETTY.Sharing = CODETREE.Sharing = MAKE.Sharing = ADDRESS = DATATYPEREP.Sharing
+            = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = PRINTTABLE.Sharing
+            = UNIVERSALTABLE
 ) : 
 
 sig
@@ -1669,6 +1684,69 @@ struct
                 and propsForStruct (Struct {locations, ...}) = mapLocationProps locations
 
                 and nameForStruct (Struct{name, ...}) = name
+                
+                fun nameSpaceForStruct(baseStruct as Struct{signat=Signatures { tab, ...}, ...}): nameSpace =
+                let
+                    open UNIVERSALTABLE
+  
+                    fun lookupVal s =
+                    case univLookup (tab, valueVar, s) of
+                        NONE => NONE
+                    |   SOME v => SOME(makeSelectedValue(v, baseStruct))
+
+                    and lookupType s =
+                    case univLookup (tab, typeConstrVar, s) of
+                        NONE => NONE
+                    |   SOME t => SOME(makeSelectedType(t, baseStruct))
+
+                    and lookupStruct s =
+                    case univLookup (tab, structVar, s) of
+                        NONE => NONE
+                    |   SOME s => SOME(makeSelectedStructure(s, baseStruct))
+                    
+                    local
+                        fun extractItems t tab =
+                            UNIVERSALTABLE.fold
+                                (fn (s, u, l) =>
+                                    if Universal.tagIs t u
+                                    then (s, Universal.tagProject t u) :: l else l
+                                ) [] tab
+                    in
+                        fun allValues() =
+                            map(fn (s, v) => (s, makeSelectedValue(v, baseStruct))) (extractItems valueVar tab)
+                        and allTypes() =
+                            map(fn (s, t) => (s, makeSelectedType(t, baseStruct))) (extractItems typeConstrVar tab)
+                        and allStructs() =
+                            map(fn (s, v) => (s, makeSelectedStructure(v, baseStruct))) (extractItems structVar tab)
+                    end
+
+                    fun enterFunction _ = raise Fail "updating a structure is not possible."
+                    (* Raise an exception for any attempt to enter a new value.  Return
+                       empty for the classes that can't exist in a structure. *)
+                in
+                    {
+                        lookupVal = lookupVal,
+                        lookupType = lookupType,
+                        lookupStruct = lookupStruct,
+                        lookupFix = fn _ => NONE,
+                        lookupSig = fn _ => NONE,
+                        lookupFunct = fn _ => NONE,
+                        
+                        enterVal = enterFunction,
+                        enterType = enterFunction,
+                        enterFix = enterFunction,
+                        enterStruct = enterFunction,
+                        enterSig = enterFunction,
+                        enterFunct = enterFunction,
+
+                        allVal = allValues,
+                        allType = allTypes,
+                        allStruct = allStructs,
+                        allFix = fn () => [],
+                        allSig = fn () => [],
+                        allFunct = fn () => []
+                    }
+                end
             in
                 val () = applyList (fn (name, v, t) =>
                                 #enterVal structsEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
@@ -1679,7 +1757,8 @@ struct
                         mkProductType[structureVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("code",   toMachineWord (codeForStruct: structVals -> codetree), structureVal ->> CodeTree),
                     ("properties",   toMachineWord (propsForStruct: structVals ->ptProperties list),
-                        structureVal ->> List PtProperties)
+                        structureVal ->> List PtProperties),
+                    ("contents", toMachineWord(nameSpaceForStruct: structVals -> nameSpace), structureVal ->> nameSpaceType) 
                     ]
             end
             

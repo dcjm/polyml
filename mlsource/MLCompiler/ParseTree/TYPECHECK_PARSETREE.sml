@@ -1074,7 +1074,7 @@ struct
                                        and we turn Formal entries into Selected.  If we are replicating
                                        a datatype within a signature the original constructors will
                                        be Formal. *)
-                                    (Formal addr, SOME base) => Selected{base=base, addr=addr}
+                                    (Formal addr, SOME(Struct{access, ...})) => Selected{base=access, addr=addr}
                                 |    (Formal _, NONE) => access
                                 |    _ => access; (* Probably already a global. *)
                         in

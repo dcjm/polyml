@@ -165,7 +165,7 @@ struct
     and valAccess =
         Global   of codetree
     |   Local    of { addr: int ref, level: level ref }
-    |   Selected of { addr: int,     base:  structVals }
+    |   Selected of { addr: int,     base:  valAccess }
     |   Formal   of int
     |   Overloaded of typeDependent (* Values only. *)
 
@@ -500,24 +500,16 @@ struct
     |   Nonfix
 
     datatype fixStatus = FixStatus of string * infixity
-      
-    fun isGlobal   (Global   _) = true | isGlobal   _ = false;
-    fun isLocal    (Local    _) = true | isLocal    _ = false;
-    fun isSelected (Selected _) = true | isSelected _ = false;
-    fun isFormal   (Formal   _) = true | isFormal   _ = false;
-    
-    fun vaGlobal   (Global   x) = x | vaGlobal   _ = raise Match;
-    fun vaLocal    (Local    x) = x | vaLocal    _ = raise Match;
-    fun vaSelected (Selected x) = x | vaSelected _ = raise Match;
-    fun vaFormal   (Formal   x) = x | vaFormal   _ = raise Match;
-    
+
+    fun vaGlobal   (Global   x) = x | vaGlobal   _ = raise Match
+    fun vaLocal    (Local    x) = x | vaLocal    _ = raise Match
+
     val makeGlobal = Global;
     val makeFormal = Formal;
   
     fun makeLocal () = Local { addr = ref ~1 (* Invalid addr - catch errors *), level = ref baseLevel }
        
-    fun makeSelected (addr, base) =
-        Selected { addr = addr, base = base };
+    fun makeSelected (addr, Struct{access, ...}) = Selected { addr = addr, base = access }
 
     fun makeStruct (name, signat, access, locations) = 
         Struct { name = name, signat = signat, access = access, locations = locations }
