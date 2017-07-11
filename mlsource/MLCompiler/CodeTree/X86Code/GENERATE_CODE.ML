@@ -99,8 +99,6 @@ struct
 
     |   OGCTuple of oldGenCodeIC list (* Tuple *)
 
-    |   OGCContainer of int (* Create a container for a tuple on the stack. *)
-
     |   OGCSetContainer of (* Copy a tuple to a container. *)
         {
             container: oldGenCodeIC,
@@ -126,6 +124,7 @@ struct
         OGCDeclar  of oldGenCodeSimpleBinding (* Make a local declaration or push an argument *)
     |   OGCRecDecs of { addr: int, references: int, lambda: oldGenCodeLambdaForm } list (* Set of mutually recursive declarations. *)
     |   OGCNullBinding of oldGenCodeIC (* Just evaluate the expression and discard the result. *)
+    |   OGCDecContainer of { addr: int, references: int, size: int } (* Create a container for a tuple on the stack. *)
 
     and oldGenCodeLoadForm =
         OGCLoadLocal of int (* Local binding *)
@@ -162,43 +161,6 @@ struct
 
     local
         open BACKENDTREE
-
-        fun sideEffectFree (BICLambda _) = true
-        |   sideEffectFree (BICConstnt _) = true
-        |   sideEffectFree (BICExtract _) = true
-        |   sideEffectFree (BICCond(i, t, e)) =
-              sideEffectFree i andalso
-              sideEffectFree t andalso
-              sideEffectFree e
-        |   sideEffectFree (BICNewenv(decs, exp)) = List.all sideEffectBinding decs andalso sideEffectFree exp
-        |   sideEffectFree (BICHandle { exp, handler, ... }) =
-              sideEffectFree exp andalso sideEffectFree handler
-        | sideEffectFree (BICTuple recs) = testList recs
-        | sideEffectFree (BICField{base, ...}) = sideEffectFree base
-
-            (* A built-in function may be side-effect free.  This can
-               occur if we have, for example, "if exp1 orelse exp2"
-               where exp2 can be reduced to "true", typically because it's
-               inside an inline function and some of the arguments to the
-               function are constants.  This then gets converted to
-               (exp1; true) and we can eliminate exp1 if it is simply
-               a comparison. *)
-        | sideEffectFree (BICUnary _) = false
-        | sideEffectFree (BICBinary _) = false
-
-        | sideEffectFree(BICContainer _) = true
-            (* But since SetContainer has a side-effect we'll always create the
-               container even if it isn't used.  *)
-
-        | sideEffectFree _ = false
-                 (* Rest are unsafe (or too rare to be worth checking) *)
-
-        and testList t = List.all sideEffectFree t
-    
-        and sideEffectBinding(BICDeclar{value, ...}) = sideEffectFree value
-        |   sideEffectBinding(BICRecDecs _) = true (* These should all be lambdas *)
-        |   sideEffectBinding(BICNullBinding c) = sideEffectFree c
-
     in
         (* This function transforms the codetree to add "lifetime" information
            for bindings ("declarations").  The idea is to aid the code-generator
@@ -493,20 +455,13 @@ struct
                                 val rest = copyDeclarations vs
                                 val wasUsed = Array.sub(localUses, caddr)
                                 val () = instrCount := !instrCount+1
-                            in
-                                (* It is never used and it has no side-effects so we can ignore it. *)
-                                if wasUsed = 0 andalso sideEffectFree pt
-                                then rest
-                                else
-                                let
-                                    val dec = insert pt
-                                in
-                                    (* Set the use count back to free otherwise this local
-                                       declaration would become part of the kill set for the
-                                       surrounding expression. *)
-                                    Array.update (localUses, caddr, 0);
-                                    OGCDeclar{value = dec, addr = caddr, references = wasUsed} :: rest
-                                end
+                                val dec = insert pt
+                             in
+                                (* Set the use count back to free otherwise this local
+                                   declaration would become part of the kill set for the
+                                   surrounding expression. *)
+                                Array.update (localUses, caddr, 0);
+                                OGCDeclar{value = dec, addr = caddr, references = wasUsed} :: rest
                             end (* copyDeclarations.isDeclar *)
 
                         |   copyDeclarations (BICRecDecs mutualDecs :: vs)  =
@@ -590,6 +545,20 @@ struct
                                 |   _ => OGCNullBinding copiedNode :: copiedRest
                             end (* copyDeclarations *)
 
+                        |   copyDeclarations ( BICDecContainer { addr, size} :: vs)  =
+                            let
+                                (* Set the table entries.  We don't reuse entries so this is just a check. *)
+                                val _ = Array.sub(localUses, addr) <> 0
+                                           andalso raise InternalError "copyDeclarations: Already used"
+                                val () = Array.update (outsideLoop, addr, false) (* It's local *)
+                                val rest = copyDeclarations vs
+                                val wasUsed = Array.sub(localUses, addr)
+                                val () = instrCount := !instrCount+1
+                             in
+                                Array.update (localUses, addr, 0);
+                                OGCDecContainer{addr = addr, size=size, references = wasUsed} :: rest
+                            end
+
                         val insElist = copyDeclarations(ptElistDecs @ [BICNullBinding ptExp])
 
                         (* TODO: Tidy this up. *)
@@ -625,8 +594,6 @@ struct
                     in
                         OGCHandle {exPacketAddr=exPacketAddr, exPacketRefs=wasUsed, exp = exp, handler = hand}
                     end
-
-                |   insert(BICContainer c) = OGCContainer c
 
                 |   insert(BICSetContainer {container, tuple, filter}) =
                         OGCSetContainer{container = insert container, tuple = insert tuple, filter = filter}
@@ -1062,6 +1029,7 @@ struct
                             List.app (fn{lambda, ...} => loads (OGCLambda lambda)) decs
                         )
                     |   loadDecs(OGCNullBinding c) = loads c
+                    |   loadDecs(OGCDecContainer {addr, ...}) = StretchArray.update (newDecs, addr, true)
                 in
                     List.app loadDecs decs;
                     loads exp
@@ -1115,8 +1083,6 @@ struct
 
         |   OGCUnary{oper=BuiltIns.ClearMutableFlag, arg1} => cgAndRes(lockVector(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.StringLengthWord, arg1} => cgAndRes(stringLength(genToStack arg1, transtable, whereto))
-
         |   OGCUnary{oper=BuiltIns.AtomicIncrement, arg1} => cgAndRes(atomicIncrement(genToStack arg1, transtable, whereto))
 
         |   OGCUnary{oper=BuiltIns.AtomicDecrement, arg1} => cgAndRes(atomicDecrement(genToStack arg1, transtable, whereto))
@@ -1124,8 +1090,9 @@ struct
         |   OGCUnary{oper=BuiltIns.AtomicReset, arg1} => cgAndRes(atomicReset(genToStack arg1, transtable, whereto))
 
         |   OGCUnary{oper=BuiltIns.LongWordToTagged, arg1} =>
-                (* We can use the same operation as loading the length word of a string. *)
-                cgAndRes(stringLength(genToStack arg1, transtable, whereto))
+                (* Use the "load and tag" instruction with offset zero. *)
+                cgAndRes(
+                    loadAndTag{base=genToStack arg1, index=genToStack consntZero, byteOffset=0w0, transtable=transtable, whereto=whereto})
 
         |   OGCUnary{oper=BuiltIns.SignedToLongWord, arg1} =>
                 cgAndRes(wordToLargeWord(true, genToStack arg1, transtable, whereto))
@@ -1219,9 +1186,6 @@ struct
         |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
 
         |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
-
-        |   OGCBinary{oper=BuiltIns.SetStringLengthWord, arg1, arg2} =>
-                cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
 
         |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
                 cgAndRes(andWord(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -1418,6 +1382,11 @@ struct
                     loadCdouble{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
                              byteOffset=offset, transtable=transtable, whereto=whereto})
 
+        |   OGCLoadOperation{ kind=LoadStoreUntaggedUnsigned, address={base, index, offset} } =>
+                cgAndRes(
+                    loadAndTag{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                             byteOffset=offset, transtable=transtable, whereto=whereto})
+
         |   OGCStoreOperation{ kind=LoadStoreMLWord _, address={base, index, offset}, value} =>
                 cgAndRes(
                     storeWord{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
@@ -1456,6 +1425,11 @@ struct
         |   OGCStoreOperation{ kind=LoadStoreCDouble, address={base, index, offset}, value} =>
                 cgAndRes(
                     storeCdouble{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                              byteOffset=offset, transtable=transtable, whereto=whereto})
+
+        |   OGCStoreOperation{ kind=LoadStoreUntaggedUnsigned, address={base, index, offset}, value} =>
+                cgAndRes(
+                    storeUntagged{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
                               byteOffset=offset, transtable=transtable, whereto=whereto})
 
         |   OGCBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
@@ -2025,17 +1999,7 @@ struct
             in
                 MergeIndex vec
             end
-        
-        | OGCContainer size =>
-            (* Reserve a number of words on the stack for use as a tuple on the
-               stack.  The result is the address of this space. *)
-            let
-                val (reserveEntry, reserveCode) = reserveStackSpace(transtable, size)
-            in
-                codeGenerate(reserveCode, cvec);
-                MergeIndex reserveEntry
-            end
-
+ 
         |   OGCSetContainer{container, tuple, filter} =>
             (* Copy the contents of a tuple into a container. *)
             let
@@ -2557,7 +2521,6 @@ struct
                 |   BuiltIns.MemoryCellLength => raise InternalError "TODO-genTest: OGCUnary - MemoryCellLength"
                 |   BuiltIns.MemoryCellFlags => raise InternalError "TODO-genTest: OGCUnary - MemoryCellFlags"
                 |   BuiltIns.ClearMutableFlag => raise InternalError "TODO-genTest: OGCUnary - ClearMutableFlag"
-                |   BuiltIns.StringLengthWord => raise InternalError "TODO-genTest: OGCUnary - StringLengthWord"
                 |   BuiltIns.AtomicIncrement => raise InternalError "TODO-genTest: OGCUnary - AtomicIncrement"
                 |   BuiltIns.AtomicDecrement => raise InternalError "TODO-genTest: OGCUnary - AtomicDecrement"
                 |   BuiltIns.AtomicReset => raise InternalError "TODO-genTest: OGCUnary - AtomicReset"
@@ -2628,8 +2591,6 @@ struct
                 |   BuiltIns.FixedPrecisionArith _ => raise InternalError "TODO-genTest: OGCBinary-FixedPrecisionArith"
 
                 |   BuiltIns.WordArith _ => raise InternalError "TODO-genTest: OGCBinary-WordArith"
-
-                |   BuiltIns.SetStringLengthWord => raise InternalError "TODO-genTest: OGCBinary-SetStringLengthWord"
 
                 |   BuiltIns.WordLogical _ => raise InternalError "TODO-genTest: OGCBinary-WordLogical"
 
@@ -3265,6 +3226,16 @@ struct
                 gencde (valu, NoResult, NotEnd, NONE);
                 ()
             )
+
+        |   codeBinding _ (OGCDecContainer{addr, size, references}) = (* Container declaration. *)
+            let
+                (* Reserve a number of words on the stack for use as a tuple on the
+                   stack.  The result is the address of this space. *)
+                val (reserveEntry, reserveCode) = reserveStackSpace(transtable, size)
+                val () = codeGenerate(reserveCode, cvec)
+            in
+                codeGenerate(localDeclaration (reserveEntry, addr, references), cvec)
+            end
 
         val resReg = resultReg(codeToCgType resultType)
         val _ = genToRegister (pt, UseReg(singleton resReg), EndOfProc resReg, NONE)

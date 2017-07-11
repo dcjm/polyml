@@ -181,7 +181,6 @@ sig
 
     val vectorLength: stackIndex * ttab * regHint -> operation list * mergeResult
     and vectorFlags: stackIndex * ttab * regHint -> operation list * mergeResult
-    and stringLength: stackIndex * ttab * regHint -> operation list * mergeResult
     and atomicIncrement: stackIndex * ttab * regHint -> operation list * mergeResult
     and atomicDecrement: stackIndex * ttab * regHint -> operation list * mergeResult
     and atomicReset: stackIndex * ttab * regHint -> operation list * mergeResult
@@ -190,8 +189,7 @@ sig
     and negativeReal: stackIndex * ttab * regHint -> operation list * mergeResult
     and integerToReal: stackIndex * ttab * regHint -> operation list * mergeResult
 
-    val setStringLength: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and addFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    val addFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and subtractFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and multiplyFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and quotFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
@@ -245,6 +243,8 @@ sig
             (operation list * mergeResult)
     and loadCdouble: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
             (operation list * mergeResult)
+    and loadAndTag: {base: stackIndex, index: stackIndex, byteOffset: word, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
     and storeByte: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
             (operation list * mergeResult)
     and storeWord: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
@@ -260,6 +260,8 @@ sig
     and storeCfloat: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
             (operation list * mergeResult)
     and storeCdouble: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
+            (operation list * mergeResult)
+    and storeUntagged: {base: stackIndex, index: stackIndex, byteOffset: word, toStore: stackIndex, transtable: ttab, whereto: regHint} ->
             (operation list * mergeResult)
 
     val allocateStoreSmallFixedSize: int * Word8.word * stackIndex * ttab * regHint -> operation list * mergeResult

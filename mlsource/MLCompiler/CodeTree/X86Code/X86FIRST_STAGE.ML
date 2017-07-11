@@ -4001,6 +4001,42 @@ struct
                 (opCode, matchResult(transtable, opRes, whereto))
             end
             
+            fun loadAndTag {base, index, byteOffset, transtable, whereto} =
+            let
+                (* This is just the same as loadWord except that the result needs
+                   to be tagged. *)
+                fun genLoadAndTagInstr byteOffset ([InRegister(GenReg base), LiteralSource offset], SOME(GenReg destReg)) =
+                        [tagValue{source=destReg, output=destReg},
+                         MoveToRegister{
+                                source=MemoryArg{base=base, offset=byteOffset+Word.toInt(toShort offset)*wordSize, index=NoIndex},
+                                output=destReg}]
+
+                |   genLoadAndTagInstr byteOffset ([InRegister(GenReg base), InRegister(GenReg indexR)], SOME(GenReg destReg)) =
+                    let
+                        val (offset, scale) =
+                        (* The index is tagged: Multiply by the wordSize/2 and subtract the scaled tag. *)
+                            if wordSize = 4
+                            then (~2, Index2 indexR)
+                            else (~4, Index4 indexR)
+                    in
+                        [tagValue{source=destReg, output=destReg},
+                         MoveToRegister{source=MemoryArg{base=base, offset=byteOffset+offset, index=scale}, output=destReg}]
+                    end
+
+                |   genLoadAndTagInstr _ _ = raise InternalError "genLoadAndTagInstr"
+
+                val genLoad =
+                    loadIndex(false,
+                        loadBaseAddress(
+                            getResultRegister(generalRegisters,
+                                generateInstruction(genLoadAndTagInstr (Word.toInt byteOffset)))
+                            )
+                        ) ([NONE, NONE], NONE)
+                val (opRes, opCode) = genLoad (transtable, [base, index], whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+            
             fun loadC8{base, index, byteOffset, transtable, whereto} =
             let
                 val (opRes, opCode) = loadCTagged (Size8Bit, Word.toInt byteOffset) (transtable, [base, index], whereto)
@@ -4193,6 +4229,50 @@ struct
                         loadBaseAddress(
                             loadToRegOrLiteral(generalRegisters, true (* Will untag *), 1,
                                 generateInstruction(genStoreByte(Word.toInt byteOffset))))) ([NONE, NONE, NONE], NONE)
+                                    (transtable, [base, index, toStore], NoResult)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex(pushConst (transtable, toMachineWord 0))
+            in
+                (opCode, result)
+            end
+        end
+        
+        local
+            (* Store a value into ML memory but untag it first.  This is used, for example, to set
+               the length word on a string. *)
+            fun storeUntaggedInstr byteOffset ([InRegister(GenReg base), LiteralSource offset, InRegister(GenReg toStore)], NONE) =
+                [
+                    StoreRegToMemory { toStore=toStore,
+                        address={base=base, offset=byteOffset+Word.toInt(toShort offset)*wordSize, index=NoIndex}},
+                    ShiftConstant{shiftType=SHR, output=toStore, shift=0w1}
+                ]
+
+            |   storeUntaggedInstr byteOffset ([InRegister(GenReg base), InRegister(GenReg indexR), InRegister(GenReg toStore)], NONE) =
+                let
+                    val address =
+                        if wordSize = 4
+                        then {offset= byteOffset-2, base=base, index=Index2 indexR}
+                        else (*8*) {offset= byteOffset-4, base=base, index=Index4 indexR}
+               in
+                    [
+                        StoreRegToMemory { toStore=toStore, address=address},
+                        ShiftConstant{shiftType=SHR, output=toStore, shift=0w1}
+                    ]
+                end
+
+            |   storeUntaggedInstr _ _ = raise InternalError "storeUntaggedInstr"
+        in
+
+            fun storeUntagged{base, index, byteOffset, toStore, transtable, whereto} =
+            let
+                (* TODO: We could allow a literal for the value to store. *)
+                val (_, opCode) =
+                    loadToRegOrLiteral(generalRegisters, false, 1, (* Index. *)
+                        loadToOneOf(generalRegisters, true, 2, (* Value to store - need to untag.  This COULD be a literal. *)
+                            loadToOneOf(generalRegisters, false, 0, (* Base address. *)
+                                generateInstruction(storeUntaggedInstr(Word.toInt byteOffset))))) ([NONE, NONE, NONE], NONE)
                                     (transtable, [base, index, toStore], NoResult)
                 val result =
                     case whereto of
@@ -5119,42 +5199,6 @@ struct
                 compareAndBranch ([arg1, arg2], fpTests JNA, transtable)
             and lessThanReal(arg1, arg2, transtable) =
                 compareAndBranch ([arg1, arg2], fpTests JB, transtable)
-        end
-
-        local (* Get the length word from a string.  Also used to load a large word value. *)
-            fun genStringLength([InRegister(GenReg rs)], SOME(GenReg rd)) =
-                [
-                    tagValue{source=rd, output=rd},
-                    MoveToRegister{source=MemoryArg{base=rs, offset=0, index=NoIndex}, output=rd}
-                ]
-            |   genStringLength _ = raise InternalError "genStringLength"
-
-            (* We could use the same register for the result and the argument.  For the
-               moment we force it to use different regs. *)
-        in
-            fun stringLength(arg, transtable, whereto) =
-            let
-                val (opRes, opCode) = generalNegotiator genStringLength (transtable, [arg], whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-        end
-
-        local (* Set the length word of a string.  Used when constructing strings in the library. *)
-            fun genSetStringLength ([InRegister(GenReg base), InRegister(GenReg length)], NONE) =
-                [
-                    tagValue{ source=length, output=length }, (* Retag it *)
-                    StoreRegToMemory{ toStore=length, address={offset=0, base=base, index=NoIndex }},
-                    ShiftConstant{shiftType=SHR, output=length, shift=0w1 } (* Untag it *)
-                ]
-            |   genSetStringLength _ = raise InternalError "genSetStringStringLength"
-        in
-            fun setStringLength(arg1, arg2, transtable, whereto) =
-            let
-                val (opRes, opCode) = noresultNegotiator genSetStringLength (transtable, [arg1, arg2], whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
         end
 
         local
