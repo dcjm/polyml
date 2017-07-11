@@ -94,9 +94,8 @@ struct
 
     |   OGCRaise of oldGenCodeIC (* Raise an exception *)
 
-    |   OGCLdexc (* Load the exception (used at the start of a handler) *)
-
-    |   OGCHandle of (* Exception handler. *) { exp: oldGenCodeIC, handler: oldGenCodeIC }
+    |   OGCHandle of (* Exception handler. *)
+            { exPacketAddr: int, exPacketRefs: int, exp: oldGenCodeIC, handler: oldGenCodeIC }
 
     |   OGCTuple of oldGenCodeIC list (* Tuple *)
 
@@ -164,9 +163,6 @@ struct
     local
         open BACKENDTREE
 
-        fun mkDecRef(ct, i1, i2) =
-            OGCDeclar{value = ct, addr = i1, references = i2}
-
         fun sideEffectFree (BICLambda _) = true
         |   sideEffectFree (BICConstnt _) = true
         |   sideEffectFree (BICExtract _) = true
@@ -175,7 +171,7 @@ struct
               sideEffectFree t andalso
               sideEffectFree e
         |   sideEffectFree (BICNewenv(decs, exp)) = List.all sideEffectBinding decs andalso sideEffectFree exp
-        |   sideEffectFree (BICHandle { exp, handler }) =
+        |   sideEffectFree (BICHandle { exp, handler, ... }) =
               sideEffectFree exp andalso sideEffectFree handler
         | sideEffectFree (BICTuple recs) = testList recs
         | sideEffectFree (BICField{base, ...}) = sideEffectFree base
@@ -509,7 +505,7 @@ struct
                                        declaration would become part of the kill set for the
                                        surrounding expression. *)
                                     Array.update (localUses, caddr, 0);
-                                    mkDecRef(dec, caddr, wasUsed) :: rest
+                                    OGCDeclar{value = dec, addr = caddr, references = wasUsed} :: rest
                                 end
                             end (* copyDeclarations.isDeclar *)
 
@@ -610,19 +606,24 @@ struct
                 
                 |   insert(BICTuple recs) = (* perhaps it's a constant now? *)
                         OGCTuple (mapright insert recs) 
-
-                |   insert BICLdexc = OGCLdexc (* just a constant so return it *)
       
                 |   insert(BICLambda lambda) = OGCLambda(copyLambda lambda)
     
-                |   insert(BICHandle { exp, handler }) =
+                |   insert(BICHandle { exPacketAddr, exp, handler }) =
                     let
+                        (* This acts as a declaration of the identifier for the exception packet. *)
+                        val _ = Array.sub(localUses, exPacketAddr) <> 0
+                                   andalso raise InternalError "BICHandle: Already used"
+                        val () = Array.update (outsideLoop, exPacketAddr, false) (* It's local *)
                         (* The order here is important.  We want to make sure that
                            the last reference to a variable really is the last. *)
-                       val hand = insert handler
-                       val exp = insert exp
+                        val hand = insert handler
+                        val exp = insert exp
+                        val wasUsed = Array.sub(localUses, exPacketAddr)
+                        val () = instrCount := !instrCount+1
+                        val () = Array.update (localUses, exPacketAddr, 0)
                     in
-                      OGCHandle {exp = exp, handler = hand}
+                        OGCHandle {exPacketAddr=exPacketAddr, exPacketRefs=wasUsed, exp = exp, handler = hand}
                     end
 
                 |   insert(BICContainer c) = OGCContainer c
@@ -1083,7 +1084,8 @@ struct
 
             |   OGCLoop argList => List.app (fn (l, _) => loads l) argList
 
-            |   OGCHandle{exp, handler} => (loads exp; loads handler)
+            |   OGCHandle{exPacketAddr, exp, handler, ...} =>
+                    (StretchArray.update (newDecs, exPacketAddr, true); loads exp; loads handler)
 
             |   _ => ()
         in
@@ -1737,7 +1739,7 @@ struct
             else NoMerge (* Unused. *)
           end
 
-        | OGCHandle {exp, handler} =>
+        | OGCHandle {exPacketAddr, exPacketRefs, exp, handler} =>
             let
                 (* Push all regs - we don't know what the state will be when 
                    we reach the handler. *)
@@ -1810,6 +1812,14 @@ struct
                 (* Fix up the handler entry point - this resets the stack pointer
                    and clears the cache since the state is not known. *)
                 val () = codeGenerate(fixupH (handlerLab, startOfHandler, transtable), cvec)
+                
+                (* Get the exception packet. *)
+                val regResult = resultReg ArgGeneral
+                (* Exception packet is returned in result register. *)
+                val () = codeGenerate(getRegister (transtable, regResult), cvec);
+                val () = codeGenerate(activeRegister regResult, cvec);
+                val pushed = pushReg (transtable, regResult)
+                val () = codeGenerate(localDeclaration (pushed, exPacketAddr, exPacketRefs), cvec)
 
                 (* The code for the handler body itself *)
                 val handlerRes =  genToRegister (handler, whereto, tailKind, loopAddr)
@@ -1820,7 +1830,7 @@ struct
                 mergeRes
             end
         
-        | OGCLdexc =>
+(*        | OGCLdexc =>
             let
                 val regResult = resultReg ArgGeneral
                 (* Exception packet is returned in result register. *)
@@ -1828,7 +1838,7 @@ struct
                 codeGenerate(getRegister (transtable, regResult), cvec);
                 codeGenerate(activeRegister regResult, cvec);
                 MergeIndex(pushReg (transtable, regResult))
-            end
+            end*)
 
         | OGCCase {cases, test, default, caseType} =>
             let
@@ -2912,10 +2922,11 @@ struct
                             let
                                 val addr = Address.toAddress w
                             in
-                                if Address.isIoAddress addr orelse Address.flags addr <> Address.F_words
-                                then (* If it's the address into the IO vector or it's a reference
+                                if Address.flags addr <> Address.F_words
+                                then (* If it's a reference
                                         to code we haven't yet compiled we don't need the closure
-                                        register but we can't do the indirection until run time. *)
+                                        register but we can't do the indirection until run time.
+                                        Does this still apply?  *)
                                     (SOME(loadReg regClosure (genToStack c)), true, [], [regClosure])
                                 else
                                 let

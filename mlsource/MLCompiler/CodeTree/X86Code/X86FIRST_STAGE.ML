@@ -229,7 +229,7 @@ struct
 
     fun ttabCreate(localCount, debugSwitches) =
     let
-        val printStream = PRETTY.getSimplePrinter debugSwitches
+        val printStream = PRETTY.getSimplePrinter(debugSwitches, [])
 
         fun rsetMake () : rset = {vec = Array.array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref allRegisters}
     in
@@ -245,7 +245,7 @@ struct
             marker       = ref first,
             markReal     = ref 0,
             lowestDirect = ref first,
-            pstackTrace  = DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches,
+            pstackTrace  = false (*DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches*),
             printStream  = printStream
         }
     end
