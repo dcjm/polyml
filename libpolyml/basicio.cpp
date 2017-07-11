@@ -135,6 +135,7 @@ typedef char TCHAR;
 #include "save_vec.h"
 #include "rts_module.h"
 #include "locking.h"
+#include "rtsentry.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
@@ -902,7 +903,6 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
             }
         }
         /* Copy the results to a result vector. */
-        if (nDesc == 0) return taskData->saveVec.push(EmptyString()); /* Empty vector. */
         resVec = alloc_and_save(taskData, nDesc);
         for (POLYUNSIGNED j = 0; j < nDesc; j++)
             (DEREFWORDHANDLE(resVec))->Set(j, TAGGED(results[j]));
@@ -1036,7 +1036,6 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
             }
         }
         /* Copy the results. */
-        if (nDesc == 0) return taskData->saveVec.push(EmptyString());
         /* Construct a result vector. */
         Handle resVec = alloc_and_save(taskData, nDesc);
         for (unsigned i = 0; i < nDesc; i++)
@@ -1124,7 +1123,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
        both opens the directory and returns the first entry. If
        fFindSucceeded is false we have already reached the end. */
     if (! strm->device.directory.fFindSucceeded)
-        return SAVE(EmptyString());
+        return SAVE(EmptyString(taskData));
     while (result == NULL)
     {
         WIN32_FIND_DATA *pFind = &strm->device.directory.lastFind;
@@ -1141,7 +1140,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
             if (dwErr == ERROR_NO_MORE_FILES)
             {
                 strm->device.directory.fFindSucceeded = 0;
-                if (result == NULL) return SAVE(EmptyString());
+                if (result == NULL) return SAVE(EmptyString(taskData));
             }
         }
     }
@@ -1151,7 +1150,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
     {
         struct dirent *dp = readdir(strm->device.ioDir);
         int len;
-        if (dp == NULL) return taskData->saveVec.push(EmptyString());
+        if (dp == NULL) return taskData->saveVec.push(EmptyString(taskData));
         len = NAMLEN(dp);
         if (!((len == 1 && strncmp(dp->d_name, ".", 1) == 0) ||
               (len == 2 && strncmp(dp->d_name, "..", 2) == 0)))
@@ -1480,7 +1479,7 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
 
 
 /* IO_dispatchc.  Called from assembly code module. */
-Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
+static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORD(code));
     switch (c)
@@ -1925,7 +1924,7 @@ POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord st
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts basicIOEPT[] =
 {
     { "PolyChDir",                      (polyRTSFunction)&PolyChDir},
     { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral},
@@ -1940,7 +1939,6 @@ public:
     virtual void Start(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

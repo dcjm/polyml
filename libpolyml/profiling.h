@@ -47,4 +47,6 @@ extern Handle profilerc(TaskData *taskData, Handle mode_handle);
 extern void add_count(TaskData *taskData, POLYCODEPTR pc, PolyWord *sp, POLYUNSIGNED incr);
 extern void AddObjectProfile(PolyObject *obj);
 
+extern struct _entrypts profilingEPT[];
+
 #endif /* _PROFILING_H_DEFINED */

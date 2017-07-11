@@ -121,6 +121,7 @@
 #include "rts_module.h"
 #include "processes.h"
 #include "heapsizing.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -537,7 +538,7 @@ void TimeValTime::sub(const TimeValTime &f)
 #endif
 
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts timingEPT[] =
 {
     { "PolyTimingGeneral",              (polyRTSFunction)&PolyTimingGeneral},
 
@@ -548,7 +549,6 @@ class Timing: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

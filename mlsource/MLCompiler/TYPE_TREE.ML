@@ -283,43 +283,25 @@ struct
            we may as well export them *)
         (* wordEq is used both for tagged words and for pointer equality *)
         val wordEq = equalWordFn
-        (* Strings can be either tagged single characters or vectors whose first word is
-           the length.  This version no longer assumes that single character strings will
-           always be tagged and that they could also be held in a vector. *)
+        (* Strings are now always vectors whose first word is the length.
+           The old special case for single-character strings has been removed. *)
         local
             val stringEquality =
                 mkInlproc(
-                    mkIf(
-                        mkIsShort(mkLoadArgument 0), (* Is the first argument short? *)
-                        mkIf(
-                            mkIsShort(mkLoadArgument 1), (* And the second? *)
-                            mkEqualWord(mkLoadArgument 0, mkLoadArgument 1), (* Then they must be the same value. *)
-                                (* Otherwise the length of the second argument must be one and the first character of the
-                                   string must match. *)
-                            mkCand(mkEqualWord(mkUnary(BuiltIns.StringLengthWord, mkLoadArgument 1), mkConst(toMachineWord 1)),
-                                mkEqualWord(mkLoadArgument 0, mkLoadOperation(LoadStoreMLByte{isImmutable=true}, mkLoadArgument 1, mkConst(toMachineWord wordSize))))
-                            ),
-                        (* First argument is long. *)
-                        mkIf(
-                            mkIsShort(mkLoadArgument 1), (* Is the second arg short? *)
-                            mkCand(mkEqualWord(mkUnary(BuiltIns.StringLengthWord, mkLoadArgument 0), mkConst(toMachineWord 1)),
-                                mkEqualWord(mkLoadOperation(LoadStoreMLByte{isImmutable=true}, mkLoadArgument 0, mkConst(toMachineWord wordSize)), mkLoadArgument 1)),
-                            (* Both long.  Because the first word contains the
-                               length if we include this in the test we will have tested the length
-                               as well and will stop immediately if the lengths are different.*)
-                            mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
-                                    leftIndex=CodeZero, rightIndex=CodeZero,
-                                    length=mkBinary(BuiltIns.WordArith BuiltIns.ArithAdd,
-                                        mkConst(toMachineWord wordSize),
-                                        (* Use argument 1 here rather than 0.  We could use either but this works
-                                           better when we're using equality for pattern matching since it
-                                           gets the length of the constant string.  It also works better
-                                           for the, to me, more natural ordering of variable=constant. *)
-                                        mkUnary(BuiltIns.StringLengthWord, mkLoadArgument 1)
-                                   )
-                            }
-                        )
-                     ),
+                    (* Because the first word contains the
+                       length if we include this in the test we will have tested the length
+                       as well and will stop immediately if the lengths are different.*)
+                    mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
+                            leftIndex=CodeZero, rightIndex=CodeZero,
+                            length=mkBinary(BuiltIns.WordArith BuiltIns.ArithAdd,
+                                mkConst(toMachineWord wordSize),
+                                (* Use argument 1 here rather than 0.  We could use either but this works
+                                   better when we're using equality for pattern matching since it
+                                   gets the length of the constant string.  It also works better
+                                   for the, to me, more natural ordering of variable=constant. *)
+                                mkUnary(BuiltIns.StringLengthWord, mkLoadArgument 1)
+                           )
+                    },
                     2, "stringEquality", [], 0)
         in
             val stringEquality = stringEquality

@@ -111,18 +111,14 @@ struct
                    rax, ebx, r8, r9, r10 for the first five arguments in X86/64.
         *)
         
-        (* This is a pointer to data that the RTS provides on entry.  Fields
-           may be updated in the RTS call.  Where it is stored differs between the ABIs. *)
-        val memRegArgumentPtr = case abi of X64Unix => ~48 | X64Win => 16 | X86_32 => 8
-
-        (* The argument pointer and the ML stack pointer need to be
-           loaded into registers that will be saved by the callee.
+         (* The ML stack pointer needs to be
+           loaded into a register that will be saved by the callee.
            The entry point doesn't need to be but must be a register
            that isn't used for an argument. *)
         (* We have to save the stack pointer to the argument structure but
            we still need a register if we have args on the stack. *)
-        val (entryPtrReg, argPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r12, r13) else (ecx, esi, edi)
+        val (entryPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r13) else (ecx, edi)
         
         val stackSpace =
             case abi of
@@ -143,44 +139,43 @@ struct
         val code =
             [
                 MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
-                loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
-                loadMemory(argPtrReg, ebp, memRegArgumentPtr) (* Get argument data ptr  - use r12 to save reloading after the call *)
+                loadMemory(entryPtrReg, entryPtrReg, 0)(* Load its value. *)
             ] @
             (
                 (* Save heap ptr.  This is in r15 in X86/64 *)
-                if isX64 then [storeMemory(r15, argPtrReg, argLocalMpointer)] (* Save heap ptr *)
-                else [loadMemory(edx, ebp, memRegLocalMPointer), storeMemory(edx, argPtrReg, argLocalMpointer) ]
+                if isX64 then [storeMemory(r15, ebp, memRegLocalMPointer)] (* Save heap ptr *)
+                else []
             ) @
             [
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save this in case it is needed for arguments. *)
                 (* Have to save the stack pointer to the arg structure in case we need to scan the stack for a GC. *)
-                storeMemory(esp, argPtrReg, argStackPointer), (* Save ML stack and switch to C stack. *)
-                moveRR{source=ebp, output=esp},
+                storeMemory(esp, ebp, memRegStackPtr), (* Save ML stack and switch to C stack. *)
+                loadMemory(esp, ebp, memRegCStackPtr), (*moveRR{source=ebp, output=esp},*) (* Load the saved C stack pointer. *)
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
             (
                 case (abi, nArgs) of  (* Set the argument registers. *)
-                    (X64Unix, 0) => [ loadMemory(edi, argPtrReg, argThreadSelf) ]
-                |   (X64Unix, 1) => [ loadMemory(edi, argPtrReg, argThreadSelf), moveRR{source=eax, output=esi} ]
+                    (X64Unix, 0) => [ loadMemory(edi, ebp, memRegThreadSelf) ]
+                |   (X64Unix, 1) => [ loadMemory(edi, ebp, memRegThreadSelf), moveRR{source=eax, output=esi} ]
                 |   (X64Unix, 2) =>
-                        [ loadMemory(edi, argPtrReg, argThreadSelf), moveRR{source=eax, output=esi}, moveRR{source=ebx, output=edx} ]
+                        [ loadMemory(edi, ebp, memRegThreadSelf), moveRR{source=eax, output=esi}, moveRR{source=ebx, output=edx} ]
                 |   (X64Unix, 3) => 
-                        [ loadMemory(edi, argPtrReg, argThreadSelf), moveRR{source=eax, output=esi}, moveRR{source=ebx, output=edx}, moveRR{source=r8, output=ecx} ]
-                |   (X64Win, 0) => [ loadMemory(ecx, argPtrReg, argThreadSelf) ]
-                |   (X64Win, 1) => [ loadMemory(ecx, argPtrReg, argThreadSelf), moveRR{source=eax, output=edx} ]
+                        [ loadMemory(edi, ebp, memRegThreadSelf), moveRR{source=eax, output=esi}, moveRR{source=ebx, output=edx}, moveRR{source=r8, output=ecx} ]
+                |   (X64Win, 0) => [ loadMemory(ecx, ebp, memRegThreadSelf) ]
+                |   (X64Win, 1) => [ loadMemory(ecx, ebp, memRegThreadSelf), moveRR{source=eax, output=edx} ]
                 |   (X64Win, 2) =>
-                        [ loadMemory(ecx, argPtrReg, argThreadSelf), moveRR{source=eax, output=edx}, moveRR{source=ebx, output=r8} ]
+                        [ loadMemory(ecx, ebp, memRegThreadSelf), moveRR{source=eax, output=edx}, moveRR{source=ebx, output=r8} ]
                 |   (X64Win, 3) =>
-                        [ loadMemory(ecx, argPtrReg, argThreadSelf), moveRR{source=eax, output=edx}, moveRR{source=r8, output=r9}, moveRR{source=ebx, output=r8} ]
-                |   (X86_32, 0) => [ PushToStack(MemoryArg{base=argPtrReg, offset=argThreadSelf, index=NoIndex}) ]
-                |   (X86_32, 1) => [ pushR eax, PushToStack(MemoryArg{base=argPtrReg, offset=argThreadSelf, index=NoIndex}) ]
-                |   (X86_32, 2) => [ pushR ebx, pushR eax, PushToStack(MemoryArg{base=argPtrReg, offset=argThreadSelf, index=NoIndex}) ]
+                        [ loadMemory(ecx, ebp, memRegThreadSelf), moveRR{source=eax, output=edx}, moveRR{source=r8, output=r9}, moveRR{source=ebx, output=r8} ]
+                |   (X86_32, 0) => [ PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
+                |   (X86_32, 1) => [ pushR eax, PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
+                |   (X86_32, 2) => [ pushR ebx, pushR eax, PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
                 |   (X86_32, 3) =>
                         [
                             (* We need to move an argument from the ML stack. *)
                             PushToStack(MemoryArg{base=saveMLStackPtrReg, offset=4, index=NoIndex}), pushR ebx, pushR eax,
-                            PushToStack(MemoryArg{base=argPtrReg, offset=argThreadSelf, index=NoIndex})
+                            PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex})
                         ]
                 |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
             ) @
@@ -189,17 +184,16 @@ struct
                 moveRR{source=saveMLStackPtrReg, output=esp} (* Restore the ML stack pointer *)
             ] @
             (
-            if isX64 then [loadMemory(r15, argPtrReg, argLocalMpointer) ] (* Copy back the heap ptr *)
-            else [loadMemory(edx, esi, argLocalMpointer), storeMemory(edx, ebp, memRegLocalMPointer) ]
+            if isX64 then [loadMemory(r15, ebp, memRegLocalMPointer) ] (* Copy back the heap ptr *)
+            else []
             ) @
             [
-                loadMemory(edx, argPtrReg, argLocalMbottom), storeMemory(edx, ebp, memRegLocalMbottom), (* and base ptr *)
-                ArithMemConst{opc=CMP, offset=argExceptionPacket, base=argPtrReg, source=noException},
+                ArithMemConst{opc=CMP, offset=memRegExceptionPacket, base=ebp, source=noException},
                 checkExc,
                 (* Remove any arguments that have been passed on the stack. *)
                 ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
                 JumpLabel exLabel, (* else raise the exception *)
-                loadMemory(eax, argPtrReg, argExceptionPacket),
+                loadMemory(eax, ebp, memRegExceptionPacket),
                 RaiseException
             ]
  
@@ -228,8 +222,6 @@ struct
             |   2 => X64Win
             |   _ => X86_32
 
-        (* We don't need an argument pointer but we do need to save
-           the ML stack pointer across the call. *)
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
         
@@ -254,7 +246,7 @@ struct
                 MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
-                moveRR{source=ebp, output=esp},
+                loadMemory(esp, ebp, memRegCStackPtr),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
@@ -324,8 +316,6 @@ struct
             |   2 => X64Win
             |   _ => X86_32
 
-        (* We don't need an argument pointer but we do need to save
-           the ML stack pointer across the call. *)
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
         
@@ -354,7 +344,7 @@ struct
                 MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
-                moveRR{source=ebp, output=esp},
+                loadMemory(esp, ebp, memRegCStackPtr),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
@@ -428,8 +418,6 @@ struct
             |   2 => X64Win
             |   _ => X86_32
 
-        (* We don't need an argument pointer but we do need to save
-           the ML stack pointer across the call. *)
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
         
@@ -458,7 +446,7 @@ struct
                 MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
-                moveRR{source=ebp, output=esp},
+                loadMemory(esp, ebp, memRegCStackPtr),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @

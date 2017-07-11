@@ -24,22 +24,6 @@
 class ScanAddress;
 class TaskData;
 
-typedef void (*polyRTSFunction)();
-
-typedef struct _entrypts {
-    const char *name;
-    polyRTSFunction entry;
-} *entrypts;
-
-// Ensure that the RTS calls can be found by the linker.
-#ifndef POLYEXTERNALSYMBOL
-#ifdef _MSC_VER
-#define POLYEXTERNALSYMBOL __declspec(dllexport)
-#else
-#define POLYEXTERNALSYMBOL
-#endif
-#endif
-
 class RtsModule
 {
 public:
@@ -50,8 +34,6 @@ public:
     virtual void Start(void) {}
     virtual void Stop(void) {}
     virtual void GarbageCollect(ScanAddress * /*process*/) {}
-    virtual entrypts GetRTSCalls(void) { return 0; }
-
 private:
     void RegisterModule(void);
 };
@@ -60,7 +42,6 @@ void InitModules(void);
 void StartModules(void);
 void StopModules(void);
 void GCModules(ScanAddress *process);
-polyRTSFunction FindModuleEntryPoint(const char *name);
 
 #endif
 

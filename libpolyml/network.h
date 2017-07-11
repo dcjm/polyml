@@ -21,10 +21,6 @@
 #ifndef _NETWORK_H
 #define _NETWORK_H
 
-class SaveVecEntry;
-typedef SaveVecEntry *Handle;
-class TaskData;
-
-extern Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code);
+extern struct _entrypts networkingEPT[];
 
 #endif

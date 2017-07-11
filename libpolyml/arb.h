@@ -47,26 +47,11 @@ extern Handle Make_arb_from_pair_scaled(TaskData *taskData, unsigned hi, unsigne
 extern Handle Make_arb_from_Filetime(TaskData *taskData, const FILETIME &ft);
 #endif
 
-extern Handle add_longc(TaskData *taskData, Handle,Handle);
-extern Handle sub_longc(TaskData *taskData, Handle,Handle);
+// This is currently used in the interpreter.
 extern Handle mult_longc(TaskData *taskData, Handle,Handle);
+// Currently used in basicio.cpp
 extern Handle div_longc(TaskData *taskData, Handle,Handle);
 extern Handle rem_longc(TaskData *taskData, Handle,Handle);
-extern Handle quot_rem_c(TaskData *taskData, Handle,Handle,Handle);
-extern Handle or_longc(TaskData *taskData, Handle,Handle);
-extern Handle and_longc(TaskData *taskData, Handle,Handle);
-extern Handle xor_longc(TaskData *taskData, Handle,Handle);
-extern Handle neg_longc(TaskData *taskData, Handle);
-
-extern Handle equal_longc(TaskData *taskData, Handle y, Handle x);
-extern Handle gt_longc(TaskData *taskData, Handle y, Handle x);
-extern Handle ls_longc(TaskData *taskData, Handle y, Handle x);
-extern Handle ge_longc(TaskData *taskData, Handle y, Handle x);
-extern Handle le_longc(TaskData *taskData, Handle y, Handle x);
-extern Handle int_to_word_c(TaskData *taskData, Handle x);
-
-extern Handle gcd_arbitrary(TaskData *taskData, Handle,Handle);
-extern Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
 
 // Return a uintptr_t/intptr_t value.
 extern POLYUNSIGNED     getPolyUnsigned(TaskData *taskData, PolyWord);
@@ -85,5 +70,7 @@ extern double           get_arbitrary_precision_as_real(PolyWord x);
 #if defined(_WIN32)
 void getFileTimeFromArb(TaskData *taskData, Handle numHandle, PFILETIME ft);
 #endif
+
+extern struct _entrypts arbitraryPrecisionEPT[];
 
 #endif

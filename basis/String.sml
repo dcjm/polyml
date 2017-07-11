@@ -30,9 +30,6 @@ local
     val System_move_bytesA:
         address*address*word*word*word->unit = RunCall.moveBytes
 
-    (* If a vector/string is short (i.e. has an integer tag) it must be the character
-       itself rather than a pointer to a segment. *)
-    val System_isShort   : string -> bool = RunCall.isShort
     val wordSize : word = LibrarySupport.wordSize
     
     fun charAsString(c: char): string =
@@ -44,25 +41,11 @@ local
         v
     end
     
-    (* We have to retain this for an initial bootstrap.  The equality
-       function for strings in the pre-built compiler first tests for
-       identity and then for either string being short. That means that
-       an old format string does not match a new format. *)
-    val charAsString: char -> string = RunCall.unsafeCast
-
-    (* This is mostly backwards compatibility. *)
-    val singleCharStringAsChar: string->char = RunCall.unsafeCast
-
     val bcopy: string*string*word*word*word -> unit = RunCall.moveBytes
-
-    (* If a vector/string is short (i.e. has an integer tag) it must be the character
-       itself rather than a pointer to a segment. *)
-    val isShortString: string -> bool = RunCall.isShort
 
     (* This can be used where we have already checked the range. *)
     fun unsafeStringSub(s: string, i: word): char =
-        if isShortString s then singleCharStringAsChar s
-        else RunCall.loadByteFromImmutable(s, i + wordSize)
+        RunCall.loadByteFromImmutable(s, i + wordSize)
 
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
@@ -86,12 +69,8 @@ local
             let
                 val vec = LibrarySupport.allocString(a_length + b_length)
             in
-                if isShortString a
-                then RunCall.storeByte (vec, wordSize, singleCharStringAsChar a)
-                else bcopy(a, vec, wordSize, wordSize, a_length);
-                if isShortString b
-                then RunCall.storeByte (vec, wordSize+a_length, singleCharStringAsChar b)
-                else bcopy(b, vec, wordSize, wordSize+a_length, b_length);
+                bcopy(a, vec, wordSize, wordSize, a_length);
+                bcopy(b, vec, wordSize, wordSize+a_length, b_length);
                 RunCall.clearMutableBit vec;
                 vec
             end
@@ -114,13 +93,7 @@ local
             then res
             else exp_str (num - 0w1, RunCall.loadByteFromImmutable(s, num+i-0w1+wordSize) :: res)
     in
-        (* Handle the special case of a single character string which is
-           represented by the character itself.  N.B. because we use this
-           function to explode substrings as well as whole strings the test
-           here needs to be whether the base string is short not whether
-           l is one.  If l is zero we use exp_str which immediately returns nil. *)
-        if isShortString s andalso l <> 0w0 then [ singleCharStringAsChar s ]
-        else exp_str (l, [])
+        exp_str (l, [])
     end
 
     (* There's an irritating dependency here. Char uses StringCvt.reader
@@ -219,13 +192,10 @@ local
                     fun copy (_, []:string list) = ()
                      | copy (i, H :: T) =
                         let
-                        val src_len = sizeAsWord H
+                            val src_len = sizeAsWord H
                         in
-                        if isShortString H
-                        then (* single character strings are ints *)
-                            RunCall.storeByte (vec, i, singleCharStringAsChar H)
-                        else bcopy(H, vec, wordSize, i, src_len);
-                        copy(i+src_len, T)
+                            bcopy(H, vec, wordSize, i, src_len);
+                            copy(i+src_len, T)
                         end
                 in
                 copy (wordSize, L);
@@ -282,8 +252,6 @@ local
         fun sub (s: string, i: int): char =
             if i < 0 orelse i >= size s
             then raise General.Subscript
-            else if System_isShort s
-            then singleCharStringAsChar s
             else RunCall.loadByteFromImmutable(s, intAsWord i + wordSize);
     
         (* Explode a string into a list of characters. *)
@@ -298,9 +266,6 @@ local
         let
             val len = sizeAsWord s
         in
-            if isShortString s (* Handle special case of single character. *)
-            then f(singleCharStringAsChar s)
-            else
             let
                 (* Accumulate the characters into a list. *)
                 fun mapChars i l =
@@ -378,10 +343,7 @@ local
             val size_s1 = size s1 and size_s2 = size s2
         in
             if size_s1 <= size_s2
-            then if isShortString s1 (* We have to deal with the case of single chars. *)
-            then if isShortString s2 then singleCharStringAsChar s1 = singleCharStringAsChar s2
-            else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, wordSize)
-            else byteMatch s1 s2 0w0 0w0 (intAsWord size_s1)
+            then byteMatch s1 s2 0w0 0w0 (intAsWord size_s1)
             else false
         end
 
@@ -390,12 +352,7 @@ local
         let
             val size_s1 = size s1 and size_s2 = size s2
         in
-            if size_s1 <= size_s2
-            then if isShortString s1 (* We have to deal with the case of single chars. *)
-            then if isShortString s2 then singleCharStringAsChar s1 = singleCharStringAsChar s2
-            else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, wordSize+intAsWord(size_s2-1))
-            else byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
-            else false
+            byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
         end
 
         (* True if s1 is a substring of s2 *)
@@ -409,9 +366,7 @@ local
             then true
             else doMatch (i+0w1) (s-1)
         in
-            if isShortString s1
-            then Char.contains s2 (singleCharStringAsChar s1) 
-            else doMatch 0w0 size_s2
+            doMatch 0w0 size_s2
         end
         
         
@@ -438,8 +393,7 @@ local
                 struct
                     type vector = vector and elem = elem
                     val length = sizeAsWord
-                    fun unsafeSub(s, i) =
-                        if System_isShort s then singleCharStringAsChar s else RunCall.loadByteFromImmutable(s, i + wordSize);
+                    fun unsafeSub(s, i) = RunCall.loadByteFromImmutable(s, i + wordSize);
                     fun unsafeSet(_, _, _) = raise Fail "Should not be called"
                 end);
     
@@ -450,8 +404,6 @@ local
             val len = sizeAsWord vec
         in
             if len = 0w0 then ""
-            else if isShortString vec (* Special case. Single character strings. *)
-            then charAsString(f(singleCharStringAsChar vec))
             else (* len > 1 *)
             let
                 (* Allocate a new vector. *)
@@ -469,31 +421,11 @@ local
         end
             
         local
-            (* String comparison.  This is complicated because of the special case for
-               single character strings. *)
+            (* String comparison. *)
             fun compareString(s1, s2) =
             let
                 val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
-                val test = 
-                    if isShortString s1
-                    then
-                    (
-                        (* The first string is a single-character. If the second is also a single
-                           character we can subtract them to produce an ordering. *)
-                        if isShortString s2
-                        then Char.ord(singleCharStringAsChar s1) - Char.ord(singleCharStringAsChar s2)
-                        else if s2l = 0w0 then 1 (* It's always greater than the empty string. *)
-                        else (* Subtract the first character of the string. *)
-                            Char.ord(singleCharStringAsChar s1) - RunCall.loadByteFromImmutable(s2, wordSize)
-                    )
-                    else if isShortString s2
-                    then
-                    (
-                        (* The second string is a single-character but the first is not. *)
-                        if s1l = 0w0 then ~1 (* The empty string is less than this. *)
-                        else RunCall.loadByteFromImmutable(s1, wordSize) - Char.ord(singleCharStringAsChar s2)
-                    )
-                    else RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
             in
                 if test = 0 (* If the strings are the same up to the shorter length ... *)
                 then RunCall.unsafeCast(s1l - s2l) (* The result depends on the lengths. *)
@@ -523,8 +455,6 @@ local
 
     structure StringCvt =
     struct
-        val chToString: char->string = charAsString
-        and stringToCh: string->char = singleCharStringAsChar
         val mem_move: string*string*word*word*word -> unit = RunCall.moveBytes
 
         datatype radix = BIN | OCT | DEC | HEX
@@ -546,8 +476,6 @@ local
             val iW = unsignedShortOrRaiseSize i (* checks that i is a short. *)
         in
             if len >= iW then s
-            else if iW = 0w1 (* and therefore size s = 0 *)
-            then chToString c (* return single character string. *)
             else 
             let
                 val extra = iW - len
@@ -559,9 +487,7 @@ local
             in
                 setCh 0w0;
                 (* Copy the character part of the string over. *)
-                if len = 0w1
-                then RunCall.storeByte(str, extra + wordSize, stringToCh s)
-                else mem_move(s, str, wordSize, extra + wordSize, len);
+                mem_move(s, str, wordSize, extra + wordSize, len);
                 RunCall.clearMutableBit str;
                 str
             end
@@ -576,8 +502,6 @@ local
             val iW = unsignedShortOrRaiseSize i (* checks that i is a short. *)
         in
             if len >= iW then s
-            else if iW = 0w1 (* and therefore size s = 0 *)
-            then chToString c (* return single character string. *)
             else 
             let
                 val str = LibrarySupport.allocString iW
@@ -587,9 +511,7 @@ local
                     else ( RunCall.storeByte(str, n+wordSize, c); setCh(n+0w1) )
             in
                 (* Copy the character part of the string over. *)
-                if len = 0w1
-                then RunCall.storeByte(str, wordSize, stringToCh s)
-                else mem_move(s, str, wordSize, wordSize, len);
+                mem_move(s, str, wordSize, wordSize, len);
                 setCh len;
                 RunCall.clearMutableBit str;
                 str
@@ -833,9 +755,7 @@ in
             val len = sizeAsWord vec
         in
             if len = 0w0 then ""
-            else if isShortString vec (* Special case. Single character strings. *)
-            then charAsString(f (0, singleCharStringAsChar vec))
-            else (* len >= 2 *)
+            else
             let
                 (* Allocate a new vector. *)
                 val new_vec = LibrarySupport.allocString len
@@ -989,47 +909,38 @@ in
             fun toStrings convert s =
             let
                 val len = sizeAsWord s
+                (* First pass - find out the size of the result string. *)
+                fun getSize i n =
+                    if i = len then n
+                    else getSize (i+0w1)
+                            (n + size(convert(RunCall.loadByteFromImmutable(s, i+wordSize))))
+                (* The result could possibly be long so we add the lengths
+                   as integers and convert and check when we've finished. *)
+                val newSize = unsignedShortOrRaiseSize (getSize 0w0 0)
             in
-                (* Handle the special case of a single character string first. *)
-                if isShortString s
-                then convert(singleCharStringAsChar s)
+                (* If the size is the same we can return the original string.
+                   This relies on the fact that the conversions either return
+                   the character unchanged or return a longer escape sequence. *)
+                if newSize = len
+                then s
                 else
                 let
-                    (* First pass - find out the size of the result string. *)
-                    fun getSize i n =
-                        if i = len then n
-                        else getSize (i+0w1)
-                                (n + size(convert(RunCall.loadByteFromImmutable(s, i+wordSize))))
-                    (* The result could possibly be long so we add the lengths
-                       as integers and convert and check when we've finished. *)
-                    val newSize = unsignedShortOrRaiseSize (getSize 0w0 0)
-                in
-                    (* If the size is the same we can return the original string.
-                       This relies on the fact that the conversions either return
-                       the character unchanged or return a longer escape sequence. *)
-                    if newSize = len
-                    then s
+                    (* Second pass: create the output string and copy to it. *)
+                    val newVec = LibrarySupport.allocString newSize
+                    fun copyToOut i j =
+                    if i = len then ()
                     else
                     let
-                        (* Second pass: create the output string and copy to it. *)
-                        val newVec = LibrarySupport.allocString newSize
-                        fun copyToOut i j =
-                        if i = len then ()
-                        else
-                        let
-                            val conv = convert(RunCall.loadByteFromImmutable(s, i+wordSize))
-                            val convSize = sizeAsWord conv
-                        in
-                            if isShortString conv
-                            then RunCall.storeByte (newVec, j, singleCharStringAsChar conv)
-                            else bcopy(conv, newVec, wordSize, j, convSize);
-                            copyToOut (i+0w1) (j+convSize)
-                        end
+                        val conv = convert(RunCall.loadByteFromImmutable(s, i+wordSize))
+                        val convSize = sizeAsWord conv
                     in
-                        copyToOut 0w0 wordSize;
-                        RunCall.clearMutableBit newVec;
-                        newVec
+                        bcopy(conv, newVec, wordSize, j, convSize);
+                        copyToOut (i+0w1) (j+convSize)
                     end
+                in
+                    copyToOut 0w0 wordSize;
+                    RunCall.clearMutableBit newVec;
+                    newVec
                 end
             end
         in
@@ -1232,7 +1143,7 @@ in
                 else System_move_bytesA(s, d, 0w0, diW, len)
         end
     
-        (* Copy avector into an array. *)
+        (* Copy a vector into an array. *)
         (* Since the source is actually a string we have to start the
            copy from si+wordSize. *)
         fun copyVec {src, dst=Array (dlen, d), di: int} =
@@ -1242,10 +1153,6 @@ in
             in
                 if diW + len > dlen
                 then raise General.Subscript
-                else if System_isShort src (* i.e. String.length s = 1 *)
-                then (* Single character strings are represented by the character
-                        so we just need to insert the character into the array. *)
-                    RunCall.storeByte(d, diW, singleCharStringAsChar src)
                 else System_move_bytesA(RunCall.unsafeCast src, d, wordSize, diW, len)
             end
             
@@ -1350,8 +1257,7 @@ in
                 struct
                     type vector = vector and elem = char
                     val vecLength = sizeAsWord
-                    fun unsafeVecSub(s, i: word) =
-                        if System_isShort s then singleCharStringAsChar s else RunCall.loadByteFromImmutable(s, i + wordSize)
+                    fun unsafeVecSub(s, i: word) = RunCall.loadByteFromImmutable(s, i + wordSize)
                     fun unsafeVecUpdate _ = raise Fail "Should not be called" (* Not applicable *)
                 end);
     
@@ -1434,10 +1340,6 @@ in
         in
             if size_s1 > l
             then false
-            else if System_isShort s1
-            then if System_isShort s2
-            then singleCharStringAsChar s1 = singleCharStringAsChar s2
-            else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + wordSize)
             else byteMatch s1 s2 0w0 i size_s1
         end
 
@@ -1448,10 +1350,6 @@ in
         in
             if size_s1 > l
             then false
-            else if System_isShort s1
-            then if System_isShort s2
-            then singleCharStringAsChar s1 = singleCharStringAsChar s2
-            else singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + l - 0w1 + wordSize)
             else byteMatch s1 s2 0w0 (l + i - size_s1) size_s1
         end
 
@@ -1462,17 +1360,11 @@ in
             (* Start at the beginning and compare until we get a match. *)
             fun doMatch i s =
             if s < size_s1 then false (* The remainder of the string is too small to match. *)
-            else if (
-               if System_isShort s1
-               then singleCharStringAsChar s1 = RunCall.loadByteFromImmutable(s2, i + wordSize)
-               else byteMatch s1 s2 0w0 i size_s1
-               )
+            else if byteMatch s1 s2 0w0 i size_s1
             then true
             else doMatch (i+0w1) (s-0w1)
         in
-            if System_isShort s2
-            then size_s1 = 0w0 orelse (System_isShort s1 andalso singleCharStringAsChar s1 = singleCharStringAsChar s2)
-            else doMatch start length
+            doMatch start length
         end
 
         (* TODO: This would be quicker with an RTS function to scan for a
@@ -1696,10 +1588,6 @@ in
             in
                 if diW + len > dlen
                 then raise General.Subscript
-                else if System_isShort source (* i.e. length s = 1 *)
-                then (* Single character strings are represented by the character
-                        so we just need to insert the character into the array. *)
-                    RunCall.storeByte(d, diW + offset, singleCharStringAsChar source)
                     (* The source is represented by a string whose first word is the length. *)
                 else System_move_bytesA(RunCall.unsafeCast source, d, offset + wordSize, diW, len)
             end

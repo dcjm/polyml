@@ -30,5 +30,7 @@ class TaskData;
 
 extern Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code);
 
+extern struct _entrypts polySpecificEPT[];
+
 #endif
 

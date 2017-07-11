@@ -113,4 +113,6 @@ public:
     unsigned tombs;
 };
 
+extern struct _entrypts exporterEPT[];
+
 #endif

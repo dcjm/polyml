@@ -95,6 +95,7 @@
 #include "rts_module.h"
 #include "machine_dep.h"
 #include "processes.h"
+#include "rtsentry.h"
 
 /*
     The Standard Basis Library assumes IEEE representation for reals.  Among other
@@ -134,6 +135,10 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyRealRound(double arg);
     POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg);
 }
+
+static Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
+static Handle Real_convc(TaskData *mdTaskData, Handle str);
+
 
 // Positive and negative infinities and (positive) NaN.
 double posInf, negInf, notANumber;
@@ -175,118 +180,9 @@ Handle real_result(TaskData *mdTaskData, double x)
     return mdTaskData->saveVec.push(v);
 }
 
-/* CALL_IO2(Real_add, REF, REF, NOIND) */
-Handle Real_addc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return real_result(mdTaskData, real_arg(x)+real_arg(y));
-}
-
-/* CALL_IO2(Real_sub, REF, REF, NOIND) */
-Handle Real_subc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return real_result(mdTaskData, real_arg(x)-real_arg(y));
-}
-
-/* CALL_IO2(Real_mul, REF, REF, NOIND) */
-Handle Real_mulc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    return real_result(mdTaskData, real_arg(x)*real_arg(y));
-}
-
-/* CALL_IO2(Real_div, REF, REF, NOIND) */
-Handle Real_divc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    double dx = real_arg(x);
-    double dy = real_arg(y);
-    return real_result(mdTaskData, dx/dy);
-}
-
-/* CALL_IO1(Real_abs, REF, NOIND) */
-// This handles +/- NaN correctly.
-// TODO: That assumes that notANumber is positive which may not be true.
-Handle Real_absc(TaskData *mdTaskData, Handle x)
-{
-    double dx = real_arg(x);
-    if (isnan(dx)) return real_result(mdTaskData, notANumber);
-    else return real_result(mdTaskData, fabs(real_arg(x)));
-}
-
-/* CALL_IO1(Real_neg, REF, NOIND) */
-Handle Real_negc(TaskData *mdTaskData, Handle x)
-{
-    return real_result(mdTaskData, -real_arg(x));
-}
-
-/* The old Real_comp function isn't right for IEEE arithmetic. These
-   functions were added to implement these correctly.
-   On Windows, at any rate, the comparison operations do not necessarily
-   return false on unordered arguments so we have to explicitly test for NaN.
- */
-Handle Real_geqc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
-    return mdTaskData->saveVec.push(dx >= dy ? TAGGED(1) : TAGGED(0));
-}
-
-Handle Real_leqc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
-    return mdTaskData->saveVec.push(dx <= dy ? TAGGED(1) : TAGGED(0));
-}
-
-Handle Real_gtrc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
-    return mdTaskData->saveVec.push(dx > dy ? TAGGED(1) : TAGGED(0));
-}
-
-Handle Real_lssc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
-    return mdTaskData->saveVec.push(dx < dy ? TAGGED(1) : TAGGED(0));
-}
-
-Handle Real_eqc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
-    return mdTaskData->saveVec.push(dx == dy ? TAGGED(1) : TAGGED(0));
-}
-
-Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(1));
-    return mdTaskData->saveVec.push(dx != dy ? TAGGED(1) : TAGGED(0));
-}
-
-/* CALL_IO1(Real_float, REF, NOIND) */
-// Convert an arbitrary precision value to float.
-Handle Real_from_arbitrary_precision(TaskData *mdTaskData, Handle x)
-{
-    double d = get_arbitrary_precision_as_real(DEREFWORDHANDLE(x));
-    return real_result(mdTaskData, d);
-}
-
 POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg)
 {
     return get_arbitrary_precision_as_real(arg);
-}
-
-/* CALL_IO1(Real_int, REF, NOIND) */
-// Convert a real number to arbitrary precision.  Using
-// int64_t here means we will capture all the significant bits of
-// the mantissa.  The calling code checks for infinities and NaNs
-// and reduces the exponent if it is too big to fit.
-Handle Real_intc(TaskData *mdTaskData, Handle x)
-{
-    double dx = real_arg(x);
-    int64_t i = (int64_t)dx;
-    return Make_arbitrary_precision(mdTaskData, i);
 }
 
 // Convert a boxed real to a long precision int.
@@ -308,23 +204,10 @@ POLYUNSIGNED PolyRealBoxedToLongInt(PolyObject *threadId, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
-/* CALL_IO1(Real_sqrt, REF, NOIND) */
-Handle Real_sqrtc(TaskData *mdTaskData, Handle arg)
-{
-    double dx = real_arg(arg);
-    return real_result(mdTaskData, sqrt(dx));
-}
-
 // RTS call for square-root.
 double PolyRealSqrt(double arg)
 {
     return sqrt(arg);
-}
-
-/* CALL_IO1(Real_sin, REF, NOIND) */
-Handle Real_sinc(TaskData *mdTaskData, Handle arg)
-{
-    return real_result(mdTaskData, sin(real_arg(arg)));
 }
 
 // RTS call for sine.
@@ -333,22 +216,10 @@ double PolyRealSin(double arg)
     return sin(arg);
 }
 
-/* CALL_IO1(Real_cos, REF, NOIND) */
-Handle Real_cosc(TaskData *mdTaskData, Handle arg)
-{
-    return real_result(mdTaskData, cos(real_arg(arg)));
-}
-
 // RTS call for cosine.
 double PolyRealCos(double arg)
 {
     return cos(arg);
-}
-
-/* CALL_IO1(Real_arctan, REF, NOIND) */
-Handle Real_arctanc(TaskData *mdTaskData, Handle arg)
-{
-    return real_result(mdTaskData, atan(real_arg(arg)));
 }
 
 // RTS call for arctan.
@@ -357,28 +228,10 @@ double PolyRealArctan(double arg)
     return atan(arg);
 }
 
-/* CALL_IO1(Real_exp, REF, NOIND) */
-Handle Real_expc(TaskData *mdTaskData, Handle arg)
-{
-    return real_result(mdTaskData, exp(real_arg(arg)));
-}
-
 // RTS call for exp.
 double PolyRealExp(double arg)
 {
     return exp(arg);
-}
-
-/* CALL_IO1(Real_ln, REF, NOIND) */
-Handle Real_lnc(TaskData *mdTaskData, Handle arg)
-{
-    double x = real_arg(arg);
-    /* Make sure the result conforms to the definition. */
-    if (x < 0.0)
-        return real_result(mdTaskData, notANumber); /* Nan. */
-    else if (x == 0.0) /* x may be +0.0 or -0.0 */
-        return real_result(mdTaskData, negInf); /* -infinity. */
-    else return real_result(mdTaskData, log(x));
 }
 
 // RTS call for ln.
@@ -788,7 +641,7 @@ POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord 
 }
 
 /* Functions added for Standard Basis Library are all indirected through here. */
-Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
+static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
@@ -951,7 +804,7 @@ POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts realsEPT[] =
 {
     { "PolyRealBoxedToString",          (polyRTSFunction)&PolyRealBoxedToString},
     { "PolyRealGeneral",                (polyRTSFunction)&PolyRealGeneral},
@@ -983,7 +836,6 @@ class RealArithmetic: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

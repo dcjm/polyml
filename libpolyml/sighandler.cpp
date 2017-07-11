@@ -104,6 +104,7 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "gc.h" // For convertedWeak
 #include "scanaddrs.h"
 #include "locking.h"
+#include "rtsentry.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
@@ -532,7 +533,7 @@ void init_asyncmask(sigset_t *mask)
 
 #endif
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts sigHandlerEPT[] =
 {
     { "PolySetSignalHandler",           (polyRTSFunction)&PolySetSignalHandler},
     { "PolyWaitForSignal",              (polyRTSFunction)&PolyWaitForSignal},
@@ -546,7 +547,6 @@ public:
     virtual void Init(void);
     virtual void Stop(void);
     virtual void GarbageCollect(ScanAddress * /*process*/);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 
 #ifdef USE_PTHREAD_SIGNALS
     SigHandler() { threadRunning = false; }

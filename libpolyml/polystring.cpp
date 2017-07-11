@@ -55,15 +55,18 @@
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
 // Return empty string.
-PolyWord EmptyString(void)
+PolyWord EmptyString(TaskData *mdTaskData)
 {
-    return (PolyObject*)IoEntry(POLY_SYS_emptystring);
+    // It might be preferable to have a single empty string.
+    PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, 1, F_BYTE_OBJ));
+    result->length = 0;
+    return result;
 }
 
 PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffLen)
 /* Returns a C string as a Poly string. */
 {
-    if (buffer == NULL) return EmptyString();
+    if (buffer == NULL) return EmptyString(mdTaskData);
 
     if (buffLen == (size_t)-1) buffLen = strlen(buffer);
 
@@ -148,34 +151,25 @@ bool setWindowsCodePage(const TCHAR *codePageArg)
 PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer, size_t buffLen)
 /* Returns a Unicode string as a Poly string. */
 {
-    if (buffer == NULL) return EmptyString();
+    if (buffer == NULL) return EmptyString(mdTaskData);
 
     // Get the length of the string, without the terminating null.
     if (buffLen == -1) buffLen = wcslen(buffer);
-    if (buffLen == 0) return EmptyString(); // If it's zero return empty string.
+    if (buffLen == 0) return EmptyString(mdTaskData); // If it's zero return empty string.
 
     // Find the length when converted.
     int outputLen = WideCharToMultiByte(codePage, 0, buffer, (int)buffLen, NULL, 0, NULL, NULL);
 
     // Return the null string if there's an error 
-    if (outputLen <= 0) return EmptyString();
-    
-    // Return the character itself if the length is 1 */
-    if (outputLen == 1)
-    {
-        char obuff[1];
-        int check = WideCharToMultiByte(codePage, 0, buffer, (int)buffLen, obuff, 1, NULL, NULL);
-        if (check <= 0) return EmptyString();
-        return TAGGED(obuff[0]);
-    }
-    
+    if (outputLen <= 0) return EmptyString(mdTaskData);
+     
     // Get the number of words required, plus 1 for length word, plus flag bit.
     PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(outputLen) + 1, F_BYTE_OBJ));
     
     // Set length of string, then copy the characters.
     result->length = outputLen;
     int check = WideCharToMultiByte(codePage, 0, buffer, (int)buffLen, result->chars, outputLen, NULL, NULL);
-    if (check <= 0) return EmptyString();
+    if (check <= 0) return EmptyString(mdTaskData);
 
     return result;
 }

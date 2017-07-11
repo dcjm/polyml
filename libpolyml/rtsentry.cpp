@@ -43,12 +43,64 @@
 #endif
 
 #include "globals.h"
-#include "rts_module.h"
 #include "rtsentry.h"
 #include "save_vec.h"
 #include "processes.h"
 #include "run_time.h"
 #include "polystring.h"
+#include "arb.h"
+#include "basicio.h"
+#include "polyffi.h"
+#include "xwindows.h"
+#include "os_specific.h"
+#include "timing.h"
+#include "sighandler.h"
+#include "sharedata.h"
+#include "run_time.h"
+#include "reals.h"
+#include "profiling.h"
+#include "processes.h"
+#include "process_env.h"
+#include "poly_specific.h"
+#include "objsize.h"
+#include "network.h"
+#include "foreign.h"
+#include "machine_dep.h"
+#include "exporter.h"
+
+extern struct _entrypts rtsCallEPT[];
+
+static entrypts entryPointTable[] =
+{
+    rtsCallEPT,
+    arbitraryPrecisionEPT,
+    basicIOEPT,
+    polyFFIEPT,
+    xwindowsEPT,
+    osSpecificEPT,
+    timingEPT,
+    sigHandlerEPT,
+    shareDataEPT,
+    runTimeEPT,
+    realsEPT,
+    profilingEPT,
+    processesEPT,
+    processEnvEPT,
+    polySpecificEPT,
+    objSizeEPT,
+    networkingEPT,
+    foreignEPT,
+    machineSpecificEPT,
+    exporterEPT,
+    NULL
+};
+
+extern "C" {
+#ifdef _MSC_VER
+    __declspec(dllexport)
+#endif
+    POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg);
+};
 
 // Create an entry point containing the address of the entry and the
 // string name.  Having the string in there allows us to export the entry.
@@ -82,13 +134,24 @@ bool setEntryPoint(PolyObject *p)
     if (p->Length() == 1) return false;
     const char *entryName = (const char*)(p->AsBytePtr()+sizeof(PolyWord));
 
-    // Search the modules to find the entry point.
-    polyRTSFunction entry = FindModuleEntryPoint(entryName);
-    if (entry != 0)
+    // Search the entry point table list.
+    for (entrypts *ept=entryPointTable; *ept != NULL; ept++)
     {
-        *(polyRTSFunction*)p = entry;
-        return true;
+        entrypts entryPtTable = *ept;
+        if (entryPtTable != 0)
+        {
+            for (struct _entrypts *ep = entryPtTable; ep->entry != NULL; ep++)
+            {
+                if (strcmp(entryName, ep->name) == 0)
+                {
+                    polyRTSFunction entry = ep->entry;
+                    *(polyRTSFunction*)p = entry;
+                    return true;
+                }
+            }
+        }
     }
+
     return false;
 }
 
@@ -112,18 +175,9 @@ POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts rtsCallEPT[] =
 {
     { "PolyCreateEntryPointObject",     (polyRTSFunction)&PolyCreateEntryPointObject},
 
     { NULL, NULL} // End of list.
 };
-
-class RTSCaller: public RtsModule
-{
-public:
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-// Declare this.  It will be automatically added to the table.
-static RTSCaller rtsCallModule;

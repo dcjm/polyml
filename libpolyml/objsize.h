@@ -32,4 +32,6 @@ extern Handle ObjSize(TaskData *taskData, Handle obj);
 extern Handle ShowSize(TaskData *taskData, Handle obj);
 extern Handle ObjProfile(TaskData *taskData, Handle obj);
 
+extern struct _entrypts objSizeEPT[];
+
 #endif

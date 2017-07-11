@@ -30,11 +30,20 @@ extern Handle creatEntryPointObject(TaskData *taskData, Handle entryH);
 extern const char *getEntryPointName(PolyObject *p);
 extern bool setEntryPoint(PolyObject *p);
 
-extern "C" {
+typedef void (*polyRTSFunction)();
+
+typedef struct _entrypts {
+    const char *name;
+    polyRTSFunction entry;
+} *entrypts;
+
+// Ensure that the RTS calls can be found by the linker.
+#ifndef POLYEXTERNALSYMBOL
 #ifdef _MSC_VER
-    __declspec(dllexport)
+#define POLYEXTERNALSYMBOL __declspec(dllexport)
+#else
+#define POLYEXTERNALSYMBOL
 #endif
-    POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg);
-};
+#endif
 
 #endif

@@ -51,7 +51,7 @@
 #include "run_time.h"
 #include "sys.h"
 #include "gc.h"
-#include "rts_module.h"
+#include "rtsentry.h"
 #include "memmgr.h"
 #include "processes.h"
 #include "gctaskfarm.h"
@@ -934,18 +934,10 @@ POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root)
     return TAGGED(0).AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts shareDataEPT[] =
 {
     { "PolyShareCommonData",            (polyRTSFunction)&PolyShareCommonData},
 
     { NULL, NULL} // End of list.
 };
 
-class ShareDataModule: public RtsModule
-{
-public:
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-// Declare this.  It will be automatically added to the table.
-static ShareDataModule shareDataModule;

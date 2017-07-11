@@ -52,4 +52,6 @@ extern void initThreadSignals(TaskData *taskData);
 
 extern unsigned receivedSignalCount; // Incremented each time we get a signal
 
+extern struct _entrypts sigHandlerEPT[];
+
 #endif

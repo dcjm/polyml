@@ -60,7 +60,7 @@ sig
         SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
         SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
 
-    val argThreadSelf: int (* Copied from X86CodeSgig *)
+    val memRegThreadSelf: int (* Copied from X86CodeSgig *)
 
     datatype callKinds =
         Recursive

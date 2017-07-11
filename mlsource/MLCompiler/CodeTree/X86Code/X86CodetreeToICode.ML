@@ -343,19 +343,10 @@ struct
             (* Get the ID of the current thread. *)
             let
                 val target = asTarget destination
-                val argReg = newPReg() (* Should this be an untagged register? *)
-                (* This is a duplicate of code in X86FOREIGNCALL. *)
-                val memRegArgumentPtr =
-                    case Compat560.polySpecificGeneral (108, 0) of
-                        1 => (*X64Unix*) ~48
-                    |   2 => (*X64Win*) 16
-                    |   _ => (*X86_32*) 8
             in
                 ([MoveArgument{
-                    source=MemoryLocation{offset=memRegArgumentPtr, base=RealRegister(GenReg ebp), index=NoMemIndex},
-                    dest=argReg, kind=MoveWord},
-                 MoveArgument{
-                    source=MemoryLocation{offset=argThreadSelf, base=argReg, index=NoMemIndex}, dest=target, kind=MoveWord}], target)
+                    source=MemoryLocation{offset=memRegThreadSelf, base=RealRegister(GenReg ebp), index=NoMemIndex},
+                    dest=target, kind=MoveWord}], target)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, _, destination) =

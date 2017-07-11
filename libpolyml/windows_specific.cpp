@@ -74,6 +74,7 @@
 #include "save_vec.h"
 #include "rts_module.h"
 #include "machine_dep.h"
+#include "rtsentry.h"
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 
@@ -1301,7 +1302,7 @@ static Handle enumerateRegistry(TaskData *taskData, Handle args, HKEY hkey, BOOL
     return result;
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts osSpecificEPT[] =
 {
     { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
     { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
@@ -1315,7 +1316,6 @@ public:
     virtual void Init(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

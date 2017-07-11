@@ -398,25 +398,7 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
         if (rootFunction == 0)
             exit(1);
     }
-   
-    /* Initialise the interface vector. */
-    machineDependent->InitInterfaceVector(); /* machine dependent entries. */
-    
-    // This word has a zero value and is used for null strings.
-    add_word_to_io_area(POLY_SYS_emptystring, PolyWord::FromUnsigned(0));
-    
-    // This is used to represent zero-sized vectors.
-    // N.B. This assumes that the word before is zero because it's
-    // actually the length word we want to be zero here.
-    add_word_to_io_area(POLY_SYS_nullvector, PolyWord::FromUnsigned(0));
-    
-    /* The standard input and output streams are persistent i.e. references
-       to the the standard input in one session will refer to the standard
-       input in the next. */
-    add_word_to_io_area(POLY_SYS_stdin,  PolyWord::FromUnsigned(0));
-    add_word_to_io_area(POLY_SYS_stdout, PolyWord::FromUnsigned(1));
-    add_word_to_io_area(POLY_SYS_stderr, PolyWord::FromUnsigned(2));
-    
+
     StartModules();
     
     // Set up the initial process to run the root function.

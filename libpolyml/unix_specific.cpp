@@ -130,6 +130,7 @@
 #include "polystring.h"
 #include "save_vec.h"
 #include "rts_module.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -2081,7 +2082,7 @@ static int findPathVar(TaskData *taskData, PolyWord ps)
     raise_syscall(taskData, "pathconf argument not found", EINVAL);
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts osSpecificEPT[] =
 {
     { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
     { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
@@ -2093,7 +2094,6 @@ class UnixSpecific: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

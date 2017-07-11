@@ -90,6 +90,7 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "save_vec.h"
 #include "processes.h"
 #include "memmgr.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
@@ -107,13 +108,24 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
 }
 
+static Handle add_longc(TaskData *taskData, Handle,Handle);
+static Handle sub_longc(TaskData *taskData, Handle,Handle);
+static Handle quot_rem_c(TaskData *taskData, Handle,Handle,Handle);
+static Handle or_longc(TaskData *taskData, Handle,Handle);
+static Handle and_longc(TaskData *taskData, Handle,Handle);
+static Handle xor_longc(TaskData *taskData, Handle,Handle);
+static Handle neg_longc(TaskData *taskData, Handle);
+
+static Handle gcd_arbitrary(TaskData *taskData, Handle,Handle);
+static Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
+
 // Number of bits in a Poly word.  N.B.  This is not necessarily the same as SIZEOF_VOIDP.
 #define BITS_PER_POLYWORD (SIZEOF_VOIDP*8)
 
 #ifdef USE_GMP
 #if (BITS_PER_POLYWORD > GMP_LIMB_BITS)
 // We're assuming that every GMP limb occupies at least one word
-#error "Size of GMP limb is less than a Poly word"
+#error "Size of GMP limb is less than makemaka Poly word"
 #endif
 #endif
 
@@ -1516,73 +1528,6 @@ double get_arbitrary_precision_as_real(PolyWord x)
     else return acc;
 }
 
-/*
-These functions are used primarily during porting.  They handle both
-short and long forms of integers and are generally superseded by
-hand coded assembly code versions and the code generator.
-Some of them are retained in some code-generators to handle the
-long forms of integers.
-*/
-
-Handle equal_longc(TaskData *taskData, Handle y, Handle x)
-/* Returns 1 if the arguments are equal, otherwise 0. */
-{
-    bool c = compareLong(y->Word(), x->Word()) == 0;
-    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
-}
-
-Handle gt_longc(TaskData *taskData, Handle y, Handle x)
-{
-    bool c = compareLong(y->Word(), x->Word()) == 1;
-
-    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
-}
-
-Handle ls_longc(TaskData *taskData, Handle y, Handle x)
-{
-    bool c = (compareLong(y->Word(), x->Word()) == -1);
-
-    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
-}
-
-Handle ge_longc(TaskData *taskData, Handle y, Handle x)
-{
-    bool c = compareLong(y->Word(), x->Word()) != -1;
-
-    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
-}
-
-Handle le_longc(TaskData *taskData, Handle y, Handle x)
-{
-    bool c = compareLong(y->Word(), x->Word()) != 1;
-
-    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
-}
-
-/* Return the low-order bits of an integer whether it is long or
-   short form. */
-Handle int_to_word_c(TaskData *taskData, Handle x)
-{
-    /* If it's already short it's easy. */
-    if (IS_INT(DEREFWORD(x)))
-        return x;
-
-#ifdef USE_GMP
-    // It may be big- or little-endian.
-    POLYUNSIGNED r = (POLYUNSIGNED)*DEREFLIMBHANDLE(x);
-#else
-    // Little-endian.
-    byte    *u = DEREFBYTEHANDLE(x);
-    POLYUNSIGNED r = 0;
-    for (unsigned i=0; i < sizeof(PolyWord); i++)
-    {
-        r |= (POLYUNSIGNED)u[i] << (8*i);
-    }
-#endif
-    if (OBJ_IS_NEGATIVE(x->Word().AsObjPtr()->LengthWord()))
-        r = 0-r; // Use 0-r rather than -r since it's an unsigned value.
-    return taskData->saveVec.push(TAGGED(r));
-}
 
 /*  Arbitrary precision GCD function.  This is really included to make
     use of GMP's GCD function that selects an algorithm based on the
@@ -1941,8 +1886,8 @@ POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
     {
         bool negative = OBJ_IS_NEGATIVE(GetLengthWord(arg)) ? true : false;
 #ifdef USE_GMP
-        unsigned length = numLimbs(arg);
         mp_limb_t c = *(mp_limb_t*)arg.AsCodePtr();
+        p = c;
 #else
         POLYUNSIGNED length = get_length(arg);
         if (length > sizeof(PolyWord)) length = sizeof(PolyWord);
@@ -2031,7 +1976,7 @@ POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts arbitraryPrecisionEPT[] =
 {
     { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
     { "PolySubtractArbitrary",          (polyRTSFunction)&PolySubtractArbitrary},
@@ -2049,12 +1994,3 @@ static struct _entrypts entryPtTable[] =
 
     { NULL, NULL} // End of list.
 };
-
-class ArbitraryPrecisionArithmetic: public RtsModule
-{
-public:
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-// Declare this.  It will be automatically added to the table.
-static ArbitraryPrecisionArithmetic arbModule;

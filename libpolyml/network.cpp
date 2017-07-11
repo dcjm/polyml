@@ -131,6 +131,7 @@ typedef int socklen_t;
 #include "rts_module.h"
 #include "machine_dep.h"
 #include "errors.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -411,7 +412,7 @@ public:
     WaitNetSend(SOCKET sock) { SetWrite(sock); }
 };
 
-Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
+static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
 TryAgain: // Used for various retries.
@@ -1474,7 +1475,7 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
         if (FD_ISSET(strm->device.sock, pFds)) nRes++;
     }
     if (nRes == 0)
-        return SAVE(EmptyString()); /* None - return empty vector. */
+        return ALLOC(0); /* None - return empty vector. */
     else {
         Handle result = ALLOC(nRes);
         inVec = DEREFHANDLE(args)->Get(offset).AsObjPtr(); /* It could have moved as a result of a gc. */
@@ -1617,7 +1618,7 @@ POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord ar
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts networkingEPT[] =
 {
     { "PolyNetworkGeneral",             (polyRTSFunction)&PolyNetworkGeneral},
 
@@ -1629,7 +1630,6 @@ class Networking: public RtsModule
 public:
     virtual void Init(void);
     virtual void Stop(void);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

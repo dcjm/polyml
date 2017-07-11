@@ -91,6 +91,7 @@ typedef char TCHAR;
 #include "processes.h"
 #include "locking.h"
 #include "errors.h"
+#include "rtsentry.h"
 
 #include "poly_specific.h" // For the functions that have been moved.
 
@@ -639,7 +640,7 @@ Handle finishc(TaskData *taskData, Handle h)
     return taskData->saveVec.push(TAGGED(0));
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts processEnvEPT[] =
 {
     { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
     { "PolyTerminate",                  (polyRTSFunction)&PolyTerminate},
@@ -652,7 +653,6 @@ class ProcessEnvModule: public RtsModule
 {
 public:
     void GarbageCollect(ScanAddress *process);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

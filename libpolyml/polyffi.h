@@ -46,4 +46,6 @@ extern Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Ha
 extern Handle cmem_store_64(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
 #endif
 
+extern struct _entrypts polyFFIEPT[];
+
 #endif

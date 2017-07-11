@@ -23,12 +23,6 @@
 #ifndef _FOREIGN_H_DEFINED
 #define _FOREIGN_H_DEFINED 1
 
-class SaveVecEntry;
-typedef SaveVecEntry *Handle;
-class TaskData;
-
-class ScanAddress;
-
-extern Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h);
+extern struct _entrypts foreignEPT[];
 
 #endif

@@ -83,6 +83,8 @@
 #include "scanaddrs.h"
 #include "diagnostics.h"
 #include "reals.h"
+#include "rts_module.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -724,7 +726,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble()
     return TAGGED(ffi_type_double.size).AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts polyFFIEPT[] =
 {
     { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
     { "PolySizeFloat",                  (polyRTSFunction)&PolySizeFloat},
@@ -737,7 +739,6 @@ class PolyFFI: public RtsModule
 {
 public:
     virtual void GarbageCollect(ScanAddress *process);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

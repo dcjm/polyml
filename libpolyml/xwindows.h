@@ -31,4 +31,6 @@ class TaskData;
 
 extern Handle XWindows_c(TaskData *taskData, Handle params);
 
+extern struct _entrypts xwindowsEPT[];
+
 #endif

@@ -191,12 +191,6 @@ struct
                     toChars(toInt r, chars, q, shortChars)
                 end
         in
-            if i >= zero andalso i < fromInt base
-            then (* This will be a single character.  Treat specially.
-                    This is also the only case where we print a leading
-                    zero. *)
-                RunCall.unsafeCast(toChar(toInt i)) : string
-            else (* Multiple characters. *)
             let
                 val (result, _) = toCharGroup(abs i, 0w0)
             in

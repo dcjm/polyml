@@ -41,7 +41,7 @@ inline POLYUNSIGNED PolyStringLength(PolyWord ps) { return IS_INT(ps) ? 1 : ((Po
 // We often want to be able to allocate a temporary C string from a Poly string
 // and have it automatically deallocated when the context has been exited.
 
-extern PolyWord EmptyString(void);
+extern PolyWord EmptyString(TaskData *mdTaskData);
 
 /* PolyStringObject functions */
 extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffLen = -1);

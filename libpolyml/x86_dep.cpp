@@ -160,14 +160,17 @@ typedef struct _AssemblyArgs {
     PolyWord        *localMbottom;      // Base of memory + 1 word
     PolyWord        *stackLimit;        // Lower limit of stack
     PolyWord        exceptionPacket;    // Set if there is an exception
-    byte            requestCode;        // IO function to call.
+    byte            unusedRequestCode;  // No longer used.
     byte            unusedFlag;         // No longer used
     byte            returnReason;       // Reason for returning from ML.
-    byte            fullRestore;        // 0 => clear registers, 1 => reload registers
-    StackObject     *polyStack;         // Current stack base
+    byte            unusedRestore;      // No longer used.
+    POLYUNSIGNED    saveCStack;         // Saved C stack frame.
     PolyObject      *threadId;          // My thread id.  Saves having to call into RTS for it.
     PolyWord        *stackPtr;          // Current stack pointer
     POLYCODEPTR     programCtr;
+    byte            *heapOverFlowCall;  // These are filled in with the functions.
+    byte            *stackOverFlowCall;
+    byte            *stackOverFlowCallEx;
     // Saved registers, where applicable.
     PolyWord        p_rax;
     PolyWord        p_rbx;
@@ -230,6 +233,8 @@ public:
     void SetMemRegisters();
     void SaveMemRegisters();
 
+    PLock interruptLock;
+
     PolyWord *get_reg(int n);
 
     PolyWord *&regSP() { return assemblyInterface.stackPtr; }
@@ -260,7 +265,6 @@ public:
     virtual TaskData *CreateTaskData(void) { return new X86TaskData(); }
 
     virtual unsigned InitialStackSize(void) { return 128+OVERFLOW_STACK_SIZE; } // Initial size of a stack 
-    virtual void InitInterfaceVector(void);
     virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process);
 
     virtual Architectures MachineArchitecture(void)
@@ -273,7 +277,7 @@ public:
 
 // Values for the returnReason byte
 enum RETURN_REASON {
-    RETURN_IO_CALL = 0,
+    RETURN_IO_CALL_NOW_UNUSED = 0,
     RETURN_HEAP_OVERFLOW,
     RETURN_STACK_OVERFLOW,
     RETURN_STACK_OVERFLOWEX,
@@ -281,7 +285,8 @@ enum RETURN_REASON {
     RETURN_ARB_EMULATION_NOW_UNUSED,
     RETURN_CALLBACK_RETURN,
     RETURN_CALLBACK_EXCEPTION,
-    RETURN_RAISE_OVERFLOW
+    RETURN_RAISE_OVERFLOW_NOW_UNUSED,
+    RETURN_KILL_SELF
 };
 
 extern "C" {
@@ -293,313 +298,13 @@ extern "C" {
     extern int X86AsmCallbackReturn(void);
     extern int X86AsmCallbackException(void);
     extern int X86AsmPopArgAndClosure(void);
+    extern int X86AsmRaiseException(void);
+    extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
+    extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
+    extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
 
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
-
-    // The entry points to assembly code functions.
-    extern byte CallPOLY_SYS_exit, alloc_store, alloc_uninit, raisex,
-        get_length_a, get_flags, str_compare, teststrgtr, teststrlss,
-        teststrgeq, teststrleq, set_exception_trace, locksega, CallPOLY_SYS_network,
-        CallPOLY_SYS_os_specific, eq_longword, geq_longword, leq_longword, gt_longword,
-        lt_longword,  CallPOLY_SYS_io_dispatch, CallPOLY_SYS_signal_handler, atomic_reset, atomic_increment,
-        atomic_decrement, thread_self, CallPOLY_SYS_thread_dispatch, plus_longword, minus_longword,
-        mul_longword, div_longword, mod_longword, andb_longword, orb_longword, xorb_longword,
-        CallPOLY_SYS_kill_self, shift_left_longword, shift_right_longword, shift_right_arith_longword,
-        CallPOLY_SYS_profiler, longword_to_tagged, signed_to_longword, unsigned_to_longword,
-        CallPOLY_SYS_full_gc, CallPOLY_SYS_timing_dispatch,
-        quotrem_long, is_shorta, add_long, sub_long, mult_long, div_long, rem_long,
-        neg_long, xor_long, equal_long, or_long, and_long, CallPOLY_SYS_Real_str, real_geq, real_leq,
-        real_gtr, real_lss, real_eq, real_neq, CallPOLY_SYS_Real_Dispatch, real_add, real_sub, real_mul,
-        real_div, real_abs, real_neg, CallPOLY_SYS_conv_real, CallPOLY_SYS_real_to_int, real_from_int,
-        CallPOLY_SYS_sqrt_real, CallPOLY_SYS_sin_real, CallPOLY_SYS_cos_real, CallPOLY_SYS_arctan_real,
-        CallPOLY_SYS_exp_real, CallPOLY_SYS_ln_real, CallPOLY_SYS_process_env, set_string_length_a,
-        get_first_long_word_a, CallPOLY_SYS_poly_specific, bytevec_eq, cmem_load_asm_8, cmem_load_asm_16,
-        cmem_load_asm_32, cmem_load_asm_float, cmem_load_asm_double, cmem_store_asm_8, cmem_store_asm_16,
-        cmem_store_asm_32,  cmem_store_asm_float,  cmem_store_asm_double,  CallPOLY_SYS_io_operation,
-        CallPOLY_SYS_ffi,  move_words, CallPOLY_SYS_set_code_constant, move_words, shift_right_arith_word,
-        int_to_word,  move_bytes,
-        callcodeTupled, CallPOLY_SYS_foreign_dispatch, CallPOLY_SYS_XWindows, is_big_endian,
-        bytes_per_word,  offset_address,  shift_right_word,  not_bool,  string_length,
-        touch_final,  int_geq,  int_leq,  int_gtr,  int_lss,  mul_word, plus_word, minus_word, 
-        div_word, or_word, and_word, xor_word, shift_left_word, mod_word, word_geq, word_leq,
-        word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word,
-        fixed_geq, fixed_leq, fixed_gtr, fixed_lss, fixed_add, fixed_sub, fixed_mul,
-        fixed_quot, fixed_rem, fixed_to_real, fixed_div, fixed_mod, CallPOLY_SYS_get_entry_point;
-#ifdef HOSTARCHITECTURE_X86_64
-        extern byte cmem_load_asm_64, cmem_store_asm_64;
-#endif
-};
-
-// This vector could perfectly well be in x86asm.asm except that it would be more
-// complicated to make the code position independent.  Mac OS X wants PIC for dynamic
-// libraries.
-static byte *entryPointVector[256] =
-{
-    0,
-    &CallPOLY_SYS_exit, // 1
-    0, // 2 is unused
-    0, // 3 is unused
-    0, // 4 is unused
-    0, // 5 is unused
-    0, // 6 is unused
-    0, // 7 is unused
-    0, // 8 is unused
-    0, // 9
-    &CallPOLY_SYS_get_entry_point, // 10
-    &alloc_store, // 11
-    &alloc_uninit, // 12
-    0, // 13 is unused
-    &raisex, // raisex = 14
-    &get_length_a, // 15
-    0, // 16 is unused
-    &get_flags, // 17
-    0, // 18 is no longer used
-    0, // 19 is no longer used
-    0, // 20 is no longer used
-    0, // 21 is unused
-    0, // 22 is unused
-    &str_compare, // 23
-    0, // 24 is unused
-    0, // 25 is unused
-    &teststrgtr, // 26
-    &teststrlss, // 27
-    &teststrgeq, // 28
-    &teststrleq, // 29
-    0, // 30
-    0, // 31 is no longer used
-    &set_exception_trace, // 32 - backwards compatibility only
-    0, // 33 - exception trace
-    0, // 34 is no longer used
-    0, // 35 is no longer used
-    0, // 36 is no longer used
-    0, // 37 is unused
-    0, // 38 is unused
-    0, // 39 is unused
-    0, // 40 is unused
-    0, // 41 is unused
-    0, // 42
-    0, // 43
-    0, // 44 is no longer used
-    0, // 45 is no longer used
-    0, // 46
-    &locksega, // 47
-    0, // nullorzero = 48
-    0, // 49 is no longer used
-    0, // 50 is no longer used
-    &CallPOLY_SYS_network, // 51
-    &CallPOLY_SYS_os_specific, // 52
-    &eq_longword, // 53
-    0, // 54 is no longer used
-    &geq_longword, // 55
-    &leq_longword, // 56
-    &gt_longword, // 57
-    &lt_longword, // 58
-    0, // 59 is unused
-    0, // 60 is unused
-    &CallPOLY_SYS_io_dispatch, // 61
-    &CallPOLY_SYS_signal_handler, // 62
-    0, // 63 is unused
-    0, // 64 is unused
-    0, // 65 is unused
-    0, // 66 is unused
-    0, // 67 is unused
-    0, // 68 is unused
-    &atomic_reset, // 69
-    &atomic_increment, // 70
-    &atomic_decrement, // 71
-    &thread_self, // 72
-    &CallPOLY_SYS_thread_dispatch, // 73
-    &plus_longword, // 74
-    &minus_longword, // 75
-    &mul_longword, // 76
-    &div_longword, // 77
-    &mod_longword, // 78
-    &andb_longword, // 79
-    &orb_longword, // 80
-    &xorb_longword, // 81
-    0, // 82 is unused
-    0, // 83 is now unused
-    &CallPOLY_SYS_kill_self, // 84
-    &shift_left_longword, // 85
-    &shift_right_longword, // 86
-    &shift_right_arith_longword, // 87
-    &CallPOLY_SYS_profiler, // 88
-    &longword_to_tagged, // 89
-    &signed_to_longword, // 90
-    &unsigned_to_longword, // 91
-    &CallPOLY_SYS_full_gc, // 92
-    0, // 93
-    &CallPOLY_SYS_timing_dispatch, // 94
-    0, // 95 is unused
-    0, // 96 is unused
-    0, // 97 is unused
-    0, // 98 is unused
-    0, // 99 now unused
-    0, // 100 now unused
-    &word_eq, // 101.  This can be the same as 251
-    0, // 102 is unused
-    0, // 103 is unused
-    &quotrem_long, // 104
-    &is_shorta, // 105
-    &add_long, // 106
-    &sub_long, // 107
-    &mult_long, // 108
-    &div_long, // 109
-    &rem_long, // 110
-    &neg_long, // 111
-    &xor_long, // 112
-    &equal_long, // 113
-    &or_long, // 114
-    &and_long, // 115
-    0, // 116 is unused
-    &CallPOLY_SYS_Real_str, // 117
-    &real_geq, // 118
-    &real_leq, // 119
-    &real_gtr, // 120
-    &real_lss, // 121
-    &real_eq, // 122
-    &real_neq, // 123
-    &CallPOLY_SYS_Real_Dispatch, // 124
-    &real_add, // 125
-    &real_sub, // 126
-    &real_mul, // 127
-    &real_div, // 128
-    &real_abs, // 129
-    &real_neg, // 130
-    0, // 131 is unused
-    0, // 132 is no longer used
-    &CallPOLY_SYS_conv_real, // 133
-    &CallPOLY_SYS_real_to_int, // 134
-    &real_from_int, // 135
-    &CallPOLY_SYS_sqrt_real, // 136
-    &CallPOLY_SYS_sin_real, // 137
-    &CallPOLY_SYS_cos_real, // 138
-    &CallPOLY_SYS_arctan_real, // 139
-    &CallPOLY_SYS_exp_real, // 140
-    &CallPOLY_SYS_ln_real, // 141
-    &fixed_to_real, // 142
-    0, // 143 is unused
-    0, // 144 is unused
-    0, // 145 is unused
-    0, // 146 is unused
-    0, // 147 is unused
-    0, // stdin = 148
-    0, // stdout = 149
-    &CallPOLY_SYS_process_env, // 150
-    &set_string_length_a, // 151
-    &get_first_long_word_a, // 152
-    &CallPOLY_SYS_poly_specific, // 153
-    &bytevec_eq, // 154
-    0, // 155 is unused
-    0, // 156 is unused
-    0, // 157 is unused
-    0, // 158 is unused
-    0, // 159 is unused
-    &cmem_load_asm_8, // 160
-    &cmem_load_asm_16, // 161
-    &cmem_load_asm_32, // 162
-#ifdef HOSTARCHITECTURE_X86_64
-    &cmem_load_asm_64, // 163
-#else
-    0, // 163
-#endif
-    &cmem_load_asm_float, // 164
-    &cmem_load_asm_double, // 165
-    &cmem_store_asm_8, // 166
-    &cmem_store_asm_16, // 167
-    &cmem_store_asm_32, // 168
-#ifdef HOSTARCHITECTURE_X86_64
-    &cmem_store_asm_64, // 169
-#else
-    0, // 169
-#endif
-    &cmem_store_asm_float, // 170
-    &cmem_store_asm_double, // 171
-    0, // 172 is unused
-    0, // 173 is unused
-    0, // 174 is unused
-    0, // 175 is unused
-    0, // 176 is unused
-    0, // 177 is unused
-    0, // 178 is unused
-    0, // 179 is unused
-    &fixed_add, // 180
-    &fixed_sub, // 181
-    &fixed_mul, // 182
-    &fixed_quot, // 183
-    &fixed_rem, // 184
-    &fixed_div, // 185
-    &fixed_mod, // 186
-    0, // 187 is unused
-    0, // 188 is unused
-    &CallPOLY_SYS_io_operation, // 189
-    &CallPOLY_SYS_ffi, // 190
-    0, // 191 is no longer used
-    0, // 192 is unused
-    &move_words, // move_words_overlap = 193
-    &CallPOLY_SYS_set_code_constant, // 194
-    &move_words, // 195
-    &shift_right_arith_word, // 196
-    &int_to_word, // 197
-    &move_bytes, // 198
-    &move_bytes, // move_bytes_overlap = 199
-    0, // 200
-    0, // 201
-    0, // stderr = 202
-    0, // 203 now unused
-    &callcodeTupled, // 204
-    &CallPOLY_SYS_foreign_dispatch, // 205
-    0, // 206 - foreign null
-    0, // 207 is unused
-    0, // 208 now unused
-    &CallPOLY_SYS_XWindows, // 209
-    0, // 210 is unused
-    0, // 211 is unused
-    0, // 212 is unused
-    &is_big_endian, // 213
-    &bytes_per_word, // 214
-    &offset_address, // 215
-    &shift_right_word, // 216
-    0, // 217 is no longer used
-    &not_bool, // 218
-    &fixed_geq, // 219
-    &fixed_leq, // 220
-    &fixed_gtr, // 221
-    &fixed_lss, // 222
-    &string_length, // 223
-    0, // 224 is unused
-    0, // 225 is unused
-    0, // 226 is unused
-    0, // 227 is unused
-    &touch_final, // 228
-    0, // 229 is no longer used
-    0, // 230 is no longer used
-    &int_geq, // 231
-    &int_leq, // 232
-    &int_gtr, // 233
-    &int_lss, // 234
-    &load_byte, // load_byte_immut = 235
-    &load_word, // load_word_immut = 236
-    0, // 237 is unused
-    &mul_word, // 238
-    &plus_word, // 239
-    &minus_word, // 240
-    &div_word, // 241
-    &or_word, // 242
-    &and_word, // 243
-    &xor_word, // 244
-    &shift_left_word, // 245
-    &mod_word, // 246
-    &word_geq, // 247
-    &word_leq, // 248
-    &word_gtr, // 249
-    &word_lss, // 250
-    &word_eq, // 251
-    &load_byte, // 252
-    &load_word, // 253
-    &assign_byte, // 254
-    &assign_word
 };
 
 extern "C" {
@@ -608,7 +313,9 @@ extern "C" {
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
-    assemblyInterface.fullRestore = 1; // To force the floating point to 64-bit
+    assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
+    assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
+    assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
 }
 
 void X86TaskData::GarbageCollect(ScanAddress *process)
@@ -653,7 +360,7 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
 
     // Adjust the stack pointer and handler pointer since these point into the stack.
     assemblyInterface.stackPtr = assemblyInterface.stackPtr + offset;
-    assemblyInterface.handlerRegister    = assemblyInterface.handlerRegister + offset;
+    assemblyInterface.handlerRegister = assemblyInterface.handlerRegister + offset;
 
     // We need to adjust any values on the stack that are pointers within the stack.
     // Skip the unused part of the stack.
@@ -702,93 +409,6 @@ POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c,
     return TAGGED(0).AsUnsigned();
 }
 
-// Legacy RTS call version.
-static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
-{
-    POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORD(offseth)); // Byte offset
-    byte *pointer = DEREFWORD(base).AsCodePtr() + offset;
-    POLYUNSIGNED flags = UNTAGGED(DEREFWORD(data));
-    POLYUNSIGNED c = DEREFWORD(constant).AsUnsigned(); // N.B.  This may well really be an address.
-    if (flags == 1)
-        c -= (POLYUNSIGNED)(pointer + sizeof(PolyWord)); // Relative address.  Relative to AFTER the pointer.
-    // Store the value into the code.  It can be on an arbitrary alignment.
-    for (unsigned i = 0; i < sizeof(PolyWord); i++)
-    {
-        pointer[i] = (byte)(c & 255); 
-        c >>= 8;
-    }
-    return taskData->saveVec.push(TAGGED(0));
-}
-
-// IO Functions called indirectly from assembly code.
-static void CallIO0(X86TaskData *taskData, Handle (*ioFun)(TaskData *))
-{
-    // Set the return address now.  This could be changed if an exception is raised.
-    taskData->regPC() = (*taskData->regSP()).AsCodePtr();
-    Handle result = (*ioFun)(taskData);
-    taskData->regAX() = result->Word();
-    taskData->regSP()++;
-}
-
-static void CallIO1(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
-{
-    taskData->regPC() = (*taskData->regSP()).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(taskData->regAX());
-    Handle result = (*ioFun)(taskData, saved1);
-    taskData->regAX() = result->Word();
-    taskData->regSP()++; // Pop the return address.
-}
-
-static void CallIO2(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle))
-{
-    taskData->regPC() = (*taskData->regSP()).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(taskData->regAX());
-    Handle saved2 = taskData->saveVec.push(taskData->regBX());
-    Handle result = (*ioFun)(taskData, saved2, saved1);
-    taskData->regAX() = result->Word();
-    taskData->regSP()++;
-}
-
-static void CallIO3(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle))
-{
-    taskData->regPC() = (*taskData->regSP()).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(taskData->regAX());
-    Handle saved2 = taskData->saveVec.push(taskData->regBX());
-#ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(taskData->regSP()[1]);
-#else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(taskData->reg8());
-#endif /* HOSTARCHITECTURE_X86_64 */
-    Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
-    taskData->regAX() = result->Word();
-#ifndef HOSTARCHITECTURE_X86_64
-    taskData->regSP() += 2; // Pop the return address and a stack arg.
-#else /* HOSTARCHITECTURE_X86_64 */
-    taskData->regSP()++;
-#endif /* HOSTARCHITECTURE_X86_64 */
-}
-
-static void CallIO4(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
-{
-    taskData->regPC() = (*taskData->regSP()).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(taskData->regAX());
-    Handle saved2 = taskData->saveVec.push(taskData->regBX());
-#ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(taskData->regSP()[2]);
-    Handle saved4 = taskData->saveVec.push(taskData->regSP()[1]);
-#else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(taskData->reg8());
-    Handle saved4 = taskData->saveVec.push(taskData->reg9());
-#endif /* HOSTARCHITECTURE_X86_64 */
-    Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
-    taskData->regAX() = result->Word();
-#ifndef HOSTARCHITECTURE_X86_64
-    taskData->regSP() += 3; // Pop the return address and two stack args.
-#else /* HOSTARCHITECTURE_X86_64 */
-    taskData->regSP()++;
-#endif /* HOSTARCHITECTURE_X86_64 */
-}
-
 Handle X86TaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
@@ -802,9 +422,6 @@ Handle X86TaskData::EnterPolyCode()
         int ioFunction = SwitchToPoly();
         this->inML = false;
 
-        if ((debugOptions & DEBUG_RTSCALLS))
-            IncrementRTSCallCount(ioFunction);
-
         try {
             switch (ioFunction)
             {
@@ -814,7 +431,6 @@ Handle X86TaskData::EnterPolyCode()
                 // stack overflow.
                 // Previously this code was executed on every RTS call but there
                 // were problems on Mac OS X at least with contention on schedLock.
-                this->pendingInterrupt = false; // Clear this before we handle these
                 // Process any asynchronous events i.e. interrupts or kill
                 processes->ProcessAsynchRequests(this);
                 // Release and re-acquire use of the ML memory to allow another thread
@@ -825,186 +441,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case -2: // A callback has returned.
                 return callBackResult; // Return the saved value. Not used in the new interface.
-
-            case POLY_SYS_exit:
-                CallIO1(this, &finishc);
-                break;
-
-            case POLY_SYS_alloc_store:
-                CallIO3(this, &alloc_store_long_c);
-                break;
-
-            case POLY_SYS_get_entry_point:
-                CallIO1(this, &creatEntryPointObject);
-                break;
-
-            case POLY_SYS_profiler:
-                CallIO1(this, &profilerc);
-                break;
-
-            case POLY_SYS_quotrem:
-                CallIO3(this, &quot_rem_c);
-                break;
-
-            case POLY_SYS_aplus:
-                CallIO2(this, &add_longc);
-                break;
-
-            case POLY_SYS_aminus:
-                CallIO2(this, &sub_longc);
-                break;
-
-            case POLY_SYS_amul:
-                CallIO2(this, &mult_longc);
-                break;
-
-            case POLY_SYS_adiv:
-                CallIO2(this, &div_longc);
-                break;
-
-            case POLY_SYS_amod:
-                CallIO2(this, &rem_longc);
-                break;
-
-            case POLY_SYS_aneg:
-                CallIO1(this, &neg_longc);
-                break;
-
-            case POLY_SYS_equala:
-                CallIO2(this, &equal_longc);
-                break;
-
-            case POLY_SYS_ora:
-                CallIO2(this, &or_longc);
-                break;
-
-            case POLY_SYS_anda:
-                CallIO2(this, &and_longc);
-                break;
-
-            case POLY_SYS_xora:
-                CallIO2(this, &xor_longc);
-                break;
-
-            case POLY_SYS_Real_str:
-                CallIO3(this, &Real_strc);
-                break;
-
-            case POLY_SYS_Real_Dispatch:
-                CallIO2(this, &Real_dispatchc);
-                break;
-
-            case POLY_SYS_conv_real:
-                CallIO1(this, &Real_convc);
-                break;
-
-            case POLY_SYS_real_to_int:
-                CallIO1(this, &Real_intc);
-                break;
-
-            case POLY_SYS_int_to_real:
-                CallIO1(this, &Real_from_arbitrary_precision);
-                break;
-
-            case POLY_SYS_sqrt_real:
-                CallIO1(this, &Real_sqrtc);
-                break;
-
-            case POLY_SYS_sin_real:
-                CallIO1(this, &Real_sinc);
-                break;
-
-            case POLY_SYS_cos_real:
-                CallIO1(this, &Real_cosc);
-                break;
-
-            case POLY_SYS_arctan_real:
-                CallIO1(this, &Real_arctanc);
-                break;
-
-            case POLY_SYS_exp_real:
-                CallIO1(this, &Real_expc);
-                break;
-
-            case POLY_SYS_ln_real:
-                CallIO1(this, &Real_lnc);
-                break;
-
-            case POLY_SYS_io_operation:
-                CallIO1(this, &io_operation_c);
-                break;
-
-            case POLY_SYS_thread_dispatch:
-                CallIO2(this, &ThreadDispatch);
-                break;
-
-            case POLY_SYS_int_geq:
-                CallIO2(this, &ge_longc);
-                break;
-
-            case POLY_SYS_int_leq:
-                CallIO2(this, &le_longc);
-                break;
-
-            case POLY_SYS_int_gtr:
-                CallIO2(this, &gt_longc);
-                break;
-
-            case POLY_SYS_int_lss:
-                CallIO2(this, &ls_longc);
-                break;
-
-            case POLY_SYS_timing_dispatch:
-                CallIO2(this, &timing_dispatch_c);
-                break;
-
-            case POLY_SYS_XWindows:
-                CallIO1(this, &XWindows_c);
-                break;
-
-            case POLY_SYS_full_gc:
-                CallIO0(this, &full_gc_c);
-                break;
-
-            case POLY_SYS_foreign_dispatch:
-                CallIO2(this, &foreign_dispatch_c);
-                break;
-
-            case POLY_SYS_ffi:
-                CallIO2(this, &poly_ffi);
-                break;
-
-            case POLY_SYS_process_env:
-                CallIO2(this, &process_env_dispatch_c);
-                break;
-
-            case POLY_SYS_poly_specific:
-                CallIO2(this, &poly_dispatch_c);
-                break;
-
-            case POLY_SYS_set_code_constant:
-                CallIO4(this, &set_code_constant);
-                break;
-
-            case POLY_SYS_io_dispatch:
-                CallIO3(this, &IO_dispatch_c);
-                break;
-
-            case POLY_SYS_network:
-                CallIO2(this, &Net_dispatch_c);
-                break;
-
-            case POLY_SYS_os_specific:
-                CallIO2(this, &OS_spec_dispatch_c);
-                break;
-
-            case POLY_SYS_signal_handler:
-                CallIO2(this, &Sig_dispatch_c);
-                break;
-
-            case POLY_SYS_kill_self:
-                CallIO0(this, exitThread);
-                break;
 
             default:
                 Crash("Unknown io operation %d\n", ioFunction);
@@ -1038,9 +474,6 @@ int X86TaskData::SwitchToPoly()
         switch (this->assemblyInterface.returnReason)
         {
 
-        case RETURN_IO_CALL:
-            return this->assemblyInterface.requestCode;
-
         case RETURN_HEAP_OVERFLOW:
             // The heap has overflowed.  Pop the return address into the program counter.
             // It may well not be a valid code address anyway.
@@ -1049,49 +482,39 @@ int X86TaskData::SwitchToPoly()
             break;
 
         case RETURN_STACK_OVERFLOW:
+        case RETURN_STACK_OVERFLOWEX:
+        {
+            POLYUNSIGNED min_size;
+            if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
+            {
+                regPC() = (*regSP()++).AsCodePtr();
+                min_size = this->stack->top - regSP() + OVERFLOW_STACK_SIZE;
+            }
+            else
+            {
+                // Stack limit overflow.  If the required stack space is larger than
+                // the fixed overflow size the code will calculate the limit in %EDI.
+                PolyWord *stackP = regDI().AsStackAddr();
+                regPC() = (*regSP()++).AsCodePtr();
+                min_size = this->stack->top - stackP + OVERFLOW_STACK_SIZE;
+            }
             try {
                 // The stack check has failed.  This may either be because we really have
                 // overflowed the stack or because the stack limit value has been adjusted
                 // to result in a call here.
-                regPC() = (*regSP()++).AsCodePtr();
-                POLYUNSIGNED min_size = this->stack->top - regSP() + OVERFLOW_STACK_SIZE;
                 CheckAndGrowStack(this, min_size);
             }
             catch (IOException &) {
                // We may get an exception while handling this if we run out of store
             }
-            return -1; // We're in a safe state to handle any interrupts.
-
-        case RETURN_STACK_OVERFLOWEX:
-            try {
-                // Stack limit overflow.  If the required stack space is larger than
-                // the fixed overflow size the code will calculate the limit in %EDI.
-                // We need to extract that and the clear that register since it may
-                // very well be outside the stack and therefore a "bad address".
-                PolyWord *stackP = regDI().AsStackAddr();
-                regDI() = TAGGED(0);
-                regPC() = (*regSP()++).AsCodePtr();
-                POLYUNSIGNED min_size = this->stack->top - stackP + OVERFLOW_STACK_SIZE;
-                CheckAndGrowStack(this, min_size);
-            }
-            catch (IOException &) {
-               // We may get an exception while handling this if we run out of store
+            {
+                PLocker l(&interruptLock);
+                // Set the stack limit.  This clears any interrupt and also sets the
+                // correct value if we've grown the stack.
+                this->assemblyInterface.stackLimit = this->stack->bottom + OVERFLOW_STACK_SIZE;
             }
             return -1; // We're in a safe state to handle any interrupts.
-
-        case RETURN_RAISE_OVERFLOW:
-            try {
-                // The primary reason for providing this is to allow the assembly code to
-                // raise the overflow exception.  It's quite difficult for it to make an
-                // exception packet otherwise.  It also provides a way to raise the
-                // exception from compiled code.
-                regPC() = (*regSP()++).AsCodePtr();
-                raise_exception0(this, EXC_overflow);
-            }
-            catch (IOException &) {
-                // Handle the C++ exception.
-            }
-            break;
+        }
 
         case RETURN_CALLBACK_RETURN:
             // Remove the extra exception handler we created in EnterCallbackFunction
@@ -1106,6 +529,9 @@ int X86TaskData::SwitchToPoly()
             // An ML callback has raised an exception.
             // It isn't possible to do anything here except abort.
             Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
+
+        case RETURN_KILL_SELF:
+            exitThread(this);
 
         default:
             Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
@@ -1122,6 +548,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     POLYUNSIGNED stack_size     = space->spaceSize();
     POLYUNSIGNED topStack = stack_size-5;
     assemblyInterface.stackPtr = (PolyWord*)newStack+topStack; 
+    assemblyInterface.stackLimit = space->bottom + OVERFLOW_STACK_SIZE;
     assemblyInterface.handlerRegister    = (PolyWord*)newStack+topStack+3;
 
     assemblyInterface.programCtr = (byte*)&X86AsmPopArgAndClosure;
@@ -1240,15 +667,16 @@ bool X86TaskData::GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp, 
         return false; // Bad stack pointer
 }
 
+// This is called from a different thread so we have to be careful.
 void X86TaskData::InterruptCode()
 {
+    PLocker l(&interruptLock);
     // Set the stack limit pointer to the top of the stack to cause
     // a trap when we next check for stack overflow.
-    // SetMemRegisters actually does this anyway if "pendingInterrupt" is set but
-    // it's safe to do this repeatedly.
+    // We use a lock here to ensure that we always use the current value of the
+    // stack.  The thread we're interrupting could be growing the stack at this point.
     if (this->stack != 0) 
         this->assemblyInterface.stackLimit = this->stack->top-1;
-    this->pendingInterrupt = true;
 }
 
 // This is called from SwitchToPoly before we enter the ML code.
@@ -1307,15 +735,7 @@ void X86TaskData::SetMemRegisters()
     if (profileMode == kProfileStoreAllocation)
         this->assemblyInterface.localMbottom = this->assemblyInterface.localMpointer;
 
-    this->assemblyInterface.polyStack = this->stack->stack();
-    // Whenever the ML code enters a function it checks that the stack pointer is above
-    // this value.  The default is to set it to the top of the reserved area
-    // but if we've had an interrupt we set it to the end of the stack.
-    // InterruptCode may be called either when the thread is in the RTS or in ML code.
-    if (this->pendingInterrupt) this->assemblyInterface.stackLimit = this->stack->top - 1;
-    else this->assemblyInterface.stackLimit = this->stack->bottom + OVERFLOW_STACK_SIZE;
-    this->assemblyInterface.requestCode = 0; // Clear these because only one will be set.
-    this->assemblyInterface.returnReason = RETURN_IO_CALL;
+    this->assemblyInterface.returnReason = RETURN_IO_CALL_NOW_UNUSED;
 
     this->assemblyInterface.threadId = this->threadObject;
 }
@@ -1325,10 +745,6 @@ void X86TaskData::SaveMemRegisters()
 {
     this->allocPointer = this->assemblyInterface.localMpointer - 1;
     this->allocWords = 0;
-    // We need to restore all the registers if we are emulating an instruction or
-    // are handling a heap or stack overflow.  For the moment we just consider
-    // all cases apart from an RTS call.
-    this->assemblyInterface.fullRestore = this->assemblyInterface.returnReason != 0 ? 1 : 0;
     this->assemblyInterface.exceptionPacket = TAGGED(0);
 }
 
@@ -1426,26 +842,13 @@ void X86TaskData::HeapOverflowTrap()
     mdTask->allocWords = wordsNeeded; // The actual allocation is done in SetMemRegisters.
 }
 
-// These macros build small pieces of assembly code for each io call.
-// The code simply sets the requestCode value and jumps to
-// X86AsmSaveStateAndReturn.  The address of these code pieces is
-// stored in iovec.  Values in iovec are never looked at with the
-// garbage collector so that's safe.
-
-void X86Dependent::InitInterfaceVector(void)
-{
-    for (int i = 0; i < POLY_SYS_vecsize; i++)
-    {
-        if (entryPointVector[i] != 0)
-            add_word_to_io_area(i, PolyWord::FromCodePtr(entryPointVector[i]));
-    }
-}
-
 void X86TaskData::SetException(poly_exn *exc)
 // Set up the stack to raise an exception.
 {
-    regDX() = (PolyObject*)IoEntry(POLY_SYS_raisex);
-    regPC()  = regDX().AsObjPtr()->Get(0).AsCodePtr();
+    // Do we need to set the PC value any longer?  It may be necessary if
+    // we have taken a trap because another thread has sent a broadcast interrupt.
+//    regDX() = (PolyObject*)IoEntry(POLY_SYS_raisex);
+    regPC()  = (byte*)X86AsmRaiseException;
     regAX() = exc; /* put exception data into eax */
     assemblyInterface.exceptionPacket = exc; // Set for direct calls.
 }
@@ -1783,18 +1186,9 @@ static X86Dependent x86Dependent;
 
 MachineDependent *machineDependent = &x86Dependent;
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts machineSpecificEPT[] =
 {
     { "PolySetCodeConstant",              (polyRTSFunction)&PolySetCodeConstant},
 
     { NULL, NULL} // End of list.
 };
-
-class X86Module: public RtsModule
-{
-public:
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-// Declare this.  It will be automatically added to the table.
-static X86Module timingModule;

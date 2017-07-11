@@ -28,4 +28,6 @@ class TaskData;
 extern Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code);
 extern Handle finishc(TaskData *mdTaskData, Handle h);
 
+extern struct _entrypts processEnvEPT[];
+
 #endif

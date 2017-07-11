@@ -56,7 +56,7 @@
 #include "sys.h"
 #include "polystring.h"
 #include "save_vec.h"
-#include "rts_module.h"
+#include "rtsentry.h"
 #include "memmgr.h"
 
 extern "C" {
@@ -117,13 +117,6 @@ Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED size, unsigned flags)
 /* Allocate and save the result on the vector. */
 {
     return SAVE(alloc(taskData, size, flags));
-}
-
-/* CALL_IO0(full_gc_, NOIND) */
-Handle full_gc_c(TaskData *taskData)
-{
-    FullGC(taskData);
-    return SAVE(TAGGED(0));
 }
 
 POLYUNSIGNED PolyFullGC(PolyObject *threadId)
@@ -330,44 +323,6 @@ Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
     return list;
 }
 
-// Return the address of the iovec entry for a given index.
-Handle io_operation_c(TaskData *taskData, Handle entry)
-{
-    unsigned entryNo = get_C_unsigned(taskData, DEREFWORD(entry));
-    if (entryNo >= POLY_SYS_vecsize)
-        raise_exception0(taskData, EXC_subscript);
-    return SAVE((PolyObject*)IoEntry(entryNo));
-}
-
-// In most cases the assembly coded version of this will handle the
-// allocation.  The function can be called by the assembly code
-// when it finds it has run out.  Using it avoids us having a
-// return address into the assembly code.
-Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size )
-{
-    unsigned flags = get_C_unsigned(taskData, DEREFWORD(flags_handle));
-    POLYUNSIGNED usize = getPolyUnsigned(taskData, DEREFWORD(size));
-    
-    if (usize >= MAX_OBJECT_SIZE)
-        raise_exception0(taskData, EXC_size);
-    
-    PolyObject *vector = alloc(taskData, usize, flags| F_MUTABLE_BIT);
-    
-    PolyWord value = DEREFWORD(initial);
-    
-    if (vector->IsByteObject()) {
-        // Byte segments are supposed to be initialised only with zero
-        if (value != TAGGED(0))
-            raise_exception_string(taskData, EXC_Fail, "non-zero byte segment");
-    }
-    else if (value != PolyWord::FromUnsigned(0))  {
-        for (POLYUNSIGNED i = 0; i < usize; i++)
-            vector->Set(i, value);
-    }
-    
-    return taskData->saveVec.push(vector);
-}
-
 void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
 /* Expands the current stack if it has grown. We cannot shrink a stack segment
    when it grows smaller because the frame is checked only at the beginning of
@@ -455,14 +410,6 @@ Handle Make_sysword(TaskData *taskData, uintptr_t p)
     return result;
 }
 
-static unsigned long rtsCallCounts[POLY_SYS_vecsize];
-
-void IncrementRTSCallCount(unsigned ioFunction)
-{
-    if ((debugOptions & DEBUG_RTSCALLS) && ioFunction < POLY_SYS_vecsize)
-        rtsCallCounts[ioFunction]++;
-}
-
 // This is used to determine the endian-ness that Poly/ML is running under.
 // It's really only needed for the interpreter.  In particular the pre-built
 // compiler may be running under either byte order and has to check at
@@ -476,292 +423,10 @@ POLYUNSIGNED PolyIsBigEndian()
 #endif
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts runTimeEPT[] =
 {
     { "PolyFullGC",                     (polyRTSFunction)&PolyFullGC},
     { "PolyIsBigEndian",                (polyRTSFunction)&PolyIsBigEndian},
 
     { NULL, NULL} // End of list.
 };
-
-// This RTS module is defined purely to allow us to print the statistics.
-class RTS: public RtsModule
-{
-public:
-    virtual void Stop(void);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-static RTS rtsModule;
-
-static const char * const rtsName[POLY_SYS_vecsize] =
-{
-    "RTS Call   0",
-    "SYS_exit",
-    "RTS Call   2",
-    "RTS Call   3",
-    "RTS Call   4",
-    "RTS Call   5",
-    "RTS Call   6",
-    "RTS Call   7",
-    "RTS Call   8",
-    "SYS_chdir",
-    "RTS Call  10",
-    "SYS_alloc_store",
-    "SYS_alloc_unit",
-    "RTS Call  13",
-    "SYS_raisex",
-    "SYS_get_length",
-    "RTS Call  16",
-    "SYS_get_flags",
-    "RTS Call  18",
-    "RTS Call  19",
-    "RTS Call  20",
-    "RTS Call  21",
-    "RTS Call  22",
-    "SYS_str_compare",
-    "RTS Call  24",
-    "RTS Call  25",
-    "SYS_teststrgtr",
-    "SYS_teststrlss",
-    "SYS_teststrgeq",
-    "SYS_teststrleq",
-    "RTS Call  30",
-    "RTS Call  31",
-    "SYS_exception_trace_fn",
-    "SYS_give_ex_trace_fn",
-    "RTS Call  34",
-    "RTS Call  35",
-    "RTS Call  36",
-    "RTS Call  37",
-    "RTS Call  38",
-    "RTS Call  39",
-    "RTS Call  40",
-    "RTS Call  41",
-    "RTS Call  42",
-    "RTS Call  43",
-    "RTS Call  44",
-    "RTS Call  45",
-    "RTS Call  46",
-    "SYS_lockseg",
-    "SYS_emptystring", // Not actually a call
-    "SYS_nullvector",  // Not actually a call
-    "RTS Call  50",
-    "SYS_network",
-    "SYS_os_specific",
-    "SYS_eq_longword",
-    "SYS_neq_longword",
-    "SYS_geq_longword",
-    "SYS_leq_longword",
-    "SYS_gt_longword",
-    "SYS_lt_longword",
-    "RTS Call  59",
-    "RTS Call  60",
-    "SYS_io_dispatch",
-    "SYS_signal_handler",
-    "RTS Call  63",
-    "RTS Call  64",
-    "RTS Call  65",
-    "RTS Call  66",
-    "RTS Call  67",
-    "RTS Call  68",
-    "SYS_atomic_reset",
-    "SYS_atomic_incr",
-    "SYS_atomic_decr",
-    "SYS_thread_self",
-    "SYS_thread_dispatch",
-    "SYS_plus_longword",
-    "SYS_minus_longword",
-    "SYS_mul_longword",
-    "SYS_div_longword",
-    "SYS_mod_longword",
-    "SYS_andb_longword",
-    "SYS_orb_longword",
-    "SYS_xorb_longword",
-    "RTS Call  82",
-    "RTS Call  83",
-    "SYS_kill_self",
-    "SYS_shift_left_longword",
-    "SYS_shift_right_longword",
-    "SYS_shift_right_arith_longword",
-    "SYS_profiler",
-    "SYS_longword_to_tagged",
-    "SYS_signed_to_longword",
-    "SYS_unsigned_to_longword",
-    "SYS_full_gc",
-    "SYS_stack_trace",
-    "SYS_timing_dispatch",
-    "RTS Call  95",
-    "RTS Call  96",
-    "RTS Call  97",
-    "RTS Call  98",
-    "SYS_objsize",
-    "SYS_showsize",
-    "SYS_equal_short_arb",
-    "RTS Call 102",
-    "RTS Call 103",
-    "SYS_quotrem",
-    "SYS_is_short",
-    "SYS_aplus",
-    "SYS_aminus",
-    "SYS_amul",
-    "SYS_adiv",
-    "SYS_amod",
-    "SYS_aneg",
-    "SYS_xora",
-    "SYS_equala",
-    "SYS_ora",
-    "SYS_anda",
-    "RTS Call 116",
-    "SYS_Real_str",
-    "SYS_Real_geq",
-    "SYS_Real_leq",
-    "SYS_Real_gtr",
-    "SYS_Real_lss",
-    "SYS_Real_eq",
-    "SYS_Real_neq",
-    "SYS_Real_Dispatch",
-    "SYS_Add_real",
-    "SYS_Sub_real",
-    "SYS_Mul_real",
-    "SYS_Div_real",
-    "SYS_Abs_real",
-    "SYS_Neg_real",
-    "RTS Call 131",
-    "SYS_Repr_real",
-    "SYS_conv_real",
-    "SYS_real_to_int",
-    "SYS_int_to_real",
-    "SYS_sqrt_real",
-    "SYS_sin_real",
-    "SYS_cos_real",
-    "SYS_arctan_real",
-    "SYS_exp_real",
-    "SYS_ln_real",
-    "SYS_fixed_to_real",
-    "RTS Call 143",
-    "RTS Call 144",
-    "RTS Call 145",
-    "RTS Call 146",
-    "RTS Call 147",
-    "SYS_stdin",    // Not actually a call
-    "SYS_stdout",   // Not actually a call
-    "SYS_process_env",
-    "SYS_set_string_length",
-    "SYS_get_first_long_word",
-    "SYS_poly_specific",
-    "SYS_bytevec_eq",
-    "RTS Call 155",
-    "RTS Call 156",
-    "RTS Call 157",
-    "RTS Call 158",
-    "RTS Call 159",
-    "SYS_cmem_load_8",
-    "SYS_cmem_load_16",
-    "SYS_cmem_load_32",
-    "SYS_cmem_load_64",
-    "SYS_cmem_load_float",
-    "SYS_cmem_load_double",
-    "SYS_cmem_store_8",
-    "SYS_cmem_store_16",
-    "SYS_cmem_store_32",
-    "SYS_cmem_store_64",
-    "SYS_cmem_store_float",
-    "SYS_cmem_store_double",
-    "RTS Call 172",
-    "RTS Call 173",
-    "RTS Call 174",
-    "RTS Call 175",
-    "RTS Call 176",
-    "RTS Call 177",
-    "RTS Call 178",
-    "RTS Call 179",
-    "SYS_fixed_add",
-    "SYS_fixed_sub",
-    "SYS_fixed_mul",
-    "SYS_fixed_quot",
-    "SYS_fixed_rem",
-    "SYS_fixed_div",
-    "SYS_fixed_mod",
-    "RTS Call 187",
-    "RTS Call 188",
-    "SYS_io_operation",
-    "SYS_ffi",
-    "RTS Call 191",
-    "RTS Call 192",
-    "RTS Call 193",
-    "SYS_set_code_constant",
-    "SYS_move_words",
-    "SYS_shift_right_arith_word",
-    "SYS_int_to_word",
-    "SYS_move_bytes",
-    "SYS_move_bytes_overlap",
-    "SYS_code_flags",
-    "SYS_shrink_stack",
-    "SYS_stderr",
-    "RTS Call 203",
-    "SYS_callcode_tupled",
-    "SYS_foreign_dispatch",
-    "SYS_foreign_null",
-    "RTS Call 207",
-    "RTS Call 208",
-    "SYS_XWindows",
-    "RTS Call 210",
-    "RTS Call 211",
-    "RTS Call 212",
-    "SYS_is_big_endian",
-    "SYS_bytes_per_word",
-    "SYS_offset_address",
-    "SYS_shift_right_word",
-    "SYS_word_neq",
-    "SYS_not_bool",
-    "SYS_fixed_geq",
-    "SYS_fixed_leq",
-    "SYS_fixed_gtr",
-    "SYS_fixed_lss",
-    "SYS_string_length",
-    "RTS Call 224",
-    "RTS Call 225",
-    "RTS Call 226",
-    "RTS Call 227",
-    "SYS_touch_final",
-    "SYS_int_eq",
-    "SYS_int_neq",
-    "SYS_int_geq",
-    "SYS_int_leq",
-    "SYS_int_gtr",
-    "SYS_int_lss",
-    "SYS_load_byte_immut",
-    "SYS_load_word_immut",
-    "RTS Call 237",
-    "SYS_mul_word",
-    "SYS_plus_word",
-    "SYS_minus_word",
-    "SYS_div_word",
-    "SYS_or_word",
-    "SYS_and_word",
-    "SYS_xor_word",
-    "SYS_shift_left_word",
-    "SYS_mod_word",
-    "SYS_word_geq",
-    "SYS_word_leq",
-    "SYS_word_gtr",
-    "SYS_word_lss",
-    "SYS_word_eq",
-    "SYS_load_byte",
-    "SYS_load_word",
-    "SYS_assign_byte",
-    "SYS_assign_word"
-};
-
-void RTS::Stop()
-{
-    if (debugOptions & DEBUG_RTSCALLS)
-    {
-        for (unsigned i = 0; i < POLY_SYS_vecsize; i++)
-        {
-            if (rtsCallCounts[i] != 0)
-                Log("RTS: %s called %lu times\n", rtsName[i], rtsCallCounts[i]);
-        }
-    }
-}

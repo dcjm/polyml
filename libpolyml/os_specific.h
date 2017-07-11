@@ -27,4 +27,6 @@ class TaskData;
 
 extern Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
+extern struct _entrypts osSpecificEPT[];
+
 #endif

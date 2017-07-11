@@ -56,6 +56,7 @@
 #include "locking.h"
 #include "run_time.h"
 #include "sys.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(PolyObject *threadId, PolyWord mode);
@@ -547,7 +548,7 @@ void ProfileRequest::Perform()
     
 } /* profilerc */
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts profilingEPT[] =
 {
     // Profiling
     { "PolyProfiling",                  (polyRTSFunction)&PolyProfiling},
@@ -561,7 +562,6 @@ class Profiling: public RtsModule
 public:
     virtual void Init(void);
     virtual void GarbageCollect(ScanAddress *process);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

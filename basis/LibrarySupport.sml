@@ -193,9 +193,7 @@ struct
                 (* Multiple character string. *)
                 val vec = allocString l
             in
-                if RunCall.isShort s
-                then RunCall.storeByte(vec, wordSize, s)
-                else RunCall.moveBytes(s, vec, wordSize+i, wordSize, l);
+                RunCall.moveBytes(s, vec, wordSize+i, wordSize, l);
                 RunCall.clearMutableBit vec;
                 vec
             end

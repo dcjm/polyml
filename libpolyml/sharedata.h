@@ -26,4 +26,6 @@
 // Called by the thread to make the request.
 void ShareData(TaskData *taskData, Handle root);
 
+extern struct _entrypts shareDataEPT[];
+
 #endif

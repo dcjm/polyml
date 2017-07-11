@@ -77,20 +77,3 @@ void GCModules(ScanAddress *process)
     for(unsigned i = 0; i < modCount; i++)
         module_table[i]->GarbageCollect(process);
 }
-
-polyRTSFunction FindModuleEntryPoint(const char *name)
-{
-    for(unsigned i = 0; i < modCount; i++)
-    {
-        entrypts entryPtTable = module_table[i]->GetRTSCalls();
-        if (entryPtTable != 0)
-        {
-            for (struct _entrypts *ep = entryPtTable; ep->entry != NULL; ep++)
-            {
-                if (strcmp(name, ep->name) == 0)
-                    return ep->entry;
-            }
-        }
-    }
-    return 0; // Not there
-}

@@ -148,7 +148,6 @@ public:
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
     void        *signalStack;  // Stack to handle interrupts (Unix only)
-    bool        pendingInterrupt; // The thread should trap into the RTS soon.
     PolyWord    foreignStack;   // Stack of saved data used in call_sym_and_convert
     bool        inML;          // True when this is in ML, false in the RTS
 
@@ -352,5 +351,7 @@ extern unsigned NumberOfPhysicalProcessors(void);
 extern ProcessExternal *processes;
 
 #define IO_SPACING 8 // This is a bit of a mess.
+
+extern struct _entrypts processesEPT[];
 
 #endif

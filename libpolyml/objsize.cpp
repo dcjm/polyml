@@ -64,6 +64,7 @@
 #include "memmgr.h"
 #include "mpoly.h"
 #include "processes.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj);
@@ -437,7 +438,7 @@ POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj)
     return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts objSizeEPT[] =
 {
     { "PolyObjSize",                    (polyRTSFunction)&PolyObjSize},
     { "PolyShowSize",                   (polyRTSFunction)&PolyShowSize},
@@ -445,12 +446,3 @@ static struct _entrypts entryPtTable[] =
 
     { NULL, NULL} // End of list.
 };
-
-class ObjSizeModule: public RtsModule
-{
-public:
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-// Declare this.  It will be automatically added to the table.
-static ObjSizeModule objSizeModule;

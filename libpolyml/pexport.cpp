@@ -115,15 +115,7 @@ void PExport::printAddress(void *p)
     unsigned area = findArea(p);
     if (area == ioMemEntry)
     {
-        // Is it an IO entry?
-        POLYUNSIGNED byteOffset = (char*)p - (char*)memTable[area].mtAddr;
-        unsigned ioEntry = (unsigned)(byteOffset / (ioSpacing*sizeof(PolyWord)));
-        unsigned ioOffset = (unsigned)(byteOffset - ioEntry * (ioSpacing*sizeof(PolyWord)));
-        ASSERT(ioEntry < POLY_SYS_vecsize);
-        if (ioOffset == 0)
-           fprintf(exportFile, "I%d", ioEntry);
-        else
-            fprintf(exportFile, "J%d+%d", ioEntry, ioOffset); // Can this happen now?
+        ASSERT(0);
     }
     else
         fprintf(exportFile, "@%lu", getIndex((PolyObject*)p));
@@ -532,17 +524,23 @@ bool PImport::GetValue(PolyWord *result)
         /* IO entry number. */
         POLYUNSIGNED j;
         fscanf(f, "%" POLYUFMT, &j);
-        ASSERT(j < POLY_SYS_vecsize);
-        *result = (PolyObject*)&gMem.ioSpace->bottom[j * IO_SPACING];
+        // We may still have references to the old empty string value (j == 48).
+        if (j == 48)
+        {
+            // This is a bit of a hack but it's only temporary.
+            PolyObject  *p = NewObject(1, false);
+            p->SetLengthWord(1, F_BYTE_OBJ);
+            p->Set(0, PolyWord::FromUnsigned(0));
+            *result = p;
+        }
+        else ASSERT(0);
     }
     else if (ch == 'J')
     {
         /* IO entry number with offset. */
         POLYUNSIGNED j, offset;
         fscanf(f, "%" POLYUFMT "+%" POLYUFMT, &j, &offset);
-        ASSERT(j < POLY_SYS_vecsize);
-        PolyWord base = (PolyObject*)&gMem.ioSpace->bottom[j * IO_SPACING];
-        *result = PolyWord::FromCodePtr(base.AsCodePtr() + offset);
+        ASSERT(0);
     }
     else
     {
@@ -572,13 +570,13 @@ bool PImport::DoImport()
     ASSERT(gMem.npSpaces == 0);
     ASSERT(gMem.neSpaces == 0);
     ASSERT(gMem.ioSpace->bottom == 0);
-    PolyWord *ioSpace = (PolyWord*)calloc(POLY_SYS_vecsize*IO_SPACING, sizeof(PolyWord));
+    PolyWord *ioSpace = (PolyWord*)calloc(256*IO_SPACING, sizeof(PolyWord));
     if (ioSpace == 0)
     {
         fprintf(stderr, "Unable to allocate memory\n");
         return false;
     }
-    gMem.InitIOSpace(ioSpace, POLY_SYS_vecsize*IO_SPACING);
+    gMem.InitIOSpace(ioSpace, 256*IO_SPACING);
 
     ch = getc(f);
     /* Skip the "Mapping" line. */
@@ -748,7 +746,10 @@ bool PImport::DoImport()
                 ASSERT(ch == '\n');
                 // If this is an entry point object set its value.
                 if (p->IsMutable() && p->IsWeakRefObject())
-                    setEntryPoint(p);
+                {
+                    bool loadEntryPt = setEntryPoint(p);
+                    ASSERT(loadEntryPt);
+                }
                 break;
             }
 
