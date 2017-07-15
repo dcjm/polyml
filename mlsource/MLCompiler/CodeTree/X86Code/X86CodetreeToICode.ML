@@ -41,6 +41,11 @@ struct
     (* shift a short constant, but don't set tag bit *)
     fun semitag c = 2 * c
 
+    (* Reverse a list and append the second.  This is used a lot when converting
+       between the reverse and forward list versions. e.g. codeToICode and codeToICodeRev *)
+    fun revApp([], l) = l
+    |   revApp(hd :: tl, l) = revApp(tl, hd :: l)
+
     local
         open RunCall
         val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
@@ -94,11 +99,11 @@ struct
         
         (* The return instruction.  This can be added on to various tails but there is always
            one at the end anyway. *)
-        fun returnInstruction({stackPtr, ...}, target) =
+        fun returnInstruction({stackPtr, ...}, target, tailCode) =
+            ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs} ::
             (if stackPtr <> 0
-            then [ResetStackPtr{numWords=stackPtr}]
-            else []) @
-            [ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs}]
+            then ResetStackPtr{numWords=stackPtr} :: tailCode
+            else tailCode)
 
         fun constantAsArgument value =
             if isShort value
@@ -199,6 +204,36 @@ struct
                 (code @ [LoadArgument{source=arg, dest=target, kind=MoveWord}], RegisterArgument target, false)
             end
 
+        fun moveIfNotAllowedRev(NoResult, code, arg) = (code, arg, false)
+
+        |   moveIfNotAllowedRev(Allowed{anyConstant=true, ...}, code, arg as AddressConstant _) = (code, arg, false)
+        
+        |   moveIfNotAllowedRev(Allowed{anyConstant=true, ...}, code, arg as IntegerConstant _) = (code, arg, false)
+        
+        |   moveIfNotAllowedRev(dest as Allowed{const32s=true, ...}, code, arg as IntegerConstant value) =
+            (* This is allowed if the value is within 32-bits *)
+                if is32bit value
+                then (code, arg, false)
+                else moveToTargetRev(dest, code, arg)
+
+        |   moveIfNotAllowedRev(dest as Allowed{const32s=true, ...}, code, arg as AddressConstant _) =
+                if not isX64
+                then (code, arg, false)
+                else moveToTargetRev(dest, code, arg)
+
+        |   moveIfNotAllowedRev(Allowed{existingPreg=true, ...}, code, arg as RegisterArgument(PReg _)) = (code, arg, false)
+        
+        |   moveIfNotAllowedRev(Allowed{memAddr=true, ...}, code, arg as MemoryLocation _) = (code, arg, false)
+
+        |   moveIfNotAllowedRev(dest, code, arg) = moveToTargetRev(dest, code, arg)
+
+        and moveToTargetRev(dest, code, arg) =
+            let
+                val target = asTarget dest
+            in
+                (LoadArgument{source=arg, dest=target, kind=MoveWord} :: code, RegisterArgument target, false)
+            end
+
         fun codeToICodeTarget(instr, context, isTail, target) =
         (* This is really for backwards compatibility.  *)
         let
@@ -215,37 +250,48 @@ struct
         in
             (code, preg)
         end
+        
+        and codeToPRegRev(instr, context, tailCode) =
+        let (* Many instructions require an argument in a register.  If it's already in a
+               register use that rather than creating a new one. *)
+            val (code, result, _) = codeToICodeRev(instr, context, false, Allowed allowInPReg, tailCode)
+            val preg = case result of RegisterArgument pr => pr | _ => raise InternalError "codeToPRegRev"
+        in
+            (code, preg)
+        end
 
         (* Main function to turn the codetree into ICode.  Optimisation is generally
-           left to later passes.  This does detect tail recursion.  *)
-        and codeToICode(BICNewenv (bindings, exp), context as {stackPtr=initialSp, ...} , isTail, destination) =
+           left to later passes.  This does detect tail recursion.
+           This builds the result up in reverse order.  There was an allocation hotspot in loadFields
+           in the BICTuple case which was eliminated by building the list in reverse and then
+           reversing the result.  It seems better to build the list in reverse generally but for
+           the moment there are too many special cases to do everything. *)
+        and codeToICodeRev(BICNewenv (bindings, exp), context as {stackPtr=initialSp, ...} , isTail, destination, tailCode) =
             let
                 (* Process a list of bindings.  We need to accumulate the space used by
                    any containers and reset the stack pointer at the end if necessary. *)
-                fun doBindings([], context) = ([], context)
+                fun doBindings([], context, tailCode) = (tailCode, context)
                     
-                |   doBindings(BICDeclar{value, addr, ...} :: decs, context) =
+                |   doBindings(BICDeclar{value, addr, ...} :: decs, context, tailCode) =
                     let
                         val dest = newPReg()
-                        val code = codeToICodeTarget(value, context, false, dest)
+                        val (code, _, _) = codeToICodeRev(value, context, false, SpecificPReg dest, tailCode)
                         val () = Array.update(locToPregArray, addr, SOME dest)
-                        val (rest, resContext) = doBindings(decs, context)
                     in
-                        (code @ rest, resContext)
+                        doBindings(decs, context, code)
                     end
 
-                |   doBindings(BICRecDecs [{lambda, addr, ...}] :: decs, context) =
+                |   doBindings(BICRecDecs [{lambda, addr, ...}] :: decs, context, tailCode) =
                     (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
                     let
                         val dest = newPReg()
-                        val code = codeToICodeTarget(BICLambda lambda, context, false, dest)
+                        val (code, _, _) = codeToICodeRev(BICLambda lambda, context, false, SpecificPReg dest, tailCode)
                         val () = Array.update(locToPregArray, addr, SOME dest)
-                        val (rest, resContext) = doBindings(decs, context)
                     in
-                        (code @ rest, resContext)
+                        doBindings(decs, context, code)
                     end
 
-                |   doBindings(BICRecDecs recDecs :: decs, context) =
+                |   doBindings(BICRecDecs recDecs :: decs, context, tailCode) =
                     let
                         val destRegs = map (fn _ => newPReg()) recDecs
 
@@ -292,29 +338,28 @@ struct
                         end
                         val setClosures = ListPair.foldlEq setClosure [] (recDecs, destRegs)
                         
-                        val (rest, resContext) = doBindings(decs, context)
+                        val code = List.rev(allocClosures @ setClosures) 
                     in
-                        (allocClosures @ setClosures @ rest, resContext)
+                        doBindings(decs, context, code @ tailCode)
                     end
 
-                |   doBindings(BICNullBinding exp :: decs, context) =
+                |   doBindings(BICNullBinding exp :: decs, context, tailCode) =
                     let
-                        val (code, _, _) = codeToICode(exp, context, false, NoResult) (* And discard result. *)
-                        val (rest, resContext) = doBindings(decs, context)
+                        val (code, _, _) = codeToICodeRev(exp, context, false, NoResult, tailCode) (* And discard result. *)
                     in
-                        (code @ rest, resContext)
+                        doBindings(decs, context, code)
                     end
        
-                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr}) =
+                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr}, tailCode) =
                     let
                         val dest = newPReg()
                         val () = Array.update(locToPregArray, addr, SOME dest)
-                        val (rest, resContext) = doBindings(decs, {loopArgs=loopArgs, stackPtr=stackPtr+size})
                     in
-                        (ReserveContainer{size=size, address=dest} :: rest, resContext)
+                        doBindings(decs, {loopArgs=loopArgs, stackPtr=stackPtr+size},
+                            ReserveContainer{size=size, address=dest} :: tailCode)
                     end
 
-                val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context)
+                val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context, tailCode)
                 (* If we have had a container we'll need to reset the stack *)
             in
                 if initialSp <> finalSp
@@ -322,65 +367,64 @@ struct
                 let
                     val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
                     val bodyReg = newPReg() and resultReg = asTarget destination
-                    val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, SpecificPReg bodyReg)
-                    val adjustSp =
-                        if haveExited then [] else
-                        [ResetStackPtr{numWords=finalSp-initialSp},
-                         LoadArgument{source=result, dest=resultReg, kind=MoveWord}]
+                    val (codeExp, result, haveExited) =
+                        codeToICodeRev(exp, resContext, isTail, SpecificPReg bodyReg, codeBindings)
+                    val afterAdjustSp =
+                        if haveExited
+                        then codeExp
+                        else
+                            LoadArgument{source=result, dest=resultReg, kind=MoveWord} ::
+                            ResetStackPtr{numWords=finalSp-initialSp} :: codeExp
                 in
-                    (codeBindings @ codeExp @ adjustSp, RegisterArgument resultReg, haveExited)
+                    (afterAdjustSp, RegisterArgument resultReg, haveExited)
                 end
-                else
-                let
-                    val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, destination)
-                in
-                    (codeBindings @ codeExp, result, haveExited)
-                end
+                else codeToICodeRev(exp, resContext, isTail, destination, codeBindings)
             end
-            
-        |   codeToICode(BICConstnt(value, _), _, _, destination) =
-                moveIfNotAllowed(destination, [], constantAsArgument value)
 
-        |   codeToICode(BICExtract(BICLoadLocal l), _, _, destination) =
-                moveIfNotAllowed(destination, [], RegisterArgument(valOf(Array.sub(locToPregArray, l))))
+        |   codeToICodeRev(BICConstnt(value, _), _, _, destination, tailCode) =
+                moveIfNotAllowedRev(destination, tailCode, constantAsArgument value)
 
-        |   codeToICode(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination) =
+        |   codeToICodeRev(BICExtract(BICLoadLocal l), _, _, destination, tailCode) =
+                moveIfNotAllowedRev(destination, tailCode, RegisterArgument(valOf(Array.sub(locToPregArray, l))))
+
+        |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             if a < numArgRegs
             then (* It was originally in a register.  It's now in a preg. *)
-                moveIfNotAllowed(destination, [], RegisterArgument(List.nth(argPRegs, a)))
+                moveIfNotAllowedRev(destination, tailCode, RegisterArgument(List.nth(argPRegs, a)))
             else (* Pushed before call. *)
             let
                 val target = asTarget destination
             in
-                ([LoadArgument{
-                    source=StackLocation{wordOffset=List.length argTypes - a, adjustment=stackPtr}, dest=target, kind=MoveWord}],
+                (LoadArgument{
+                    source=StackLocation{wordOffset=List.length argTypes - a, adjustment=stackPtr}, dest=target, kind=MoveWord} ::
+                        tailCode,
                  RegisterArgument target, false)
             end
         
-        |   codeToICode(BICExtract(BICLoadClosure c), _, _, destination) =
+        |   codeToICodeRev(BICExtract(BICLoadClosure c), _, _, destination, tailCode) =
             (
                 if c >= List.length closure then raise InternalError "BICExtract: closure" else ();
                 (* N.B.  We need to add one to the closure entry because zero is the code address. *)
-                moveIfNotAllowed(destination, [], wordOffsetAddress(c+1, closureRegAddr))
+                moveIfNotAllowedRev(destination, tailCode, wordOffsetAddress(c+1, closureRegAddr))
             )
 
-        |   codeToICode(BICExtract BICLoadRecursive, _, _, destination) =
+        |   codeToICodeRev(BICExtract BICLoadRecursive, _, _, destination, tailCode) =
                 (* If the closure is empty we must use the constant.  We can't guarantee that
                    the caller will actually load the closure register if it knows the closure
                    is empty. *)
-                moveIfNotAllowed(destination, [],
+                moveIfNotAllowedRev(destination, tailCode,
                     case closure of
                         [] => AddressConstant(toMachineWord(valOf closureOpt))
                     |   _ => RegisterArgument closureRegAddr)
         
-        |   codeToICode(BICField{base, offset}, context, _, destination) =
+        |   codeToICodeRev(BICField{base, offset}, context, _, destination, tailCode) =
             let
-                val (codeBase, baseR) = codeToPReg(base, context)
+                val (codeBase, baseR) = codeToPRegRev(base, context, tailCode)
             in
-                moveIfNotAllowed(destination, codeBase, wordOffsetAddress(offset, baseR))
+                moveIfNotAllowedRev(destination, codeBase, wordOffsetAddress(offset, baseR))
             end
 
-        |   codeToICode(BICEval {function, argList, ...}, context, isTail, destination) =
+        |   codeToICodeRev(BICEval{function, argList, ...}, context, isTail, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* Create pregs for the closure and each argument. *)
@@ -402,9 +446,9 @@ struct
                                 |   NONE => false
                         in
                             if isRecursive
-                            then ([], [], Recursive)
+                            then (tailCode, [], Recursive)
                             else if flags addrAsAddr <> Address.F_words
-                            then ([LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}],
+                            then (LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord} :: tailCode,
                                       [(RegisterArgument clPReg, GenReg edx)], FullCall)
                             else
                             let
@@ -415,8 +459,8 @@ struct
                                 val _ = isCode (toAddress codeAddr) orelse raise InternalError "BICEval address not code"
                             in
                                 if addrLength = 0w1
-                                then ([], [], ConstantCode codeAddr)
-                                else ([LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}],
+                                then (tailCode, [], ConstantCode codeAddr)
+                                else (LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord} :: tailCode,
                                       [(RegisterArgument clPReg, GenReg edx)], ConstantCode codeAddr)
                             end
                         end
@@ -425,12 +469,14 @@ struct
                         (
                             (* If the closure is empty we don't need to load rdx *)
                             case closure of
-                                [] => ([], [], Recursive)
-                            |   _ => ([LoadArgument {source=RegisterArgument closureRegAddr, dest=clPReg, kind=MoveWord}], [(RegisterArgument clPReg, GenReg edx)], Recursive)
+                                [] => (tailCode, [], Recursive)
+                            |   _ =>
+                                    (LoadArgument {source=RegisterArgument closureRegAddr, dest=clPReg, kind=MoveWord} :: tailCode,
+                                     [(RegisterArgument clPReg, GenReg edx)], Recursive)
                         )
 
                     |   function => (* General case. *)
-                            (codeToICodeTarget(function, context, false, clPReg), [(RegisterArgument clPReg, GenReg edx)], FullCall)
+                            (#1 (codeToICodeRev(function, context, false, SpecificPReg clPReg, tailCode)), [(RegisterArgument clPReg, GenReg edx)], FullCall)
                 (* Optimise arguments.  We have to be careful with tail-recursive functions because they
                    need to save any stack arguments that could be overwritten.  This is complicated
                    because we overwrite the stack before loading the register arguments.  In some
@@ -448,22 +494,22 @@ struct
                     Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
 
                 (* Load the first arguments into registers and the rest to the stack. *)
-                fun loadArgs ([], _) = ([], [], [])
-                |   loadArgs ((arg, _) :: args, argReg::argRegs) =
+                fun loadArgs ([], _, tailCode) = (tailCode, [], [])
+                |   loadArgs ((arg, _) :: args, argReg::argRegs, tailCode) =
                     let (* Register argument. *)
-                        val (c, r, _) = codeToICode(arg, context, false, allowInRegArg)
-                        val (code, regArgs, stackArgs) = loadArgs(args, argRegs)
+                        val (c, r, _) = codeToICodeRev(arg, context, false, allowInRegArg, tailCode)
+                        val (code, regArgs, stackArgs) = loadArgs(args, argRegs, c)
                     in
-                        (c @ code, (r, argReg) :: regArgs, stackArgs)
+                        (code, (r, argReg) :: regArgs, stackArgs)
                     end
-                |   loadArgs ((arg, _) :: args, []) =
+                |   loadArgs ((arg, _) :: args, [], tailCode) =
                     let (* Stack argument. *)
-                        val (c, r, _) = codeToICode(arg, context, false, allowInStackArg)
-                        val (code, regArgs, stackArgs) = loadArgs(args, [])
+                        val (c, r, _) = codeToICodeRev(arg, context, false, allowInStackArg, tailCode)
+                        val (code, regArgs, stackArgs) = loadArgs(args, [], c)
                     in
-                        (c @ code, regArgs, r :: stackArgs)
+                        (code, regArgs, r :: stackArgs)
                     end
-                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, argRegs)
+                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, argRegs, functionCode)
                 
                 val callInstr =
                     if isTail
@@ -492,16 +538,450 @@ struct
                     end
                     else FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind}
             in
-                (functionCode @ codeArgs @ [callInstr], RegisterArgument target, isTail (* We've exited if this was a tail jump *))
+                (callInstr :: codeArgs, RegisterArgument target, isTail (* We've exited if this was a tail jump *))
             end
 
-        |   codeToICode(BICGetThreadId, _, _, destination) =
+        |   codeToICodeRev(BICGetThreadId, _, _, destination, tailCode) =
             (* Get the ID of the current thread. *)
             let
                 val target = asTarget destination
             in
-                ([LoadMemReg{offset=memRegThreadSelf, dest=target}], RegisterArgument target, false)
+                (LoadMemReg{offset=memRegThreadSelf, dest=target} :: tailCode, RegisterArgument target, false)
             end
+
+        |   codeToICodeRev(instr as BICUnary _, context, isTail, destination, tailCode) =
+            let
+                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+            in
+                (revApp(code, tailCode), dest, haveExited)
+            end
+
+        |   codeToICodeRev(instr as BICBinary _, context, isTail, destination, tailCode) =
+            let
+                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+            in
+                (revApp(code, tailCode), dest, haveExited)
+            end
+
+        |   codeToICodeRev(instr as BICArbitrary _, context, isTail, destination, tailCode) =
+            let
+                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+            in
+                (revApp(code, tailCode), dest, haveExited)
+            end
+
+        |   codeToICodeRev(instr as BICAllocateWordMemory _, context, isTail, destination, tailCode) =
+            let
+                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+            in
+                (revApp(code, tailCode), dest, haveExited)
+            end
+
+        |   codeToICodeRev(BICLambda(lambda as { closure = [], ...}), _, _, destination, tailCode) =
+            (* Empty closure - create a constant closure for any recursive calls. *)
+            let
+                val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
+                val codeAddr = codeFunctionToX86(lambda, debugSwitches, SOME closure)
+                open Address
+            in
+                assignWord(closure, 0w0, toMachineWord codeAddr);
+                lock closure;
+                moveIfNotAllowedRev(destination, tailCode, AddressConstant(toMachineWord closure))
+            end
+
+        |   codeToICodeRev(BICLambda(lambda as { closure, ...}), context, isTail, destination, tailCode) =
+            (* Non-empty closure.  Ignore stack closure option at the moment. *)
+            let
+                val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
+            in
+                (* Treat it as a tuple with the code as the first field. *)
+                codeToICodeRev(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure), context, isTail, destination, tailCode)
+            end
+
+        |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, NoResult, tailCode) =
+            let
+                (* If we don't want the result but are only evaluating for side-effects we
+                   may be able to optimise special cases.  This was easier in the forward
+                   case but for now we don't bother and leave it to the lower levels. *)
+                val startElse = newLabel() and skipElse = newLabel()
+                val codeTest = codeConditionRev(test, context, false, startElse, tailCode)
+                val (codeThen, _, _) =
+                    codeToICodeRev(thenPt, context, isTail, NoResult, codeTest)
+                val (codeElse, _, _) =
+                     codeToICodeRev(elsePt, context, isTail, NoResult,
+                        ForwardJumpLabel{label=startElse, result=NONE} ::
+                        UnconditionalForwardJump{label=skipElse} :: codeThen)
+            in
+                (ForwardJumpLabel{label=skipElse, result=NONE} :: codeElse, (* Unit result *) IntegerConstant(tag 0), false)
+            end
+
+        |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, destination, tailCode) =
+            let
+                (* Because we may push the result onto the stack we have to create a new preg to
+                   hold the result and then copy that to the final result. *)
+                (* If this is a tail each arm will exit separately and neither will return a result. *)
+                val target = asTarget destination
+                val condResult = newPReg()
+                val thenTarget = if isTail then newPReg() else condResult
+                val startElse = newLabel()
+                val testCode = codeConditionRev(test, context, false, startElse, tailCode)
+                
+                (* Put the result in the target register. *)
+                val (thenCode, _, thenExited) = codeToICodeRev(thenPt, context, isTail, SpecificPReg thenTarget, testCode)
+                (* Add a jump round the else-part except that if this is a tail we
+                   return.  The then-part could have exited e.g. with a raise or a loop. *)
+                val (exitThen, thenLabel, elseTarget) =
+                    if thenExited then (thenCode, [], target (* Can use original target. *))
+                    else if isTail then (returnInstruction(context, thenTarget, thenCode), [], newPReg())
+                    else
+                    let
+                        val skipElse = newLabel()
+                    in
+                        (UnconditionalForwardJump{label=skipElse} :: thenCode,
+                         [LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord},
+                          ForwardJumpLabel{label=skipElse, result=SOME condResult}],
+                         condResult)
+                    end
+                val (elseCode, _, elseExited) =
+                    codeToICodeRev(elsePt, context, isTail, SpecificPReg elseTarget,
+                        ForwardJumpLabel{label=startElse, result=NONE} :: exitThen)
+                (* Add a return to the else-part if necessary so we will always exit on a tail. *)
+                val exitElse =
+                    if isTail andalso not elseExited
+                    then returnInstruction(context, elseTarget, elseCode) else elseCode
+            in
+                (thenLabel @ exitElse, RegisterArgument target, isTail orelse thenExited andalso elseExited)
+            end
+
+        |   codeToICodeRev(BICCase { cases, test, caseType, default}, context, isTail, destination, tailCode) =
+            let
+                (* We have to create a new preg for the result in case we need to push
+                   it to the stack. *)
+                val targetReg = newPReg()
+                (* Sort the cases into ascending order.  It's possible that we may have
+                   duplicates if this came from an if-then-else construction so we
+                   need to retain the ordering for items with the same case label. *)
+                (* TODO: This should be done in the higher level. *)
+                local
+                    val labelCount = List.length cases
+                    (* Add an extra field before sorting which retains the ordering for
+                       equal labels. *)
+                    val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
+                    fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
+                        if w1 = w2 then n1 <= n2 else w1 < w2
+                    val sorted = List.map #1 (Misc.quickSort leq ordered)
+                    (* Filter out any duplicates. *)
+                    fun filter [] = []
+                    |   filter [p] = [p]
+                    |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
+                            if lab1 = lab2
+                            then p :: filter tl
+                            else p :: filter (q :: tl)
+                in
+                    val cases = filter sorted
+                end
+
+                val (isExhaustive, min, max) =
+                    case caseType of
+                        CaseTag max => (true, 0w0, max)
+                    |   _ =>
+                        let
+                            val (_, aLabel) = hd cases
+                            fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                            val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                        in
+                            (false, min, max)
+                        end
+
+                (* Create labels for each of the cases.  Fill in any gaps with entries that
+                   will point to the default. *)
+                fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
+                    if indexVal = caseValue
+                    then (newLabel(), SOME c, caseValue) :: extendCase(indexVal+0w1, cps)
+                    else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, cl)
+
+                |   extendCase(indexVal, []) =
+                    (* We may not be at the end if this came from a CaseTag *)
+                        if indexVal > max
+                        then []
+                        else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, [])
+                
+                val fullCaseRange = extendCase(min, cases)
+
+                val testReg = newPReg() and workReg = newPReg()
+                val (testCode, _, _) = codeToICodeRev(test, context, false, SpecificPReg testReg, tailCode)
+                
+                (* Unless this is exhaustive we need to add some range checks.  These all
+                   jump to the default case. *)
+                val (rangeChecks, extraDefaults) =
+                    if isExhaustive
+                    then (testCode, [])
+                    else
+                    let
+                        val (testTag, tagDefault) =
+                            let
+                                val defLab = newLabel() and tReg = newPReg() and ccRef = newCCRef()
+                            in
+                                (ConditionalForwardJump{ccRef=ccRef, condition=JE, label=defLab} ::
+                                 TestTagBit{arg=RegisterArgument tReg, ccRef=ccRef} ::
+                                 LoadArgument {source=RegisterArgument testReg, dest=tReg, kind=MoveWord} :: testCode, [defLab])
+                            end
+                        val defLab1 = newLabel() and defLab2 = newLabel()
+                        val tReg1 = newPReg() and tReg2 = newPReg()
+                        val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                        val testCode2 =
+                                ConditionalForwardJump{ccRef=ccRef2, condition=JB, label=defLab2} ::
+                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt min)), ccRef=ccRef2} ::
+                                LoadArgument {source=RegisterArgument testReg, dest=tReg2, kind=MoveWord} ::
+                                ConditionalForwardJump{ccRef=ccRef1, condition=JA, label=defLab1} ::
+                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt max)), ccRef=ccRef1} ::
+                                LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord} :: testTag
+                    in
+                        (testCode2, defLab1 :: defLab2 :: tagDefault)
+                    end
+
+                (* Generate the code for each of the cases and the default.  We need to put an
+                   unconditional branch after each to skip the other cases.
+                   TODO: This could be replaced by "returns" if we're at the tail. *)
+                fun codeCases ((startLabel, SOME c, _) :: otherCases, tailCode) =
+                    let
+                        val caseTarget = if isTail then newPReg() else targetReg
+                        (* Put in the case with a jump to the end of the sequence. *)
+                        val (codeThisCase, _, caseExited) =
+                            codeToICodeRev(c, context, isTail, SpecificPReg caseTarget,
+                                ForwardJumpLabel{label=startLabel, result=NONE} :: tailCode) 
+                        val (exitThisCase, exitLabel) =
+                            if caseExited then (codeThisCase, [])
+                            else if isTail then (returnInstruction(context, caseTarget, codeThisCase), [])
+                            else
+                            let
+                                val exitLabel = newLabel()
+                            in
+                                (UnconditionalForwardJump{label=exitLabel} :: codeThisCase,
+                                 [ForwardJumpLabel{label=exitLabel, result=SOME targetReg}])
+                            end
+                        val codeRest = codeCases(otherCases, exitThisCase)
+                    in
+                        exitLabel @ codeRest
+                    end
+
+                |   codeCases((_, NONE, _) :: otherCases, tailCode) = codeCases(otherCases, tailCode)
+                        
+                |   codeCases ([], tailCode) =
+                    let
+                        (* We need to add labels for all the gaps we filled and also for a "default" label for
+                           the indexed-case instruction itself as well as any range checks. *)
+                        fun addDefault ((startLabel, NONE, _), l) = ForwardJumpLabel{label=startLabel, result=NONE} :: l
+                        |   addDefault ((_, SOME _, _), l) = l
+                        fun asForward l = ForwardJumpLabel{label=l, result=NONE}
+                        val dLabs = map asForward extraDefaults @ tailCode
+                        val defLabels = List.foldl addDefault dLabs fullCaseRange
+                        val defaultTarget = if isTail then newPReg() else targetReg
+                        val (defaultCode, _, defaultExited) =
+                            codeToICodeRev(default, context, isTail, SpecificPReg defaultTarget, defLabels)
+                    in
+                        (* Put in the default.  Because this is the last we don't need to
+                           jump round it.  However if this is a tail and we haven't exited
+                           we put in a return.  That way the case will always have
+                           exited if this is a tail. *)
+                         if isTail andalso not defaultExited
+                         then returnInstruction(context, defaultTarget, defaultCode)
+                         else defaultCode
+                    end
+
+                val codeLabels = map (fn (lab, _, _) => lab) fullCaseRange
+                    
+                val codedCases =
+                    codeCases(fullCaseRange,
+                        IndexedCaseOperation{testReg=testReg, workReg=workReg, cases=codeLabels, startValue=min} :: rangeChecks)
+                (* We can now copy to the target.  If we need to push the result this load
+                   will be converted into a push. *)
+                val target = asTarget destination
+                val copyToTarget =
+                    if isTail then codedCases
+                    else LoadArgument{source=RegisterArgument targetReg, dest=target, kind=MoveWord} :: codedCases
+            in
+                (copyToTarget, RegisterArgument target, isTail (* We have always exited on a tail. *))
+            end
+
+        |   codeToICodeRev(BICBeginLoop {loop, arguments}, context as { stackPtr, ...}, isTail, destination, tailCode) =
+            let
+                val target = asTarget destination
+                
+                fun codeArgs ([], tailCode) = ([], tailCode)
+                |   codeArgs (({value, addr}, _) :: rest, tailCode) =
+                    let
+                        val pr = newPReg()
+                        val () = Array.update(locToPregArray, addr, SOME pr)
+                        val (code, _, _) = codeToICodeRev(value, context, false, SpecificPReg pr, tailCode)
+                        val (pregs, othercode) = codeArgs(rest, code)
+                    in
+                        (pr::pregs, othercode)
+                    end
+                val (loopRegs, argCode) = codeArgs(arguments, tailCode)
+
+                val loopLabel = newLabel()
+                val (loopBody, _, loopExited) =
+                    codeToICodeRev(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target,
+                        StartLoop{loopLabel=loopLabel} :: argCode)
+            in
+                (EndLoop {loopLabel=loopLabel, staticRegs=[]} :: loopBody, RegisterArgument target, loopExited)
+            end
+
+        |   codeToICodeRev(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, ...}, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                (* Registers to receive the evaluated arguments.  We can't put the
+                   values into the loop variables yet because the values could depend
+                   on the current values of the loop variables. *)
+                val argPRegs = map(fn _ => newPReg()) args
+                val codeArgs =
+                    ListPair.foldlEq(fn ((arg, _), pr, l) =>
+                        #1 (codeToICodeRev(arg, context, false, SpecificPReg pr, l))) tailCode
+                        (args, argPRegs)
+                val jumpArgs = ListPair.mapEq(fn (s, l) => (RegisterArgument s, l)) (argPRegs, loopRegs)
+                (* If we've allocated a container in the loop we have to remove it before jumping back. *)
+                val stackReset =
+                    if loopSp = stackPtr then codeArgs
+                    else ResetStackPtr{numWords=stackPtr-loopSp} :: codeArgs
+            in
+                (JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0, checkInterrupt=SOME[]} :: stackReset, RegisterArgument target, true)
+            end
+
+        |   codeToICodeRev(BICLoop _, {loopArgs=NONE, ...}, _, _, _) = raise InternalError "BICLoop without BICBeginLoop"
+
+
+        |   codeToICodeRev(BICRaise exc, context, _, destination, tailCode) =
+            let
+                val (code, dest, _) =
+                    codeToICodeRev(exc, context, false, Allowed allowDefer, tailCode)
+            in
+                (RaiseExceptionPacket{packet=dest} :: code, RegisterArgument(asTarget destination), true (* Always exits *))
+            end
+
+        |   codeToICodeRev(BICHandle{exp, handler, exPacketAddr}, context as { stackPtr, loopArgs }, isTail, destination, tailCode) =
+            let
+                (* As with BICCond and BICCase we need to create a new register for the
+                   result in case we need to push it to the stack. *)
+                val handleResult = newPReg()
+                val handlerLab = newLabel()
+                val (bodyTarget, handlerTarget) =
+                    if isTail then (newPReg(), newPReg()) else (handleResult, handleResult)
+                (* TODO: Even if we don't actually want a result we force one in here by
+                   using "asTarget".  *)
+                (* The expression cannot be treated as a tail because the handler has
+                   to be removed after.  It may "exit" if it has raised an unconditional
+                   exception.  If it has we mustn't generate a PopExceptionHandler because
+                   there won't be any result for resultReg.
+                   We need to add two words to the stack to account for the items pushed by
+                   PushExceptionHandler. *)
+                val initialCode = PushExceptionHandler{workReg=newPReg(), handleStart=handlerLab} :: tailCode
+                val (expCode, _, expExit) =
+                    codeToICodeRev(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs}, false (* Not tail *), SpecificPReg bodyTarget, initialCode)
+                (* If this is the tail we can replace the jump at the end of the
+                   handled code with returns.  If the handler has exited we don't need
+                   a return there.  Otherwise we need to add an unconditional jump to
+                   skip the handler. *)
+                val (atExpEnd, skipExpLabel) =
+                    case (isTail, expExit) of
+                        (true, true) => (* Tail and exited. *) (expCode, NONE)
+                    |   (true, false) => (* Tail and not exited. *)
+                            (returnInstruction(context, bodyTarget,
+                                PopExceptionHandler{resultReg=SOME bodyTarget, workReg=newPReg()} :: expCode), NONE)
+                    |   (false, true) => (* Not tail but exited. *) (expCode, NONE)
+                    |   (false, false) =>
+                        let
+                            val skipHandler = newLabel()
+                        in
+                            (UnconditionalForwardJump{label=skipHandler} ::
+                             PopExceptionHandler{resultReg=SOME bodyTarget, workReg=newPReg()} :: expCode, SOME skipHandler)
+                        end
+                (* Make a register to hold the exception packet and put eax into it. *)
+                val packetAddr = newPReg()
+                val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
+                val (handleCode, _, handleExit) =
+                    codeToICodeRev(handler, context, isTail, SpecificPReg handlerTarget,
+                        BeginHandler{handleStart=handlerLab, workReg=newPReg(), packetReg=packetAddr} :: atExpEnd)
+                val target = asTarget destination
+                val afterHandler =
+                    case (isTail, handleExit) of
+                        (true, true) => (* Tail and exited. *) handleCode
+                    |   (true, false) => (* Tail and not exited. *)
+                            returnInstruction(context, handlerTarget, handleCode)
+                    |   (false, _) => (* Not tail. *) handleCode
+                
+                val addLabel =
+                    case skipExpLabel of
+                        SOME lab =>
+                            ForwardJumpLabel{label=lab, result=SOME handleResult} :: afterHandler
+                    |   NONE => afterHandler
+            in
+                (LoadArgument{source=RegisterArgument handleResult, dest=target, kind=MoveWord} :: addLabel,
+                    RegisterArgument target, isTail)
+            end
+
+        |   codeToICodeRev(BICTuple fields, context, _, destination, tailCode) =
+            let
+                (* TODO: This is a relic of the old fall-back code-generator.  It required
+                   the result of a tuple to be at the top of the stack.  It should be changed. *)
+                val target = asTarget destination (* Actually we want this. *)
+                val memAddr = newPReg()
+                fun loadFields([], n, tlCode) =
+                        AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]} :: tlCode
+                |   loadFields(f :: rest, n, tlCode) =
+                    let
+                        (* Defer the evaluation if possible.  We may have a constant that we can't move
+                           directly but it's better to load it after the allocation otherwise we will
+                           have to push the register if we need to GC. *)
+                        val (code1, source1, _) = codeToICodeRev(f, context, false, Allowed allowDefer, tlCode)
+                        val restAndAlloc = loadFields(rest, n+1, code1)
+                        val (code2, source, _)  = moveIfNotAllowedRev(Allowed allowInMemMove, restAndAlloc, source1)
+                        val storeValue = StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord}
+                    in
+                        storeValue :: code2
+                    end
+                val code = InitialisationComplete :: LoadArgument{source=RegisterArgument memAddr, dest=target, kind=MoveWord} :: loadFields(fields, 0, tailCode)
+            in
+                (code, RegisterArgument target, false)
+            end
+
+        |   codeToICodeRev(instr as BICSetContainer _, context, isTail, destination, tailCode) =
+            let
+                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+            in
+                (revApp(code, tailCode), dest, haveExited)
+            end
+
+        |   codeToICodeRev(instr as BICTagTest _, context, isTail, destination, tailCode) =
+                (* Better handled as a conditional *)
+                codeAsConditionalRev(instr, context, isTail, destination, tailCode)
+
+        |   codeToICodeRev(instr as BICLoadOperation _, context, isTail, destination, tailCode) =
+            let
+                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+            in
+                (revApp(code, tailCode), dest, haveExited)
+            end
+
+        |   codeToICodeRev(instr as BICStoreOperation _, context, isTail, destination, tailCode) =
+            let
+                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+            in
+                (revApp(code, tailCode), dest, haveExited)
+            end
+
+        |   codeToICodeRev(instr as BICBlockOperation {kind=BlockOpEqualByte, ...}, context, isTail, destination, tailCode) =
+                codeAsConditionalRev(instr, context, isTail, destination, tailCode)
+
+        |   codeToICodeRev(instr as BICBlockOperation _, context, isTail, destination, tailCode) =
+            let
+                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+            in
+                (revApp(code, tailCode), dest, haveExited)
+            end
+
+        and codeToICode(BICConstnt(value, _), _, _, destination) =
+                moveIfNotAllowed(destination, [], constantAsArgument value)
 
         |   codeToICode(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, _, destination) =
             let
@@ -1105,380 +1585,6 @@ struct
         |   codeToICode(BICAllocateWordMemory {numWords, flags, initial}, context, _, destination) =
                 allocateMemoryVariable(numWords, flags, initial, context, destination)
 
-        |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, destination) =
-            (* Empty closure - create a constant closure for any recursive calls. *)
-            let
-                val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
-                val codeAddr = codeFunctionToX86(lambda, debugSwitches, SOME closure)
-                open Address
-            in
-                assignWord(closure, 0w0, toMachineWord codeAddr);
-                lock closure;
-                moveIfNotAllowed(destination, [], AddressConstant(toMachineWord closure))
-            end
-
-        |   codeToICode(BICLambda(lambda as { closure, ...}), context, isTail, destination) =
-            (* Non-empty closure.  Ignore stack closure option at the moment. *)
-            let
-                val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
-            in
-                (* Treat it as a tuple with the code as the first field. *)
-                codeToICode(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure), context, isTail, destination)
-            end
-
-        |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, NoResult) =
-            (
-                (* If we don't want the result but are only evaluating for side-effects we
-                   may be able to optimise special cases.  *)
-                case (codeToICode(thenPt, context, isTail, NoResult),
-                      codeToICode(elsePt, context, isTail, NoResult)) of
-                    (([], _, _), (elseCode, _, _)) =>
-                        let
-                            val skipElse = newLabel()
-                            val testCode = codeCondition(test, context, true (* Invert the test. *), skipElse)
-                        in
-                            (testCode @ elseCode @ [ForwardJumpLabel{label=skipElse, result=NONE}], (* Unit result *) IntegerConstant(tag 0), false)
-                        end
-                |   ((thenCode, _, _), ([], _, _)) =>
-                        let
-                            val skipThen = newLabel()
-                            val testCode = codeCondition(test, context, false, skipThen)
-                        in
-                            (testCode @ thenCode @ [ForwardJumpLabel{label=skipThen, result=NONE}], (* Unit result *) IntegerConstant(tag 0), false)
-                        end
-                |   ((thenCode, _, _), (elseCode, _, _)) =>
-                        let
-                            val startElse = newLabel() and skipElse = newLabel()
-                            val testCode = codeCondition(test, context, false, startElse)
-                        in
-                            (testCode @
-                                thenCode @ [UnconditionalForwardJump{label=skipElse}, ForwardJumpLabel{label=startElse, result=NONE}] @
-                                elseCode @ [ForwardJumpLabel{label=skipElse, result=NONE}], (* Unit result *) IntegerConstant(tag 0), false)
-                        end
-            )
-
-        |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, destination) =
-            let
-                (* Because we may push the result onto the stack we have to create a new preg to
-                   hold the result and then copy that to the final result. *)
-                (* If this is a tail each arm will exit separately and neither will return a result. *)
-                val target = asTarget destination
-                val condResult = newPReg()
-                val thenTarget = if isTail then newPReg() else condResult
-                val startElse = newLabel()
-                val testCode = codeCondition(test, context, false, startElse)
-                (* Put the result in the target register. *)
-                val (thenCode, _, thenExited) = codeToICode(thenPt, context, isTail, SpecificPReg thenTarget)
-                (* Add a jump round the else-part except that if this is a tail we
-                   return.  The then-part could have exited e.g. with a raise or a loop. *)
-                val (exitThen, thenLabel, elseTarget) =
-                    if thenExited then ([], [], target (* Can use original target. *))
-                    else if isTail then (returnInstruction(context, thenTarget), [], newPReg())
-                    else
-                    let
-                        val skipElse = newLabel()
-                    in
-                        ([UnconditionalForwardJump{label=skipElse}],
-                         [ForwardJumpLabel{label=skipElse, result=SOME condResult},
-                          LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord}],
-                         condResult)
-                    end
-                val (elseCode, _, elseExited) = codeToICode(elsePt, context, isTail, SpecificPReg elseTarget)
-                (* Add a return to the else-part if necessary so we will always exit on a tail. *)
-                val exitElse =
-                    if isTail andalso not elseExited then returnInstruction(context, elseTarget) else []
-            in
-                (testCode @
-                    thenCode @ exitThen @ [ForwardJumpLabel{label=startElse, result=NONE}] @
-                    elseCode @ exitElse @ thenLabel, RegisterArgument target, isTail orelse thenExited andalso elseExited)
-            end
-       
-        |   codeToICode(BICCase { cases, test, caseType, default}, context, isTail, destination) =
-            let
-                (* We have to create a new preg for the result in case we need to push
-                   it to the stack. *)
-                val targetReg = newPReg()
-                (* Sort the cases into ascending order.  It's possible that we may have
-                   duplicates if this came from an if-then-else construction so we
-                   need to retain the ordering for items with the same case label. *)
-                (* TODO: This should be done in the higher level. *)
-                local
-                    val labelCount = List.length cases
-                    (* Add an extra field before sorting which retains the ordering for
-                       equal labels. *)
-                    val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
-                    fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
-                        if w1 = w2 then n1 <= n2 else w1 < w2
-                    val sorted = List.map #1 (Misc.quickSort leq ordered)
-                    (* Filter out any duplicates. *)
-                    fun filter [] = []
-                    |   filter [p] = [p]
-                    |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
-                            if lab1 = lab2
-                            then p :: filter tl
-                            else p :: filter (q :: tl)
-                in
-                    val cases = filter sorted
-                end
-
-                val (isExhaustive, min, max) =
-                    case caseType of
-                        CaseTag max => (true, 0w0, max)
-                    |   _ =>
-                        let
-                            val (_, aLabel) = hd cases
-                            fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                            val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
-                        in
-                            (false, min, max)
-                        end
-
-                (* Create labels for each of the cases.  Fill in any gaps with entries that
-                   will point to the default. *)
-                fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
-                    if indexVal = caseValue
-                    then (newLabel(), SOME c, caseValue) :: extendCase(indexVal+0w1, cps)
-                    else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, cl)
-
-                |   extendCase(indexVal, []) =
-                    (* We may not be at the end if this came from a CaseTag *)
-                        if indexVal > max
-                        then []
-                        else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, [])
-                
-                val fullCaseRange = extendCase(min, cases)
-
-                val testReg = newPReg() and workReg = newPReg()
-                val testCode = codeToICodeTarget(test, context, false, testReg)
-                
-                (* Unless this is exhaustive we need to add some range checks.  These all
-                   jump to the default case. *)
-                val (rangeChecks, extraDefaults) =
-                    if isExhaustive
-                    then ([], [])
-                    else
-                    let
-                        val (testTag, tagDefault) =
-                            let
-                                val defLab = newLabel() and tReg = newPReg() and ccRef = newCCRef()
-                            in
-                                ([
-                                    LoadArgument {source=RegisterArgument testReg, dest=tReg, kind=MoveWord},
-                                    TestTagBit{arg=RegisterArgument tReg, ccRef=ccRef},
-                                    (* Jump if the value is long. *)
-                                    ConditionalForwardJump{ccRef=ccRef, condition=JE, label=defLab}
-                                 ], [defLab])
-                            end
-                        val defLab1 = newLabel() and defLab2 = newLabel()
-                        val tReg1 = newPReg() and tReg2 = newPReg()
-                        val ccRef1 = newCCRef() and ccRef2 = newCCRef()
-                        val testCode =
-                            [
-                                LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord},
-                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt max)), ccRef=ccRef1},
-                                ConditionalForwardJump{ccRef=ccRef1, condition=JA, label=defLab1},
-                                LoadArgument {source=RegisterArgument testReg, dest=tReg2, kind=MoveWord},
-                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt min)), ccRef=ccRef2},
-                                ConditionalForwardJump{ccRef=ccRef2, condition=JB, label=defLab2}
-                            ]
-                    in
-                        (testTag @ testCode, defLab1 :: defLab2 :: tagDefault)
-                    end
-
-                (* Generate the code for each of the cases and the default.  We need to put an
-                   unconditional branch after each to skip the other cases.
-                   TODO: This could be replaced by "returns" if we're at the tail. *)
-                fun codeCases ((startLabel, SOME c, _) :: otherCases) =
-                    let
-                        val caseTarget = if isTail then newPReg() else targetReg
-                        (* Put in the case with a jump to the end of the sequence. *)
-                        val (codeThisCase, _, caseExited) = codeToICode(c, context, isTail, SpecificPReg caseTarget)
-                        val (exitThisCase, exitLabel) =
-                            if caseExited then ([], [])
-                            else if isTail then (returnInstruction(context, caseTarget), [])
-                            else
-                            let
-                                val exitLabel = newLabel()
-                            in
-                                ([UnconditionalForwardJump{label=exitLabel}],
-                                 [ForwardJumpLabel{label=exitLabel, result=SOME targetReg}])
-                            end
-                        val codeRest = codeCases otherCases
-                    in
-                        ForwardJumpLabel{label=startLabel, result=NONE} ::
-                            codeThisCase @ exitThisCase @ codeRest @ exitLabel
-                    end
-
-                |   codeCases((_, NONE, _) :: otherCases) = codeCases otherCases
-                        
-                |   codeCases [] =
-                    let
-                        (* We need to add labels for all the gaps we filled and also for a "default" label for
-                           the indexed-case instruction itself as well as any range checks. *)
-                        fun addDefault ((startLabel, NONE, _), l) = ForwardJumpLabel{label=startLabel, result=NONE} :: l
-                        |   addDefault ((_, SOME _, _), l) = l
-                        fun asForward l = ForwardJumpLabel{label=l, result=NONE}
-                        val dLabs = map asForward extraDefaults
-                        val defLabels = List.foldl addDefault dLabs fullCaseRange
-                        val defaultTarget = if isTail then newPReg() else targetReg
-                        val (defaultCode, _, defaultExited) =
-                            codeToICode(default, context, isTail, SpecificPReg defaultTarget)
-                    in
-                        (* Put in the default.  Because this is the last we don't need to
-                           jump round it.  However if this is a tail and we haven't exited
-                           we put in a return.  That way the case will always have
-                           exited if this is a tail. *)
-                         defLabels @ defaultCode @
-                            (if isTail andalso not defaultExited then returnInstruction(context, defaultTarget) else [])
-                    end
-                    
-                val codedCases = codeCases fullCaseRange
-
-                val codeLabels = map (fn (lab, _, _) => lab) fullCaseRange
-                (* We can now copy to the target.  If we need to push the result this load
-                   will be converted into a push. *)
-                val target = asTarget destination
-                val copyToTarget =
-                    if isTail then []
-                    else [LoadArgument{source=RegisterArgument targetReg, dest=target, kind=MoveWord}]
-            in
-                (testCode @ rangeChecks @ [IndexedCaseOperation{testReg=testReg, workReg=workReg,
-                                        cases=codeLabels, startValue=min}] @ codedCases @ copyToTarget,
-                 RegisterArgument target, isTail (* We have always exited on a tail. *))
-            end
-        
-        |   codeToICode(BICBeginLoop {loop, arguments}, context as { stackPtr, ...}, isTail, destination) =
-            let
-                val target = asTarget destination
-                
-                fun codeArgs [] = ([], [])
-                |   codeArgs (({value, addr}, _) :: rest) =
-                    let
-                        val pr = newPReg()
-                        val () = Array.update(locToPregArray, addr, SOME pr)
-                        val code = codeToICodeTarget(value, context, false, pr)
-                        val (pregs, othercode) = codeArgs rest
-                    in
-                        (pr::pregs, code@othercode)
-                    end
-                val (loopRegs, argCode) = codeArgs arguments
-
-                val loopLabel = newLabel()
-                val (loopBody, _, loopExited) =
-                    codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target)
-            in
-                (argCode @ [StartLoop{loopLabel=loopLabel}] @ loopBody @
-                    [EndLoop {loopLabel=loopLabel, staticRegs=[]}], RegisterArgument target, loopExited)
-            end
-        
-        |   codeToICode(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, ...}, _, destination) =
-            let
-                val target = asTarget destination
-                (* Registers to receive the evaluated arguments.  We can't put the
-                   values into the loop variables yet because the values could depend
-                   on the current values of the loop variables. *)
-                val argPRegs = map(fn _ => newPReg()) args
-                val codeArgs =
-                    ListPair.foldlEq(fn ((arg, _), pr, l) => l @ codeToICodeTarget(arg, context, false, pr)) []
-                        (args, argPRegs)
-                val jumpArgs = ListPair.mapEq(fn (s, l) => (RegisterArgument s, l)) (argPRegs, loopRegs)
-                (* If we've allocated a container in the loop we have to remove it before jumping back. *)
-                val stackReset =
-                    if loopSp = stackPtr then []
-                    else [ResetStackPtr{numWords=stackPtr-loopSp}]
-            in
-                (codeArgs @ stackReset @
-                    [JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0, checkInterrupt=SOME[]}], RegisterArgument target, true)
-            end
-
-        |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =
-                raise InternalError "BICLoop without BICBeginLoop"
-
-        |   codeToICode(BICRaise exc, context, _, destination) =
-            let
-                val (code, dest, _) = codeToICode(exc, context, false, Allowed allowDefer)
-            in
-                (code @ [RaiseExceptionPacket{packet=dest}], RegisterArgument(asTarget destination), true (* Always exits *))
-            end
-
-        |   codeToICode(BICHandle {exp, handler, exPacketAddr}, context as { stackPtr, loopArgs }, isTail, destination) =
-            let
-                (* As with BICCond and BICCase we need to create a new register for the
-                   result in case we need to push it to the stack. *)
-                val handleResult = newPReg()
-                val (bodyTarget, handlerTarget) =
-                    if isTail then (newPReg(), newPReg()) else (handleResult, handleResult)
-                (* TODO: Even if we don't actually want a result we force one in here by
-                   using "asTarget".  *)
-                (* The expression cannot be treated as a tail because the handler has
-                   to be removed after.  It may "exit" if it has raised an unconditional
-                   exception.  If it has we mustn't generate a PopExceptionHandler because
-                   there won't be any result for resultReg.
-                   We need to add two words to the stack to account for the items pushed by
-                   PushExceptionHandler. *)
-                val (expCode, _, expExit) =
-                    codeToICode(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs}, false (* Not tail *), SpecificPReg bodyTarget)
-                (* Make a register to hold the exception packet and put eax into it. *)
-                val packetAddr = newPReg()
-                val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
-                val (handleCode, _, handleExit) =
-                    codeToICode(handler, context, isTail, SpecificPReg handlerTarget)
-                val handlerLab = newLabel()
-                (* If this is the tail we can replace the jump at the end of the
-                   handled code with returns.  If the handler has exited we don't need
-                   a return there.  Otherwise we need to add an unconditional jump to
-                   skip the handler. *)
-                val target = asTarget destination
-                val (atExpEnd, afterHandler) =
-                    if isTail
-                    then
-                        (if expExit then []
-                         else
-                            PopExceptionHandler{resultReg=SOME bodyTarget, workReg=newPReg()} ::
-                             returnInstruction(context, bodyTarget),
-                         if handleExit then [] else returnInstruction(context, handlerTarget))
-                    else
-                    let
-                        val skipHandler = newLabel()
-                    in
-                        (if expExit then []
-                         else [PopExceptionHandler{resultReg=SOME bodyTarget, workReg=newPReg()}, 
-                               UnconditionalForwardJump{label=skipHandler}],
-                         [ForwardJumpLabel{label=skipHandler, result=SOME handleResult},
-                          LoadArgument{source=RegisterArgument handleResult, dest=target, kind=MoveWord}])
-                    end
-            in
-                (PushExceptionHandler{workReg=newPReg(), handleStart=handlerLab} :: expCode @ atExpEnd @
-                [BeginHandler{handleStart=handlerLab, workReg=newPReg(), packetReg=packetAddr}] @
-                 handleCode @ afterHandler, RegisterArgument target, isTail)
-            end
-
-        |   codeToICode(BICTuple fields, context, _, destination) =
-            let
-                (* TODO: This is a relic of the old fall-back code-generator.  It required
-                   the result of a tuple to be at the top of the stack.  It should be changed. *)
-                val target = asTarget destination (* Actually we want this. *)
-                val memAddr = newPReg()
-                fun loadFields([], n) =
-                        [AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]}]
-                |   loadFields(f :: rest, n) =
-                    let
-                        (* Defer the evaluation if possible.  We may have a constant that we can't move
-                           directly but it's better to load it after the allocation otherwise we will
-                           have to push the register if we need to GC. *)
-                        val (code1, source1, _) = codeToICode(f, context, false, Allowed allowDefer)
-                        val restAndAlloc = loadFields(rest, n+1)
-                        val (code2, source, _)  = moveIfNotAllowed(Allowed allowInMemMove, [], source1)
-                        val storeValue = [StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord}]
-                    in
-                        code1 @ restAndAlloc @ code2 @ storeValue
-                    end
-                val code = loadFields(fields, 0) @
-                    [InitialisationComplete, LoadArgument{source=RegisterArgument memAddr, dest=target, kind=MoveWord}]
-            in
-                (code, RegisterArgument target, false)
-            end
- 
             (* Copy the source tuple into the container.  If the source is a BICTuple we simply copy
                the fields.  That saves creating the tuple at compile time. *)
         |   codeToICode(BICSetContainer{container, tuple=BICTuple cl, filter}, context, _, destination) =
@@ -1539,10 +1645,6 @@ struct
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
-
-        |   codeToICode(instr as BICTagTest _, context, isTail, destination) =
-                (* Better handled as a conditional *)
-                codeAsConditional(instr, context, isTail, destination)
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreMLWord _, address}, context, _, destination) =
             let
@@ -1883,58 +1985,62 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        (* Code a branch condition.  This is really meant for andalso/orelse. *)
-        and codeCondition(BICConstnt(value, _), _, jumpOn, jumpLabel) =
+        |   codeToICode(instr, context, isTail, destination) =
+            let
+                val (code, dest, haveExited) = codeToICodeRev(instr, context, isTail, destination, [])
+            in
+                (List.rev code, dest, haveExited)
+            end
+        
+        and codeConditionRev(BICConstnt(value, _), _, jumpOn, jumpLabel, tailCode) =
             (* Constant - typically part of andalso/orelse.  Either an unconditional branch
                or an unconditional drop-through. *)
             if jumpOn = (toShort value <> 0w0)
-            then [UnconditionalForwardJump{label=jumpLabel}]
-            else []
+            then UnconditionalForwardJump{label=jumpLabel} :: tailCode
+            else tailCode
 
-        |   codeCondition(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel, tailCode) =
             (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
                tag bit of a word. *)
             let
                 val ccRef = newCCRef()
-                val (testCode, tagReg) = codeToPReg(test, context)
+                val (testCode, tagReg) = codeToPRegRev(test, context, tailCode)
             in
-                testCode @
-                    [WordComparison{arg1=RegisterArgument tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef},
-                     ConditionalForwardJump{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                ConditionalForwardJump{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, label=jumpLabel} ::
+                WordComparison{arg1=RegisterArgument tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef} ::
+                    testCode
             end
 
-        |   codeCondition(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, jumpOn, jumpLabel, tailCode) =
                 (* If we have a "not" we can just invert the jump condition. *)
-                codeCondition(arg1, context, not jumpOn, jumpLabel)
+                codeConditionRev(arg1, context, not jumpOn, jumpLabel, tailCode)
 
-        |   codeCondition(BICUnary{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICUnary{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef = newCCRef()
-                val (testCode, testReg) = codeToPReg(arg1, context)
+                val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
                 (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
                 (* TODO: The X86 supports tests with a memory argument so we don't have to
                    load it into a register.  That's not currently supported by the rest of
                    the code-generator. *)
             in
-                testCode @
-                    [TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef},
-                     ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JNE else JE, label=jumpLabel}]
+                ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JNE else JE, label=jumpLabel} ::
+                    TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef} :: testCode
             end
 
             (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
                is perfectly possible that the argument could be an address. *)
-        |   codeCondition(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)},
-                    context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef = newCCRef()
-                val (testCode, testReg) = codeToPReg(arg1, context)
+                val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
                 val arg2Arg = constantAsArgument arg2Value
             in
-                testCode @
-                    [WordComparison{arg1=RegisterArgument testReg, arg2=arg2Arg, ccRef=ccRef},
-                     ConditionalForwardJump{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
+                ConditionalForwardJump{ccRef=ccRef,
+                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel} ::
+                WordComparison{arg1=RegisterArgument testReg, arg2=arg2Arg, ccRef=ccRef} :: testCode
             end
 
 (*        |   codeCondition(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2},
@@ -1950,32 +2056,30 @@ struct
                            condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
             end*)
 
-        |   codeCondition(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
-                    context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef = newCCRef()
-                val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
-                val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
+                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
+                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
             in
-                arg1Code @ arg2Code @
-                    [WordComparison{arg1=RegisterArgument arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef},
-                     ConditionalForwardJump{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
+                ConditionalForwardJump{ccRef=ccRef,
+                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel} ::
+                WordComparison{arg1=RegisterArgument arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef} :: arg2Code
             end
 
-        |   codeCondition(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
-                    context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef = newCCRef()
-                val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
-                val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
+                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
+                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val argReg = newUReg()
             in
-                arg1Code @ arg2Code @
-                    [LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord},
-                     WordComparison{arg1=RegisterArgument argReg, arg2=wordAt arg2Reg, ccRef=ccRef},
-                     ConditionalForwardJump{ccRef=ccRef,
-                           condition=testAsBranch(test, false, jumpOn), label=jumpLabel}]
+                ConditionalForwardJump{ccRef=ccRef,
+                           condition=testAsBranch(test, false, jumpOn), label=jumpLabel} ::
+                    WordComparison{arg1=RegisterArgument argReg, arg2=wordAt arg2Reg, ccRef=ccRef} ::
+                    LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord} :: arg2Code
             end
 
            (* Floating point comparison.  This is complicated because we have different
@@ -1984,212 +2088,199 @@ struct
               if either argument is a NaN.  To combine that test with the other tests
               we sometimes have to reverse the comparison. *)
 
-        |   codeCondition(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestEqual, arg1, arg2},
-                    context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestEqual, arg1, arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg() and testReg3 = newUReg()
-                val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
-                val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
+                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
+                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                (* If this is X87 we get the condition into RAX and test it there.  If
                    it is SSE2 we have to treat the unordered result (parity set) specially. *)
-                val getResultCode =
-                    case (fpMode, jumpOn) of
-                        (FPModeX87, _) =>
-                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
-                             ArithmeticFunction{
-                                oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() },
-                             ArithmeticFunction{
-                                oper=XOR, resultReg=testReg3, operand1=RegisterArgument testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2 },
-                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                    |   (FPModeSSE2, true) =>
-                        let
-                            val lab = newLabel()
-                        in
-                            [
-                                ConditionalForwardJump{ccRef=ccRef1, condition=JP, label=lab},
-                                ConditionalForwardJump{ccRef=ccRef1, condition=JE, label=jumpLabel},
-                                ForwardJumpLabel{ label=lab, result=NONE }
-                            ]
-                        end
-                   |    (FPModeSSE2, false) =>
-                        [
-                            ConditionalForwardJump{ccRef=ccRef1, condition=JP, label=jumpLabel},
-                            ConditionalForwardJump{ccRef=ccRef1, condition=JNE, label=jumpLabel}
-                        ]
+                val testCode =
+                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1} ::
+                    LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
             in
-                arg1Code @ arg2Code @
-                    (LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble} ::
-                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: getResultCode)
+                case (fpMode, jumpOn) of
+                    (FPModeX87, _) =>
+                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
+                        ArithmeticFunction{
+                            oper=XOR, resultReg=testReg3, operand1=RegisterArgument testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2 } ::
+                        ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() } ::
+                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                |   (FPModeSSE2, true) =>
+                    let
+                        val lab = newLabel()
+                    in
+                        ForwardJumpLabel{ label=lab, result=NONE } ::
+                        ConditionalForwardJump{ccRef=ccRef1, condition=JE, label=jumpLabel} ::
+                        ConditionalForwardJump{ccRef=ccRef1, condition=JP, label=lab} :: testCode
+                    end
+               |    (FPModeSSE2, false) =>
+                        ConditionalForwardJump{ccRef=ccRef1, condition=JNE, label=jumpLabel} ::
+                        ConditionalForwardJump{ccRef=ccRef1, condition=JP, label=jumpLabel} :: testCode
             end
 
-        |   codeCondition(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLess, arg1, arg2},
-                    context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLess, arg1, arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg()
+                val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, SpecificPReg arg1Reg, tailCode)
+                val (arg2Code, _, _) = codeToICodeRev(arg2, context, false, SpecificPReg arg2Reg, arg1Code)
                 val testCode =
-                    codeToICodeTarget(arg1, context, false, arg1Reg) @
-                    codeToICodeTarget(arg2, context, false, arg2Reg)
-                val getResultCode =
-                    case fpMode of
-                        FPModeX87 =>
-                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
-                             ArithmeticFunction{
-                                oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 },
-                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                    |   FPModeSSE2 =>
-                            [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel}]
+                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1} :: (* Reverse *)
+                    LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
             in
-                testCode @
-                    [LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble},
-                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}] @ (* Reverse *)
-                        getResultCode
+                case fpMode of
+                    FPModeX87 =>
+                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
+                        ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 } ::
+                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                |   FPModeSSE2 =>
+                        ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel} :: testCode
             end
 
-        |   codeCondition(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreater, arg1, arg2},
-                    context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreater, arg1, arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg()
+                val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, SpecificPReg arg1Reg, tailCode)
+                val (arg2Code, _, _) = codeToICodeRev(arg2, context, false, SpecificPReg arg2Reg, arg1Code)
                 val testCode =
-                    codeToICodeTarget(arg1, context, false, arg1Reg) @
-                    codeToICodeTarget(arg2, context, false, arg2Reg)
-                val getResultCode =
-                    case fpMode of
-                        FPModeX87 =>
-                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
-                             ArithmeticFunction{
-                                oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 },
-                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                    |   FPModeSSE2 =>
-                            [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel}]
+                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: (* Not reversed. *)
+                    LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
             in
-                testCode @
-                    [LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble},
-                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}] @ (* Not reversed. *)
-                     getResultCode
+                case fpMode of
+                    FPModeX87 =>
+                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
+                        ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 } ::
+                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                |   FPModeSSE2 =>
+                        ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel} :: testCode
             end
 
-        |   codeCondition(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLessEqual, arg1, arg2},
-                    context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLessEqual, arg1, arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg()
+                val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, SpecificPReg arg1Reg, tailCode)
+                val (arg2Code, _, _) = codeToICodeRev(arg2, context, false, SpecificPReg arg2Reg, arg1Code)
                 val testCode =
-                    codeToICodeTarget(arg1, context, false, arg1Reg) @
-                    codeToICodeTarget(arg2, context, false, arg2Reg)
-                val getResultCode =
-                    case fpMode of
-                        FPModeX87 =>
-                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
-                             ArithmeticFunction{
-                                oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 },
-                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                    |   FPModeSSE2 =>
-                            [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel}]
+                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1} :: (* Reverse *)
+                    LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
             in
-                testCode @
-                    [LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble},
-                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}] @ (* Reverse *)
-                     getResultCode
+                case fpMode of
+                    FPModeX87 =>
+                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
+                        ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 } ::
+                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                |   FPModeSSE2 =>
+                        ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel} :: testCode
             end
 
-        |   codeCondition(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreaterEqual, arg1, arg2},
-                    context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreaterEqual, arg1, arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg()
+                val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, SpecificPReg arg1Reg, tailCode)
+                val (arg2Code, _, _) = codeToICodeRev(arg2, context, false, SpecificPReg arg2Reg, arg1Code)
                 val testCode =
-                    codeToICodeTarget(arg1, context, false, arg1Reg) @
-                    codeToICodeTarget(arg2, context, false, arg2Reg)
-                val getResultCode =
-                    case fpMode of
-                        FPModeX87 =>
-                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
-                             ArithmeticFunction{
-                                oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 },
-                             ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                    |   FPModeSSE2 =>
-                            [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel}]
+                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: (* Not reversed. *)
+                    LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
             in
-                testCode @
-                    [LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble},
-                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}] @ (* Not reversed. *)
-                     getResultCode
+                case fpMode of
+                    FPModeX87 =>
+                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
+                        ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 } ::
+                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                |   FPModeSSE2 =>
+                        ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel} :: testCode
             end
 
-        |   codeCondition(
-                BICBlockOperation{kind=BlockOpEqualByte, sourceLeft, destRight, length}, context, jumpOn, jumpLabel) =
+        |   codeConditionRev(
+                BICBlockOperation{kind=BlockOpEqualByte, sourceLeft, destRight, length}, context, jumpOn, jumpLabel, tailCode) =
             let
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val ccRef = newCCRef()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex}) =
-                    codeAddress(sourceLeft, true, context)
+                    codeAddressRev(sourceLeft, true, context, tailCode)
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
-                    codeAddress(destRight, true, context)
-                val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
+                    codeAddressRev(destRight, true, context, leftCode)
+                val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToRegRev(length, false (* unsigned *), context, rightCode)
             in
-                leftCode @ rightCode @ lengthCode @
-                leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
-                rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
-                lengthUntag @
-                [CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef },
-                 ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
+                CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef } ::
+                lengthUntag @ LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg} ::
+                rightUntag @ LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg} ::
+                leftUntag @ lengthCode
             end
 
-        |   codeCondition(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel) =
+        |   codeConditionRev(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel, tailCode) =
             let
                 val notTest = newLabel() and isThen = newLabel()
                 and notThen = newLabel() and notElse = newLabel()
                 (* Test the condition and jump to the else-part if this is false. *)
-                val testTest = codeCondition(testPart, context, false, notTest)
+                val testTest = codeConditionRev(testPart, context, false, notTest, tailCode)
                 (* Test the then-part and jump if the condition we want holds.
                    We don't go to the final label yet. *)
-                val testThen = codeCondition(thenPart, context, jumpOn, isThen)
+                val testThen = codeConditionRev(thenPart, context, jumpOn, isThen, testTest)
                 (* Test the else-part and jump on the inverse of the condition.
                    The destination of this jump is going to be the drop-through
                    case. *)
-                val testElse = codeCondition(elsePart, context, not jumpOn, notElse)
+                (* Branch round the else-part and put in a label for the start of the else *)
+                val testElse = codeConditionRev(elsePart, context, not jumpOn, notElse,
+                    ForwardJumpLabel {label=notTest, result=NONE} ::
+                    UnconditionalForwardJump{label=notThen} :: testThen)
             in
-                (* Now put this together. *)
-                testTest @ testThen @
-                    (* Branch round the else-part and put in a label for the start of the else *)
-                    [UnconditionalForwardJump{label=notThen}, ForwardJumpLabel {label=notTest, result=NONE}] @
-                    testElse @
+             (* And now the labels for the condition where we don't want to branch and want to
+                drop through. *)
+                ForwardJumpLabel{label=notThen, result=NONE} :: ForwardJumpLabel {label=notElse, result=NONE} ::
                     (* Add a label for the result of the then-part.  Because we branched
                        on the inverse of the test in the else-part we now have both the
                        conditions to take the branch.  Put in an unconditional branch
                        to the final label. *)
-                    [ForwardJumpLabel {label=isThen, result=NONE}, UnconditionalForwardJump{label=jumpLabel},
-                     (* And now the labels for the condition where we don't want to branch and want to
-                        drop through. *)
-                     ForwardJumpLabel {label=notElse, result=NONE}, ForwardJumpLabel{label=notThen, result=NONE}]
+                UnconditionalForwardJump{label=jumpLabel} :: ForwardJumpLabel {label=isThen, result=NONE} :: testElse
             end
 
             (* General case.  Load the value into a register and compare it with 1 (true) *)
-        |   codeCondition(condition, context, jumpOn, jumpLabel) =
+        |   codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef = newCCRef()
-                val (testCode, testReg) = codeToPReg(condition, context)
+                val (testCode, testReg) = codeToPRegRev(condition, context, tailCode)
             in
-                testCode @
-                    [WordComparison{arg1=RegisterArgument testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef},
-                     ConditionalForwardJump{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                ConditionalForwardJump{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, label=jumpLabel} ::
+                    WordComparison{arg1=RegisterArgument testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef} ::
+                    testCode
             end
+
+        and codeCondition(condition, context, jumpOn, jumpLabel) =
+            List.rev(codeConditionRev(condition, context, jumpOn, jumpLabel, []))
 
         (* Some operations that deliver boolean results are better coded as
            if condition then true else false *)
+        and codeAsConditionalRev(instr, context, isTail, target, tailCode) =
+            codeToICodeRev(
+                BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target, tailCode)
+
         and codeAsConditional(instr, context, isTail, target) =
             codeToICode(
                 BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target)
@@ -2327,39 +2418,46 @@ struct
                 raise InternalError "codeToICode: FixedPrecisionArith - unimplemented operation"
 
         (* Code an address.  The index is optional. *)
-        and codeAddress({base, index=SOME index, offset}, true (* byte move *), context) =
+        and codeAddressRev({base, index=SOME index, offset}, true (* byte move *), context, tailCode) =
             let
                 (* Byte address with index.  The index needs to be untagged. *)
                 val indexReg1 = newUReg()
-                val (codeBase, baseReg) = codeToPReg(base, context)
-                and (codeIndex, indexReg) = codeToPReg(index, context)
+                val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
+                val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
                 val untagCode = [UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false }]
                 val memResult = {base=baseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}
             in
-                (codeBase @ codeIndex, untagCode, memResult)
+                (codeIndex, untagCode, memResult)
             end
 
-        |   codeAddress({base, index=SOME index, offset}, false (* word move *), context) =
+        |   codeAddressRev({base, index=SOME index, offset}, false (* word move *), context, tailCode) =
             let
                 (* Word address with index.  We can avoid untagging the index by adjusting the
                    multiplier and offset *) 
-                val (codeBase, baseReg) = codeToPReg(base, context)
-                and (codeIndex, indexReg) = codeToPReg(index, context)
+                val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
+                val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
                 val memResult =
                     if isX64
                     then {base=baseReg, offset=Word.toInt offset-4, index=MemIndex4 indexReg}
                     else {base=baseReg, offset=Word.toInt offset-2, index=MemIndex2 indexReg}
             in
-                (codeBase @ codeIndex, [], memResult)
+                (codeIndex, [], memResult)
             end
 
-        |   codeAddress({base, index=NONE, offset}, _, context) =
+        |   codeAddressRev({base, index=NONE, offset}, _, context, tailCode) =
             let
-                val (codeBase, baseReg) = codeToPReg(base, context)
+                val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
                 val memResult = {offset=Word.toInt offset, base=baseReg, index=NoMemIndex}
             in
                 (codeBase, [], memResult)
             end
+
+        and codeAddress(addr, isByte, context) =
+        let
+            val (code, untag, res) = codeAddressRev(addr, isByte, context, [])
+        in
+            (List.rev code, untag, res)
+        end
 
         (* C-memory operations are slightly different.  The base address is a LargeWord.word value.
            The index is a byte index so may have to be untagged. *)
@@ -2408,7 +2506,7 @@ struct
         (* Return an untagged value.  If we have a constant just return it.  Otherwise
            return the code to evaluate the argument, the code to untag it and the
            reference to the untagged register. *)
-        and codeAsUntaggedToReg(BICConstnt(value, _), isSigned, _) =
+        and codeAsUntaggedToRegRev(BICConstnt(value, _), isSigned, _, tailCode) =
             let
                 (* Should always be short except for unreachable code. *)
                 val untagReg = newUReg()
@@ -2416,16 +2514,23 @@ struct
                 val cArg = IntegerConstant(if isSigned then Word.toLargeIntX cval else Word.toLargeInt cval) (* Don't tag *)
                 val untag = [LoadArgument{source=cArg, dest=untagReg, kind=MoveWord}]
             in
-                ([], untag, untagReg) (* Don't tag. *)
+                (tailCode, untag, untagReg) (* Don't tag. *)
             end
-        |   codeAsUntaggedToReg(arg, isSigned, context) =
+        |   codeAsUntaggedToRegRev(arg, isSigned, context, tailCode) =
             let
                 val untagReg = newUReg()
-                val (code, srcReg) = codeToPReg(arg, context)
+                val (code, srcReg) = codeToPRegRev(arg, context, tailCode)
                 val untag = [UntagValue{source=RegisterArgument srcReg, dest=untagReg, isSigned=isSigned}]
             in
                 (code, untag, untagReg)
             end
+
+        and codeAsUntaggedToReg(arg, isSigned, context) =
+        let
+            val (code, untag, untagReg) = codeAsUntaggedToRegRev(arg, isSigned, context, [])
+        in
+            (List.rev code, untag, untagReg)
+        end
 
         (* Return the argument as an untagged value.  We separate evaluating the argument from
            untagging because we may have to evaluate other arguments and that could involve a
@@ -2486,12 +2591,12 @@ struct
 
         val bodyContext = {loopArgs=NONE, stackPtr=0}
         val (bodyCode, _, bodyExited) =
-            codeToICode(body, bodyContext, true, SpecificPReg resultTarget)
-        val icode = beginInstruction :: bodyCode @ (if bodyExited then [] else returnInstruction(bodyContext, resultTarget))
+            codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, [beginInstruction])
+        val icode = if bodyExited then bodyCode else returnInstruction(bodyContext, resultTarget, bodyCode)
       
         open ICODETRANSFORM
     in
-        codeICodeFunctionToX86{icode = icode, functionName = name, maxLabels = !labelCounter, maxPRegs = ! pregCounter,
+        codeICodeFunctionToX86{icode = List.rev icode, functionName = name, maxLabels = !labelCounter, maxPRegs = ! pregCounter,
             argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
             debugSwitches = debugSwitches}
     end

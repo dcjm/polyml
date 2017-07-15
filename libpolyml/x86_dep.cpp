@@ -416,6 +416,17 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
     }
     ASSERT(old == ((PolyWord*)old_stack)+old_length);
     ASSERT(newp == ((PolyWord*)new_stack)+new_length);
+    // And change any registers that pointed into the old stack
+    for (int j = 0; j < 16; j++)
+    {
+        if (saveRegisterMask & (1 << j))
+        {
+            PolyWord *regAddr = get_reg(j);
+            PolyWord addr = *regAddr;
+            if (! addr.IsTagged() && addr.AsStackAddr() >= old_base && addr.AsStackAddr() < old_top)
+                *regAddr = PolyWord::FromStackAddr(addr.AsStackAddr() + offset);
+        }
+    }
 }
 
 // Set code constant.  This can be a fast call.  The only reason it is in the RTS is

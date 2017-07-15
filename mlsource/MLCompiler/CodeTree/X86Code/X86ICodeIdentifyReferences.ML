@@ -32,7 +32,13 @@ struct
     
     exception InternalError = Misc.InternalError
     
-    (* Register sets implemented as ordered lists. *)
+    (* Register sets implemented as ordered lists.  These are in
+       ascending order because they are used for conflict sets.
+       Registers are added to the conflict set as we work back.
+       A register that has a long lifetime may have many conflicts and the
+       list may get long but typically items will be added to the list
+       with numbers that decrease.  N.B.  The size of the conflict set
+       does not affect whether a register needs to be spilled. *)
     abstype intSet = IntSet of int list
     with
         val emptySet = IntSet []
