@@ -2547,6 +2547,7 @@ struct
         startUses := !startUses+1;
         [
             UncondBranch start,
+            JumpLabel skipCheckLab,
             CallRTS{rtsEntry=StackOverflowCall, saveRegs=saveRegs},
             ConditionalBranch{test=JNB, predict=PredictTaken, label=skipCheckLab},
             ArithToGenReg{ opc=CMP, output=esp, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }
@@ -4189,8 +4190,6 @@ struct
         |   reverseTestOp JGE = JLE
         |   reverseTestOp _ = raise InternalError "reverseTestOp: unknown branch"
 
-        fun noTagTest (operations, _, _) = operations (* When we don't need a test. *)
-
         local
             (* If the source or the index are in registers they have to be untagged first. *)
             fun genStoreByte byteOffset ([base, index, toStore], NONE) =
@@ -5288,7 +5287,7 @@ struct
                                        next = wordSelectDest opT } tArgs
 
             (* We have selected a result register.  Get the other argument. *)
-            and wordSelectedLeft (opRes as ((opcode, tagTest), result as GenReg resultReg)) (tArgs as (table, args, _)) =
+            and wordSelectedLeft (opRes as ((opcode, checkOverflow), result as GenReg resultReg)) (tArgs as (table, args, _)) =
             (
                 case map (argAsSource table) args of
                     [_, ActInRegisterSet{ readable, ...}] =>
@@ -5296,10 +5295,9 @@ struct
                         val argReg = oneOf readable
                     in
                         actionDone{ outReg=SOME result,
-                                    operation=postTagAdjust(opcode, resultReg) @
-                                        tagTest(ArithToGenReg{opc=opcode, source=RegisterArg(asGenReg argReg), output=resultReg} ::
-                                                     preTagAdjust(opcode, resultReg),
-                                                InRegister result, InRegister argReg)} tArgs
+                                    operation=postTagAdjust(opcode, resultReg) @ checkOverflow() @
+                                        ArithToGenReg{opc=opcode, source=RegisterArg(asGenReg argReg), output=resultReg} ::
+                                                     preTagAdjust(opcode, resultReg)} tArgs
                     end
 
                 |   [_, ActLiteralSource lit] =>
@@ -5318,8 +5316,8 @@ struct
                     in
                         actionDone{ outReg=SOME result,
                                     operation=if intArg = 0 andalso opcode <> AND then [] (* Discard *)
-                                              else tagTest([ArithToGenReg{opc=opcode, source=NonAddressConstArg source, output=resultReg}],
-                                                      InRegister result, LiteralSource lit)} tArgs
+                                              else checkOverflow() @ [ArithToGenReg{opc=opcode, source=NonAddressConstArg source, output=resultReg}]
+                                  } tArgs
                     end
                     else (* Long literal - put it into a register. We'd have been better not code-generating
                             this at all. *)
@@ -5328,10 +5326,9 @@ struct
 
                 |   [_, Act(base, offset)] =>
                         actionDone{ outReg=SOME result,
-                                operation=postTagAdjust(opcode, resultReg) @
-                                          tagTest(ArithToGenReg{opc=opcode, output=resultReg, source=MemoryArg{base=base, offset=offset, index=NoIndex}} ::
-                                                       preTagAdjust(opcode, resultReg),
-                                                  InRegister result, Source{base=base, offset=offset})} tArgs
+                                operation=postTagAdjust(opcode, resultReg) @ checkOverflow() @
+                                          ArithToGenReg{opc=opcode, output=resultReg, source=MemoryArg{base=base, offset=offset, index=NoIndex}} ::
+                                                       preTagAdjust(opcode, resultReg)} tArgs
 
                 |   _  => raise InternalError "wordSelectedLeft"
             )
@@ -5346,65 +5343,25 @@ struct
                                        next = wordSelectedRight opRes } tArgs
 
                 |   _ => wordSelectedLeft opRes (table, List.rev args, pref)
-
-            fun overflowTest (operations, _, _) = testOverflow() @ operations
-
         in
-            fun addWord(arg1, arg2, transtable, whereto) =
+            fun fixedPointOperation {arg1, arg2, transtable, whereto, oper, checkOverflow} =
             let
                 val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (ADD, noTagTest) (transtable, args, whereto)
+                val (opRes, opCode) = wordSelectDest (oper, checkOverflow) (transtable, args, whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
+        end
 
-            fun subtractWord(arg1, arg2, transtable, whereto) =
-            let
-                val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (SUB, noTagTest) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            fun addFixed(arg1, arg2, transtable, whereto) =
-            let
-                val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (ADD, overflowTest) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            fun subtractFixed(arg1, arg2, transtable, whereto) =
-            let
-                val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (SUB, overflowTest) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            fun andWord(arg1, arg2, transtable, whereto) =
-            let
-                val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (AND, noTagTest) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            fun orWord(arg1, arg2, transtable, whereto) =
-            let
-                val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (OR, noTagTest) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            fun xorWord(arg1, arg2, transtable, whereto) =
-            let
-                val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (XOR, noTagTest) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
+        (* Check for overflow - used with fixedPointOperation for arbitrary precision. *)
+        fun branchOnOverflow table =
+        let
+            val destLabel as Labels{uses, ...} = mkLabel()
+            val () = uses := 1
+            val code =
+                [ConditionalBranch { test=JO, label=destLabel, predict=PredictNotTaken }]
+        in
+            (makeLabels(NoMerge, destLabel, saveState table), code)
         end
 
         local
@@ -5621,12 +5578,12 @@ struct
                registers.  Both registers have to modifiable and we have to clobber
                the multiplier afterwards. *)
             local
-                fun genMultiplySigned([InRegister(GenReg m1), InRegister(GenReg m2)], SOME outReg) =
+                fun genMultiplySigned checkOverflow ([InRegister(GenReg m1), InRegister(GenReg m2)], SOME outReg) =
                     let
                         val _ = outReg = GenReg m1 orelse raise InternalError "genMultiplySigned"
                     in
                         (* Add back the tag, but don't shift. *)
-                        [ ArithToGenReg{opc=ADD, output=m1, source=NonAddressConstArg 1}] @ testOverflow() @
+                        [ ArithToGenReg{opc=ADD, output=m1, source=NonAddressConstArg 1}] @ checkOverflow() @
                         [
                             MultiplyRR{source=m2, output=m1},
                             (* Shift down the multiplier. *)
@@ -5635,7 +5592,7 @@ struct
                             ArithToGenReg{opc=SUB, output=m1, source=NonAddressConstArg 1}
                         ]
                     end
-                |   genMultiplySigned _ = raise InternalError "genMultiplySigned"
+                |   genMultiplySigned _ _ = raise InternalError "genMultiplySigned"
 
                 (* Temporarily we use eax/edx as for unsigned multiplication. *)
                 val eaxSet = singleton(GenReg eax) and edxSet = singleton(GenReg edx)
@@ -5674,10 +5631,11 @@ struct
 
                 val multiplyNegotiator = loadArg1
             in
-                fun multiplyFixed(arg1, arg2, transtable, whereto) =
+                fun multiplyFixed{arg1, arg2, transtable, whereto, checkOverflow} =
                 let  (* TODO: use shift for multiplication by two. *)
                     val args = [arg1, arg2]
-                    val (opRes, opCode) = multiplyNegotiator genMultiplySigned (transtable, args, whereto)
+                    val (opRes, opCode) =
+                        multiplyNegotiator (genMultiplySigned checkOverflow) (transtable, args, whereto)
                 in
                     (opCode, matchResult(transtable, opRes, whereto))
                 end

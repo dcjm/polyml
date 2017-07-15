@@ -26,6 +26,8 @@ sig
     val resultReg: argType -> reg
     type genReg
 
+    datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
+
     structure RegSet:
     sig
         eqtype regSet
@@ -189,16 +191,17 @@ sig
     and negativeReal: stackIndex * ttab * regHint -> operation list * mergeResult
     and integerToReal: stackIndex * ttab * regHint -> operation list * mergeResult
 
-    val addFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and subtractFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and multiplyFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    val testOverflow: unit -> operation list (* Raise Overflow if the overflow flag is set. *)
+    and branchOnOverflow: ttab -> labels * operation list
+    
+    val fixedPointOperation:
+        {arg1: stackIndex, arg2: stackIndex, transtable: ttab, whereto: regHint,
+         oper: arithOp, checkOverflow: unit -> operation list} -> (operation list * mergeResult)
+
+    val multiplyFixed: {arg1: stackIndex, arg2: stackIndex, transtable: ttab, whereto: regHint,
+                        checkOverflow: unit -> operation list} -> (operation list * mergeResult)
     and quotFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and remFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and addWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and subtractWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and andWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and orWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and xorWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and upShiftWordConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)
     and upShiftWordVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and downShiftWordConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)

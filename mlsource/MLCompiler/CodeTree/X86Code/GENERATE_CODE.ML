@@ -1,5 +1,9 @@
 (*
     Copyright David C. J. Matthews 1991, 2009-10, 2012-13, 2015-17
+    
+    This is the old code-generator used in 5.6 and earlier repurposed
+    for the changes to the intermediate code and lower levels made
+    for version 5.7.
 
     Title:      General purpose code generator.
     Author:     Dave Matthews, Edinburgh University / Prolingua Ltd.
@@ -1065,1057 +1069,1112 @@ struct
         in
             List.app loads expList
         end
+        
+        fun noCheck() = [] (* When we don't need to check for overflow. *)
       
-    fun gencde (pt, whereto, tailKind, loopAddr) : mergeResult =
-    let 
-      val needsResult : bool = not (isNoResult whereto)
+        fun gencde (pt, whereto, tailKind, loopAddr) : mergeResult =
+        let 
+            val needsResult = not (isNoResult whereto)
       
-      val result : mergeResult = 
-        case pt of
-          OGCEval {function, argList, resultType, ...} =>
-            genEval (function, argList, resultType, whereto, tailKind)
+            val result : mergeResult = 
+                case pt of
+                    OGCEval {function, argList, resultType, ...} =>
+                        genEval (function, argList, resultType, whereto, tailKind)
             
-        |   OGCGetThreadId => cgAndRes(threadSelf(transtable, whereto))
+                |   OGCGetThreadId => cgAndRes(threadSelf(transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.NotBoolean, arg1} =>
-                (* Boolean "not" is coded as xor with "true" *)
-                cgAndRes(xorWord(genToStack arg1, pushConst (transtable, True), transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.NotBoolean, arg1} =>
+                        (* Boolean "not" is coded as xor with "true" *)
+                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=pushConst (transtable, True), transtable=transtable, whereto=whereto, oper=XOR, checkOverflow=noCheck})
 
-        |   instr as OGCUnary{oper=BuiltIns.IsTaggedValue, ...} => codeAsConditional(instr, whereto, tailKind)
+                |   instr as OGCUnary{oper=BuiltIns.IsTaggedValue, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCUnary{oper=BuiltIns.MemoryCellLength, arg1} => cgAndRes(vectorLength(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.MemoryCellLength, arg1} => cgAndRes(vectorLength(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.MemoryCellFlags, arg1} => cgAndRes(vectorFlags(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.MemoryCellFlags, arg1} => cgAndRes(vectorFlags(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.ClearMutableFlag, arg1} => cgAndRes(lockVector(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.ClearMutableFlag, arg1} => cgAndRes(lockVector(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.AtomicIncrement, arg1} => cgAndRes(atomicIncrement(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.AtomicIncrement, arg1} => cgAndRes(atomicIncrement(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.AtomicDecrement, arg1} => cgAndRes(atomicDecrement(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.AtomicDecrement, arg1} => cgAndRes(atomicDecrement(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.AtomicReset, arg1} => cgAndRes(atomicReset(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.AtomicReset, arg1} => cgAndRes(atomicReset(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.LongWordToTagged, arg1} =>
-                (* Use the "load and tag" instruction with offset zero. *)
-                cgAndRes(
-                    loadAndTag{base=genToStack arg1, index=genToStack consntZero, byteOffset=0w0, transtable=transtable, whereto=whereto})
+                |   OGCUnary{oper=BuiltIns.LongWordToTagged, arg1} =>
+                        (* Use the "load and tag" instruction with offset zero. *)
+                        cgAndRes(
+                            loadAndTag{base=genToStack arg1, index=genToStack consntZero, byteOffset=0w0, transtable=transtable, whereto=whereto})
 
-        |   OGCUnary{oper=BuiltIns.SignedToLongWord, arg1} =>
-                cgAndRes(wordToLargeWord(true, genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.SignedToLongWord, arg1} =>
+                        cgAndRes(wordToLargeWord(true, genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.UnsignedToLongWord, arg1} =>
-                cgAndRes(wordToLargeWord(false, genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.UnsignedToLongWord, arg1} =>
+                        cgAndRes(wordToLargeWord(false, genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.RealAbs, arg1} =>
-                cgAndRes(absoluteReal(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.RealAbs, arg1} =>
+                        cgAndRes(absoluteReal(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.RealNeg, arg1} =>
-                cgAndRes(negativeReal(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.RealNeg, arg1} =>
+                        cgAndRes(negativeReal(genToStack arg1, transtable, whereto))
 
-        |   OGCUnary{oper=BuiltIns.FloatFixedInt, arg1} =>
-                cgAndRes(integerToReal(genToStack arg1, transtable, whereto))
+                |   OGCUnary{oper=BuiltIns.FloatFixedInt, arg1} =>
+                        cgAndRes(integerToReal(genToStack arg1, transtable, whereto))
 
-        |   instr as OGCBinary{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+                |   instr as OGCBinary{oper=BuiltIns.WordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
-                cgAndRes(addFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
+                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=ADD, checkOverflow=testOverflow})
 
-        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2} =>
-                cgAndRes(subtractFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2} =>
+                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=SUB, checkOverflow=testOverflow})
 
-        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2} =>
-                cgAndRes(multiplyFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2} =>
+                        cgAndRes(multiplyFixed{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                               checkOverflow=testOverflow})
 
-        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, arg1, arg2} =>
-                cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, arg1, arg2} =>
+                        cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, arg1, arg2} =>
-                cgAndRes(remFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithRem, arg1, arg2} =>
+                        cgAndRes(remFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithDiv, ...} => raise InternalError "TODO - Fixed ArithDiv"
+                |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithDiv, ...} => raise InternalError "TODO - Fixed ArithDiv"
 
-        |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMod, ...} => raise InternalError "TODO - Fixed ArithMod"
+                |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMod, ...} => raise InternalError "TODO - Fixed ArithMod"
 
-        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2} =>
-                cgAndRes(addWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2} =>
+                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=ADD, checkOverflow=noCheck})
 
-        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2} =>
-                cgAndRes(subtractWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2} =>
+                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=SUB, checkOverflow=noCheck})
 
-        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2} =>
-            let
-                open Address
-                (* If the value is a power of two we use a shift *)
-                val useShift =
-                    case (arg1, arg2) of
-                        (OGCConstnt(lit, _), _) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg2) | NONE => NONE)
-                    |   (_, OGCConstnt(lit, _)) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg1) | NONE => NONE)
-                    |   _ => NONE
-            in
-                case useShift of
-                    SOME(shift, arg) => cgAndRes(upShiftWordConstant(genToStack arg, shift, transtable, whereto))
-                |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
-            end
+                |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2} =>
+                    let
+                        open Address
+                        (* If the value is a power of two we use a shift *)
+                        val useShift =
+                            case (arg1, arg2) of
+                                (OGCConstnt(lit, _), _) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg2) | NONE => NONE)
+                            |   (_, OGCConstnt(lit, _)) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg1) | NONE => NONE)
+                            |   _ => NONE
+                    in
+                        case useShift of
+                            SOME(shift, arg) => cgAndRes(upShiftWordConstant(genToStack arg, shift, transtable, whereto))
+                        |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                    end
 
-        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2} =>
-            (
-                (* Use a right shift if it's a power of two. *)
-                case arg2 of
-                    OGCConstnt(lit, _) =>
+                |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2} =>
                     (
-                        case getPower2(Address.toShort lit) of
-                            SOME shift => cgAndRes(downShiftWordConstant(genToStack arg1, shift, transtable, whereto))
+                        (* Use a right shift if it's a power of two. *)
+                        case arg2 of
+                            OGCConstnt(lit, _) =>
+                            (
+                                case getPower2(Address.toShort lit) of
+                                    SOME shift => cgAndRes(downShiftWordConstant(genToStack arg1, shift, transtable, whereto))
+                                |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                            )
                         |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
                     )
-                |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
-            )
  
-        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2} =>
-            (
-                (* Use a mask if it's a power of two. *)
-                case arg2 of
-                    OGCConstnt(lit, _) =>
+                |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2} =>
                     (
-                        case getPower2(Address.toShort lit) of
-                            SOME _ =>
-                            let
-                                (* The divisor is a power of two.  The mask is one less. *)
-                                val mask = Address.toMachineWord(Address.toShort lit - 0w1)
-                            in
-                                cgAndRes(andWord(genToStack arg1, pushConst (transtable, mask), transtable, whereto))
-                            end
+                        (* Use a mask if it's a power of two. *)
+                        case arg2 of
+                            OGCConstnt(lit, _) =>
+                            (
+                                case getPower2(Address.toShort lit) of
+                                    SOME _ =>
+                                    let
+                                        (* The divisor is a power of two.  The mask is one less. *)
+                                        val mask = Address.toMachineWord(Address.toShort lit - 0w1)
+                                    in 
+                                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=pushConst (transtable, mask), transtable=transtable, whereto=whereto,
+                                                                     oper=AND, checkOverflow=noCheck})
+                                    end
+                                |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                            )
                         |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
                     )
-                |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
-            )
 
-        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
+                |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
 
-        |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
+                |   OGCBinary{oper=BuiltIns.WordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
 
-        |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
-                cgAndRes(andWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
+                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=AND, checkOverflow=noCheck})
 
-        |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2} =>
-                cgAndRes(orWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2} =>
+                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=OR, checkOverflow=noCheck})
 
-        |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2} =>
-                cgAndRes(xorWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2} =>
+                        cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=XOR, checkOverflow=noCheck})
 
-        |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2} =>
-            (
-                case arg2 of
-                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                        cgAndRes(upShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                |   _ => cgAndRes(upShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-            )
+                |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2} =>
+                    (
+                        case arg2 of
+                            OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                cgAndRes(upShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                        |   _ => cgAndRes(upShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+                    )
 
-        |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
-            (
-                case arg2 of
-                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                        cgAndRes(downShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                |   _ => cgAndRes(downShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-            )
+                |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
+                    (
+                        case arg2 of
+                            OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                cgAndRes(downShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                        |   _ => cgAndRes(downShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+                    )
 
-        |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
-            (
-                case arg2 of
-                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                        cgAndRes(downShiftWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-            )
+                |   OGCBinary{oper=BuiltIns.WordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
+                    (
+                        case arg2 of
+                            OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                cgAndRes(downShiftWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                        |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+                    )
 
-        |   OGCBinary{oper=BuiltIns.AllocateByteMemory, arg1, arg2} =>
-                cgAndRes(allocStoreUninitialised(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.AllocateByteMemory, arg1, arg2} =>
+                        cgAndRes(allocStoreUninitialised(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   instr as OGCBinary{oper=BuiltIns.LargeWordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+                |   instr as OGCBinary{oper=BuiltIns.LargeWordComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2} =>
-                cgAndRes(addLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2} =>
+                        cgAndRes(addLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2} =>
-                cgAndRes(subtractLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2} =>
+                        cgAndRes(subtractLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2} =>
-                (* TODO: We could use a shift as with Word but N.B. the constants are addresses. *)
-                cgAndRes(multiplyLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2} =>
+                        (* TODO: We could use a shift as with Word but N.B. the constants are addresses. *)
+                        cgAndRes(multiplyLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2} =>
-                (* TODO: Use shifts. *)
-                cgAndRes(divideLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2} =>
+                        (* TODO: Use shifts. *)
+                        cgAndRes(divideLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
  
-        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2} =>
-                (* TODO: Use shifts. *)
-                cgAndRes(modulusLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2} =>
+                        (* TODO: Use shifts. *)
+                        cgAndRes(modulusLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
+                |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO - WordArith ArithQuot"
 
-        |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
+                |   OGCBinary{oper=BuiltIns.LargeWordArith BuiltIns.ArithRem, ...} => raise InternalError "TODO - WordArith ArithRem"
 
-        |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
-                cgAndRes(andLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2} =>
+                        cgAndRes(andLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2} =>
-                cgAndRes(orLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2} =>
+                        cgAndRes(orLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2} =>
-                cgAndRes(xorLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2} =>
+                        cgAndRes(xorLargeWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftLeft, arg1, arg2} =>
-            (
-                case arg2 of
-                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                        cgAndRes(upShiftLargeWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                |   _ => cgAndRes(upShiftLargeWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-            )
+                |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftLeft, arg1, arg2} =>
+                    (
+                        case arg2 of
+                            OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                cgAndRes(upShiftLargeWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                        |   _ => cgAndRes(upShiftLargeWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+                    )
 
-        |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
-            (
-                case arg2 of
-                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                        cgAndRes(downShiftLargeWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                |   _ => cgAndRes(downShiftLargeWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-            )
+                |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightLogical, arg1, arg2} =>
+                    (
+                        case arg2 of
+                            OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                cgAndRes(downShiftLargeWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                        |   _ => cgAndRes(downShiftLargeWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+                    )
 
-        |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
-            (
-                case arg2 of
-                    OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
-                        cgAndRes(downShiftLargeWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
-                |   _ => cgAndRes(downShiftLargeWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
-            )
+                |   OGCBinary{oper=BuiltIns.LargeWordShift BuiltIns.ShiftRightArithmetic, arg1, arg2} =>
+                    (
+                        case arg2 of
+                            OGCConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                cgAndRes(downShiftLargeWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                        |   _ => cgAndRes(downShiftLargeWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
+                    )
 
-        |   instr as OGCBinary{oper=BuiltIns.RealComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
+                |   instr as OGCBinary{oper=BuiltIns.RealComparison _, ...} => codeAsConditional(instr, whereto, tailKind)
 
-        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithAdd, arg1, arg2} =>
-                cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithAdd, arg1, arg2} =>
+                        cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithSub, arg1, arg2} =>
-                cgAndRes(subtractReal(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithSub, arg1, arg2} =>
+                        cgAndRes(subtractReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithMult, arg1, arg2} =>
-                cgAndRes(multiplyReal(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithMult, arg1, arg2} =>
+                        cgAndRes(multiplyReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO-RealArith-ArithQuot"
+                |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithQuot, ...} => raise InternalError "TODO-RealArith-ArithQuot"
 
-        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithRem, ...} => raise InternalError "TODO-RealArith-ArithRem"
+                |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithRem, ...} => raise InternalError "TODO-RealArith-ArithRem"
 
-        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithDiv, arg1, arg2} =>
-                cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
+                |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithDiv, arg1, arg2} =>
+                        cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-        |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithMod, ...} => raise InternalError "TODO-RealArith-ArithMod"
+                |   OGCBinary{oper=BuiltIns.RealArith BuiltIns.ArithMod, ...} => raise InternalError "TODO-RealArith-ArithMod"
         
-        |   OGCArbitrary{oper, shortCond, arg1, arg2, longCall} =>
-            let
-                (* If shortCond then both args are short.  Do the fixed precision operation using the args.
-                   If it does not result in overflow we're ok.  Otherwise, or if the shortCond test fails,
-                   we need to execute the longCall code, which will be an RTS call. *)
-            in
-                raise InternalError "TODO-OGCArbitrary"
-            end
-
-        |   OGCAllocateWordMemory{numWords, flags=flagValue, initial} =>
-            let
-                (* This is used to allocate all memory apart from tuples and
-                   closures.  We particularly want to be able to profile the
-                   allocation of refs so we consider them specially. *)
-                open Address
-            in
-                case (numWords, flagValue) of
-                    (OGCConstnt(len, _), OGCConstnt(flag, _)) =>
-                        (* Both the length and the flags are constants *)
-                        if not(isShort len andalso isShort flag andalso toShort flag <= 0w255)
-                        then raise InternalError "AllocateWordMemory - invalid length or flag"
-                        else
-                        let
-                            val sFlag = Word8.fromLargeWord(Word.toLargeWord(toShort flag))
-                            and sLen = toShort len
-                        in
-                            if sLen = 0w1 andalso sFlag = F_mutable
-                            then
-                            let
-                                val initLoc = genToStackOrGeneralRegister initial
-                                val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
-                                val () = codeGenerate(vecCode, cvec)
-                                val moveCode = moveToVec (vec, initLoc, 0, transtable)
-                                val () = codeGenerate(moveCode, cvec)
-                                val () = codeGenerate(allocationComplete, cvec)
-                            in
-                                case whereto of
-                                    NoResult => NoMerge (* Unused. *)
-                                |   _ => MergeIndex vec
-                            end
-                            else if sLen < 0w5 andalso (Word8.andb(sFlag, 0w3)) = F_words
-                                (* Small fixed size allocations of words. *)
-                            then cgAndRes(allocateStoreSmallFixedSize(Word.toInt sLen, sFlag, genToStack initial, transtable, whereto))
-                            else cgAndRes(allocStoreAndInitialise(genToStack numWords, genToStack flagValue, genToStack initial, transtable, whereto))
-                        end
-
-                |  _ => (* Variable flags. *)
-                    cgAndRes(allocStoreAndInitialise(genToStack numWords, genToStack flagValue, genToStack initial, transtable, whereto))
-
-            end
-
-        |   OGCLoadOperation{ kind=LoadStoreMLWord _, address={base, index, offset} } =>
-                cgAndRes(
-                    loadWord{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCLoadOperation{ kind=LoadStoreMLByte _, address={base, index, offset} } =>
-                cgAndRes(
-                    loadByte{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCLoadOperation{ kind=LoadStoreC8, address={base, index, offset} } =>
-                cgAndRes(
-                    loadC8{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCLoadOperation{ kind=LoadStoreC16, address={base, index, offset} } =>
-                cgAndRes(
-                    loadC16{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCLoadOperation{ kind=LoadStoreC32, address={base, index, offset} } =>
-                cgAndRes(
-                    loadC32{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCLoadOperation{ kind=LoadStoreC64, address={base, index, offset} } =>
-                cgAndRes(
-                    loadC64{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCLoadOperation{ kind=LoadStoreCFloat, address={base, index, offset} } =>
-                cgAndRes(
-                    loadCfloat{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCLoadOperation{ kind=LoadStoreCDouble, address={base, index, offset} } =>
-                cgAndRes(
-                    loadCdouble{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCLoadOperation{ kind=LoadStoreUntaggedUnsigned, address={base, index, offset} } =>
-                cgAndRes(
-                    loadAndTag{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
-                             byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreMLWord _, address={base, index, offset}, value} =>
-                cgAndRes(
-                    storeWord{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreMLByte _, address={base, index, offset}, value } =>
-                cgAndRes(
-                    storeByte{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreC8, address={base, index, offset}, value} =>
-                cgAndRes(
-                    storeC8{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreC16, address={base, index, offset}, value} =>
-                cgAndRes(
-                    storeC16{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreC32, address={base, index, offset}, value} =>
-                cgAndRes(
-                    storeC32{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreC64, address={base, index, offset}, value} =>
-                cgAndRes(
-                    storeC64{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreCFloat, address={base, index, offset}, value} =>
-                cgAndRes(
-                    storeCfloat{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreCDouble, address={base, index, offset}, value} =>
-                cgAndRes(
-                    storeCdouble{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCStoreOperation{ kind=LoadStoreUntaggedUnsigned, address={base, index, offset}, value} =>
-                cgAndRes(
-                    storeUntagged{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
-                              byteOffset=offset, transtable=transtable, whereto=whereto})
-
-        |   OGCBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
-                               destRight={base=bRight, index=iRight, offset=oRight}, length } =>
-            let
-                val bLeftLocn = genToStack bLeft and iLeftLocn = genToStack(getOpt(iLeft, consntZero))
-                and bRightLocn = genToStack bRight and iRightLocn = genToStack(getOpt(iRight, consntZero))
-                and lenLocn = genToStack length
-            in
-                cgAndRes((if isByteMove then moveBytes else moveWords)
-                    {src={base=bLeftLocn, index=iLeftLocn, byteOffset=oLeft},
-                     dst={base=bRightLocn, index=iRightLocn, byteOffset=oRight},
-                     length=lenLocn, transtable=transtable, whereto=whereto})
-            end
-
-        |   instr as OGCBlockOperation{ kind=BlockOpEqualByte, ... } => codeAsConditional(instr, whereto, tailKind)
-
-        |   OGCBlockOperation{ kind=BlockOpCompareByte, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
-                               destRight={base=bRight, index=iRight, offset=oRight}, length } =>
-            let
-                val bLeftLocn = genToStack bLeft and iLeftLocn = genToStack(getOpt(iLeft, consntZero))
-                and bRightLocn = genToStack bRight and iRightLocn = genToStack(getOpt(iRight, consntZero))
-                and lenLocn = genToStack length
-            in
-                cgAndRes(byteVecComparison
-                    {left={base=bLeftLocn, index=iLeftLocn, byteOffset=oLeft},
-                     right={base=bRightLocn, index=iRightLocn, byteOffset=oRight},
-                     length=lenLocn, transtable=transtable, whereto=whereto})
-            end
-
-        |   OGCExtract ext =>
-            let
-                val (loc, locCode) = locaddr ext
-                val () = codeGenerate(locCode, cvec)
-            in
-                if needsResult
-                then MergeIndex loc
-                else (* If the result is not required discard it.  This is used
-                        to remove variables which are not used on this path. *)
-                (
-                    codeGenerate(removeStackEntry(transtable, loc), cvec);
-                    NoMerge
-                )
-            end
-
-        |   OGCField {base, offset} =>
-            let
-                val baseCode = genToStack (base)
-                val (index, indCode) = indirect (offset, baseCode, transtable)
-                val () = codeGenerate(indCode, cvec)
-            in  (* Get the value to be indirected on. *)
-                MergeIndex index
-            end
-
-        |   OGCLambda lam => MergeIndex(genProc (lam, fn _ => (), whereto))
-
-        |   OGCConstnt(w, _) => MergeIndex(pushConst (transtable, w))
-
-        | OGCCond (testPart, thenPart, elsePart) =>
-            genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
-
-        | OGCNewenv(decs, exp) =>
-            let (* Processes a list of entries. *)
-                val startMark = markStack transtable
-                (* We may have the situation where we want the result in a specific register
-                   but we actually have a Decl entry followed by an OGCExtract.
-                   Don't do this unless we've asked for a specific register. *)
-                val specificLoc =
-                    case (exp, whereto) of
-                        (OGCExtract(OGCLoadLocal addr, _), UseReg _) => SOME(addr, whereto)
-                    |   _ => NONE
-
-                val () = List.app (codeBinding specificLoc) decs
-                val resultPosn = gencde (exp, whereto, tailKind, loopAddr)
-                val () = checkBlockResult(transtable, resultPosn)
-                val () = unmarkStack(transtable, startMark)
-            in
-                resultPosn
-            end
-
-        | OGCBeginLoop{loop=body, arguments=args} =>
-          let
-            (* Execute the body which will contain at least one Loop instruction.
-               There will also be path(s) which don't contain Loops and these
-               will drop through. *)
-            (* Load the arguments.  We put them into registers at this stage
-               to ensure that constants and "direct" entries are loaded.  They
-               may go onto the stack, which is fine. It could be worth doing
-               this in two passes, the first simply evaluating the arguments
-               onto the pstack, the second loading them into registers since
-               that would generate better code when some arguments are constants
-               but others are expressions that push those constants onto the stack. *)
-            fun genLoopArg ({addr, value, references}, argType) =
-            let
-                (* This is almost the same as a normal declaration except
-                   that we have to make sure that we use a new location, stack or
-                   register, since we're going to be changing the contents of
-                   this location.  The easiest way to do that is to load it into
-                   a register.  We could do better if we are loading the last
-                   reference to the initial value in which case we could reuse
-                   its location. *)
-                val index = genToStack(value)
-                (* Put this in a floating point register if it is a floating point value
-                   otherwise a fixed point register. *)
-                val prefSet =
-                    case argType of
-                        GeneralType => RegSet.generalRegisters
-                    |   FloatingPtType => RegSet.floatingPtRegisters
-                val (_, decl, decCode) = loadEntryToSet(transtable, index, prefSet, true)
-                val () = codeGenerate(decCode, cvec)
-                (* It should not be a non-heap function - just check. *) 
-                val _ = 
-                  case value of
-                    OGCLambda {heapClosure = false, ...} => 
-                        raise InternalError "LoopArg: static link function"
-                  | _ => ()
-            in
-                localDeclaration (decl, addr, references);
-                (* Normally "references" will be non-zero but it does seem that we
-                   can get loop variables that are never used.  This may happen as a
-                   result of multiple levels of inline function expansion.  If it's zero
-                   we won't have a location for the loop argument. *)
-                if references = 0 then noIndex else decl
-            end
-
-            val argIndexList = map genLoopArg args;
-            (* We need to ensure that the state we return to after the loop is the same
-               as it was at the start.  If we find inside the loop that we need to spill
-               values from registers that were declared outside we need to move those
-               spills to before the loop.  We first process the loop optimistically and
-               then reprocess it we find we've had to spill. *)
-            fun reprocessLoop n =
-            let
-                (* Include a check that we don't loop too many times. *)
-                val _ = n > 20 andalso raise InternalError "reprocessLoop"
-                (* Record the code at the start.  If we have to reprocess we discard everything
-                   after this. *)
-                val codeAtStart = !cvec
-                val initialState = saveState transtable
-                (* Now we have loaded the registers we can find out the destinations
-                   i.e. the register or stack location they were in at the start of
-                   the loop.  We have to do this after we've loaded all the arguments
-                   because we may have pushed some onto the stack as we loaded the
-                   later ones.  That's fine so long as when we loop we put the new
-                   values in the same place.  *)
-                val (argDestList, clearOps) = getLoopDestinations(argIndexList, transtable)
-                val () = codeGenerate(clearOps, cvec)
-                (* Start of loop.  This is where we jump to if the loop is taken. *)
-                val (startLoopCode, startLoop) = backJumpLabel()
-                val () = codeGenerate(startLoopCode, cvec)
-                val startSp = realstackptr transtable
-                val cacheSet = ref noRegisters and pushList = ref []
-
-                fun onLoop () =
-                (* This function is called whenever we loop.  The state here is the
-                   state at the point we take the loop.  We need to record the state
-                   at each of those points to produce a composite.  *)
-                let
-                    val (caches, pushes) = compareLoopStates(transtable, initialState, argIndexList)
-                    val () = cacheSet := regSetUnion(caches, !cacheSet)
-                    and () = pushList := pushes @ !pushList
-                in
-                    (* We have to make sure that the real stack pointer is consistent.
-                       We may have pushed local values within the loop and these need
-                       to be removed. *)
-                    codeGenerate(resetStack (realstackptr transtable - startSp), cvec)
-                end
-                (* Compile the loop with the jumps back to the start. *)
-                val runLoop =
-                    gencde (body, whereto, tailKind,
-                        SOME(startLoop, onLoop, argDestList))
-                (* The state we have here is the state when we haven't taken the loop. *)
-            in
-                if ! cacheSet = noRegisters andalso null (! pushList) then runLoop
-                else
-                (
-                    cvec := codeAtStart;
-                    codeGenerate(restoreLoopState(transtable, initialState, ! cacheSet, ! pushList), cvec);
-                    reprocessLoop(n+1)
-                )
-            end
-          in
-            reprocessLoop 0
-          end
-
-        | OGCLoop argList =>
-            let
-                val (startLoop, onLoop, argDestList) =
-                    case loopAddr of
-                        SOME l => l
-                    |   NONE =>
-                        raise InternalError "No BeginLoop for Loop instr"
-                (* Evaluate the arguments.  Try to put them in the destination
-                   register if we can.  It doesn't matter at this stage too much. *)
-                fun evalArg((arg, _), dest) =
-                let
-                    val whereto =
-                      case dest of
-                            ArgToRegister reg => UseReg (singleton reg)
-                        |   ArgToStack _ => NoHint
-                        |   ArgDiscard => NoHint
-                    val res = gencde (arg, whereto, NotEnd, NONE)
-                in
-                    case res of
-                        MergeIndex index => index
-                    |   NoMerge => raise InternalError "evalArg: no result"
-                end
-                    
-                val argsOnPstack : stackIndex list =
-                    ListPair.map evalArg (argList, argDestList)
-
-                fun moveArgs([], []) = []
-                |   moveArgs(arg :: args, ArgToRegister reg :: dests) =
+                |   OGCArbitrary{oper, shortCond, arg1, arg2, longCall} =>
                     let
-                        (* Do it in reverse order so that we can delay locking
-                           the register arguments. *)
-                        val argEntries = moveArgs(args, dests)
-                        val (argEntry, argCode) =
-                            loadToSpecificReg (transtable, reg, arg, false)
-                        val () = codeGenerate(argCode, cvec)
-                    in
-                        lockRegister(transtable, reg);
-                        argEntry :: argEntries
-                    end
-                |   moveArgs(arg :: args, ArgToStack offset :: dests) =
-                    let
-                        val (argEntry, code) = storeInStack(transtable, arg, offset)
-                    in
-                        codeGenerate(code, cvec);
-                        argEntry :: moveArgs(args, dests)
-                    end
-                |   moveArgs(arg :: args, ArgDiscard :: dests) =
-                        (* If we're just discarding it return the location so we will
-                           remove it from the stack. *)
-                        arg :: moveArgs(args, dests)
-                |   moveArgs _ =
-                        raise InternalError "moveArgs: Mismatched arguments"
-
-                (* the arguments are now all in their rightful places. *)
-                val argEntries = moveArgs(argsOnPstack, argDestList);
-            in
-                (* Remove the entries and unlock the registers.  It may
-                   be unnecessary to remove the entries because we're about
-                   to fix up a jump but there's no harm in it. *)
-                List.app (
-                    fn (ArgToRegister reg) => codeGenerate(unlockRegister(transtable, reg), cvec)
-                      | _ => ()) argDestList;
-                List.app (fn index => codeGenerate(removeStackEntry(transtable, index), cvec))
-                    argEntries;
-                onLoop();
-            
-                (* Repeat. *)
-                codeGenerate(jumpBack (startLoop, transtable), cvec);
-                (* Put on a dummy result. *)
-                if needsResult
-                then MergeIndex(pushConst (transtable, DummyValue))
-                else NoMerge (* Unused. *)
-            end
-
-        | OGCRaise exp =>
-          let (* movl <exception>,resultReg; jmp raisex *)
-            val () =
-               (* Ensure the return address is on the stack in case
-                  we are tracing exceptions. *)
-               codeGenerate(pushSpecificEntry (transtable, returnAddress), cvec);
-               
-            val excVal = genToStack (exp);
-            
-            val (resultIndex, resultCode) = 
-               loadToSpecificReg (transtable, resultReg ArgGeneral, excVal, true);
-
-          in
-            codeGenerate(raiseException @ resultCode, cvec);
-            codeGenerate(removeStackEntry(transtable, resultIndex), cvec);
-            exiting transtable; (* Nothing further *)
-
-            (* Put a dummy value on the stack so that subsequent merge code works
-               It really ought to ignore this since we've exited. *)
-            if needsResult
-            then MergeIndex(pushConst (transtable, DummyValue))
-            else NoMerge (* Unused. *)
-          end
-
-        | OGCHandle {exPacketAddr, exPacketRefs, exp, handler} =>
-            let
-                (* Push all regs - we don't know what the state will be when 
-                   we reach the handler. *)
-                (* i.e. Push all registers except those whose last use occurs in the expression
-                   we're handling. *) 
-                val () = 
-                    codeGenerate(pushAllBut (transtable, identifyLoads[exp], allRegisters), cvec);
-                (* It's not clear what registers will be modified as a result of raising
-                 and handling an exception.  Many functions may result in exceptions
-                 being raised and rather than add the registers to the register set of
-                 those functions it's probably better to include them in the modification
-                 set here. DCJM 26/11/00. *)
-                val _ = addModifiedRegSet(transtable, allRegisters);
-
-                (* This is the real stack state at the start of the handler *)
-                val startOfHandler = realstackptr transtable;
-          
-                (* Remember this pseudo-stack position for later merge *)
-                val mark = markStack transtable
-
-                (* Save old handler - push regHandler *)
-                val () = codeGenerate(pushCurrentHandler, cvec)
-                val oldIndex = incsp transtable
-          
-                (* Now it's on the real stack we can remove it from the pstack. *)
-                local
-                    (* Push address of new handler. *)
-                    val rsp         = realstackptr transtable
-                    val (handlerEntry, handlerLab, handlerCode)  = pushAddress (transtable, rsp + 1)
-                    val () = codeGenerate(handlerCode, cvec)
-    
-                    (* Set the current handler to the stack pointer after these items. *)
-                    val () = codeGenerate(storeToHandler regStackPtr, cvec)
-                in
-                    val handlerLab = handlerLab
-                    and handlerEntry = handlerEntry
-                end
-
-                val whereto = chooseMergeRegister(whereto, tailKind)
- 
-                (* Code generate body, putting the result in result register. *)
-                (* "NotEnd" because we have to come back to remove the handler. *)
-                val bodyResult = genToRegister (exp, whereto, NotEnd, loopAddr);
-                (* Reload the old value of regHandler i.e. remove handler. *)
-                (* Remove the handler entries. *)
-                val () = codeGenerate(removeStackEntry(transtable, handlerEntry), cvec)
-                val () = codeGenerate(reloadHandler(transtable, oldIndex), cvec)
-
-                (* Optimisation: return immediately, if possible, rather than
-                   jumping and then returning. This may turn the following
-                   unconditional branch into dead code, in which case it
-                   will be removed by the lower-level code generator. *)
-                val () =
-                    if isEndOfProc tailKind andalso not (haveExited transtable)
-                    then codeGenerate(exit (), cvec)
-                    else ()
-    
-                (* Skip over the handler. *)
-                val (skipHandler, skipCode) = unconditionalBranch (bodyResult, transtable)
-                val () = codeGenerate(skipCode, cvec)
-          
-                (* Remove any result at the start of the handler.
-                   Need this because fixupH does not do setState.
-                   (It probably should do, though the state is fairly simple). *)
-                val () =
-                    case bodyResult of
-                        MergeIndex bodyIndex => codeGenerate(removeStackEntry(transtable, bodyIndex), cvec)
-                    |   NoMerge => ()
-     
-                (* Fix up the handler entry point - this resets the stack pointer
-                   and clears the cache since the state is not known. *)
-                val () = codeGenerate(fixupH (handlerLab, startOfHandler, transtable), cvec)
-                
-                (* Get the exception packet. *)
-                val regResult = resultReg ArgGeneral
-                (* Exception packet is returned in result register. *)
-                val () = codeGenerate(getRegister (transtable, regResult), cvec);
-                val () = codeGenerate(activeRegister regResult, cvec);
-                val pushed = pushReg (transtable, regResult)
-                val () = codeGenerate(localDeclaration (pushed, exPacketAddr, exPacketRefs), cvec)
-
-                (* The code for the handler body itself *)
-                val handlerRes =  genToRegister (handler, whereto, tailKind, loopAddr)
-                (* Merge the results. *)
-                val (mergeRes, mergeCode) = merge (skipHandler, transtable, handlerRes, mark)
-                val () = codeGenerate(mergeCode, cvec)
-            in
-                mergeRes
-            end
-        
-(*        | OGCLdexc =>
-            let
-                val regResult = resultReg ArgGeneral
-                (* Exception packet is returned in result register. *)
-            in
-                codeGenerate(getRegister (transtable, regResult), cvec);
-                codeGenerate(activeRegister regResult, cvec);
-                MergeIndex(pushReg (transtable, regResult))
-            end*)
-
-        | OGCCase {cases, test, default, caseType} =>
-            let
-                (* Cases are constructed by the optimiser out of if-then-else expressions. *)                
-                val whereto = chooseMergeRegister(whereto, tailKind)
-                
-                (* Sort the cases into ascending order.  It's possible that we may have
-                   duplicates if this came from an if-then-else construction so we
-                   need to retain the ordering for items with the same case label. *)
-                local
-                    val labelCount = List.length cases
-                    (* Add an extra field before sorting which retains the ordering for
-                       equal labels. *)
-                    val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
-                    fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
-                        if w1 = w2 then n1 <= n2 else w1 < w2
-                    val sorted = List.map #1 (Misc.quickSort leq ordered)
-                    (* Filter out any duplicates. *)
-                    fun filter [] = []
-                    |   filter [p] = [p]
-                    |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
-                            if lab1 = lab2
-                            then p :: filter tl
-                            else p :: filter (q :: tl)
-                in
-                    val cases = filter sorted
-                end
-
-                val (isExhaustive, min, max) =
-                    case caseType of
-                        CaseTag max => (true, 0w0, max)
-                    |   _ =>
-                        let
-                            val (_, aLabel) = hd cases
-                            fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                            val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                        (* If shortCond then both args are short.  Do the fixed precision operation using the args.
+                           If it does not result in overflow we're ok.  Otherwise, or if the shortCond test fails,
+                           we need to execute the longCall code, which will be an RTS call. *)
+                        val mark = markStack transtable
+                        (* Generate the test for short and branch if it isn't. *)
+                        val longTestLab = genTest(shortCond, false)
+                        (* Generate code to handle the short case.  If there is an overflow, though, we jump
+                           rather than raising an exception. *)
+                        val overflowLabel = ref NONE
+                        fun onOverflow () =
+                        let (* This should be called once only. *)
+                            val (overLab, branchCode) = branchOnOverflow transtable
+                            val overfMark = markStack transtable
+                            val _ = isSome(! overflowLabel) andalso raise InternalError "onOverflow - duplicate"
+                            val () = overflowLabel := SOME (overLab, overfMark)
                         in
-                            (false, min, max)
+                            branchCode
                         end
-                val testValue = genToStack (test)
-                val mark = markStack transtable
+                        val (shortCode, shortResult) =
+                            case oper of
+                                BuiltIns.ArithAdd =>
+                                    fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=ADD, checkOverflow=onOverflow}
+                            |   BuiltIns.ArithSub =>
+                                    fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                                     oper=SUB, checkOverflow=onOverflow}
+                            |   BuiltIns.ArithMult =>
+                                    multiplyFixed{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
+                                               checkOverflow=onOverflow}
+                            |   BuiltIns.ArithQuot => raise InternalError "OGCArbitrary: ArithQuot"
+                            |   BuiltIns.ArithRem => raise InternalError "OGCArbitrary: ArithRem"
+                            |   BuiltIns.ArithDiv => raise InternalError "OGCArbitrary: ArithDiv"
+                            |   BuiltIns.ArithMod => raise InternalError "OGCArbitrary: ArithMod"
+                        val () = codeGenerate(shortCode, cvec)
+                        (* If this succeeded skip to the end. *)
+                        val (shortCodeLab, branchCode) = unconditionalBranch (shortResult, transtable)
+                        val () = codeGenerate(branchCode, cvec)
+                        (* Remove the result from the stack. *)
+                        val () =
+                            case shortResult of
+                                MergeIndex shortIndex => codeGenerate(removeStackEntry(transtable, shortIndex), cvec)
+                            |   _ => raise InternalError "OGCArbitrary - merge result"
+                        val () = codeGenerate(fixup(longTestLab, transtable), cvec)
+                        (* Merge in the overflow case. *)
+                        val () =
+                            case ! overflowLabel of
+                                SOME (lab1, overMark) =>
+                                let
+                                    val (_, mergeCode) = merge (lab1, transtable, NoMerge, overMark)
+                                    val () = codeGenerate(mergeCode, cvec)
+                                in
+                                    ()
+                                end
+                           |    NONE => raise InternalError "OGCArbitrary: no overflow case"
+                        val longResult = gencde(longCall, whereto, tailKind, loopAddr)
+                        (* Finally merge in the jump from the end of the short case. *)
+                        val (mergeRes, mergeCode) = merge (shortCodeLab, transtable, longResult, mark)
+                        val () = codeGenerate(mergeCode, cvec)
+                    in
+                        mergeRes
+                    end
 
-                (* Get exclusive use so that indexedCase can modify the registers. *)
-                val (testReg, testIndex, testCode)  =
-                    loadEntryToSet (transtable, testValue, RegSet.generalRegisters, true);
-                (* Need a work register. *)
-                val (workReg, regCode) = getRegisterInSet(transtable, generalRegisters)
+                |   OGCAllocateWordMemory{numWords, flags=flagValue, initial} =>
+                    let
+                        (* This is used to allocate all memory apart from tuples and
+                           closures.  We particularly want to be able to profile the
+                           allocation of refs so we consider them specially. *)
+                        open Address
+                    in
+                        case (numWords, flagValue) of
+                            (OGCConstnt(len, _), OGCConstnt(flag, _)) =>
+                                (* Both the length and the flags are constants *)
+                                if not(isShort len andalso isShort flag andalso toShort flag <= 0w255)
+                                then raise InternalError "AllocateWordMemory - invalid length or flag"
+                                else
+                                let
+                                    val sFlag = Word8.fromLargeWord(Word.toLargeWord(toShort flag))
+                                    and sLen = toShort len
+                                in
+                                    if sLen = 0w1 andalso sFlag = F_mutable
+                                    then
+                                    let
+                                        val initLoc = genToStackOrGeneralRegister initial
+                                        val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
+                                        val () = codeGenerate(vecCode, cvec)
+                                        val moveCode = moveToVec (vec, initLoc, 0, transtable)
+                                        val () = codeGenerate(moveCode, cvec)
+                                        val () = codeGenerate(allocationComplete, cvec)
+                                    in
+                                        case whereto of
+                                            NoResult => NoMerge (* Unused. *)
+                                        |   _ => MergeIndex vec
+                                    end
+                                    else if sLen < 0w5 andalso (Word8.andb(sFlag, 0w3)) = F_words
+                                        (* Small fixed size allocations of words. *)
+                                    then cgAndRes(allocateStoreSmallFixedSize(Word.toInt sLen, sFlag, genToStack initial, transtable, whereto))
+                                    else cgAndRes(allocStoreAndInitialise(genToStack numWords, genToStack flagValue, genToStack initial, transtable, whereto))
+                                end
 
-                val (indexCaseInstr, caseLabels, defaultLabel) =
-                    indexedCase{testReg=testReg, workReg=workReg, minCase=min, maxCase=max, 
-                            isArbitrary = case caseType of CaseInt => true | _ => false,
-                            isExhaustive=isExhaustive}
+                        |  _ => (* Variable flags. *)
+                            cgAndRes(allocStoreAndInitialise(genToStack numWords, genToStack flagValue, genToStack initial, transtable, whereto))
 
-                val () = codeGenerate(indexCaseInstr @ regCode @ testCode, cvec)
-                val () = codeGenerate(removeStackEntry (transtable, testIndex), cvec)
-                val () = codeGenerate(freeRegister (transtable, workReg), cvec)
+                    end
 
-                val startOfCase = saveState transtable
+                |   OGCLoadOperation{ kind=LoadStoreMLWord _, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadWord{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
 
-                (* Put in the default case.  Even when the case is exhaustive one entry is
-                   always treated as a default and not included in the list of cases. *)
-                local
-                    (* We have to set "branched" to true before calling fixup. *)
-                    val () = exiting transtable
-                    val startCode = fixup(makeLabels(NoMerge, defaultLabel, startOfCase), transtable)
-                    val () = codeGenerate(startCode, cvec)
+                |   OGCLoadOperation{ kind=LoadStoreMLByte _, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadByte{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
 
-                    (* Go down the list of cases and fix up any default labels to come here.
-                       Default entries are represented by "holes" in the case list. *)
-                    fun genDefaults(indexVal, label :: labelList, cl as ((_, caseLabel) :: cps)) =
-                        if indexVal = caseLabel
-                        then genDefaults(indexVal+0w1, labelList, cps)
-                        else
+                |   OGCLoadOperation{ kind=LoadStoreC8, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadC8{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCLoadOperation{ kind=LoadStoreC16, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadC16{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCLoadOperation{ kind=LoadStoreC32, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadC32{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCLoadOperation{ kind=LoadStoreC64, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadC64{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCLoadOperation{ kind=LoadStoreCFloat, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadCfloat{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCLoadOperation{ kind=LoadStoreCDouble, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadCdouble{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCLoadOperation{ kind=LoadStoreUntaggedUnsigned, address={base, index, offset} } =>
+                        cgAndRes(
+                            loadAndTag{base=genToStack base, index=genToStack(getOpt(index, consntZero)),
+                                     byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreMLWord _, address={base, index, offset}, value} =>
+                        cgAndRes(
+                            storeWord{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreMLByte _, address={base, index, offset}, value } =>
+                        cgAndRes(
+                            storeByte{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreC8, address={base, index, offset}, value} =>
+                        cgAndRes(
+                            storeC8{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreC16, address={base, index, offset}, value} =>
+                        cgAndRes(
+                            storeC16{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreC32, address={base, index, offset}, value} =>
+                        cgAndRes(
+                            storeC32{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreC64, address={base, index, offset}, value} =>
+                        cgAndRes(
+                            storeC64{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreCFloat, address={base, index, offset}, value} =>
+                        cgAndRes(
+                            storeCfloat{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreCDouble, address={base, index, offset}, value} =>
+                        cgAndRes(
+                            storeCdouble{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCStoreOperation{ kind=LoadStoreUntaggedUnsigned, address={base, index, offset}, value} =>
+                        cgAndRes(
+                            storeUntagged{base=genToStack base, index=genToStack (getOpt(index, consntZero)), toStore=genToStack value,
+                                      byteOffset=offset, transtable=transtable, whereto=whereto})
+
+                |   OGCBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
+                                       destRight={base=bRight, index=iRight, offset=oRight}, length } =>
+                    let
+                        val bLeftLocn = genToStack bLeft and iLeftLocn = genToStack(getOpt(iLeft, consntZero))
+                        and bRightLocn = genToStack bRight and iRightLocn = genToStack(getOpt(iRight, consntZero))
+                        and lenLocn = genToStack length
+                    in
+                        cgAndRes((if isByteMove then moveBytes else moveWords)
+                            {src={base=bLeftLocn, index=iLeftLocn, byteOffset=oLeft},
+                             dst={base=bRightLocn, index=iRightLocn, byteOffset=oRight},
+                             length=lenLocn, transtable=transtable, whereto=whereto})
+                    end
+
+                |   instr as OGCBlockOperation{ kind=BlockOpEqualByte, ... } => codeAsConditional(instr, whereto, tailKind)
+
+                |   OGCBlockOperation{ kind=BlockOpCompareByte, sourceLeft={base=bLeft, index=iLeft, offset=oLeft},
+                                       destRight={base=bRight, index=iRight, offset=oRight}, length } =>
+                    let
+                        val bLeftLocn = genToStack bLeft and iLeftLocn = genToStack(getOpt(iLeft, consntZero))
+                        and bRightLocn = genToStack bRight and iRightLocn = genToStack(getOpt(iRight, consntZero))
+                        and lenLocn = genToStack length
+                    in
+                        cgAndRes(byteVecComparison
+                            {left={base=bLeftLocn, index=iLeftLocn, byteOffset=oLeft},
+                             right={base=bRightLocn, index=iRightLocn, byteOffset=oRight},
+                             length=lenLocn, transtable=transtable, whereto=whereto})
+                    end
+
+                |   OGCExtract ext =>
+                    let
+                        val (loc, locCode) = locaddr ext
+                        val () = codeGenerate(locCode, cvec)
+                    in
+                        if needsResult
+                        then MergeIndex loc
+                        else (* If the result is not required discard it.  This is used
+                                to remove variables which are not used on this path. *)
                         (
-                            codeGenerate(forwardJumpLabel label, cvec);
-                            genDefaults(indexVal+0w1, labelList, cl)
-                        ) 
-                    |   genDefaults(indexVal, label :: labelList, []) =
-                        (
-                            codeGenerate(forwardJumpLabel label, cvec);
-                            genDefaults(indexVal+0w1, labelList, [])
+                            codeGenerate(removeStackEntry(transtable, loc), cvec);
+                            NoMerge
                         )
-                    |   genDefaults(_, [], _) = ()
-                    
-                    val () = genDefaults(min, caseLabels, cases)
+                    end
 
-                    val defaultRes =
-                        genToRegister (default, whereto, tailKind, loopAddr);
-
-                    (* Optimisation: return immediately, if possible, rather than
-                       jumping and then returning. This may turn the following
-                       unconditional branch into dead code, in which case it
-                       will be removed by the lower-level code generator. *)
-                    val () =
-                       if isEndOfProc tailKind andalso not (haveExited transtable)
-                       then codeGenerate(exit (), cvec)
-                       else ();
-
-                    val (lab, branchCode) = unconditionalBranch (defaultRes, transtable)
-                    val () = codeGenerate(branchCode, cvec)
-
-                    val () =
-                        case defaultRes of
-                            MergeIndex defaultIndex =>
-                                codeGenerate(removeStackEntry (transtable, defaultIndex), cvec)
-                        |   NoMerge => ()
-                in
-                    val exitDefault = lab
-                end
-
-                (* Generate the cases. *)
-                fun genCases(indexVal, label :: labelList, (caseExp, caseLabel) :: cps) =
-                    if indexVal <> caseLabel
-                    then (* We have a hole.  Skip this item. *)
-                        genCases(indexVal+0w1, labelList, (caseExp, caseLabel) :: cps)
-                    else (* The index value corresponds to a label. *)
+                |   OGCField {base, offset} =>
                     let
-                        val startCode = fixup(makeLabels(NoMerge, label, startOfCase), transtable)
-                        val () = codeGenerate(startCode, cvec)
+                        val baseCode = genToStack (base)
+                        val (index, indCode) = indirect (offset, baseCode, transtable)
+                        val () = codeGenerate(indCode, cvec)
+                    in  (* Get the value to be indirected on. *)
+                        MergeIndex index
+                    end
+
+                |   OGCLambda lam => MergeIndex(genProc (lam, fn _ => (), whereto))
+
+                |   OGCConstnt(w, _) => MergeIndex(pushConst (transtable, w))
+
+                |   OGCCond (testPart, thenPart, elsePart) =>
+                        genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
+
+                |   OGCNewenv(decs, exp) =>
+                    let (* Processes a list of entries. *)
+                        val startMark = markStack transtable
+                        (* We may have the situation where we want the result in a specific register
+                           but we actually have a Decl entry followed by an OGCExtract.
+                           Don't do this unless we've asked for a specific register. *)
+                        val specificLoc =
+                            case (exp, whereto) of
+                                (OGCExtract(OGCLoadLocal addr, _), UseReg _) => SOME(addr, whereto)
+                            |   _ => NONE
+
+                        val () = List.app (codeBinding specificLoc) decs
+                        val resultPosn = gencde (exp, whereto, tailKind, loopAddr)
+                        val () = checkBlockResult(transtable, resultPosn)
+                        val () = unmarkStack(transtable, startMark)
+                    in
+                        resultPosn
+                    end
+
+                |   OGCBeginLoop{loop=body, arguments=args} =>
+                    let
+                        (* Execute the body which will contain at least one Loop instruction.
+                           There will also be path(s) which don't contain Loops and these
+                           will drop through. *)
+                        (* Load the arguments.  We put them into registers at this stage
+                           to ensure that constants and "direct" entries are loaded.  They
+                           may go onto the stack, which is fine. It could be worth doing
+                           this in two passes, the first simply evaluating the arguments
+                           onto the pstack, the second loading them into registers since
+                           that would generate better code when some arguments are constants
+                           but others are expressions that push those constants onto the stack. *)
+                        fun genLoopArg ({addr, value, references}, argType) =
+                        let
+                            (* This is almost the same as a normal declaration except
+                               that we have to make sure that we use a new location, stack or
+                               register, since we're going to be changing the contents of
+                               this location.  The easiest way to do that is to load it into
+                               a register.  We could do better if we are loading the last
+                               reference to the initial value in which case we could reuse
+                               its location. *)
+                            val index = genToStack(value)
+                            (* Put this in a floating point register if it is a floating point value
+                               otherwise a fixed point register. *)
+                            val prefSet =
+                                case argType of
+                                    GeneralType => RegSet.generalRegisters
+                                |   FloatingPtType => RegSet.floatingPtRegisters
+                            val (_, decl, decCode) = loadEntryToSet(transtable, index, prefSet, true)
+                            val () = codeGenerate(decCode, cvec)
+                            (* It should not be a non-heap function - just check. *) 
+                            val _ = 
+                              case value of
+                                OGCLambda {heapClosure = false, ...} => 
+                                    raise InternalError "LoopArg: static link function"
+                              | _ => ()
+                        in
+                            localDeclaration (decl, addr, references);
+                            (* Normally "references" will be non-zero but it does seem that we
+                               can get loop variables that are never used.  This may happen as a
+                               result of multiple levels of inline function expansion.  If it's zero
+                               we won't have a location for the loop argument. *)
+                            if references = 0 then noIndex else decl
+                        end
+
+                        val argIndexList = map genLoopArg args;
+                        (* We need to ensure that the state we return to after the loop is the same
+                           as it was at the start.  If we find inside the loop that we need to spill
+                           values from registers that were declared outside we need to move those
+                           spills to before the loop.  We first process the loop optimistically and
+                           then reprocess it we find we've had to spill. *)
+                        fun reprocessLoop n =
+                        let
+                            (* Include a check that we don't loop too many times. *)
+                            val _ = n > 20 andalso raise InternalError "reprocessLoop"
+                            (* Record the code at the start.  If we have to reprocess we discard everything
+                               after this. *)
+                            val codeAtStart = !cvec
+                            val initialState = saveState transtable
+                            (* Now we have loaded the registers we can find out the destinations
+                               i.e. the register or stack location they were in at the start of
+                               the loop.  We have to do this after we've loaded all the arguments
+                               because we may have pushed some onto the stack as we loaded the
+                               later ones.  That's fine so long as when we loop we put the new
+                               values in the same place.  *)
+                            val (argDestList, clearOps) = getLoopDestinations(argIndexList, transtable)
+                            val () = codeGenerate(clearOps, cvec)
+                            (* Start of loop.  This is where we jump to if the loop is taken. *)
+                            val (startLoopCode, startLoop) = backJumpLabel()
+                            val () = codeGenerate(startLoopCode, cvec)
+                            val startSp = realstackptr transtable
+                            val cacheSet = ref noRegisters and pushList = ref []
+
+                            fun onLoop () =
+                            (* This function is called whenever we loop.  The state here is the
+                               state at the point we take the loop.  We need to record the state
+                               at each of those points to produce a composite.  *)
+                            let
+                                val (caches, pushes) = compareLoopStates(transtable, initialState, argIndexList)
+                                val () = cacheSet := regSetUnion(caches, !cacheSet)
+                                and () = pushList := pushes @ !pushList
+                            in
+                                (* We have to make sure that the real stack pointer is consistent.
+                                   We may have pushed local values within the loop and these need
+                                   to be removed. *)
+                                codeGenerate(resetStack (realstackptr transtable - startSp), cvec)
+                            end
+                            (* Compile the loop with the jumps back to the start. *)
+                            val runLoop =
+                                gencde (body, whereto, tailKind,
+                                    SOME(startLoop, onLoop, argDestList))
+                            (* The state we have here is the state when we haven't taken the loop. *)
+                        in
+                            if ! cacheSet = noRegisters andalso null (! pushList) then runLoop
+                            else
+                            (
+                                cvec := codeAtStart;
+                                codeGenerate(restoreLoopState(transtable, initialState, ! cacheSet, ! pushList), cvec);
+                                reprocessLoop(n+1)
+                            )
+                        end
+                    in
+                        reprocessLoop 0
+                    end
+
+                |   OGCLoop argList =>
+                    let
+                        val (startLoop, onLoop, argDestList) =
+                            case loopAddr of
+                                SOME l => l
+                            |   NONE =>
+                                raise InternalError "No BeginLoop for Loop instr"
+                        (* Evaluate the arguments.  Try to put them in the destination
+                           register if we can.  It doesn't matter at this stage too much. *)
+                        fun evalArg((arg, _), dest) =
+                        let
+                            val whereto =
+                              case dest of
+                                    ArgToRegister reg => UseReg (singleton reg)
+                                |   ArgToStack _ => NoHint
+                                |   ArgDiscard => NoHint
+                            val res = gencde (arg, whereto, NotEnd, NONE)
+                        in
+                            case res of
+                                MergeIndex index => index
+                            |   NoMerge => raise InternalError "evalArg: no result"
+                        end
+                    
+                        val argsOnPstack : stackIndex list =
+                            ListPair.map evalArg (argList, argDestList)
+
+                        fun moveArgs([], []) = []
+                        |   moveArgs(arg :: args, ArgToRegister reg :: dests) =
+                            let
+                                (* Do it in reverse order so that we can delay locking
+                                   the register arguments. *)
+                                val argEntries = moveArgs(args, dests)
+                                val (argEntry, argCode) =
+                                    loadToSpecificReg (transtable, reg, arg, false)
+                                val () = codeGenerate(argCode, cvec)
+                            in
+                                lockRegister(transtable, reg);
+                                argEntry :: argEntries
+                            end
+                        |   moveArgs(arg :: args, ArgToStack offset :: dests) =
+                            let
+                                val (argEntry, code) = storeInStack(transtable, arg, offset)
+                            in
+                                codeGenerate(code, cvec);
+                                argEntry :: moveArgs(args, dests)
+                            end
+                        |   moveArgs(arg :: args, ArgDiscard :: dests) =
+                                (* If we're just discarding it return the location so we will
+                                   remove it from the stack. *)
+                                arg :: moveArgs(args, dests)
+                        |   moveArgs _ =
+                                raise InternalError "moveArgs: Mismatched arguments"
+
+                        (* the arguments are now all in their rightful places. *)
+                        val argEntries = moveArgs(argsOnPstack, argDestList);
+                    in
+                        (* Remove the entries and unlock the registers.  It may
+                           be unnecessary to remove the entries because we're about
+                           to fix up a jump but there's no harm in it. *)
+                        List.app (
+                            fn (ArgToRegister reg) => codeGenerate(unlockRegister(transtable, reg), cvec)
+                              | _ => ()) argDestList;
+                        List.app (fn index => codeGenerate(removeStackEntry(transtable, index), cvec))
+                            argEntries;
+                        onLoop();
+            
+                        (* Repeat. *)
+                        codeGenerate(jumpBack (startLoop, transtable), cvec);
+                        (* Put on a dummy result. *)
+                        if needsResult
+                        then MergeIndex(pushConst (transtable, DummyValue))
+                        else NoMerge (* Unused. *)
+                    end
+
+                |   OGCRaise exp =>
+                    let (* movl <exception>,resultReg; jmp raisex *)
+                        val () =
+                           (* Ensure the return address is on the stack in case
+                              we are tracing exceptions. *)
+                           codeGenerate(pushSpecificEntry (transtable, returnAddress), cvec);
+               
+                        val excVal = genToStack (exp);
+            
+                        val (resultIndex, resultCode) = 
+                           loadToSpecificReg (transtable, resultReg ArgGeneral, excVal, true);
+                    in
+                        codeGenerate(raiseException @ resultCode, cvec);
+                        codeGenerate(removeStackEntry(transtable, resultIndex), cvec);
+                        exiting transtable; (* Nothing further *)
+
+                        (* Put a dummy value on the stack so that subsequent merge code works
+                           It really ought to ignore this since we've exited. *)
+                        if needsResult
+                        then MergeIndex(pushConst (transtable, DummyValue))
+                        else NoMerge (* Unused. *)
+                    end
+
+                |   OGCHandle {exPacketAddr, exPacketRefs, exp, handler} =>
+                    let
+                        (* Push all regs - we don't know what the state will be when 
+                           we reach the handler. *)
+                        (* i.e. Push all registers except those whose last use occurs in the expression
+                           we're handling. *) 
+                        val () = 
+                            codeGenerate(pushAllBut (transtable, identifyLoads[exp], allRegisters), cvec);
+                        (* It's not clear what registers will be modified as a result of raising
+                         and handling an exception.  Many functions may result in exceptions
+                         being raised and rather than add the registers to the register set of
+                         those functions it's probably better to include them in the modification
+                         set here. DCJM 26/11/00. *)
+                        val _ = addModifiedRegSet(transtable, allRegisters);
+
+                        (* This is the real stack state at the start of the handler *)
+                        val startOfHandler = realstackptr transtable;
+          
+                        (* Remember this pseudo-stack position for later merge *)
                         val mark = markStack transtable
 
-                        (* Generate this case and exit if tail-recursive. *)
-                        val expResult =
-                            genToRegister (caseExp, whereto, tailKind, loopAddr);
+                        (* Save old handler - push regHandler *)
+                        val () = codeGenerate(pushCurrentHandler, cvec)
+                        val oldIndex = incsp transtable
+          
+                        (* Now it's on the real stack we can remove it from the pstack. *)
+                        local
+                            (* Push address of new handler. *)
+                            val rsp         = realstackptr transtable
+                            val (handlerEntry, handlerLab, handlerCode)  = pushAddress (transtable, rsp + 1)
+                            val () = codeGenerate(handlerCode, cvec)
+    
+                            (* Set the current handler to the stack pointer after these items. *)
+                            val () = codeGenerate(storeToHandler regStackPtr, cvec)
+                        in
+                            val handlerLab = handlerLab
+                            and handlerEntry = handlerEntry
+                        end
 
+                        val whereto = chooseMergeRegister(whereto, tailKind)
+ 
+                        (* Code generate body, putting the result in result register. *)
+                        (* "NotEnd" because we have to come back to remove the handler. *)
+                        val bodyResult = genToRegister (exp, whereto, NotEnd, loopAddr);
+                        (* Reload the old value of regHandler i.e. remove handler. *)
+                        (* Remove the handler entries. *)
+                        val () = codeGenerate(removeStackEntry(transtable, handlerEntry), cvec)
+                        val () = codeGenerate(reloadHandler(transtable, oldIndex), cvec)
+
+                        (* Optimisation: return immediately, if possible, rather than
+                           jumping and then returning. This may turn the following
+                           unconditional branch into dead code, in which case it
+                           will be removed by the lower-level code generator. *)
                         val () =
                             if isEndOfProc tailKind andalso not (haveExited transtable)
                             then codeGenerate(exit (), cvec)
-                            else ();
+                            else ()
+    
+                        (* Skip over the handler. *)
+                        val (skipHandler, skipCode) = unconditionalBranch (bodyResult, transtable)
+                        val () = codeGenerate(skipCode, cvec)
+          
+                        (* Remove any result at the start of the handler.
+                           Need this because fixupH does not do setState.
+                           (It probably should do, though the state is fairly simple). *)
+                        val () =
+                            case bodyResult of
+                                MergeIndex bodyIndex => codeGenerate(removeStackEntry(transtable, bodyIndex), cvec)
+                            |   NoMerge => ()
+     
+                        (* Fix up the handler entry point - this resets the stack pointer
+                           and clears the cache since the state is not known. *)
+                        val () = codeGenerate(fixupH (handlerLab, startOfHandler, transtable), cvec)
+                
+                        (* Get the exception packet. *)
+                        val regResult = resultReg ArgGeneral
+                        (* Exception packet is returned in result register. *)
+                        val () = codeGenerate(getRegister (transtable, regResult), cvec);
+                        val () = codeGenerate(activeRegister regResult, cvec);
+                        val pushed = pushReg (transtable, regResult)
+                        val () = codeGenerate(localDeclaration (pushed, exPacketAddr, exPacketRefs), cvec)
+
+                        (* The code for the handler body itself *)
+                        val handlerRes =  genToRegister (handler, whereto, tailKind, loopAddr)
+                        (* Merge the results. *)
+                        val (mergeRes, mergeCode) = merge (skipHandler, transtable, handlerRes, mark)
+                        val () = codeGenerate(mergeCode, cvec)
                     in
-                        if null cps
-                        then (*  Finished. *) expResult (* Last expression. *)
-                        else
-                        let
-                            val (lab, branchCode) = unconditionalBranch (expResult, transtable)
+                        mergeRes
+                    end
+
+                |   OGCCase {cases, test, default, caseType} =>
+                    let
+                        (* Cases are constructed by the optimiser out of if-then-else expressions. *)                
+                        val whereto = chooseMergeRegister(whereto, tailKind)
+                
+                        (* Sort the cases into ascending order.  It's possible that we may have
+                           duplicates if this came from an if-then-else construction so we
+                           need to retain the ordering for items with the same case label. *)
+                        local
+                            val labelCount = List.length cases
+                            (* Add an extra field before sorting which retains the ordering for
+                               equal labels. *)
+                            val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
+                            fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
+                                if w1 = w2 then n1 <= n2 else w1 < w2
+                            val sorted = List.map #1 (Misc.quickSort leq ordered)
+                            (* Filter out any duplicates. *)
+                            fun filter [] = []
+                            |   filter [p] = [p]
+                            |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
+                                    if lab1 = lab2
+                                    then p :: filter tl
+                                    else p :: filter (q :: tl)
+                        in
+                            val cases = filter sorted
+                        end
+
+                        val (isExhaustive, min, max) =
+                            case caseType of
+                                CaseTag max => (true, 0w0, max)
+                            |   _ =>
+                                let
+                                    val (_, aLabel) = hd cases
+                                    fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                                    val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                                in
+                                    (false, min, max)
+                                end
+                        val testValue = genToStack (test)
+                        val mark = markStack transtable
+
+                        (* Get exclusive use so that indexedCase can modify the registers. *)
+                        val (testReg, testIndex, testCode)  =
+                            loadEntryToSet (transtable, testValue, RegSet.generalRegisters, true);
+                        (* Need a work register. *)
+                        val (workReg, regCode) = getRegisterInSet(transtable, generalRegisters)
+
+                        val (indexCaseInstr, caseLabels, defaultLabel) =
+                            indexedCase{testReg=testReg, workReg=workReg, minCase=min, maxCase=max, 
+                                    isArbitrary = case caseType of CaseInt => true | _ => false,
+                                    isExhaustive=isExhaustive}
+
+                        val () = codeGenerate(indexCaseInstr @ regCode @ testCode, cvec)
+                        val () = codeGenerate(removeStackEntry (transtable, testIndex), cvec)
+                        val () = codeGenerate(freeRegister (transtable, workReg), cvec)
+
+                        val startOfCase = saveState transtable
+
+                        (* Put in the default case.  Even when the case is exhaustive one entry is
+                           always treated as a default and not included in the list of cases. *)
+                        local
+                            (* We have to set "branched" to true before calling fixup. *)
+                            val () = exiting transtable
+                            val startCode = fixup(makeLabels(NoMerge, defaultLabel, startOfCase), transtable)
+                            val () = codeGenerate(startCode, cvec)
+
+                            (* Go down the list of cases and fix up any default labels to come here.
+                               Default entries are represented by "holes" in the case list. *)
+                            fun genDefaults(indexVal, label :: labelList, cl as ((_, caseLabel) :: cps)) =
+                                if indexVal = caseLabel
+                                then genDefaults(indexVal+0w1, labelList, cps)
+                                else
+                                (
+                                    codeGenerate(forwardJumpLabel label, cvec);
+                                    genDefaults(indexVal+0w1, labelList, cl)
+                                ) 
+                            |   genDefaults(indexVal, label :: labelList, []) =
+                                (
+                                    codeGenerate(forwardJumpLabel label, cvec);
+                                    genDefaults(indexVal+0w1, labelList, [])
+                                )
+                            |   genDefaults(_, [], _) = ()
+                    
+                            val () = genDefaults(min, caseLabels, cases)
+
+                            val defaultRes =
+                                genToRegister (default, whereto, tailKind, loopAddr);
+
+                            (* Optimisation: return immediately, if possible, rather than
+                               jumping and then returning. This may turn the following
+                               unconditional branch into dead code, in which case it
+                               will be removed by the lower-level code generator. *)
+                            val () =
+                               if isEndOfProc tailKind andalso not (haveExited transtable)
+                               then codeGenerate(exit (), cvec)
+                               else ();
+
+                            val (lab, branchCode) = unconditionalBranch (defaultRes, transtable)
                             val () = codeGenerate(branchCode, cvec)
 
                             val () =
-                                case expResult of
-                                    MergeIndex expIndex =>
-                                        codeGenerate(removeStackEntry(transtable, expIndex), cvec)
-                                |   NoMerge => ();
-
-                            val lastResult = genCases(indexVal+0w1, labelList, cps)
-                            val (mergeRes, mergeCode) = (* Now fix up the exit label. *)
-                                merge (lab, transtable, lastResult, mark)
-                            val () = codeGenerate(mergeCode, cvec)
+                                case defaultRes of
+                                    MergeIndex defaultIndex =>
+                                        codeGenerate(removeStackEntry (transtable, defaultIndex), cvec)
+                                |   NoMerge => ()
                         in
-                            mergeRes
+                            val exitDefault = lab
+                        end
+
+                        (* Generate the cases. *)
+                        fun genCases(indexVal, label :: labelList, (caseExp, caseLabel) :: cps) =
+                            if indexVal <> caseLabel
+                            then (* We have a hole.  Skip this item. *)
+                                genCases(indexVal+0w1, labelList, (caseExp, caseLabel) :: cps)
+                            else (* The index value corresponds to a label. *)
+                            let
+                                val startCode = fixup(makeLabels(NoMerge, label, startOfCase), transtable)
+                                val () = codeGenerate(startCode, cvec)
+                                val mark = markStack transtable
+
+                                (* Generate this case and exit if tail-recursive. *)
+                                val expResult =
+                                    genToRegister (caseExp, whereto, tailKind, loopAddr);
+
+                                val () =
+                                    if isEndOfProc tailKind andalso not (haveExited transtable)
+                                    then codeGenerate(exit (), cvec)
+                                    else ();
+                            in
+                                if null cps
+                                then (*  Finished. *) expResult (* Last expression. *)
+                                else
+                                let
+                                    val (lab, branchCode) = unconditionalBranch (expResult, transtable)
+                                    val () = codeGenerate(branchCode, cvec)
+
+                                    val () =
+                                        case expResult of
+                                            MergeIndex expIndex =>
+                                                codeGenerate(removeStackEntry(transtable, expIndex), cvec)
+                                        |   NoMerge => ();
+
+                                    val lastResult = genCases(indexVal+0w1, labelList, cps)
+                                    val (mergeRes, mergeCode) = (* Now fix up the exit label. *)
+                                        merge (lab, transtable, lastResult, mark)
+                                    val () = codeGenerate(mergeCode, cvec)
+                                in
+                                    mergeRes
+                                end
+                            end
+                        | genCases _ = raise InternalError "genCase - null case list"
+
+                        val caseResult = genCases(min, caseLabels, cases)
+                        val (mergeRes, mergeCode) = merge (exitDefault, transtable, caseResult, mark)
+                        val () = codeGenerate(mergeCode, cvec)
+                    in
+                        mergeRes
+                    end      
+
+                |   OGCTuple reclist =>
+                    let
+                        val vecsize = List.length reclist
+                        val () =
+                            if vecsize = 0 (* shouldn't occur *)
+                            then raise InternalError "Zero sized vector"
+                            else ()
+                        (* Since the vector is immutable, we have to evaluate
+                           all the values before we can allocate it. *)
+                        val entries = List.map(fn h => genToStackOrGeneralRegister (h)) reclist
+
+                        fun loadSmallVector ([], _) = callgetvec (vecsize, Address.F_words, whereto, transtable)
+
+                        |   loadSmallVector (v::t, wordOffset) =
+                            let
+                                val (vec, vecCode) = loadSmallVector (t, wordOffset + 1)
+                                val moveCode = moveToVec (vec, v, wordOffset, transtable)
+                            in
+                                (vec, moveCode @ vecCode)
+                            end;
+                        val (vec, code) = loadSmallVector(entries, 0)
+                        val () = codeGenerate(code, cvec)
+                        val () = codeGenerate(allocationComplete, cvec)
+                    in
+                        MergeIndex vec
+                    end
+ 
+                |   OGCSetContainer{container, tuple, filter} =>
+                    (* Copy the contents of a tuple into a container. *)
+                    let
+                        val vec = genToStack container
+                    in
+                        case tuple of
+                            OGCTuple cl =>
+                                (* Simply set the container from the values filtering out those required. *)
+                            let
+                                fun setValues([], _, _) = ()
+
+                                |   setValues(v::tl, sourceOffset, destOffset) =
+                                    let
+                                        val entry = genToStack v
+                                    in
+                                        (* Move the entry into the container.  Does not affect the
+                                           use count for the container entry. *)
+                                        if sourceOffset < BoolVector.length filter andalso BoolVector.sub(filter, sourceOffset)
+                                        then
+                                        (
+                                            codeGenerate(moveToVec (vec, entry, destOffset, transtable), cvec);
+                                            setValues(tl, sourceOffset+1, destOffset+1)
+                                        )
+                                        else
+                                        (
+                                            codeGenerate(removeStackEntry(transtable, entry), cvec);
+                                            setValues(tl, sourceOffset+1, destOffset)
+                                        )
+                                    end
+                            in
+                                setValues(cl, 0, 0)
+                            end
+
+                        |   _ =>
+                            let
+                                val tup = genToStack tuple
+                                val last = BoolVector.foldli(fn (i, true, _) => i | (_, false, n) => n) ~1 filter
+
+                                fun copy (sourceOffset, destOffset) =
+                                    if BoolVector.sub(filter, sourceOffset)
+                                    then
+                                    let
+                                        (* We need to ensure that the tuple entry is only removed
+                                           when we load the last item from it. *)
+                                        val _ =
+                                            if sourceOffset = last
+                                            then ()
+                                            else codeGenerate(incrUseCount(transtable, tup, 1), cvec)
+                                        val (entry, entryCode) = indirect (sourceOffset, tup, transtable)
+                                        val () = codeGenerate(entryCode, cvec)
+                                    in
+                                        codeGenerate(moveToVec (vec, entry, destOffset, transtable), cvec);
+                                        if sourceOffset = last
+                                        then ()
+                                        else copy (sourceOffset+1, destOffset+1)
+                                    end
+                                    else copy(sourceOffset+1, destOffset)
+         
+                            in
+                                copy (0, 0)
+                            end;
+
+                        codeGenerate(removeStackEntry(transtable, vec), cvec); (* Free the container entry. *)
+                        (* Return a void result if necessary. *)
+                        if isNoResult whereto then NoMerge
+                        else MergeIndex(pushConst (transtable, DummyValue))
+                    end
+
+                |   instr as OGCTagTest _ => (* Better handled as a conditional *)
+                        codeAsConditional(instr, whereto, tailKind)
+
+                |   OGCKillItems { expression, killSet, killBefore } =>
+                    let 
+                        (* This is inserted by the higher level code to get the use-counts
+                           correct.  Kill entries are OGCExtract entries with lastRef true. *)
+                        fun cgKill toKill =
+                            (gencde(toKill, NoResult, NotEnd, loopAddr); ())
+                    in
+                        if killBefore
+                        then (* Process the kill set before the expression. *)
+                        (
+                            List.app cgKill killSet;
+                            gencde (expression, whereto, tailKind, loopAddr)
+                        )
+                        else (* Process the expression first, then kill the items *)
+                        let
+                            val result =
+                                gencde (expression, whereto, tailKind, loopAddr)
+                        in
+                            List.app cgKill killSet;
+                            result
                         end
                     end
-                | genCases _ = raise InternalError "genCase - null case list"
-
-                val caseResult = genCases(min, caseLabels, cases)
-                val (mergeRes, mergeCode) = merge (exitDefault, transtable, caseResult, mark)
-                val () = codeGenerate(mergeCode, cvec)
-            in
-                mergeRes
-            end      
-
-        | OGCTuple reclist =>
-            let
-                val vecsize = List.length reclist
-                val () =
-                    if vecsize = 0 (* shouldn't occur *)
-                    then raise InternalError "Zero sized vector"
-                    else ()
-                (* Since the vector is immutable, we have to evaluate
-                   all the values before we can allocate it. *)
-                val entries = List.map(fn h => genToStackOrGeneralRegister (h)) reclist
-
-                fun loadSmallVector ([], _) = callgetvec (vecsize, Address.F_words, whereto, transtable)
-
-                |   loadSmallVector (v::t, wordOffset) =
-                    let
-                        val (vec, vecCode) = loadSmallVector (t, wordOffset + 1)
-                        val moveCode = moveToVec (vec, v, wordOffset, transtable)
-                    in
-                        (vec, moveCode @ vecCode)
-                    end;
-                val (vec, code) = loadSmallVector(entries, 0)
-                val () = codeGenerate(code, cvec)
-                val () = codeGenerate(allocationComplete, cvec)
-            in
-                MergeIndex vec
-            end
- 
-        |   OGCSetContainer{container, tuple, filter} =>
-            (* Copy the contents of a tuple into a container. *)
-            let
-                val vec = genToStack container
-            in
-                case tuple of
-                    OGCTuple cl =>
-                        (* Simply set the container from the values filtering out those required. *)
-                    let
-                        fun setValues([], _, _) = ()
-
-                        |   setValues(v::tl, sourceOffset, destOffset) =
-                            let
-                                val entry = genToStack v
-                            in
-                                (* Move the entry into the container.  Does not affect the
-                                   use count for the container entry. *)
-                                if sourceOffset < BoolVector.length filter andalso BoolVector.sub(filter, sourceOffset)
-                                then
-                                (
-                                    codeGenerate(moveToVec (vec, entry, destOffset, transtable), cvec);
-                                    setValues(tl, sourceOffset+1, destOffset+1)
-                                )
-                                else
-                                (
-                                    codeGenerate(removeStackEntry(transtable, entry), cvec);
-                                    setValues(tl, sourceOffset+1, destOffset)
-                                )
-                            end
-                    in
-                        setValues(cl, 0, 0)
-                    end
-
-                |   _ =>
-                    let
-                        val tup = genToStack tuple
-                        val last = BoolVector.foldli(fn (i, true, _) => i | (_, false, n) => n) ~1 filter
-
-                        fun copy (sourceOffset, destOffset) =
-                            if BoolVector.sub(filter, sourceOffset)
-                            then
-                            let
-                                (* We need to ensure that the tuple entry is only removed
-                                   when we load the last item from it. *)
-                                val _ =
-                                    if sourceOffset = last
-                                    then ()
-                                    else codeGenerate(incrUseCount(transtable, tup, 1), cvec)
-                                val (entry, entryCode) = indirect (sourceOffset, tup, transtable)
-                                val () = codeGenerate(entryCode, cvec)
-                            in
-                                codeGenerate(moveToVec (vec, entry, destOffset, transtable), cvec);
-                                if sourceOffset = last
-                                then ()
-                                else copy (sourceOffset+1, destOffset+1)
-                            end
-                            else copy(sourceOffset+1, destOffset)
-         
-                    in
-                        copy (0, 0)
-                    end;
-
-                codeGenerate(removeStackEntry(transtable, vec), cvec); (* Free the container entry. *)
-                (* Return a void result if necessary. *)
-                if isNoResult whereto then NoMerge
-                else MergeIndex(pushConst (transtable, DummyValue))
-            end
-
-        |   instr as OGCTagTest _ => (* Better handled as a conditional *)
-                codeAsConditional(instr, whereto, tailKind)
-
-        |   OGCKillItems { expression, killSet, killBefore } =>
-            let 
-                (* This is inserted by the higher level code to get the use-counts
-                   correct.  Kill entries are OGCExtract entries with lastRef true. *)
-                fun cgKill toKill =
-                    (gencde(toKill, NoResult, NotEnd, loopAddr); ())
-            in
-                if killBefore
-                then (* Process the kill set before the expression. *)
-                (
-                    List.app cgKill killSet;
-                    gencde (expression, whereto, tailKind, loopAddr)
-                )
-                else (* Process the expression first, then kill the items *)
-                let
-                    val result =
-                        gencde (expression, whereto, tailKind, loopAddr)
-                in
-                    List.app cgKill killSet;
-                    result
-                end
-            end
-    in
-        (* Various cases create results even if they're not required.  Remove them. *)
-        case (result, whereto) of
-            (NoMerge, NoResult) => NoMerge
-        |   (NoMerge, _) => raise InternalError "gencde: Result wanted but none supplied"
-        |   (MergeIndex m, NoResult) => (incrUseCount(transtable, m, ~1); NoMerge)
-        |   (MergeIndex _, _) => result
-    end (* gencde *) 
+        in
+            (* Various cases create results even if they're not required.  Remove them. *)
+            case (result, whereto) of
+                (NoMerge, NoResult) => NoMerge
+            |   (NoMerge, _) => raise InternalError "gencde: Result wanted but none supplied"
+            |   (MergeIndex m, NoResult) => (incrUseCount(transtable, m, ~1); NoMerge)
+            |   (MergeIndex _, _) => result
+        end (* gencde *) 
 
     (* Generate an expression putting the result in any register, and return
        the location of it on the stack. *)
