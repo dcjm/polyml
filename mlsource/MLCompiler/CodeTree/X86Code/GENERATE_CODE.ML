@@ -1366,7 +1366,8 @@ struct
                                 MergeIndex shortIndex => codeGenerate(removeStackEntry(transtable, shortIndex), cvec)
                             |   _ => raise InternalError "OGCArbitrary - merge result"
                         val () = codeGenerate(fixup(longTestLab, transtable), cvec)
-                        (* Merge in the overflow case. *)
+                        (* Merge in the overflow case.  It can be missing in the special case of
+                           adding/subtracting zero when the instruction reduces to a move. *)
                         val () =
                             case ! overflowLabel of
                                 SOME (lab1, overMark) =>
@@ -1376,7 +1377,7 @@ struct
                                 in
                                     ()
                                 end
-                           |    NONE => raise InternalError "OGCArbitrary: no overflow case"
+                           |    NONE => ()
                         val longResult = gencde(longCall, whereto, tailKind, loopAddr)
                         (* Finally merge in the jump from the end of the short case. *)
                         val (mergeRes, mergeCode) = merge (shortCodeLab, transtable, longResult, mark)
