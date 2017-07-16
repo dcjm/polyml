@@ -2533,9 +2533,11 @@ struct
     in
         branched := true;
         (makeLabels(result, label, state), branchCode)
-    end;
+    end
+    
+    (* TODO: The active registers set seems to be wrong.  For the moment don't check for interrupts. *)
 
-    fun jumpBack(start as Labels{uses=startUses, ...}, table as Ttab { branched, ...}): operation list =
+(*    fun jumpBack(start as Labels{uses=startUses, ...}, table as Ttab { branched, ...}): operation list =
     let
         val active = findActiveRegisters table
         val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE)(setToList active)
@@ -2552,7 +2554,17 @@ struct
             ConditionalBranch{test=JNB, predict=PredictTaken, label=skipCheckLab},
             ArithToGenReg{ opc=CMP, output=esp, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }
         ]
-    end
+    end*)
+
+    fun jumpBack(start as Labels{uses=startUses, ...}, Ttab { branched, ...}): operation list =
+    (
+        branched := true;
+        (* Check for interrupts when jumping backwards. *)
+        startUses := !startUses+1;
+        [
+            UncondBranch start
+        ]
+    )
 
     (* Record the stack limit when we diverge and then use it when we merge
        back again. *)
