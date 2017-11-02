@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15-16 David C.J. Matthews
+    Copyright (c) 2012,13,15-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -103,6 +103,7 @@ sig
     val mkNot:              codetree -> codetree
     val mkIsShort:          codetree -> codetree
     val mkEqualWord:        codetree * codetree -> codetree
+    val mkEqualArbShort:    codetree * codetree -> codetree
     val equalWordFn:        codetree
 
     val decSequenceWithFinalExp: codeBinding list -> codetree

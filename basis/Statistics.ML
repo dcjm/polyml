@@ -1,7 +1,7 @@
 (*
     Title:      Poly/ML Statistics parser.
     Author:     David Matthews
-    Copyright   David Matthews 2013, 2015-16
+    Copyright   David Matthews 2013, 2015-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -176,6 +176,12 @@ local
     end
 
     open RunCall
+    
+    local
+        val polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
+    in
+        fun polySpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(polySpecificGeneralCall(RunCall.unsafeCast(code, arg)))
+    end
 
 in
     structure PolyML =
@@ -184,13 +190,11 @@ in
         structure Statistics =
         struct
             fun getLocalStats() =
-                convStats(Compat560.polySpecificGeneral (29, ()))
+                convStats(polySpecificGeneral (29, ()))
             and getRemoteStats(pid: int) =
-                convStats(Compat560.polySpecificGeneral (30, pid))
-            and numUserCounters(): int =
-                Compat560.polySpecificGeneral (27, ())
-            and setUserCounter(which: int, value: int): unit =
-                Compat560.polySpecificGeneral (28, (which, value))
+                convStats(polySpecificGeneral (30, pid))
+            and numUserCounters(): int = polySpecificGeneral (27, ())
+            and setUserCounter(which: int, value: int): unit = polySpecificGeneral (28, (which, value))
         end
     end
 end;

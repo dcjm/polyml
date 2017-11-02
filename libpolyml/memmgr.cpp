@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011-12, 2016 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12, 2016-17 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -322,6 +322,8 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         if (space->bottom == 0)
         {
             delete space;
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: New export %smutable space: insufficient space\n", mut ? "" : "im");
             return 0;
         }
         space->isOwnSpace = true;
@@ -331,6 +333,11 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         space->top = space->bottom + size;
         space->topPointer = space->bottom;
 
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: New export %smutable %s%sspace %p, size=%luk words, bottom=%p, top=%p\n", mut ? "" : "im",
+                noOv ? "no-overwrite " : "", code ? "code " : "", space,
+                space->spaceSize() / 1024, space->bottom, space->top);
+
         // Add to the table.
         try {
             AddTree(space);
@@ -339,11 +346,15 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         catch (std::exception&) {
             RemoveTree(space);
             delete space;
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: New export %smutable space: Adding to tree failed\n", mut ? "" : "im");
             return 0;
         }
         return space;
     }
     catch (std::bad_alloc&) {
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: New export %smutable space: \"new\" failed\n", mut ? "" : "im");
         return 0;
     }
 }
@@ -695,6 +706,8 @@ void MemMgr::RemoveEmptyCodeAreas()
         PolyObject *start = (PolyObject *)(space->bottom+1);
         if (start->IsByteObject() && start->Length() == space->spaceSize()-1)
         {
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: Deleted code space %p\n", space);
             // We have an empty cell that fills the whole space.
             RemoveTree(space);
             delete(space);

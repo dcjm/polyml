@@ -88,18 +88,18 @@ struct
     (* pointer equality *)
     val wordEq: machineWord * machineWord -> bool = PolyML.pointerEq
 
-  val unsafeCast : 'a -> 'b = RunCall.unsafeCast
+    val unsafeCast : 'a -> 'b = RunCall.unsafeCast
 
-  val isShort : machineWord->bool = RunCall.isShort
+    val isShort : machineWord->bool = RunCall.isShort
 
-  (* The following cast is always safe *)
-  val toMachineWord : 'a    -> machineWord = unsafeCast
+    (* The following cast is always safe *)
+    val toMachineWord : 'a    -> machineWord = unsafeCast
 
-  (* The following casts need checking *)
-  exception Cast of string
-   
-  fun toAddress (w: machineWord) : address =
-    if isShort w then raise Cast "toAddress" else unsafeCast w
+    (* The following casts need checking *)
+    exception Cast of string
+
+    fun toAddress (w: machineWord) : address =
+        if isShort w then raise Cast "toAddress" else unsafeCast w
 
     fun toShort (w: machineWord) : Word.word =
         if isShort w then unsafeCast w else raise Cast "toShort"
@@ -137,7 +137,11 @@ struct
     and length:     address -> Word.word = RunCall.memoryCellLength
     and flags:      address -> Word8.word  = Word8.fromLargeWord o Word.toLargeWord o RunCall.memoryCellFlags
 
-    val maxAllocation: word = Compat560.processEnvGeneral (100, ())
+    local
+        val callGetAllocationSize = RunCall.rtsCallFast0 "PolyGetMaxAllocationSize"
+    in
+        val maxAllocation: word = callGetAllocationSize()
+    end
 
     fun allocWordData(len: word, flags: Word8.word, initial: machineWord): address =
         (* Check that the size is within the acceptable range. *)
@@ -155,20 +159,18 @@ struct
     val F_mutable      : Word8.word = 0wx40 (* object is mutable *)
     val F_gc           : Word8.word = 0wx80 (* object is (pointer or depth) tombstone *)
 
-  local
-    val typeMask : Word8.word = 0wx03
+    local
+        val typeMask : Word8.word = 0wx03
 
-    fun isType (t: Word8.word) (a: address):bool = 
-        Word8.andb(flags a, typeMask) = t
+        fun isType (t: Word8.word) (a: address):bool =  Word8.andb(flags a, typeMask) = t
+    in
+        val isWords = isType F_words
+        val isBytes = isType F_bytes
+        val isCode  = isType F_code
 
-  in
-    val isWords = isType F_words
-    val isBytes = isType F_bytes
-    val isCode  = isType F_code
-
-    (* The mutable flag may be used with any of the others. *)
-    fun isMutable a = Word8.andb(flags a, F_mutable) = F_mutable
-  end
+        (* The mutable flag may be used with any of the others. *)
+        fun isMutable a = Word8.andb(flags a, F_mutable) = F_mutable
+    end
 
     local
         val rtsNames = Vector.tabulate(256, fn n => " RTS" ^ Int.toString n)
@@ -177,12 +179,7 @@ struct
         fun rtsFunctionName n = Vector.sub(rtsNames, n)
     end
 
-    local
-        val doCall: int*machineWord -> string
-            = Compat560.processEnvGeneral
-    in
-        fun functionName w = doCall(105, w)
-    end
+    val functionName: machineWord -> string = RunCall.rtsCallFull1 "PolyGetFunctionName"
 
     fun stringOfWord w =
     if isShort w

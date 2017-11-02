@@ -58,6 +58,10 @@ typedef void *HANDLE;
 #include <ucontext.h>
 #endif
 
+#ifdef HAVE_PTHREAD_H
+#include <pthread.h>
+#endif
+
 // SIGNALCONTEXT is the argument type that is passed to GetPCandSPFromContext
 // to get the actual PC and SP in a profiling trap.
 #if defined(HAVE_WINDOWS_H)
@@ -341,6 +345,8 @@ public:
 
     // After a Unix fork we only have a single thread in the new process.
     virtual void SetSingleThreaded(void) = 0;
+
+    virtual poly_exn* GetInterrupt(void) = 0;
 };
 
 // Return the number of processors.  Used when configuring multi-threaded GC.

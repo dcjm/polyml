@@ -174,13 +174,12 @@ local
         and elem = char
         and char = char
 
-        (* We don't have Word.toInt yet so we have to use a cast. *)
+        (* We don't have Word.toInt yet so we have to use casts in these next two. *)
         val size : string -> int = RunCall.unsafeCast o LibrarySupport.sizeAsWord
-    
+        val maxSize: int = RunCall.unsafeCast LibrarySupport.maxString
+   
         (* A one character string is simply the character itself. *)
         val str: char ->string = charAsString
-    
-        val maxSize: int = Compat560.processEnvGeneral (101, ())
 
         (* Concatentate a list of strings. *)
         fun concat [] = ""

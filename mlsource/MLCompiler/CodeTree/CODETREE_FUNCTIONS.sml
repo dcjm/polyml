@@ -19,8 +19,8 @@
 
 functor CODETREE_FUNCTIONS(
     structure BASECODETREE: BaseCodeTreeSig
-    structure STRONGLY: sig type node val stronglyConnectedComponents: node list -> node list list end
-        where type node = { addr: int, lambda: BASECODETREE.lambdaForm, use: BASECODETREE.codeUse list }
+    structure STRONGLY:
+        sig val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list end
 ) : CodetreeFunctionsSig
 =
 struct
@@ -425,6 +425,15 @@ struct
     in
         mkEnv(splitLast [] decs)
     end
+    
+    local
+        type node = { addr: int, lambda: lambdaForm, use: codeUse list }
+        fun nodeAddress({addr, ...}: node) = addr
+        and arcs({lambda={closure, ...}, ...}: node) =
+            List.foldl(fn (LoadLocal addr, l) => addr :: l | (_, l) => l) [] closure
+    in
+        val stronglyConnected = stronglyConnectedComponents{nodeAddress=nodeAddress, arcs=arcs}
+    end
 
     (* In general any mutually recursive declaration can refer to any
        other.  It's better to partition the recursive declarations into
@@ -432,7 +441,7 @@ struct
        to each other.  *)
     fun partitionMutableBindings(RecDecs rlist) =
         let
-            val processed = stronglyConnectedComponents rlist
+            val processed = stronglyConnected rlist
             (* Convert the result.  Note that stronglyConnectedComponents returns the
                dependencies in the reverse order i.e. if X depends on Y but not the other
                way round then X will appear before Y in the list.  We need to reverse

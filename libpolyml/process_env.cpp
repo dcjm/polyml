@@ -1,6 +1,6 @@
 /*
     Title:      Process environment.
-    Copyright (c) 2000-8, 2016
+    Copyright (c) 2000-8, 2016-17
         David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -102,6 +102,10 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorName(PolyObject *threadId, PolyWord syserr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorMessage(PolyObject *threadId, PolyWord syserr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorFromString(PolyObject *threadId, PolyWord string);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetMaxAllocationSize();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetMaxStringSize();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetPolyVersionNumber();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWord fnAddr);
 }
 
 #define SAVE(x) mdTaskData->saveVec.push(x)
@@ -508,16 +512,13 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
         }
 
         // These were supposed to have been moved to poly-specific but don't seem to have been.
-    case 100: /* Return the maximum word segment size. */
+    case 100: /* Return the maximum word segment size. */ // Legacy - used in bootstrap
             return mdTaskData->saveVec.push(TAGGED(MAX_OBJECT_SIZE));
     case 101: /* Return the maximum string size (in bytes).
                  It is the maximum number of bytes in a segment
-                 less one word for the length field. */
+                 less one word for the length field. */  // Legacy - used in bootstrap
             return mdTaskData->saveVec.push(TAGGED((MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord)));
-    // This is no longer in use but still seems to be in the pre-built compilers.
-    case 102: /* Test whether the supplied address is in the io area. */
-            return Make_arbitrary_precision(mdTaskData, 0);
- 
+
     case 104: return Make_arbitrary_precision(mdTaskData, POLY_version_number);
  
     case 105: /* Get the name of the function. */
@@ -676,6 +677,55 @@ POLYUNSIGNED PolyProcessEnvErrorFromString(PolyObject *threadId, PolyWord string
     else return result->Word().AsUnsigned();
 }
 
+// Return the maximum size of a cell that can be allocated on the heap.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetMaxAllocationSize()
+{
+    return TAGGED(MAX_OBJECT_SIZE).AsUnsigned();
+}
+
+// Return the maximum string size (in bytes).
+// It is the maximum number of bytes in a segment less one word for the length field.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetMaxStringSize()
+{
+    return TAGGED((MAX_OBJECT_SIZE) * sizeof(PolyWord) - sizeof(PolyWord)).AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetPolyVersionNumber()
+{
+    return TAGGED(POLY_version_number).AsUnsigned();
+}
+
+// Return the function name associated with a piece of compiled code.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWord fnAddr)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        PolyObject *pt = fnAddr.AsObjPtr();
+        if (pt->IsCodeObject()) /* Should now be a code object. */
+        {
+            /* Compiled code.  This is the first constant in the constant area. */
+            PolyWord *codePt = pt->ConstPtrForCode();
+            PolyWord name = codePt[0];
+            /* May be zero indicating an anonymous segment - return null string. */
+            if (name == PolyWord::FromUnsigned(0))
+                result = taskData->saveVec.push(C_string_to_Poly(taskData, ""));
+            else result = taskData->saveVec.push(name);
+        }
+        else raise_syscall(taskData, "Not a code pointer", 0);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts processEnvEPT[] =
 {
     { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
@@ -684,6 +734,10 @@ struct _entrypts processEnvEPT[] =
     { "PolyProcessEnvErrorName",        (polyRTSFunction)&PolyProcessEnvErrorName},
     { "PolyProcessEnvErrorMessage",     (polyRTSFunction)&PolyProcessEnvErrorMessage},
     { "PolyProcessEnvErrorFromString",  (polyRTSFunction)&PolyProcessEnvErrorFromString},
+    { "PolyGetMaxAllocationSize",       (polyRTSFunction)&PolyGetMaxAllocationSize },
+    { "PolyGetMaxStringSize",           (polyRTSFunction)&PolyGetMaxStringSize },
+    { "PolyGetPolyVersionNumber",       (polyRTSFunction)&PolyGetPolyVersionNumber },
+    { "PolyGetFunctionName",            (polyRTSFunction)&PolyGetFunctionName },
 
     { NULL, NULL} // End of list.
 };

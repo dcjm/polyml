@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016
+    Copyright David C. J. Matthews 2010, 2012, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -50,7 +50,7 @@ sig
 
     val regRepr: reg -> string
     
-    type addrs and labList
+    type addrs
     val addrZero: addrs
 
     structure RegSet:
@@ -91,17 +91,7 @@ sig
     |   FullCall
     |   DirectReg of genReg
 
-    datatype label =
-        Labels of
-        {
-            forward: labList ref,
-            reverse: addrs ref,
-            labId: int ref,
-            uses: int ref,
-            chain: label option ref
-        }
-
-    val mkLabel: unit -> label
+    datatype label = Label of { labelNo: int }
 
     datatype indexType =
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
@@ -153,13 +143,9 @@ sig
     |   ReturnFromFunction of int
     |   RaiseException
     |   UncondBranch of label
-    |   ResetStack of int
+    |   ResetStack of { numWords: int, preserveCC: bool }
     |   JumpLabel of label
-        (* Some of these operations are higher-level and should be reduced. *)
-    |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
-    |   StartHandler of { handlerLab: addrs ref }
-    |   IndexedCase of { testReg: genReg, workReg: genReg, min: word, cases: label list }
-    |   FreeRegisters of RegSet.regSet
+    |   LoadLabelAddress of { label: label, output: genReg }
     |   RepeatOperation of repOps
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
@@ -176,20 +162,25 @@ sig
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }
     |   FPFree of fpReg
-    |   MultiplyRR of { source: genReg, output: genReg }
-    |   MultiplyRM of { base: genReg, offset: int,output: genReg }
+    |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
-    |   XChngRegisters of { regX: genReg, regY: genReg }
+    |   XChng of { reg: genReg, arg: genReg regOrMemoryArg }
+    |   Negative of { output: genReg }
+    |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
+    |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
+
+    and jumpSize = JumpSize2 | JumpSize8
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit
 
     val codeCreate: string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
+    
     (* Code generate operations and construct the final code. *)
-    val createCodeSegment: operations * code -> address
+    val generateCode: { ops: operations, code: code, labelCount: int } -> address
 
     val memRegLocalMPointer: int
     and memRegHandlerRegister: int
@@ -215,7 +206,13 @@ sig
         and  operation      = operation
         and  regSet         = RegSet.regSet
         and  label          = label
-        and  labList        = labList
         and  branchOps      = branchOps
+        and  callKinds      = callKinds
+        and  arithOp        = arithOp
+        and  shiftType      = shiftType
+        and  repOps         = repOps
+        and  fpOps          = fpOps
+        and  fpUnaryOps     = fpUnaryOps
+        and  sse2Operations = sse2Operations
     end
 end;

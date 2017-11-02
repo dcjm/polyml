@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,8 +24,10 @@ functor X86FOREIGNCALL(
         type operation
         type code
         type operations = operation list
+        type address = Address.address
 
-        val optimise: code * operations -> operations
+        (* Optimise and code-generate. *)
+        val generateCode: {code: code, ops: operations, labelCount: int} -> address
 
         structure Sharing:
         sig
@@ -49,14 +51,6 @@ struct
 
     fun moveRR{source, output} = MoveToRegister{source=RegisterArg source, output=output}
 
-    fun condBranch(test, predict) =
-    let
-        val label as Labels{uses, ...} = mkLabel()
-    in
-        uses := 1;
-        (ConditionalBranch{test=test, predict=predict, label=label}, label)
-    end
-
     fun loadMemory(reg, base, offset) =
         MoveToRegister{source=MemoryArg{base=base, offset=offset, index=NoIndex}, output=reg}
     and storeMemory(reg, base, offset) =
@@ -74,9 +68,21 @@ struct
         toMachineWord profileObject
     end
 
-    val makeEntryPoint: string -> machineWord = Compat560.createEntryPointObject
+    val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
     datatype abi = X86_32 | X64Win | X64Unix
+    
+    local
+        (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
+        val getABICall: unit -> int = RunCall.rtsCallFast0 "PolyGetABI"
+    in
+        fun getABI() =
+            case getABICall() of
+                0 => X86_32
+            |   1 => X64Unix
+            |   2 => X64Win
+            |   n => raise InternalError ("Unknown ABI type " ^ Int.toString n)
+    end
 
     val noException = 1
 
@@ -89,14 +95,10 @@ struct
         val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi =
-            case Compat560.polySpecificGeneral (108, 0) of
-                1 => X64Unix
-            |   2 => X64Win
-            |   _ => X86_32
+        val abi = getABI()
 
         (* Branch to check for exception. *)
-        val (checkExc, exLabel) = condBranch(JNE, PredictNotTaken)
+        val exLabel = Label{labelNo=0} (* There's just one label in this function. *)
         
         (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
                       The rest are on the stack.
@@ -189,7 +191,7 @@ struct
             ) @
             [
                 ArithMemConst{opc=CMP, offset=memRegExceptionPacket, base=ebp, source=noException},
-                checkExc,
+                ConditionalBranch{test=JNE, predict=PredictNotTaken, label=exLabel},
                 (* Remove any arguments that have been passed on the stack. *)
                 ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
                 JumpLabel exLabel, (* else raise the exception *)
@@ -199,7 +201,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=1(*One label.*), ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
@@ -216,11 +218,7 @@ struct
         val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi =
-            case Compat560.polySpecificGeneral (108, 0) of
-                1 => X64Unix
-            |   2 => X64Win
-            |   _ => X86_32
+        val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
@@ -291,7 +289,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
@@ -310,11 +308,7 @@ struct
         val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi =
-            case Compat560.polySpecificGeneral (108, 0) of
-                1 => X64Unix
-            |   2 => X64Win
-            |   _ => X86_32
+        val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
@@ -394,7 +388,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
@@ -412,11 +406,7 @@ struct
         val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi =
-            case Compat560.polySpecificGeneral (108, 0) of
-                1 => X64Unix
-            |   2 => X64Win
-            |   _ => X86_32
+        val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
@@ -488,7 +478,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)

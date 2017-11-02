@@ -219,6 +219,8 @@ public:
     virtual void ThreadUseMLMemory(TaskData *taskData); 
     virtual void ThreadReleaseMLMemory(TaskData *taskData);
 
+    virtual poly_exn* GetInterrupt(void) { return interrupt_exn; }
+
     // If the schedule lock is already held we need to use these functions.
     void ThreadUseMLMemoryWithSchedLock(TaskData *taskData);
     void ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData);
@@ -1450,8 +1452,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // allocate when we need to raise it.
         // We can only do this once the taskData object has been created.
         if (interrupt_exn == 0)
-            interrupt_exn =
-                DEREFEXNHANDLE(make_exn(taskData, EXC_interrupt, taskData->saveVec.push(TAGGED(0))));
+            interrupt_exn = makeExceptionPacket(taskData, EXC_interrupt);
 
         if (singleThreaded)
         {
@@ -1866,13 +1867,14 @@ void Processes::TestAnyEvents(TaskData *taskData)
 // The normal shut-down routine is to wake up the main thread
 // and have it wait until all the ML threads have exited.  This
 // "crow-bar" thread is intended to force a shut-down if that
-// doesn't happen within 20s.
+// doesn't happen within 40s.  It has been increased from 20s because
+// of a report that this was insufficient on a heavily loaded machine.
 void Processes::CrowBarFn(void)
 {
 #if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
     shutdownLock.Lock();
     crowbarRunning = true;
-    if (crowbarLock.WaitFor(&shutdownLock, 20000)) // Wait for 20s
+    if (crowbarLock.WaitFor(&shutdownLock, 40000)) // Wait for 40s
     {
         // We've been woken by the main thread.  Let it do the shutdown.
         shutdownLock.Unlock();

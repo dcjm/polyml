@@ -141,39 +141,28 @@ POLYUNSIGNED PolyFullGC(PolyObject *threadId)
 Handle errorMsg(TaskData *taskData, int err)
 {
 #ifdef _WIN32
-    /* In the Windows version we may have both errno values
-       and also GetLastError values.  We convert the latter into
-       negative values before returning them. */
-    if (err < 0)
+    LPTSTR lpMsg = NULL;
+    TCHAR *p;
+    if (FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_ALLOCATE_BUFFER |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL, (DWORD)err, 0, (LPTSTR)&lpMsg, 1, NULL) > 0)
     {
-        LPTSTR lpMsg = NULL;
-        TCHAR *p;
-        if (FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
-                FORMAT_MESSAGE_ALLOCATE_BUFFER |
-                FORMAT_MESSAGE_IGNORE_INSERTS,
-                NULL, (DWORD)(-err), 0, (LPTSTR)&lpMsg, 1, NULL) > 0)
-        {
-            /* The message is returned with CRLF at the end.  Remove them. */
-            for (p = lpMsg; *p != '\0' && *p != '\n' && *p != '\r'; p++);
-            *p = '\0';
-            Handle res = SAVE(C_string_to_Poly(taskData, lpMsg));
-            LocalFree(lpMsg);
-            return res;
-        }
+        /* The message is returned with CRLF at the end.  Remove them. */
+        for (p = lpMsg; *p != '\0' && *p != '\n' && *p != '\r'; p++);
+        *p = '\0';
+        Handle res = SAVE(C_string_to_Poly(taskData, lpMsg));
+        LocalFree(lpMsg);
+        return res;
     }
 #endif
     // Unix and unknown Windows errors.
     return SAVE(C_string_to_Poly(taskData, strerror(err)));
 }
 
+#define DEREFEXNHANDLE(_x)       ((poly_exn *)DEREFHANDLE(_x))
 
-/******************************************************************************/
-/*                                                                            */
-/*      EXCEPTIONS                                                            */
-/*                                                                            */
-/******************************************************************************/
-
-Handle make_exn(TaskData *taskData, int id, Handle arg)
+static Handle make_exn(TaskData *taskData, int id, Handle arg, const char *fileName, int lineNo)
 {
     const char *exName;
     switch (id) {
@@ -193,102 +182,98 @@ Handle make_exn(TaskData *taskData, int id, Handle arg)
     default: ASSERT(0); exName = "Unknown"; // Shouldn't happen.
     }
    
-
     Handle pushed_name = SAVE(C_string_to_Poly(taskData, exName));
     
     Handle exnHandle = alloc_and_save(taskData, SIZEOF(poly_exn));
+    Handle location;
+    // The location data in an exception packet is either "NoLocation" (tagged 0)
+    // or the address of a record.
+    if (fileName == 0)
+        location = taskData->saveVec.push(TAGGED(0));
+    else
+    {
+        Handle file = taskData->saveVec.push(C_string_to_Poly(taskData, fileName));
+        Handle line = Make_fixed_precision(taskData, lineNo);
+        location = alloc_and_save(taskData, 5);
+        location->WordP()->Set(0, file->Word());     // file
+        location->WordP()->Set(1, line->Word());     // startLine
+        location->WordP()->Set(2, line->Word());     // endLine
+        location->WordP()->Set(3, TAGGED(0));        // startPosition
+        location->WordP()->Set(4, TAGGED(0));        // endPosition
+    }
     
     DEREFEXNHANDLE(exnHandle)->ex_id   = TAGGED(id);
     DEREFEXNHANDLE(exnHandle)->ex_name = DEREFWORD(pushed_name);
     DEREFEXNHANDLE(exnHandle)->arg     = DEREFWORDHANDLE(arg);
-    DEREFEXNHANDLE(exnHandle)->ex_location = TAGGED(0);
+    DEREFEXNHANDLE(exnHandle)->ex_location = location->Word();
 
     return exnHandle;
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      raise_exception - called by run-time system                           */
-/*                                                                            */
-/******************************************************************************/
-void raise_exception(TaskData *taskData, int id, Handle arg)
+// Create an exception packet, e.g. Interrupt, for later use.  This does not have a
+// location.
+poly_exn *makeExceptionPacket(TaskData *taskData, int id)
+{
+    Handle exn = make_exn(taskData, id, taskData->saveVec.push(TAGGED(0)), 0, 0);
+    return DEREFEXNHANDLE(exn);
+}
+
+static NORETURNFN(void raise_exception(TaskData *taskData, int id, Handle arg, const char *file, int line));
+
+void raise_exception(TaskData *taskData, int id, Handle arg, const char *file, int line)
 /* Raise an exception with no arguments. */
 {
-    Handle exn = make_exn(taskData, id, arg);
-    /* N.B.  We must create the packet first BEFORE dereferencing the
-       process handle just in case a GC while creating the packet
-       moves the process and/or the stack. */
+    Handle exn = make_exn(taskData, id, arg, file, line);
     taskData->SetException(DEREFEXNHANDLE(exn));
     throw IOException(); /* Return to Poly code immediately. */
     /*NOTREACHED*/
 }
 
 
-/******************************************************************************/
-/*                                                                            */
-/*      raise_exception0 - called by run-time system                          */
-/*                                                                            */
-/******************************************************************************/
-void raise_exception0(TaskData *taskData, int id)
+void raiseException0WithLocation(TaskData *taskData, int id, const char *file, int line)
 /* Raise an exception with no arguments. */
 {
-    raise_exception(taskData, id, SAVE(TAGGED(0)));
+    raise_exception(taskData, id, SAVE(TAGGED(0)), file, line);
     /*NOTREACHED*/
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      raise_exception_string - called by run-time system                    */
-/*                                                                            */
-/******************************************************************************/
-void raise_exception_string(TaskData *taskData, int id, const char *str)
+void raiseExceptionStringWithLocation(TaskData *taskData, int id, const char *str, const char *file, int line)
 /* Raise an exception with a C string as the argument. */
 {
-    raise_exception(taskData, id, SAVE(C_string_to_Poly(taskData, str)));
+    raise_exception(taskData, id, SAVE(C_string_to_Poly(taskData, str)), file, line);
     /*NOTREACHED*/
 }
 
-// Raise a SysErr exception with a given error code.
-// The string part must match the result of OS.errorMsg
-void raiseSyscallError(TaskData *taskData, int err)
+// This is called via a macro that puts in the file name and line number.
+void raiseSycallWithLocation(TaskData *taskData, const char *errmsg, int err, const char *file, int line)
 {
-    Handle errornum = Make_sysword(taskData, err);
-    Handle pushed_option = alloc_and_save(taskData, 1);
-    DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
-    Handle pushed_name = errorMsg(taskData, err); // Generate the string.
-    Handle pair = alloc_and_save(taskData, 2);
-    DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
-    DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
+    if (err == 0)
+    {
+        Handle pushed_option = SAVE(NONE_VALUE); /* NONE */
+        Handle pushed_name = SAVE(C_string_to_Poly(taskData, errmsg));
+        Handle pair = alloc_and_save(taskData, 2);
+        DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
+        DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
 
-    raise_exception(taskData, EXC_syserr, pair);
+        raise_exception(taskData, EXC_syserr, pair, file, line);
+    }
+    else
+    {
+        Handle errornum = Make_sysword(taskData, err);
+        Handle pushed_option = alloc_and_save(taskData, 1);
+        DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
+        Handle pushed_name = errorMsg(taskData, err); // Generate the string.
+        Handle pair = alloc_and_save(taskData, 2);
+        DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
+        DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
+
+        raise_exception(taskData, EXC_syserr, pair, file, line);
+    }
 }
 
-// Raise a SysErr exception which does not correspond to an error code.
-void raiseSyscallMessage(TaskData *taskData, const char *errmsg)
+void raiseExceptionFailWithLocation(TaskData *taskData, const char *str, const char *file, int line)
 {
-    Handle pushed_option = SAVE(NONE_VALUE); /* NONE */
-    Handle pushed_name = SAVE(C_string_to_Poly(taskData, errmsg));
-    Handle pair = alloc_and_save(taskData, 2);
-    DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
-    DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
-
-    raise_exception(taskData, EXC_syserr, pair);
-}
-
-// This was the previous version.  The errmsg argument is ignored unless err is zero.
-// Calls to it should really be replaced with calls to either raiseSyscallMessage
-// or raiseSyscallError but it's been left because there may be cases where errno
-// actually contains zero.
-void raise_syscall(TaskData *taskData, const char *errmsg, int err)
-{
-    if (err == 0) raiseSyscallMessage(taskData, errmsg);
-    else raiseSyscallError(taskData, err);
-}
-
-// Raises a Fail exception.
-void raise_fail(TaskData *taskData, const char *errmsg)
-{
-    raise_exception_string(taskData, EXC_Fail, errmsg);
+    raiseExceptionStringWithLocation(taskData, EXC_Fail, str, file, line);
 }
 
 /* "Polymorphic" function to generate a list. */
@@ -342,8 +327,7 @@ void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
             Log("THREAD: Unable to grow stack for thread %p from %lu to %lu\n", taskData, old_len, new_len);
         // We really should do this only if the thread is handling interrupts
         // asynchronously.  On the other hand what else do we do?
-        Handle exn = make_exn(taskData, EXC_interrupt, SAVE(TAGGED(0)));
-        taskData->SetException(DEREFEXNHANDLE(exn));
+        taskData->SetException(processes->GetInterrupt());
     }
     else
     {

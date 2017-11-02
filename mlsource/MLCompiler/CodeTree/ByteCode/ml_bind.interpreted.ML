@@ -21,7 +21,7 @@ local
     structure CodeCons =
         INTCODECONS (
             structure DEBUG   = Debug
-            structure MISC    = Boot.Misc
+            structure MISC    = Misc
             structure PRETTY  = Pretty
         )
 in
@@ -29,7 +29,7 @@ in
         INTGCODE (
             structure CODECONS     = CodeCons
             structure BACKENDTREE  = BackendIntermediateCode
-            structure MISC         = Boot.Misc
+            structure MISC         = Misc
         )
 end;
  

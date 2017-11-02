@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015-16
+    Copyright   David Matthews 2008-9, 2014, 2015-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2092,14 +2092,16 @@ in
         end
 
         (* Saving and loading state. *)
+        local
+            val polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
+            fun polySpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(polySpecificGeneralCall(RunCall.unsafeCast(code, arg)))
+        in
         structure SaveState =
         struct
             local
-                val getOS: int = RunCall.rtsCallFast1 "PolyGetOSType" ()
-                fun loadMod (args: string): Universal.universal list =
-                    Compat560.polySpecificGeneral (32, args)
-                and systemDir(): string =
-                    Compat560.polySpecificGeneral (34, ())
+                val getOS: int = LibrarySupport.getOSType()
+                fun loadMod (args: string): Universal.universal list = polySpecificGeneral (32, args)
+                and systemDir(): string = polySpecificGeneral (34, ())
             in
                 fun loadModuleBasic (fileName: string): Universal.universal list =
                 (* If there is a path separator use the name and don't search further. *)
@@ -2135,21 +2137,17 @@ in
                 end
             end
 
-            fun saveChild(f: string, depth: int): unit =
-                Compat560.polySpecificGeneral (20, (f, depth))
+            fun saveChild(f: string, depth: int): unit = polySpecificGeneral (20, (f, depth))
             fun saveState f = saveChild (f, 0);
-            fun showHierarchy(): string list =
-                Compat560.polySpecificGeneral (22, ())
-            fun renameParent{ child: string, newParent: string }: unit =
-                Compat560.polySpecificGeneral (23, (child, newParent))
-            fun showParent(child: string): string option =
-                Compat560.polySpecificGeneral (24, child)
+            fun showHierarchy(): string list = polySpecificGeneral (22, ())
+            fun renameParent{ child: string, newParent: string }: unit = polySpecificGeneral (23, (child, newParent))
+            fun showParent(child: string): string option = polySpecificGeneral (24, child)
 
-            fun loadState (f: string): unit = Compat560.polySpecificGeneral (21, f)
+            fun loadState (f: string): unit = polySpecificGeneral (21, f)
             and loadHierarchy (s: string list): unit =
                 (* Load hierarchy takes a list of file names in order with the parents
                    before the children.  It's easier for the RTS if this is reversed. *)
-                Compat560.polySpecificGeneral (33, List.rev s)
+                polySpecificGeneral (33, List.rev s)
             
             (* Module loading and storing. *)
             structure Tags =
@@ -2165,7 +2163,7 @@ in
             
             val saveModuleBasic: string * Universal.universal list -> unit =
                 fn (_, nil) => raise Fail "Cannot create an empty module"
-                |  args => Compat560.polySpecificGeneral (31, args)
+                |  args => polySpecificGeneral (31, args)
 
             fun saveModule(s, {structs, functors, sigs, onStartup}) =
             let
@@ -2207,6 +2205,7 @@ in
                     types = extract Tags.typeTag ulist
                 }
             end
+        end
         end
         
         val loadModule = SaveState.loadModule

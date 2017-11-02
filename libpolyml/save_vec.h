@@ -52,7 +52,6 @@ typedef SaveVecEntry *Handle;
 
 #define DEREFBYTEHANDLE(_x)      ((byte *)DEREFHANDLE(_x))
 #define DEREFLISTHANDLE(_x)      ((ML_Cons_Cell *)DEREFHANDLE(_x))
-#define DEREFEXNHANDLE(_x)       ((poly_exn *)DEREFHANDLE(_x))
 #define DEREFSTREAMHANDLE(_x)    ((StreamToken*)DEREFHANDLE(_x))
 
 class ScanAddress;

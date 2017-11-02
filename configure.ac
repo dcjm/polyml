@@ -562,7 +562,7 @@ AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 # Test whether this is a git directory and set the version if possible
 AC_CHECK_PROG([gitinstalled], [git], [yes], [no])
 if test X"$gitinstalled" = "Xyes" -a -d ".git"; then
-    GIT_VERSION='-DGIT_VERSION=$(shell git describe --tags --always)'
+    GIT_VERSION='-DGIT_VERSION=\"$(shell git describe --tags --always)\"'
     AC_SUBST(GIT_VERSION)
 fi
 

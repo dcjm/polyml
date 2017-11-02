@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2000-2010, 2016 David C.J. Matthews
+    Copyright (c) 2000-2010, 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -450,34 +450,4 @@ in
     val () = addPrettyPrinter print_char
     val () = addPrettyPrinter print_list
     val () = addPrettyPrinter print_int
-end;
-
-(* This is used to provide compatibility between 5.6.0 and 5.6.1. *)
-structure Compat560 =
-struct
-    local
-        (* These have to be defined outside the function.  The call compiles the code and
-           we only want to do that once for each function. *)
-        val setCodeConstantCall = RunCall.rtsCallFast4 "PolySetCodeConstant"
-        and ffiGeneralCall = RunCall.rtsCallFull2 "PolyFFIGeneral"
-        and oldForeignGeneralCall = RunCall.rtsCallFull2 "PolyForeignGeneral"
-        and xWindowsGeneralCall = RunCall.rtsCallFull1 "PolyXWindowsGeneral"
-        and createEntryPointObjectCall = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
-        and osSpecificGeneralCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
-        and polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
-        and timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
-        and processEnvGeneralCall = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-    in
-        fun setCodeConstant(addr:'a , offset: word, cnstnt: 'b, flags: word): unit =
-            RunCall.unsafeCast(setCodeConstantCall (RunCall.unsafeCast(addr, offset, cnstnt, flags)))
-        and ffiGeneral(code: int, arg: 'a): 'b = RunCall.unsafeCast(ffiGeneralCall(RunCall.unsafeCast(code, arg)))
-        and oldForeignGeneral(code: int, arg: 'a): 'b = RunCall.unsafeCast(oldForeignGeneralCall(RunCall.unsafeCast(code, arg)))
-        and xWindowsGeneral (arg:'a):'b = RunCall.unsafeCast(xWindowsGeneralCall(RunCall.unsafeCast arg))
-        and createEntryPointObject(s: string): 'a = RunCall.unsafeCast(createEntryPointObjectCall s)
-        and osSpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(osSpecificGeneralCall(RunCall.unsafeCast(code, arg)))
-        and polySpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(polySpecificGeneralCall(RunCall.unsafeCast(code, arg)))
-        and timingGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
-        and processEnvGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(processEnvGeneralCall(RunCall.unsafeCast(code, arg)))
-        val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
-    end
 end;

@@ -354,7 +354,12 @@ struct
                     ],
                 mkInlproc(
                     mkCor( (* Either they're equal... *)
-                        mkEval(wordEq, [mkLoadArgument 0, mkLoadArgument 1]),
+                           (* We can't use mkEqualWord here
+                               because if we have a short constant here the code will reduce to the
+                               simple equality.  If we used mkEqualWord it could further reduce to
+                               an indexed case but the code for that does not handle arbitrary
+                               precision values in the lo *)
+                        mkEqualArbShort(mkLoadArgument 0, mkLoadArgument 1),
                         (* .. or if either is short the result is false ... *)
                         mkCand(
                             mkCand(
@@ -365,7 +370,7 @@ struct
                             mkEval(mkLoadClosure 0, [mkLoadArgument 0, mkLoadArgument 1])
                         )
                      ),
-                     2, "intEquality", [mkLoadLocal 0], 0)
+                     2, "intInfEquality", [mkLoadLocal 0], 0)
                 )
         in
             (* Code-generate the function and return the inline part. 

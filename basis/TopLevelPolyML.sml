@@ -1,7 +1,7 @@
 (*
     Title:      Root function for the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2009, 2015-16
+    Copyright   David Matthews 2009, 2015-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1547,6 +1547,13 @@ local
         sendStartedMessage(); 
         runProtocol NONE (* No compilation. *)
     end (* runIDEProtocol. *)
+
+    local
+        val polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
+    in
+        fun polySpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(polySpecificGeneralCall(RunCall.unsafeCast(code, arg)))
+    end
+
 in
     structure PolyML =
     struct
@@ -1554,10 +1561,10 @@ in
         fun rootFunction () : unit =
         let
             val argList = CommandLine.arguments()
-            fun rtsRelease() = Compat560.polySpecificGeneral (10, ())
-            fun rtsHelp() = Compat560.polySpecificGeneral (19, ())
+            fun rtsRelease() = polySpecificGeneral (10, ())
+            fun rtsHelp() = polySpecificGeneral (19, ())
             val gitVersion =
-                case Compat560.polySpecificGeneral (9, ()) of
+                case polySpecificGeneral (9, ()) of
                    "" => ""
                 |   s => " (Git version " ^ s ^ ")"
             

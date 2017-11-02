@@ -20,8 +20,6 @@
 
 PolyML.print_depth 0;
 
-PolyML.use "basis/RuntimeCalls";
-
 PolyML.make "mlsource/MLCompiler";
 
 fun compileBasisAndExport() =

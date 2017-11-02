@@ -22281,7 +22281,7 @@ fi
 
 
 if test X"$gitinstalled" = "Xyes" -a -d ".git"; then
-    GIT_VERSION='-DGIT_VERSION=$(shell git describe --tags --always)'
+    GIT_VERSION='-DGIT_VERSION=\"$(shell git describe --tags --always)\"'
 
 fi
 

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016 David C.J. Matthews
+    Copyright (c) 2012, 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -166,10 +166,11 @@ struct
 
     |   BICCase of (* Case expressions *)
         {
-            cases   : (backendIC * word) list,
+            cases   : backendIC option list, (* NONE means "jump to the default". *)
             test    : backendIC,
-            caseType: caseType,
-            default : backendIC
+            default : backendIC,
+            isExhaustive: bool,
+            firstIndex: word
         }
     
     |   BICBeginLoop of (* Start of tail-recursive inline function. *)
@@ -210,8 +211,7 @@ struct
     |   BICDecContainer of { addr: int, size: int } (* Create a container for a tuple on the stack. *)
 
     and caseType =
-        CaseInt
-    |   CaseWord
+        CaseWord        (* Word or fixed-precision integer. *)
     |   CaseTag of word
 
     and bicLoadForm =
@@ -536,24 +536,22 @@ struct
                 ]
             )
 
-        |   BICCase {cases, test, default, caseType} =>
+        |   BICCase {cases, test, default, isExhaustive, firstIndex, ...} =>
             PrettyBlock (1, true, [],
-                PrettyString
-                    (concat ["CASE ",
-                        case caseType of CaseInt => "INT" | CaseWord => "WORD" | CaseTag n => "TAG " ^ Word.toString n,
-                        " (" ]) ::
+                PrettyString "CASE (" ::
                 pretty test ::
                 PrettyBreak (1, 0) ::
-                PrettyString "(" ::
+                PrettyString ("( from " ^ Word.toString firstIndex ^ (if isExhaustive then " exhaustive" else "")) ::
                 PrettyBreak (1, 0) ::
                 pList(cases, ",",
-                    fn (exp, label : word) =>
+                    fn (SOME exp) =>
                         PrettyBlock (1, true, [],
                             [
-                                PrettyString (Word.toString label ^ ":"),
+                                PrettyString "=>",
                                 PrettyBreak (1, 0),
                                 pretty exp
                             ])
+                    |   NONE => PrettyString "=> default"
                     ) @
                 [
                     PrettyBreak (1, 0),

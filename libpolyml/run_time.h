@@ -3,7 +3,7 @@
 
     Copyright (c) 2000-9
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2016
+    Further development Copyright David C.J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -59,20 +59,24 @@ extern Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED words, unsigned fl
 extern Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
                        Handle (mkEntry)(TaskData *, void*, char*));
 
-/* exceptions and interrupts */
-NORETURNFN(extern void raise_exception(TaskData *taskData, int id, Handle arg));
-NORETURNFN(extern void raise_exception0(TaskData *taskData, int id));
-NORETURNFN(extern void raise_exception_string(TaskData *taskData, int id, const char *str));
-NORETURNFN(extern void raise_fail(TaskData *taskData, const char *errmsg));
+// Exceptions without an argument e.g. Size and Overflow
+NORETURNFN(extern void raiseException0WithLocation(TaskData *taskData, int id, const char *file, int line));
+#define raise_exception0(taskData, id) raiseException0WithLocation(taskData, id, __FILE__, __LINE__)
 
-// Raise OS.SysCall(OS.errorMsg err, SOME err)
-NORETURNFN(extern void raiseSyscallError(TaskData *taskData, int err));
-// Raise OS.SysCall(msg, NONE)
-NORETURNFN(extern void raiseSyscallMessage(TaskData *taskData, const char *errmsg));
-// This was the previous version.  The errmsg argument is ignored unless err is zero.
-NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int err));
+// Exceptions with a string argument e.g. Foreign
+NORETURNFN(extern void raiseExceptionStringWithLocation(TaskData *taskData, int id, const char *str, const char *file, int line));
+#define raise_exception_string(taskData, id, str) raiseExceptionStringWithLocation(taskData, id, str, __FILE__, __LINE__)
 
-Handle make_exn(TaskData *taskData, int id, Handle arg);
+// Fail exception
+NORETURNFN(extern void raiseExceptionFailWithLocation(TaskData *taskData, const char *str, const char *file, int line));
+#define raise_fail(taskData, errmsg) raiseExceptionFailWithLocation(taskData, errmsg, __FILE__, __LINE__)
+
+// Syscall exception.  The errmsg argument is ignored and replaced with the standard string unless err is zero.
+NORETURNFN(extern void raiseSycallWithLocation(TaskData *taskData, const char *errmsg, int err, const char *file, int line));
+#define raise_syscall(taskData, errMsg, err) raiseSycallWithLocation(taskData, errMsg, err, __FILE__, __LINE__)
+
+// Construct an exception packet for future use
+poly_exn *makeExceptionPacket(TaskData *taskData, int id);
 
 // Check to see that there is space in the stack.  May GC and may raise a C++ exception.
 extern void CheckAndGrowStack(TaskData *mdTaskData, POLYUNSIGNED minSize);

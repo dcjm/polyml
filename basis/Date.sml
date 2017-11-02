@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Date structure.
-    Copyright   David Matthews 2000, 2016
+    Copyright   David Matthews 2000, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -78,8 +78,12 @@ struct
      |  monthToMonthNo Nov = 10
      |  monthToMonthNo Dec = 11
 
-    fun callTiming (code: int) args =
-        Compat560.timingGeneral (code,args);
+    local
+        val timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
+        fun timingGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
+    in
+        fun callTiming (code: int) args = timingGeneral (code,args)
+    end
     
     (* Get the local time offset which applied at the specific time.
        The time is in seconds since the epoch. The result may be the

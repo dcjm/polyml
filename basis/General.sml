@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: General Structure
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2016
+    Copyright   David Matthews 1999, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -59,7 +59,7 @@ in
 
     (* Exception packets.  The first word is the code, a unique id; the second is
        the exception name and the third is the exception argument. *)
-    fun exnName (ex: exn) = RunCall.loadWordFromImmutable(ex, 0w1)
+    fun exnName (ex: exn): string = RunCall.loadWordFromImmutable(ex, 0w1)
     
     (* Since exception packets carry a printer function this is just PolyML.makestring. *)
     fun exnMessage (ex: exn) = PolyML.makestring ex

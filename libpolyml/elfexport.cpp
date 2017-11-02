@@ -118,6 +118,133 @@
 
 #define sym_last_local_sym sym_data_section
 
+#if defined(HOSTARCHITECTURE_X86)
+# define HOST_E_MACHINE EM_386
+# define HOST_DIRECT_DATA_RELOC R_386_32
+# define HOST_DIRECT_FPTR_RELOC R_386_32
+# define USE_RELA 0
+#elif defined(HOSTARCHITECTURE_PPC)
+# define HOST_E_MACHINE EM_PPC
+# define HOST_DIRECT_DATA_RELOC R_PPC_ADDR32
+# define HOST_DIRECT_FPTR_RELOC R_PPC_ADDR32
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_PPC64)
+# define HOST_E_MACHINE EM_PPC64
+# define HOST_DIRECT_DATA_RELOC R_PPC64_ADDR64
+# define HOST_DIRECT_FPTR_RELOC R_PPC64_ADDR64
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_S390)
+# define HOST_E_MACHINE EM_S390
+# define HOST_DIRECT_DATA_RELOC R_390_32
+# define HOST_DIRECT_FPTR_RELOC R_390_32
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_S390X)
+# define HOST_E_MACHINE EM_S390
+# define HOST_DIRECT_DATA_RELOC R_390_64
+# define HOST_DIRECT_FPTR_RELOC R_390_64
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_SH)
+# define HOST_E_MACHINE EM_SH
+# define HOST_DIRECT_DATA_RELOC R_SH_DIR32
+# define HOST_DIRECT_FPTR_RELOC R_SH_DIR32
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_SPARC)
+# define HOST_E_MACHINE EM_SPARC
+# define HOST_DIRECT_DATA_RELOC R_SPARC_32
+# define HOST_DIRECT_FPTR_RELOC R_SPARC_32
+# define USE_RELA 1
+/* Sparc/Solaris, at least 2.8, requires ELF32_Rela relocations.  For some reason,
+   though, it adds the value in the location being relocated (as with ELF32_Rel
+   relocations) as well as the addend. To be safe, whenever we use an ELF32_Rela
+   relocation we always zero the location to be relocated. */
+#elif defined(HOSTARCHITECTURE_SPARC64)
+# define HOST_E_MACHINE EM_SPARCV9
+# define HOST_DIRECT_DATA_RELOC R_SPARC_64
+# define HOST_DIRECT_FPTR_RELOC R_SPARC_64
+/* Use the most relaxed memory model. At link time, the most restrictive one is
+   chosen, so it does no harm to be as permissive as possible here. */
+# define HOST_E_FLAGS EF_SPARCV9_RMO
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_X86_64)
+/* It seems Solaris/X86-64 only supports ELF64_Rela relocations.  It appears that
+   Linux will support either so we now use Rela on X86-64. */
+# define HOST_E_MACHINE EM_X86_64
+# define HOST_DIRECT_DATA_RELOC R_X86_64_64
+# define HOST_DIRECT_FPTR_RELOC R_X86_64_64
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_X32)
+# define HOST_E_MACHINE EM_X86_64
+# define HOST_DIRECT_DATA_RELOC R_X86_64_32
+# define HOST_DIRECT_FPTR_RELOC R_X86_64_32
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_ARM)
+# ifndef EF_ARM_EABI_VER4
+#  define EF_ARM_EABI_VER4     0x04000000
+# endif
+// When linking ARM binaries the linker checks the ABI version.  We
+// need to set the version to the same as the libraries.
+// GCC currently uses version 4.
+# define HOST_E_MACHINE EM_ARM
+# define HOST_DIRECT_DATA_RELOC R_ARM_ABS32
+# define HOST_DIRECT_FPTR_RELOC R_ARM_ABS32
+# define USE_RELA 0
+# define HOST_E_FLAGS EF_ARM_EABI_VER4
+#elif defined(HOSTARCHITECTURE_HPPA)
+# if defined(__hpux)
+#  define HOST_OSABI ELFOSABI_HPUX
+# elif defined(__NetBSD__)
+#  define HOST_OSABI ELFOSABI_NETBSD
+# elif defined(__linux__)
+#  define HOST_OSABI ELFOSABI_GNU
+# endif
+# define HOST_E_MACHINE EM_PARISC
+# define HOST_DIRECT_DATA_RELOC R_PARISC_DIR32
+# define HOST_DIRECT_FPTR_RELOC R_PARISC_PLABEL32
+# define HOST_E_FLAGS EFA_PARISC_1_0
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_IA64)
+# define HOST_E_MACHINE EM_IA_64
+# define HOST_DIRECT_DATA_RELOC R_IA64_DIR64LSB
+# define HOST_DIRECT_FPTR_RELOC R_IA64_FPTR64LSB
+# define HOST_E_FLAGS EF_IA_64_ABI64
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_AARCH64)
+# define HOST_E_MACHINE EM_AARCH64
+# define HOST_DIRECT_DATA_RELOC R_AARCH64_ABS64
+# define HOST_DIRECT_FPTR_RELOC R_AARCH64_ABS64
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_M68K)
+# define HOST_E_MACHINE EM_68K
+# define HOST_DIRECT_DATA_RELOC R_68K_32
+# define HOST_DIRECT_FPTR_RELOC R_68K_32
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_MIPS)
+# define HOST_E_MACHINE EM_MIPS
+# define HOST_DIRECT_DATA_RELOC R_MIPS_32
+# define HOST_DIRECT_FPTR_RELOC R_MIPS_32
+# ifdef __PIC__
+#  define HOST_E_FLAGS EF_MIPS_CPIC
+# endif
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_MIPS64)
+# define HOST_E_MACHINE EM_MIPS
+# define HOST_DIRECT_DATA_RELOC R_MIPS_64
+# define HOST_DIRECT_FPTR_RELOC R_MIPS_64
+# ifdef __PIC__
+#  define HOST_E_FLAGS (EF_MIPS_ARCH_64 | EF_MIPS_CPIC)
+# else
+#  define HOST_E_FLAGS EF_MIPS_ARCH_64
+# endif
+# define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_ALPHA)
+# define HOST_E_MACHINE EM_ALPHA
+# define HOST_DIRECT_DATA_RELOC R_ALPHA_REFQUAD
+# define HOST_DIRECT_FPTR_RELOC R_ALPHA_REFQUAD
+# define USE_RELA 1
+#else
+# error "No support for exporting on this architecture"
+#endif
+
 // The first two symbols are special:
 // Zero is always special in ELF
 // 1 is used for the data section
@@ -139,7 +266,7 @@ void ELFExport::addExternalReference(void *relocAddr, const char *name)
 {
     externTable.makeEntry(name);
     // The symbol is added after the memory table entries and poly_exports
-    writeRelocation(0, relocAddr, symbolNum++);
+    writeRelocation(0, relocAddr, symbolNum++, true);
 }
 
 // Generate the address relative to the start of the segment.
@@ -156,46 +283,32 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
     POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtAddr;
-    return writeRelocation(offset, relocAddr, AreaToSym(addrArea));
+    return writeRelocation(offset, relocAddr, AreaToSym(addrArea), false);
 }
 
-PolyWord ELFExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum)
+PolyWord ELFExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum, bool isFuncPtr)
 {
-    if (useRela)
-    {
-        ElfXX_Rela reloc;
-        // Set the offset within the section we're scanning.
-        setRelocationAddress(relocAddr, &reloc.r_offset);
-#ifdef HOSTARCHITECTURE_MIPS64
-        reloc.r_sym = symbolNum;
-        reloc.r_ssym = 0;
-        reloc.r_type = directReloc;
-        reloc.r_type2 = 0;
-        reloc.r_type3 = 0;
+#if USE_RELA
+    ElfXX_Rela reloc;
+    reloc.r_addend = offset;
+    offset = 0;
 #else
-        reloc.r_info = ELFXX_R_INFO(symbolNum, directReloc);
+    ElfXX_Rel reloc;
 #endif
-        reloc.r_addend = offset;
-        fwrite(&reloc, sizeof(reloc), 1, exportFile);
-        relocationCount++;
-        return PolyWord::FromUnsigned(0);
-    }
-    else {
-        ElfXX_Rel reloc;
-        setRelocationAddress(relocAddr, &reloc.r_offset);
+    // Set the offset within the section we're scanning.
+    setRelocationAddress(relocAddr, &reloc.r_offset);
 #ifdef HOSTARCHITECTURE_MIPS64
-        reloc.r_sym = symbolNum;
-        reloc.r_ssym = 0;
-        reloc.r_type = directReloc;
-        reloc.r_type2 = 0;
-        reloc.r_type3 = 0;
+    reloc.r_sym = symbolNum;
+    reloc.r_ssym = 0;
+    reloc.r_type = isFuncPtr ? HOST_DIRECT_FPTR_RELOC : HOST_DIRECT_DATA_RELOC;
+    reloc.r_type2 = 0;
+    reloc.r_type3 = 0;
 #else
-        reloc.r_info = ELFXX_R_INFO(symbolNum, directReloc);
+    reloc.r_info = ELFXX_R_INFO(symbolNum, isFuncPtr ? HOST_DIRECT_FPTR_RELOC : HOST_DIRECT_DATA_RELOC);
 #endif
-        fwrite(&reloc, sizeof(reloc), 1, exportFile);
-        relocationCount++;
-        return PolyWord::FromUnsigned(offset);
-    }
+    fwrite(&reloc, sizeof(reloc), 1, exportFile);
+    relocationCount++;
+    return PolyWord::FromUnsigned(offset);
 }
 
 /* This is called for each constant within the code. 
@@ -241,33 +354,28 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
 #endif
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
-            if (useRela)
+#if USE_RELA
+            ElfXX_Rela reloc;
+            reloc.r_addend = offset;
+#else
+            ElfXX_Rel reloc;
+#endif
+            setRelocationAddress(addr, &reloc.r_offset);
+            // We seem to need to subtract 4 bytes to get the correct offset in ELF
+            offset -= 4;
+            reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
+#if USE_RELA
+            // Clear the field.  Even though it's not supposed to be used with Rela the
+            // Linux linker at least seems to add the value in here sometimes.
+            memset(addr, 0, 4);
+#else
+            for (unsigned i = 0; i < 4; i++)
             {
-                ElfXX_Rela reloc;
-                setRelocationAddress(addr, &reloc.r_offset);
-                // We seem to need to subtract 4 bytes to get the correct offset in ELF
-                offset -= 4;
-                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
-                reloc.r_addend = offset;
-                // Clear the field.  Even though it's not supposed to be used with Rela the
-                // Linux linker at least seems to add the value in here sometimes.
-                memset(addr, 0, 4);
-                fwrite(&reloc, sizeof(reloc), 1, exportFile);
+                addr[i] = (byte)(offset & 0xff);
+                offset >>= 8;
             }
-            else
-            {
-                ElfXX_Rel reloc;
-                setRelocationAddress(addr, &reloc.r_offset);
-                 // We seem to need to subtract 4 bytes to get the correct offset in ELF
-                offset -= 4;
-                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
-                for (unsigned i = 0; i < 4; i++)
-                {
-                    addr[i] = (byte)(offset & 0xff);
-                    offset >>= 8;
-                }
-                fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            }
+#endif
+            fwrite(&reloc, sizeof(reloc), 1, exportFile);
             relocationCount++;
         }
         break;
@@ -309,39 +417,24 @@ void ELFExport::alignFile(int align)
 
 void ELFExport::createStructsRelocation(unsigned sym, POLYUNSIGNED offset, POLYSIGNED addend)
 {
-    if (useRela)
-    {
-        ElfXX_Rela reloc;
-#ifdef HOSTARCHITECTURE_MIPS64
-        reloc.r_sym = sym;
-        reloc.r_ssym = 0;
-        reloc.r_type = directReloc;
-        reloc.r_type2 = 0;
-        reloc.r_type3 = 0;
+#if USE_RELA
+    ElfXX_Rela reloc;
+    reloc.r_addend = addend;
 #else
-        reloc.r_info = ELFXX_R_INFO(sym, directReloc);
+    ElfXX_Rel reloc;
 #endif
-        reloc.r_offset = offset;
-        reloc.r_addend = addend;
-        fwrite(&reloc, sizeof(reloc), 1, exportFile);
-        relocationCount++;
-    }
-    else
-    {
-        ElfXX_Rel reloc;
+    reloc.r_offset = offset;
 #ifdef HOSTARCHITECTURE_MIPS64
-        reloc.r_sym = sym;
-        reloc.r_ssym = 0;
-        reloc.r_type = directReloc;
-        reloc.r_type2 = 0;
-        reloc.r_type3 = 0;
+    reloc.r_sym = sym;
+    reloc.r_ssym = 0;
+    reloc.r_type = HOST_DIRECT_DATA_RELOC;
+    reloc.r_type2 = 0;
+    reloc.r_type3 = 0;
 #else
-        reloc.r_info = ELFXX_R_INFO(sym, directReloc);
+    reloc.r_info = ELFXX_R_INFO(sym, HOST_DIRECT_DATA_RELOC);
 #endif
-        reloc.r_offset = offset;
-        fwrite(&reloc, sizeof(reloc), 1, exportFile);
-        relocationCount++;
-    }
+    fwrite(&reloc, sizeof(reloc), 1, exportFile);
+    relocationCount++;
 }
 
 void ELFExport::exportStore(void)
@@ -371,6 +464,9 @@ void ELFExport::exportStore(void)
     fhdr.e_ident[EI_MAG3] = 'F';
     fhdr.e_ident[EI_CLASS] = ELFCLASSXX; // ELFCLASS32 or ELFCLASS64
     fhdr.e_ident[EI_VERSION] = EV_CURRENT;
+#ifdef HOST_OSABI
+    fhdr.e_ident[EI_OSABI] = HOST_OSABI;
+#endif
     {
         union { unsigned long wrd; char chrs[sizeof(unsigned long)]; } endian;
         endian.wrd = 1;
@@ -382,106 +478,9 @@ void ELFExport::exportStore(void)
     fhdr.e_type = ET_REL;
     // The machine needs to match the machine we're compiling for
     // even if this is actually portable code.
-#if defined(HOSTARCHITECTURE_X86)
-    fhdr.e_machine = EM_386;
-    directReloc = R_386_32;
-    useRela = false;
-#elif defined(HOSTARCHITECTURE_PPC)
-    fhdr.e_machine = EM_PPC;
-    directReloc = R_PPC_ADDR32;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_PPC64)
-    fhdr.e_machine = EM_PPC64;
-    directReloc = R_PPC64_ADDR64;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_S390)
-    fhdr.e_machine = EM_S390;
-    directReloc = R_390_32;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_S390X)
-    fhdr.e_machine = EM_S390;
-    directReloc = R_390_64;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_SH)
-    fhdr.e_machine = EM_SH;
-    directReloc = R_SH_DIR32;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_SPARC)
-    fhdr.e_machine = EM_SPARC;
-    directReloc = R_SPARC_32;
-    useRela = true;
-    /* Sparc/Solaris, at least 2.8, requires ELF32_Rela relocations.  For some reason,
-       though, it adds the value in the location being relocated (as with ELF32_Rel
-       relocations) as well as the addend. To be safe, whenever we use an ELF32_Rela
-       relocation we always zero the location to be relocated. */
-#elif defined(HOSTARCHITECTURE_SPARC64)
-    fhdr.e_machine = EM_SPARCV9;
-    directReloc = R_SPARC_64;
-    /* Use the most relaxed memory model. At link time, the most restrictive one is
-       chosen, so it does no harm to be as permissive as possible here. */
-    fhdr.e_flags = EF_SPARCV9_RMO;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_X86_64)
-    /* It seems Solaris/X86-64 only supports ELF64_Rela relocations.  It appears that
-       Linux will support either so we now use Rela on X86-64. */
-    fhdr.e_machine = EM_X86_64;
-    directReloc = R_X86_64_64;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_X32)
-    fhdr.e_machine = EM_X86_64;
-    directReloc = R_X86_64_32;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_ARM)
-#ifndef EF_ARM_EABI_VER4 
-#define EF_ARM_EABI_VER4     0x04000000
-#endif
-    // When linking ARM binaries the linker checks the ABI version.  We
-    // need to set the version to the same as the libraries. 
-    // GCC currently uses version 4.
-    fhdr.e_machine = EM_ARM;
-    directReloc = R_ARM_ABS32;
-    useRela = false;
-    fhdr.e_flags = EF_ARM_EABI_VER4;
-#elif defined(HOSTARCHITECTURE_HPPA)
-    fhdr.e_ident[EI_OSABI] = ELFOSABI_HPUX;
-    fhdr.e_machine = EM_PARISC;
-    directReloc = R_PARISC_DIR32;
-    fhdr.e_flags = EFA_PARISC_1_0;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_IA64)
-    fhdr.e_machine = EM_IA_64;
-    directReloc = R_IA64_DIR64LSB;
-    fhdr.e_flags = EF_IA_64_ABI64;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_AARCH64)
-    fhdr.e_machine = EM_AARCH64;
-    directReloc = R_AARCH64_ABS64;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_M68K)
-    fhdr.e_machine = EM_68K;
-    directReloc = R_68K_32;
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_MIPS)
-    fhdr.e_machine = EM_MIPS;
-    directReloc = R_MIPS_32;
-#ifdef __PIC__
-    fhdr.e_flags = EF_MIPS_CPIC;
-#endif
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_MIPS64)
-    fhdr.e_machine = EM_MIPS;
-    directReloc = R_MIPS_64;
-    fhdr.e_flags = EF_MIPS_ARCH_64;
-#ifdef __PIC__
-    fhdr.e_flags |= EF_MIPS_CPIC;
-#endif
-    useRela = true;
-#elif defined(HOSTARCHITECTURE_ALPHA)
-    fhdr.e_machine = EM_ALPHA;
-    directReloc = R_ALPHA_REFQUAD;
-    useRela = true;
-#else
-#error "No support for exporting on this architecture"
+    fhdr.e_machine = HOST_E_MACHINE;
+#ifdef HOST_E_FLAGS
+    fhdr.e_flags = HOST_E_FLAGS;
 #endif
     fhdr.e_version = EV_CURRENT;
     fhdr.e_shoff = sizeof(fhdr); // Offset to section header - immediately follows
@@ -515,11 +514,11 @@ void ELFExport::exportStore(void)
     // sections[sect_stringtable].sh_size is set later
 
     unsigned long dataName = makeStringTableEntry(".data", &sectionStrings);
-    unsigned long dataRelName = makeStringTableEntry(useRela ? ".rela.data" : ".rel.data", &sectionStrings);
+    unsigned long dataRelName = makeStringTableEntry(USE_RELA ? ".rela.data" : ".rel.data", &sectionStrings);
     unsigned long textName = makeStringTableEntry(".text", &sectionStrings);
-    unsigned long textRelName = makeStringTableEntry(useRela ? ".rela.text" : ".rel.text", &sectionStrings);
+    unsigned long textRelName = makeStringTableEntry(USE_RELA ? ".rela.text" : ".rel.text", &sectionStrings);
     unsigned long rodataName = makeStringTableEntry(".rodata", &sectionStrings);
-    unsigned long rodataRelName = makeStringTableEntry(useRela ? ".rela.rodata" : ".rel.rodata", &sectionStrings);
+    unsigned long rodataRelName = makeStringTableEntry(USE_RELA ? ".rela.rodata" : ".rel.rodata", &sectionStrings);
 
     // Main data sections.  Each one has a relocation section.
     for (i=0; i < memTableEntries; i++)
@@ -554,11 +553,11 @@ void ELFExport::exportStore(void)
         // sections[s].sh_size is set later.
 
         // Relocation section
-        sections[s+1].sh_type = useRela ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
+        sections[s+1].sh_type = USE_RELA ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
         sections[s+1].sh_link = sect_symtab; // Index to symbol table
         sections[s+1].sh_info = s; // Applies to the data section
         sections[s+1].sh_addralign = sizeof(long); // Align to a word
-        sections[s+1].sh_entsize = useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
+        sections[s+1].sh_entsize = USE_RELA ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
         // sections[s+1].sh_offset is set later.
         // sections[s+1].sh_size is set later.
     }
@@ -572,11 +571,11 @@ void ELFExport::exportStore(void)
     sections[sect_table_data].sh_addralign = 8; // 8-byte alignment
     // Table relocation
     sections[sect_table_data+1].sh_name = dataRelName;
-    sections[sect_table_data+1].sh_type = useRela ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
+    sections[sect_table_data+1].sh_type = USE_RELA ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
     sections[sect_table_data+1].sh_link = sect_symtab; // Index to symbol table
     sections[sect_table_data+1].sh_info = sect_table_data; // Applies to table section
     sections[sect_table_data+1].sh_addralign = sizeof(long); // Align to a word
-    sections[sect_table_data+1].sh_entsize = useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
+    sections[sect_table_data+1].sh_entsize = USE_RELA ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
 
     // Symbol table.
     sections[sect_symtab].sh_name = makeStringTableEntry(".symtab", &sectionStrings);
@@ -612,7 +611,7 @@ void ELFExport::exportStore(void)
             p += length;
         }
         sections[relocSection].sh_size =
-            relocationCount * (useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
+            relocationCount * (USE_RELA ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
     }
 
     // Relocations for "exports" and "memTable";
@@ -643,7 +642,7 @@ void ELFExport::exportStore(void)
     }
 
     sections[sect_table_data+1].sh_size =
-        relocationCount * (useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
+        relocationCount * (USE_RELA ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
 
     // Now the symbol table.
     alignFile(sections[sect_symtab].sh_addralign);
@@ -688,10 +687,10 @@ void ELFExport::exportStore(void)
     exports.structLength = sizeof(exportDescription);
     exports.memTableSize = sizeof(memoryTableEntry);
     exports.memTableEntries = memTableEntries;
-    exports.memTable = useRela ? 0 : (memoryTableEntry *)memTableOffset;
+    exports.memTable = USE_RELA ? 0 : (memoryTableEntry *)memTableOffset;
     // Set the value to be the offset relative to the base of the area.  We have set a relocation
     // already which will add the base of the area.
-    exports.rootFunction = useRela ? 0 : (void*)rootOffset;
+    exports.rootFunction = USE_RELA ? 0 : (void*)rootOffset;
     exports.timeStamp = getBuildTime();
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;

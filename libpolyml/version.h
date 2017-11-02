@@ -33,6 +33,6 @@
 #define FIRST_supported_version 570
 #define LAST_supported_version  570
 
-#define TextVersion             "5.6"
+#define TextVersion             "5.7"
 
 #endif

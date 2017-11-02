@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: constants
     Author:     David Matthews
-    Copyright   David Matthews 2015, 2016
+    Copyright   David Matthews 2015, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -22,11 +22,15 @@
 structure ForeignConstants =
 struct
     local
+        val ffiGeneralCall = RunCall.rtsCallFull2 "PolyFFIGeneral"
+        fun ffiGeneral(code: int, arg: 'a): 'b = RunCall.unsafeCast(ffiGeneralCall(RunCall.unsafeCast(code, arg)))
+    in
+    local
         fun getSizeAndAlign (n: int) =
         let
-            val ffiType = Compat560.ffiGeneral (52, n)
+            val ffiType = ffiGeneral (52, n)
             val (size: word, align: word, _, _) = (* Just get the first two fields. *)
-                Compat560.ffiGeneral (53, ffiType)
+                ffiGeneral (53, ffiType)
         in
             {size=size, align=align}
         end
@@ -57,5 +61,7 @@ struct
     and wordSize : word = RunCall.bytesPerWord
     
     (* Minimum argument size. *)
-    val ffiMinArgSize: Word.word = Compat560.ffiGeneral (51, 15)
+    val ffiMinArgSize: Word.word = ffiGeneral (51, 15)
+    end
+
 end;

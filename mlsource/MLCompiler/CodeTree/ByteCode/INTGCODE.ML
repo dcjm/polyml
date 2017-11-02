@@ -1,6 +1,8 @@
 (*
     Copyright (c) 2000
         Cambridge University Technical Services Limited
+        
+    Further development copyright David C.J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,13 +30,7 @@
    was being developed and the "enter-int" instructions that were needed
    for that have been retained although they no longer actually generate code. *)
 functor INTGCODE (
-
     structure CODECONS : INTCODECONSSIG
-
-    structure MISC:
-    sig
-        exception InternalError of string;
-    end;
 
     structure BACKENDTREE: BackendIntermediateCodeSig
 
@@ -45,9 +41,7 @@ struct
     open CODECONS
     open Address
     open BACKENDTREE
-    open MISC
-
-    fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
+    open Misc
 
     val word0 = toMachineWord 0;
   
@@ -72,28 +66,34 @@ struct
     |   NotEnd
 
     (* Code generate a function or global declaration *)
-    fun codegen (pt : backendIC, cvec : code, recReference: machineWord option, numOfArgs: int, parameters) : address =
+    fun codegen (pt, cvec, recReference: machineWord option, numOfArgs, localCount, parameters) : address =
     let
-        val initTrans = 5 (* Initial size of tables. *)
-    
         datatype decEntry =
             StackAddr of int
         |   Empty
     
-        val decVec = StretchArray.stretchArray (initTrans, Empty)
+        val decVec = Array.array (localCount, Empty)
     
         (* Count of number of items on the stack. *)
-        val realstackptr = ref 1; (* The static-link/closure ptr is already there *)
+        val realstackptr = ref 1 (* The closure ptr is already there *)
+        
+        (* Maximum size of the stack. *)
+        val maxStack = ref 1
 
         (* Exited - set to true if we have jumped out. *)
         val exited = ref false;
 
-        (* Push a value onto the stack. For the moment this merely involves
-           adding corresponding values to the real and pseudo-stacks. *)
-        fun incsp () : unit = realstackptr := !realstackptr + 1;
+        (* Push a value onto the stack. *)
+        fun incsp () =
+        (
+            realstackptr := !realstackptr + 1;
+            if !realstackptr > !maxStack
+            then maxStack := !realstackptr
+            else ()
+        )
 
         (* An entry has been removed from the stack. *)
-        fun decsp ()  : unit= realstackptr := !realstackptr - 1;
+        fun decsp () = realstackptr := !realstackptr - 1;
  
         fun pushLocalStackValue addr = ( genLocal(!realstackptr + addr, cvec); incsp() )
 
@@ -104,7 +104,7 @@ struct
         |   locaddr(BICLoadLocal locn) =
             (
                 (* positive address - on the stack. *)
-                    case StretchArray.sub (decVec, locn) of
+                    case Array.sub (decVec, locn) of
                         StackAddr n => pushLocalStackValue (~ n)
                     |   _ => (* Should be on the stack, not a function. *)
                         raise InternalError "locaddr: bad stack address"
@@ -199,7 +199,7 @@ struct
                         genProc (lambda, true,
                             fn() =>
                             (
-                                StretchArray.update (decVec, addr, StackAddr (! realstackptr));
+                                Array.update (decVec, addr, StackAddr (! realstackptr));
                                 genMutualDecs (otherDecs)
                             ))
 
@@ -211,13 +211,13 @@ struct
                            will be removed in the stack adjustment code. *)
                         genContainer(size, cvec); (* Push the address of this container. *)
                         realstackptr := !realstackptr + size + 1; (* Pushes N words plus the address. *)
-                        StretchArray.update (decVec, addr, StackAddr(!realstackptr))
+                        Array.update (decVec, addr, StackAddr(!realstackptr))
                     )
 
                 |   codeDecls(BICDeclar{value, addr, ...}) =
                     (
                         gencde (value, ToStack, NotEnd, loopAddr);
-                        StretchArray.update (decVec, addr, StackAddr(!realstackptr))
+                        Array.update (decVec, addr, StackAddr(!realstackptr))
                     )
                 |   codeDecls(BICNullBinding exp) = gencde (exp, NoResult, NotEnd, loopAddr)
             in
@@ -235,13 +235,14 @@ struct
                 fun genLoopArg ({addr, value, ...}) =
                     (
                      gencde (value, ToStack, NotEnd, loopAddr);
-                     StretchArray.update (decVec, addr, StackAddr (!realstackptr));
+                     Array.update (decVec, addr, StackAddr (!realstackptr));
                      !realstackptr (* Return the posn on the stack. *)
                     )
                 val argIndexList = map genLoopArg args;
 
                 val startSp = ! realstackptr; (* Remember the current top of stack. *)
-                val startLoop : addrs = ic cvec; (* Start of loop *)
+                val startLoop = createLabel ()
+                val () = setLabel(startLoop, cvec) (* Start of loop *)
             in
                 (* Process the body, passing the jump-back address down for the Loop instruction(s). *)
                 gencde (body, whereto, tailKind, SOME(startLoop, startSp, argIndexList))
@@ -277,7 +278,7 @@ struct
                 else ();
             
                 (* Jump back to the start of the loop. *)
-                jumpback (startLoop, cvec)
+                putBranchInstruction(Jump, startLoop, cvec)
             end
   
         |   BICRaise exp =>
@@ -293,14 +294,18 @@ struct
                 (* Save old handler *)
                 val () = genPushHandler cvec
                 val () = incsp ()
-                val genTag = putBranchInstruction (setHandler, cvec) before incsp()
+                val handlerLabel = createLabel()
+                val () = putBranchInstruction (SetHandler, handlerLabel, cvec)
+                val () = incsp()
                 (* Code generate the body; "NotEnd" because we have to come back
                  to remove the handler; "ToStack" because delHandler needs
                  a result to carry down. *)
                 val () = gencde (exp, ToStack, NotEnd, loopAddr)
       
                 (* Now get out of the handler and restore the old one. *)
-                val skipHandler = putBranchInstruction (delHandler, cvec)
+                val () = genOpcode(opcode_deleteHandler, cvec)
+                val skipHandler = createLabel()
+                val () = putBranchInstruction (Jump, skipHandler, cvec)
           
                 (* Now process the handler itself. First we have to reset the stack.
                    Note that we have to use "ToStack" again to be consistent with
@@ -311,107 +316,74 @@ struct
                 *)
                 val () = realstackptr := oldsp
                 val () = exited := false
-                val () = fixup (genTag, cvec)
+                val () = setLabel (handlerLabel, cvec)
                 (* If we were executing machine code we must re-enter the interpreter. *)
                 val () = genEnterIntCatch cvec
                 (* Push the exception packet and set the address. *)
                 val () = genLdexc cvec
                 val () = incsp ()
-                val () = StretchArray.update (decVec, exPacketAddr, StackAddr(!realstackptr))
+                val () = Array.update (decVec, exPacketAddr, StackAddr(!realstackptr))
                 val () = gencde (handler, ToStack, NotEnd, loopAddr)
                 (* Have to remove the exception packet. *)
                 val () = resetStack(1, true, cvec)
                 val () = decsp()
           
                 (* Finally fix-up the jump around the handler *)
-                val () = fixup (skipHandler, cvec)
+                val () = setLabel (skipHandler, cvec)
             in
                 exited := false
             end
   
-        |   BICCase ({cases, caseType, test, default, ...}) =>
+        |   BICCase ({cases, test, default, firstIndex, ...}) =>
             let
                 val () = gencde (test, ToStack, NotEnd, loopAddr)
-                (* The exit jumps are chained together. *)
-                val lastEndJump : labels ref = ref noJump;
-
-                val (_, min: LargeInt.int, max:LargeInt.int) =
-                    case caseType of
-                        CaseTag max => (true, 0, Word.toLargeInt max)
-                |   _ =>
-                    let
-                        val (_, aLabel) = hd cases
-                        fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                        val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
-                    in
-                        (false, Word.toLargeInt min, Word.toLargeInt max)
-                    end
-
-                val limit : int = Int.fromLarge(max - min)
+                (* Label to jump to at the end of each case. *)
+                val exitJump = createLabel()
 
                 val () =
-                    if min = 0 then ()
+                    if firstIndex = 0w0 then ()
                     else
-                    ( (* Subtract lower limit. *)
-                        pushConst(toMachineWord min, cvec);
-                        genOpcode(opcode_fixedSub, cvec) (* Is this fixed, word or arbitrary? *)
+                    (   (* Subtract lower limit.  Don't check for overflow.  Instead
+                           allow large value to wrap around and check in "case" instruction. *)
+                        pushConst(toMachineWord firstIndex, cvec);
+                        genOpcode(opcode_wordSub, cvec)
                     )
 
-                val () = genCase (limit, cvec);
-                val () = decsp ();
- 
-                (* Addresses are relative to the first entry in the vector. *)
-                val startVec : addrs = ic cvec;
-
-                (* Set each address in the vector to point to the default - they
-                 will be overwritten by the actual address later. *)
-                val defaultAddr : int = (limit + 1) * 2;
-
-                val () = forLoop (fn (_ : int) => genWord (defaultAddr, cvec)) 0 limit;
+                (* Generate the case instruction followed by the table of jumps.  *)
+                val nCases = List.length cases
+                val caseLabels = genCase (nCases, cvec)
+                val () = decsp ()
 
                 (* The default case, if any, follows the case statement. *)
+                (* If we have a jump to the default set it to jump here. *)
+                local
+                    fun fixDefault(NONE, defCase) = setLabel(defCase, cvec)
+                    |   fixDefault(SOME _, _) = ()
+                in
+                    val () = ListPair.appEq fixDefault (cases, caseLabels)
+                end
                 val () = gencde (default, whereto, tailKind, loopAddr);
 
                 val () = exited := false;
-
-                (* Now generate the code for each of the cases. *)
-                fun genEachCase ([] : (backendIC * word) list) : unit = ()
-                |   genEachCase ((body : backendIC, matches : word) :: otherCases) : unit =
-                    let
-                     (* First exit from the previous case or the default if
-                        this is the first. *)
-                        val () = 
-                            lastEndJump := linkLabels
-                                (!lastEndJump,
-                                if !exited then noJump else putBranchInstruction(jump, cvec),
-                                cvec)
+                
+                fun genCases(SOME body, label) =
+                    (
+                        (* First exit from the previous case or the default if
+                           this is the first. *)
+                        if !exited then () else putBranchInstruction(Jump, exitJump, cvec);
                         (* Remove the result - the last case will leave it. *)
-                        val () = case whereto of ToStack => decsp () | NoResult => ();
+                        case whereto of ToStack => decsp () | NoResult => ();
+                        (* Fix up the jump to come here. *)
+                        setLabel(label, cvec);
+                        exited := false;
+                        gencde (body, whereto, tailKind, loopAddr)
+                    )
+                |   genCases(NONE, _) = ()
+                
+                val () = ListPair.appEq genCases (cases, caseLabels)
      
-                        (* Now put the address of this code into the table if
-                           an entry has not already been set. If it has the new
-                           entry should be ignored. It is NOT an error (just
-                           redundant). *)
-                        local
-                            val entryAddr : addrs = addrPlus(startVec, Int.fromLarge(Word.toLargeInt matches - min) * 2)
-                        in
-                            val () =
-                                if getBytes(2, entryAddr, cvec) = defaultAddr
-                                then putBytes(addrMinus(ic cvec, startVec), 2, entryAddr, cvec)
-                                else ()
-                        end
-
-                        (* Generate code for this case *)
-                        val () = exited := false;
-                        val () = gencde (body, whereto, tailKind, loopAddr);
-                    in
-                        genEachCase otherCases
-                    end; (* genEachCase *)
-         
-                val () = genEachCase cases
-     
-                (* Finally go down the list of exit labels pointing them to here. *)
-                val () = fixup (!lastEndJump, cvec);
+                (* Finally set the exit jump to come here. *)
+                val () = setLabel (exitJump, cvec)
             in
                 exited := false
             end
@@ -892,16 +864,16 @@ struct
      function may not be able to fill in its closure if it does not have
      all the remaining declarations. *)
     (* TODO: This always creates the closure on the heap even when makeClosure is false. *) 
-   and genProc (lam: bicLambdaForm as { closure=[], ...}, mutualDecs, doNext: unit -> unit) : unit =
+   and genProc ({ closure=[], localCount, body, argTypes, name, ...}: bicLambdaForm, mutualDecs, doNext: unit -> unit) : unit =
         let
             (* Create a one word item for the closure.  This is returned for recursive references
                and filled in with the address of the code when we've finished. *)
             val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
-            val newCode : code = codeCreate(#name lam, parameters);
+            val newCode : code = codeCreate(name, parameters);
 
             (* Code-gen function. No non-local references. *)
              val res : address =
-               codegen (#body lam, newCode, SOME(toMachineWord closure), List.length (#argTypes lam), parameters);
+               codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, localCount, parameters);
             val () = Address.assignWord(closure, 0w0, Address.toMachineWord res)
             val () = Address.lock closure
 
@@ -911,12 +883,12 @@ struct
             if mutualDecs then doNext () else ()
         end
 
-    |   genProc (lam, mutualDecs, doNext) =
+    |   genProc ({ localCount, body, name, argTypes, closure, ...}, mutualDecs, doNext) =
         let (* Full closure required. *)
-            val newCode = codeCreate (#name lam, parameters)
+            val newCode = codeCreate (name, parameters)
             (* Code-gen function. *)
-            val res = codegen (#body lam, newCode, NONE, List.length (#argTypes lam), parameters);
-            val sizeOfClosure = List.length (#closure lam) + 1;
+            val res = codegen (body, newCode, NONE, List.length argTypes, localCount, parameters);
+            val sizeOfClosure = List.length closure + 1;
         in
             if mutualDecs
             then
@@ -952,7 +924,7 @@ struct
                     loadItems (vs, addr + 1)
                 end
              
-                val () = loadItems (#closure lam, 1)
+                val () = loadItems (closure, 1)
                 val () = genLock cvec (* Lock it. *)
            
                 (* Remove the extra reference. *)
@@ -966,48 +938,39 @@ struct
                 (* Put it on the stack. *)
                 val () = pushConst (toMachineWord res, cvec)
                 val () = incsp ()
-                val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) (#closure lam)
+                val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
                 val () = genTuple (sizeOfClosure, cvec)
             in
                 realstackptr := !realstackptr - (sizeOfClosure - 1)
             end
         end
 
-   and genCond (first: backendIC,
-                second: backendIC,
-                third: backendIC,
-                whereto: whereto,
-                tailKind: tail,
-                loopAddr) : unit =
-   let
-     val () = gencde (first, ToStack, NotEnd, loopAddr)
-     val toElse : labels = putBranchInstruction(jumpFalse, cvec)
-     val () = decsp();
-   in
-        let
-     val () = gencde (second, whereto, tailKind, loopAddr);
-     (* Get rid of the result from the stack. If there is a result then the
+    and genCond (testCode, thenCode, elseCode, whereto, tailKind, loopAddr) =
+    let
+        val () = gencde (testCode, ToStack, NotEnd, loopAddr)
+        val toElse = createLabel() and exitJump = createLabel()
+        val () = putBranchInstruction(JumpFalse, toElse, cvec)
+        val () = decsp()
+        val () = gencde (thenCode, whereto, tailKind, loopAddr)
+        (* Get rid of the result from the stack. If there is a result then the
         ``else-part'' will push it. *)
-     val () = case whereto of ToStack => decsp () | NoResult => ();
-     
-     val thenExited : bool = !exited;
- 
-     val toExit : labels =
-       if thenExited then noJump
-       else putBranchInstruction (jump, cvec);
-    
-     (* start of "else part" *)
-     val () = fixup (toElse, cvec);
-     val () = exited := false;
-     val () = gencde (third, whereto, tailKind, loopAddr);
- 
-     val elseExited : bool= !exited;
-     
-     val () = fixup (toExit, cvec);
-       in
-     exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
-       end
-   end (* genCond *)
+        val () = case whereto of ToStack => decsp () | NoResult => ()
+
+        val thenExited = !exited
+
+        val () = if thenExited then () else putBranchInstruction (Jump, exitJump, cvec)
+
+        (* start of "else part" *)
+        val () = setLabel (toElse, cvec)
+        val () = exited := false
+        val () = gencde (elseCode, whereto, tailKind, loopAddr)
+
+        val elseExited = !exited
+
+        val () = setLabel (exitJump, cvec)
+    in
+        exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
+    end (* genCond *)
 
     and genEval (eval, tailKind : tail) : unit =
     let
@@ -1102,26 +1065,26 @@ struct
     val () = gencde (pt, ToStack, EndOfProc, NONE)
 
     val () = if !exited then () else genReturn (numOfArgs, cvec);
-  in (* body of codegen *)
-   (* Having code-generated the body of the function, it is copied
-      into a new data segment. *)
-   copyCode cvec
- end (* codegen *);
+    in (* body of codegen *)
+       (* Having code-generated the body of the function, it is copied
+          into a new data segment. *)
+        copyCode(cvec, !maxStack)
+    end (* codegen *);
 
-    fun gencodeLambda({ name, body, argTypes, ...}:bicLambdaForm, parameters, closure) =
+    fun gencodeLambda({ name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
     let
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
         (* This function must have no non-local references. *)
         val codeAddr =
-            codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, parameters)
+            codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, localCount, parameters)
     in
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure
     end
 
     local
-        val makeEntryPoint: string -> machineWord = Compat560.createEntryPointObject
+        val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
         fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
         let
@@ -1140,7 +1103,7 @@ struct
             val () = makeCall(numOfArgs, cvec)
             val () = genReturn (numOfArgs, cvec)
         
-            val codeAddr = copyCode cvec
+            val codeAddr = copyCode(cvec, numOfArgs+1)
         in
             assignWord(closure, 0w0, toMachineWord codeAddr);
             lock closure;

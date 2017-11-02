@@ -64,7 +64,6 @@
 	<source name="basis\Real.sml" />
 	<source name="basis\RealArray.sml" />
 	<source name="basis\RealSignature.sml" />
-	<source name="basis\RuntimeCalls.ML" />
 	<source name="basis\Signal.sml" />
 	<source name="basis\SingleAssignment.sml" />
 	<source name="basis\SML90.sml" />
@@ -120,11 +119,19 @@
 	<source name="mlsource\MLCompiler\CodeTree\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\GENERATE_CODE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ICodeSig.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\IntSet.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\INTSETSIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ml_bind.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86AllocateRegisters.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ALLOCATEREGISTERSSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CODESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CodetreeToICode.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86FIRST_STAGE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86FOREIGNCALL.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86GETCONFLICTSETSIG.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICode.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODEGENERATESIG.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeGetConflictSets.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeIdentifyReferences.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeToX86Code.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeTransform.ML" />
@@ -133,6 +140,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OLDFIRSTSTAGESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OPTIMISE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OUTPUTCODE.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86PushRegisters.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86PUSHREGISTERSIG.ML" />
 	<source name="mlsource\MLCompiler\CODETREESIG.ML" />
 	<source name="mlsource\MLCompiler\COMPILER_BODY.ML" />
 	<source name="mlsource\MLCompiler\CompilerBody.ML" />

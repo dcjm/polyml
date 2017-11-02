@@ -94,11 +94,7 @@ in
 
         val pointerEq = RunCall.pointerEq
 
-        local
-            val doCall: int * unit -> int = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
-            fun rtsVersion () : int = doCall(104, ())
-        end
+        val rtsVersion: unit -> int = RunCall.rtsCallFast0 "PolyGetPolyVersionNumber"
         
         local
             val doCall: int * unit -> string = RunCall.rtsCallFull2 "PolySpecificGeneral"

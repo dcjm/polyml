@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,24 +15,14 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor StronglyConnected(
-structure Graph:
+structure StronglyConnected:
 sig
-    (* A node has an address and arcs are the addresses of other nodes. *)
-    type node
-    val nodeAddress: node -> int
-    val arcs: node -> int list
-end):
-sig
-    type node
-    val stronglyConnectedComponents: node list -> node list list
+    val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list
 end
 =
 struct
-    open Graph
-
-    fun stronglyConnectedComponents [] = []
-    |   stronglyConnectedComponents (rlist as firstNode :: _) =
+    fun stronglyConnectedComponents _ [] = []
+    |   stronglyConnectedComponents {nodeAddress, arcs} (rlist as firstNode :: _) =
     (* In general any mutually recursive declaration can refer to any
        other.  It's better to partition the recursive declarations into
        strongly connected components i.e. those that actually refer

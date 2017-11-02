@@ -1,13 +1,11 @@
 /*
     Title:      Error Messages.
-    Copyright (c) 2012
-        David C. J. Matthews
+    Copyright (c) 2012, 2017 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
-    
+    License version 2.1 as published by the Free Software Foundation.
+
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
@@ -527,8 +525,6 @@ static struct {
 #endif
 
 #else
-/* We generate all Windows messages as negative numbers to
-   distinguish them from Unix errno values. */
     { ERROR_INVALID_FUNCTION,  "ERROR_INVALID_FUNCTION" },
     { ERROR_FILE_NOT_FOUND,    "ERROR_FILE_NOT_FOUND" },
     { ERROR_PATH_NOT_FOUND,    "ERROR_PATH_NOT_FOUND" },
@@ -1259,12 +1255,12 @@ static struct {
     { ERROR_FULL_BACKUP,   "ERROR_FULL_BACKUP" },
     { ERROR_REC_NON_EXISTENT,  "ERROR_REC_NON_EXISTENT" },
     { ERROR_RPL_NOT_ALLOWED,   "ERROR_RPL_NOT_ALLOWED" },
-//  { WSAEINTR,    "WSAEINTR" },
-//  { WSAEBADF,    "WSAEBADF" },
-//  { WSAEACCES,   "WSAEACCES" },
-//  { WSAEFAULT,   "WSAEFAULT" },
-//  { WSAEINVAL,   "WSAEINVAL" },
-//  { WSAEMFILE,   "WSAEMFILE" },
+    { WSAEINTR,    "WSAEINTR" },
+    { WSAEBADF,    "WSAEBADF" },
+    { WSAEACCES,   "WSAEACCES" },
+    { WSAEFAULT,   "WSAEFAULT" },
+    { WSAEINVAL,   "WSAEINVAL" },
+    { WSAEMFILE,   "WSAEMFILE" },
     { WSAEWOULDBLOCK,  "WSAEWOULDBLOCK" },
     { WSAEINPROGRESS,  "WSAEINPROGRESS" },
     { WSAEALREADY, "WSAEALREADY" },
@@ -1293,10 +1289,10 @@ static struct {
     { WSAETIMEDOUT,    "WSAETIMEDOUT" },
     { WSAECONNREFUSED, "WSAECONNREFUSED" },
     { WSAELOOP,    "WSAELOOP" },
-//  { WSAENAMETOOLONG, "WSAENAMETOOLONG" },
+    { WSAENAMETOOLONG, "WSAENAMETOOLONG" },
     { WSAEHOSTDOWN,    "WSAEHOSTDOWN" },
     { WSAEHOSTUNREACH, "WSAEHOSTUNREACH" },
-//  { WSAENOTEMPTY,    "WSAENOTEMPTY" },
+    { WSAENOTEMPTY,    "WSAENOTEMPTY" },
     { WSAEPROCLIM, "WSAEPROCLIM" },
     { WSAEUSERS,   "WSAEUSERS" },
     { WSAEDQUOT,   "WSAEDQUOT" },

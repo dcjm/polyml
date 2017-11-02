@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Support functions
-    Copyright   David C.J. Matthews 2000, 2015-16
+    Copyright   David C.J. Matthews 2000, 2015-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,7 +20,12 @@
    we want them to be compiled in as constants. *)
 structure MachineConstants =
 struct
-    val bigEndian : bool = Compat560.isBigEndian ()
+    local
+        val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
+    in
+        val bigEndian : bool = isBigEndian ()
+    end
+    
     val wordSize : word = RunCall.bytesPerWord
 end;
 
@@ -52,9 +57,11 @@ sig
     val stringAsAddress : string -> address
     val w8vectorAsAddress : Word8Array.vector -> address
     val maxAllocation: word
+    and maxString: word
     val noOverwriteRef: 'a -> 'a ref
     val emptyVector: word
     val quotRem: LargeInt.int*LargeInt.int -> LargeInt.int*LargeInt.int
+    val getOSType: unit -> int
 end
 =
 struct
@@ -107,13 +114,14 @@ struct
         val F_mutable_bytes : word = 0wx41
         (* This is put in by Initialise and filtered out later. *)
         val setLengthWord: string * word -> unit = fn (s, n) => RunCall.storeUntagged(s, 0w0, n)
-          
-        val callProcessEnv = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        val maxString = callProcessEnv (101, ())
+
+        val callGetAllocationSize = RunCall.rtsCallFast0 "PolyGetMaxAllocationSize"
+        val callGetMaxStringSize = RunCall.rtsCallFast0 "PolyGetMaxStringSize"
     in
         (* Get the maximum allocation size.  This is the maximum value that can
            fit in the length field of a segment. *)
-        val maxAllocation = callProcessEnv (100, ())
+        val maxAllocation = callGetAllocationSize()
+        and maxString = callGetMaxStringSize()
 
         (* Check that we have a short int.  This is only necessary if
            int is arbitrary precision.  If int is fixed precision it will
@@ -201,5 +209,7 @@ struct
     val emptyVector: word = RunCall.allocateWordMemory(0w0, 0w0, 0w0)
     
     val quotRem = LargeInt.quotRem
+    
+    val getOSType: unit -> int = RunCall.rtsCallFast0 "PolyGetOSType"
 end;
 

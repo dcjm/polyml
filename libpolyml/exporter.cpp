@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7, 2015, 2016 David C.J. Matthews
+    Copyright (c) 2006-7, 2015, 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -112,8 +112,7 @@ GraveYard::~GraveYard()
 
 CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
 {
-    defaultImmSize = defaultMutSize = defaultCodeSize = 0;
-    defaultNoOverSize = 4096; // This can be small.
+    defaultImmSize = defaultMutSize = defaultCodeSize = defaultNoOverSize = 0;
     tombs = 0;
     graveYard = 0;
 }
@@ -131,7 +130,11 @@ void CopyScan::initialise(bool isExport/*=true*/)
     {
         graveYard = new GraveYard[gMem.pSpaces.size()];
         if (graveYard == 0)
+        {
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Unable to allocate graveyard, size: %lu.\n", gMem.pSpaces.size());
             throw MemoryException();
+        }
     }
 
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
@@ -141,7 +144,9 @@ void CopyScan::initialise(bool isExport/*=true*/)
             // Include this if we're exporting (hierarchy=0) or if we're saving a state
             // and will include this in the new state.
             POLYUNSIGNED size = (space->top-space->bottom)/4;
-            if (space->isMutable)
+            if (space->noOverwrite)
+                defaultNoOverSize += size;
+            else if (space->isMutable)
                 defaultMutSize += size;
             else if (space->isCode)
                 defaultCodeSize += size;
@@ -152,7 +157,15 @@ void CopyScan::initialise(bool isExport/*=true*/)
                 // We need a separate area for the tombstones because this is read-only
                 graveYard[tombs].graves = (PolyWord*)calloc(space->spaceSize(), sizeof(PolyWord));
                 if (graveYard[tombs].graves == 0)
+                {
+                    if (debugOptions & DEBUG_SAVING)
+                        Log("SAVE: Unable to allocate graveyard for permanent space, size: %lu.\n",
+                            space->spaceSize() * sizeof(PolyWord));
                     throw MemoryException();
+                }
+                if (debugOptions & DEBUG_SAVING)
+                    Log("SAVE: Allocated graveyard for permanent space, %p size: %lu.\n",
+                        graveYard[tombs].graves, space->spaceSize() * sizeof(PolyWord));
                 graveYard[tombs].startAddr = space->bottom;
                 graveYard[tombs].endAddr = space->top;
                 tombs++;
@@ -189,7 +202,17 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (defaultMutSize < 1024) defaultMutSize = 1024;
         if (defaultImmSize < 4096) defaultImmSize = 4096;
         if (defaultCodeSize < 4096) defaultImmSize = 4096;
+        if (defaultNoOverSize < 4096) defaultNoOverSize = 4096;
+        // Set maximum sizes as well.  We may have insufficient contiguous space for
+        // very large areas.
+        if (defaultMutSize > 1024 * 1024) defaultMutSize = 1024 * 1024;
+        if (defaultImmSize > 1024 * 1024) defaultImmSize = 1024 * 1024;
+        if (defaultCodeSize > 1024 * 1024) defaultCodeSize = 1024 * 1024;
+        if (defaultNoOverSize > 1024 * 1024) defaultNoOverSize = 1024 * 1024;
     }
+    if (debugOptions & DEBUG_SAVING)
+        Log("SAVE: Copyscan default sizes: Immutable: %lu, Mutable: %lu, Code: %lu.\n",
+            defaultImmSize, defaultMutSize, defaultCodeSize);
 }
 
 CopyScan::~CopyScan()
@@ -315,6 +338,8 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         if (isByteObj) space->byteOnly = true;
         if (space == 0)
         {
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Unable to allocate export space, size: %lu.\n", spaceWords);
             // Unable to allocate this.
             throw MemoryException();
         }
@@ -734,7 +759,11 @@ unsigned long ExportStringTable::makeEntry(const char *str)
             stringAvailable = stringSize + len + 1 + 500;
         strings = (char*)realloc(strings, stringAvailable);
         if (strings == 0)
+        {
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Unable to realloc string table, size: %lu.\n", stringAvailable);
             throw MemoryException();
+        }
      }
     strcpy(strings + stringSize, str);
     stringSize += len + 1;

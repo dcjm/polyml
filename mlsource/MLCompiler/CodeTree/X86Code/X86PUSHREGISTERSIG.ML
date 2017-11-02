@@ -1,8 +1,5 @@
 (*
-    Copyright (c) 2000
-        Cambridge University Technical Services Limited
-
-    Further work copyright David C. J. Matthews 2012, 2015-16
+    Copyright David C. J. Matthews 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,4 +15,21 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* This file intentionally left blank. *)
+signature X86PUSHREGISTERSIG =
+sig
+    type preg and x86ICode and intSet and extendedBasicBlock and basicBlock
+    and regProperty
+
+    val addRegisterPushes :
+        { code: extendedBasicBlock vector, pushVec: bool vector, pregProps: regProperty vector, firstPass: bool } ->
+            { code: basicBlock vector, pregProps: regProperty vector, maxStack: int }
+
+    structure Sharing:
+    sig
+        type x86ICode = x86ICode
+        and preg = preg
+        and extendedBasicBlock = extendedBasicBlock
+        and basicBlock = basicBlock
+        and regProperty = regProperty
+    end
+end;

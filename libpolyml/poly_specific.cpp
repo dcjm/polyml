@@ -53,7 +53,6 @@
 #include "exporter.h"
 #include "version.h"
 #include "sharedata.h"
-#include "objsize.h"
 #include "memmgr.h"
 #include "processes.h"
 #include "savestate.h"
@@ -64,6 +63,9 @@
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetABI();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableCode(PolyObject * threadId, PolyWord byteSeg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToCode(PolyObject *threadId, PolyWord byteVec);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -71,13 +73,8 @@ extern "C" {
 static const char *poly_runtime_system_copyright =
 "Copyright (c) 2002-17 David C.J. Matthews, CUTS and contributors.";
 
-#define Str(x) #x
-#define Xstr(x) Str(x)
-
-#ifdef GIT_VERSION
-#define GitVersion             Xstr(GIT_VERSION)
-#else
-#define GitVersion             ""
+#ifndef GIT_VERSION
+#define GIT_VERSION             ""
 #endif
 
 
@@ -86,17 +83,9 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
-    case 1:
-        return exportNative(taskData, args); // Export
-    case 2:
-        raise_syscall(taskData, "C Export has been withdrawn", 0);
-        return 0;
-    case 3:
-        return exportPortable(taskData, args); // Export as portable format
-
     case 9: // Return the GIT version if appropriate
         {
-             return SAVE(C_string_to_Poly(taskData, GitVersion));
+             return SAVE(C_string_to_Poly(taskData, GIT_VERSION));
         }
 
     case 10: // Return the RTS version string.
@@ -113,9 +102,11 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 11: // Return the RTS copyright string
+        // Is this used??
         return SAVE(C_string_to_Poly(taskData, poly_runtime_system_copyright));
 
     case 12: // Return the architecture
+        // Is this used??
         {
             const char *arch;
             switch (machineDependent->MachineArchitecture())
@@ -127,23 +118,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             }
             return SAVE(C_string_to_Poly(taskData, arch));
         }
-
-    case 13: // Share common immutable data.
-        {
-            ShareData(taskData, args);
-            return SAVE(TAGGED(0));
-        }
-
-    case 14:
-        return ObjSize(taskData, args);
-
-    case 15:
-        return ShowSize(taskData, args);
-
-    case 16:
-        return ObjProfile(taskData, args);
-
-    /* 17 and 18 are no longer used. */
 
     case 19: // Return the RTS argument help string.
         return SAVE(C_string_to_Poly(taskData, RTSArgHelp()));
@@ -162,10 +136,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 24: // Return the name of the immediate parent stored in a child
         return ShowParent(taskData, args);
-
-    case 25: // Old statistics - now removed
-    case 26:
-        raise_exception_string(taskData, EXC_Fail, "No statistics available");
 
     case 27: // Get number of user statistics available
         return Make_arbitrary_precision(taskData, N_PS_USER);
@@ -198,7 +168,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 34: // Return the system directory for modules.  This is configured differently
         // in Unix and in Windows.
 #if (defined(MODULEDIR))
-    return SAVE(C_string_to_Poly(taskData, Xstr(MODULEDIR)));
+    return SAVE(C_string_to_Poly(taskData, MODULEDIR));
 #elif (defined(_WIN32) && ! defined(__CYGWIN__))
         {
             // This registry key is configured when Poly/ML is installed using the installer.
@@ -231,12 +201,8 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return SAVE(C_string_to_Poly(taskData, ""));
 #endif
 
-    case 50: // GCD
-        raise_exception_string(taskData, EXC_Fail, "Old GCD call no longer used");
-    case 51: // LCM
-        raise_exception_string(taskData, EXC_Fail, "Old LCM call no longer used");
-
     case 106: // Lock a mutable code segment and return the executable address.
+            // Legacy - used by bootstrap code only
         {
             PolyObject *codeObj = args->WordP();
             if (! codeObj->IsCodeObject() || ! codeObj->IsMutable())
@@ -251,6 +217,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 107: // Copy a byte segment into the code area and make it mutable code
+              // Legacy - used by bootstrap code only
         {
             if (! args->WordP()->IsByteObject())
                 raise_fail(taskData, "Not byte data area");
@@ -267,6 +234,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 108:
         // Return the ABI.  For 64-bit we need to know if this is Windows.
+        // Legacy - used by bootstrap code only
 #if (SIZEOF_VOIDP == 8)
 #ifdef _WIN32
         return taskData->saveVec.push(TAGGED(2));
@@ -309,9 +277,92 @@ POLYUNSIGNED PolySpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord a
     else return result->Word().AsUnsigned();
 }
 
+// Return the ABI - i.e. the calling conventions used when calling external functions.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetABI()
+{
+    // Return the ABI.  For 64-bit we need to know if this is Windows.
+#if (SIZEOF_VOIDP == 8)
+#ifdef _WIN32
+    return TAGGED(2).AsUnsigned(); // 64-bit Windows
+#else
+    return TAGGED(1).AsUnsigned(); // 64-bit Unix
+#endif
+#else
+    return TAGGED(0).AsUnsigned(); // 32-bit Unix and Windows
+#endif
+}
+
+// Code generation - Code is initially allocated in a byte segment.  When all the
+// values have been set apart from any addresses the byte segment is copied into
+// a mutable code segment.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToCode(PolyObject * threadId, PolyWord byteVec)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(byteVec);
+    PolyObject *result = 0;
+
+    try {
+        if (!pushedArg->WordP()->IsByteObject())
+            raise_fail(taskData, "Not byte data area");
+        do {
+            result = gMem.AllocCodeSpace(pushedArg->WordP());
+            if (result == 0)
+            {
+                // Could not allocate - must GC.
+                if (!QuickGC(taskData, pushedArg->WordP()->Length()))
+                    raise_fail(taskData, "Insufficient memory");
+            }
+        } while (result == 0);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return ((PolyWord)result).AsUnsigned();
+}
+
+// Code generation - Lock a mutable code segment and return the original address.
+// Currently this does not allocate so other than the exception it could
+// be a fast call.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableCode(PolyObject * threadId, PolyWord byteSeg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(byteSeg);
+    Handle result = 0;
+
+    try {
+        PolyObject *codeObj = pushedArg->WordP();
+        if (!codeObj->IsCodeObject() || !codeObj->IsMutable())
+            raise_fail(taskData, "Not mutable code area");
+        POLYUNSIGNED segLength = codeObj->Length();
+        codeObj->SetLengthWord(segLength, F_CODE_OBJ);
+        // This is really a legacy of the PPC code-generator.
+        machineDependent->FlushInstructionCache(codeObj, segLength * sizeof(PolyWord));
+        // In the future it may be necessary to return a different address here.
+        // N.B.  The code area should only have execute permission in the native
+        // code version, not the interpreted version.
+        result = pushedArg; // Return the original address.
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts polySpecificEPT[] =
 {
     { "PolySpecificGeneral",            (polyRTSFunction)&PolySpecificGeneral},
+    { "PolyGetABI",                     (polyRTSFunction)&PolyGetABI },
+    { "PolyCopyByteVecToCode",          (polyRTSFunction)&PolyCopyByteVecToCode },
+    { "PolyLockMutableCode",            (polyRTSFunction)&PolyLockMutableCode },
 
     { NULL, NULL} // End of list.
 };

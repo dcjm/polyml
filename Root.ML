@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2010, 2015-16 David C. J. Matthews
+    Copyright (c) 2009, 2010, 2015-17 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,7 +20,6 @@
    It was constructed from the Poly/ML make files. *)
 PolyML.print_depth 1;
 PolyML.Compiler.reportUnreferencedIds := true;
-use "basis/RuntimeCalls.ML";
 use "mlsource/MLCompiler/Address.ML";
 use "mlsource/MLCompiler/Misc.ML";
 use "mlsource/MLCompiler/HashTable.ML";
@@ -56,11 +55,21 @@ use "mlsource/MLCompiler/Pretty.sml";
 use "mlsource/MLCompiler/CodeTree/CODE_ARRAY.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86CODESIG.sml";
 use "mlsource/MLCompiler/CodeTree/X86Code/ICodeSig.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86ICODEGENERATESIG.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86ALLOCATEREGISTERSSIG.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ICODETRANSFORMSIG.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86IDENTIFYREFSSIG.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86GETCONFLICTSETSIG.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86PUSHREGISTERSIG.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/INTSETSIG.sml";
+use "mlsource/MLCompiler/CodeTree/X86Code/IntSet.sml";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86ICode.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ICodeToX86Code.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86AllocateRegisters.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ICodeTransform.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ICodeIdentifyReferences.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86ICodeGetConflictSets.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/X86PushRegisters.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86CodetreeToICode.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86OUTPUTCODE.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86OPTIMISE.ML";

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,18 +17,18 @@
 
 signature X86ICODETRANSFORMSIG =
 sig
-    type 'reg x86ICode
-    type reg and abstract
+    type reg and preg and basicBlock and regProperty
     type address = Address.address
 
-    val codeICodeFunctionToX86: {icode: abstract x86ICode list, functionName: string, maxLabels: int, maxPRegs: int,
+    val codeICodeFunctionToX86: {blocks: basicBlock vector, functionName: string, pregProps: regProperty vector,
             argRegsUsed: reg list, hasFullClosure: bool, currentStackArgs: int,
             debugSwitches: Universal.universal list } -> address
 
     structure Sharing:
     sig
-        type 'reg x86ICode = 'reg x86ICode
-        and abstract = abstract
-        and reg   = reg
+        type preg       = preg
+        and reg         = reg
+        and basicBlock  = basicBlock
+        and regProperty = regProperty
     end
 end;

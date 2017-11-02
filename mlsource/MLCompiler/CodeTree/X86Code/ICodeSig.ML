@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,7 +55,7 @@ sig
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
-    datatype boxKind = BoxLargeWord | BoxFloat
+    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87
 
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
@@ -71,22 +71,32 @@ sig
     |   FullCall
     |   DirectReg of genReg
 
-    datatype pregKind =
-        PRegGeneral     (* A general register.  This can contain and address and be pushed to the stack. *)
-    |   PRegUntagged    (* An untagged general register. Just used for short-term storage. Not valid on the stack. *)
-
-    datatype abstract = PReg of int * pregKind (* A pseudo-register - an abstract register. *)
-
-    datatype 'reg argument =
-        RegisterArgument of 'reg
+    datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
+    
+    (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
+    datatype stackLocn = StackLoc of {size: int, rno: int }
+    
+    (* This combines pregKind and stackLocn.  *)
+    datatype regProperty =
+        RegPropGeneral      (* A general register. *)
+    |   RegPropUntagged     (* An untagged general register. *)
+    |   RegPropStack of int (* A stack location or container. *)
+    |   RegPropCacheTagged
+    |   RegPropCacheUntagged
+ 
+    datatype argument =
+        RegisterArgument of preg
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location. *)
-        (* Offset on the stack.  The "adjustment" is a temporary hack. *)
-    |   StackLocation of { wordOffset: int, adjustment: int }
+    |   MemoryLocation of { base: preg, offset: int, index: memoryIndex, cache: preg option } (* A memory location. *)
+        (* Offset on the stack.  The container is the stack location identifier, the field is an
+           offset in a container.  cache is an optional cache register. *)
+    |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
+        (* Address of a container. *)
+    |   ContainerAddr of { container: stackLocn, stackOffset: int }
 
-    and 'reg memoryIndex =
-        NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
+    and memoryIndex =
+        NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
 
     (* Kinds of moves.
        MoveWord - Move a whole word - 64-bits in 64-bit mode, 32-bits in 32-bit mode.
@@ -97,152 +107,140 @@ sig
        MoveDouble - Load and store a double-precision value. *)
     datatype moveKind =
         MoveWord | MoveByte | Move16Bit | Move32Bit | MoveFloat | MoveDouble
-
-    datatype iLabel = ILabel of int
     
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int
 
-    datatype 'reg x86ICode =
+    datatype x86ICode =
         (* Move a value into a register. *)
-        LoadArgument of { source: 'reg argument, dest: 'reg, kind: moveKind }
+        LoadArgument of { source: argument, dest: preg, kind: moveKind }
         
         (* Store a value into memory.  The source will usually be a register but could be
-           a constant depending on the value. *)
-    |   StoreArgument of { source: 'reg argument, base: 'reg, offset: int, index: 'reg memoryIndex, kind: moveKind }
+           a constant depending on the value.  If isMutable is true we're assigning to
+           a ref and we need to flush the memory cache. *)
+    |   StoreArgument of
+            { source: argument, base: preg, offset: int, index: memoryIndex, kind: moveKind, isMutable: bool }
 
         (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
-    |   LoadMemReg of { offset: int, dest: 'reg }
+    |   LoadMemReg of { offset: int, dest: preg }
 
-        (* Exchange two registers. *)
-    |   ExchangeRegisters of { regX: 'reg, regY: 'reg }
-
-        (* Start of function.  Set the register arguments. *)
-    |   BeginFunction of { regArgs: ('reg * reg) list }
+        (* Start of function.  Set the register arguments.  stackArgs is the list of
+           stack arguments.  The last entry is the return address. *)
+    |   BeginFunction of { regArgs: (preg * reg) list, stackArgs: stackLocn list }
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
            as one of the argument registers.  The result is stored in the destination register. *)
     |   FunctionCall of
-            { callKind: callKinds, regArgs: ('reg argument * reg) list,
-              stackArgs: 'reg argument list, dest: 'reg}
+            { callKind: callKinds, regArgs: (argument * reg) list,
+              stackArgs: argument list, dest: preg}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
-           address need to be overwritten.  We could actually include the
-           return address among the stackArgs but leave that for the moment.
+           address need to be overwritten.
            stackAdjust is the number of words to remove (positive) or add
-           (negative) to the stack before the call. *)
+           (negative) to the stack before the call.
+           currStackSize contains the number of items currently on the stack. *)
     |   TailRecursiveCall of
-            { callKind: callKinds, regArgs: ('reg argument * reg) list,
-              stackArgs: {src: 'reg argument, stack: int} list,
-              returnAddr: {srcStack: int, stack: int},
-              stackAdjust: int }
+            { callKind: callKinds, regArgs: (argument * reg) list,
+              stackArgs: {src: argument, stack: int} list,
+              stackAdjust: int, currStackSize: int, workReg: preg }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
            required.  This sets the length word including the flags bits.
            saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
-    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg, saveRegs: 'reg list }
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: preg, saveRegs: preg list }
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
            argument is the number of words. *)
-    |   AllocateMemoryVariable of { size: 'reg, dest: 'reg, saveRegs: 'reg list }
+    |   AllocateMemoryVariable of { size: preg, dest: preg, saveRegs: preg list }
 
         (* Initialise a piece of memory.  N.B. The size is an untagged value containing
            the number of words.  This uses REP STOSL/Q so addr must be rdi, size must be
            rcx and init must be rax. *)
-    |   InitialiseMem of { size: 'reg, addr: 'reg, init: 'reg }
+    |   InitialiseMem of { size: preg, addr: preg, init: preg }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
     |   InitialisationComplete
 
-        (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
-           The loopLabel is the start of the loop and all jumps come back to it. *)
-    |   StartLoop of { loopLabel: iLabel }
-
-        (* End a loop.  This is a marker that is used at the higher levels.
-           It doesn't generate any code. *)
-    |   EndLoop of { loopLabel: iLabel, staticRegs: 'reg list }
-
-        (* Within a loop the loop registers are updated from the source registers and
-           a jump is made back to the containing StartLoop *)
+        (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
-            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
-              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option }
+            { regArgs: (argument * preg) list, stackArgs: (argument * int * stackLocn) list,
+              checkInterrupt: preg list option, workReg: preg option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
-    |   RaiseExceptionPacket of { packet: 'reg argument }
+    |   RaiseExceptionPacket of { packetReg: preg }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
-    |   ReserveContainer of { size: int, address: 'reg }
+    |   ReserveContainer of { size: int, container: stackLocn }
 
         (* Indexed case. *)
-    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list, startValue: word }
+    |   IndexedCaseOperation of { testReg: preg, workReg: preg }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
-    |   LockMutable of { addr: 'reg }
+    |   LockMutable of { addr: preg }
 
-        (* Forward branches. *)
-    |   ForwardJumpLabel of { label: iLabel, result: 'reg option }
-    
-    |   UnconditionalForwardJump of { label: iLabel }
-
-        (* Conditional branch. *)
-    |   ConditionalForwardJump of { ccRef: ccRef, condition: branchOps, label: iLabel }
-
-        (* Compare two word values. *)
-    |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
+        (* Compare two word values.  The first argument must be a register. *)
+    |   WordComparison of { arg1: preg, arg2: argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
-    |   PushExceptionHandler of { workReg: 'reg, handleStart: iLabel }
+    |   PushExceptionHandler of { workReg: preg }
 
         (* End of a handled section.  Restore the previous handler. *)
-    |   PopExceptionHandler of { resultReg: 'reg option, workReg: 'reg }
+    |   PopExceptionHandler of { workReg: preg }
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 
-    |   BeginHandler of { handleStart: iLabel, packetReg: 'reg, workReg: 'reg }
+    |   BeginHandler of { packetReg: preg, workReg: preg }
 
         (* Return from the function. *)
-    |   ReturnResultFromFunction of { resultReg: 'reg, numStackArgs: int }
+    |   ReturnResultFromFunction of { resultReg: preg, numStackArgs: int }
     
         (* Arithmetic or logical operation.  These can set the condition codes. *)
     |   ArithmeticFunction of
-            { oper: arithOp, resultReg: 'reg, operand1: 'reg argument, operand2: 'reg argument, ccRef: ccRef }
+            { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef }
 
         (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
-    |   TestTagBit of { arg: 'reg argument, ccRef: ccRef }
+    |   TestTagBit of { arg: argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
-    |   PushValue of { arg: 'reg argument }
+    |   PushValue of { arg: argument, container: stackLocn }
+    
+        (* Copy a value to a cache register.  LoadArgument could be used for this
+           but it may be better to keep it separate. *)
+    |   CopyToCache of { source: preg, dest: preg, kind: moveKind }
 
         (* Remove items from the stack.  Added during translation phase. *)
-    |   ResetStackPtr of { numWords: int }
+    |   ResetStackPtr of { numWords: int, preserveCC: bool }
+
+        (* Store a value into the stack. *)
+    |   StoreToStack of { source: argument, container: stackLocn, field: int, stackOffset: int }
 
         (* Tag a value by shifting and setting the tag bit. *)
-    |   TagValue of { source: 'reg, dest: 'reg }
+    |   TagValue of { source: preg, dest: preg, isSigned: bool }
 
-        (* Shift a value to remove the tag bit. *)
-    |   UntagValue of { source: 'reg argument, dest: 'reg, isSigned: bool }
+        (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
+           value that has previously been tagged. *)
+    |   UntagValue of { source: preg, dest: preg, isSigned: bool, cache: preg option }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
-    |   LoadEffectiveAddress of { base: 'reg option, offset: int, index: 'reg memoryIndex, dest: 'reg }
+    |   LoadEffectiveAddress of { base: preg option, offset: int, index: memoryIndex, dest: preg }
 
         (* Shift a word by an amount that can either be a constant or a register. *)
-    |   ShiftOperation of { shift: shiftType, resultReg: 'reg, operand: 'reg argument, shiftAmount: 'reg argument, ccRef: ccRef }
+    |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef }
 
         (* Multiplication.  We can use signed multiplication for both fixed precision and word (unsigned)
            multiplication.  There are various forms of the instruction including a three-operand
            version. *)
-    |   Multiplication of { resultReg: 'reg, operand1: 'reg argument, operand2: 'reg argument, ccRef: ccRef }
+    |   Multiplication of { resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef }
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
-           puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
+           puts the quotient in RAX and remainder in RDX.  At the preg level we represent all of
            these by pRegs.  The divisor can be either a register or a memory location. *)
-    |   Division of { isSigned: bool, dividend: 'reg, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
+    |   Division of { isSigned: bool, dividend: preg, divisor: argument, quotient: preg, remainder: preg }
 
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
@@ -250,50 +248,77 @@ sig
            the source contains the old value of the destination and the destination
            has been updated with its old value added to the increment.
            The destination is actually the word pointed at by "base". *)
-    |   AtomicExchangeAndAdd of { base: 'reg, source: 'reg }
+    |   AtomicExchangeAndAdd of { base: preg, source: preg }
 
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and
            then unboxed and remove unnecessary allocation. *)
-    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg, saveRegs: 'reg list }
+    |   BoxValue of { boxKind: boxKind, source: preg, dest: preg, saveRegs: preg list }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            In general vec1Addr and vec2Addr will be pointers inside memory cells
            so have to be untagged registers. *)
     |   CompareByteVectors of
-            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg, ccRef: ccRef }
+            { vec1Addr: preg, vec2Addr: preg, length: preg, ccRef: ccRef }
 
         (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
            number of items (bytes or words) to move. *)
-    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg, isByteMove: bool }
+    |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
         (* Floating point comparison. *)
-    |   CompareFloatingPt of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
+    |   X87Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+
+        (* Floating point comparison. *)
+    |   SSE2Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
-    |   X87FPGetCondition of { ccRef: ccRef, dest: 'reg }
+    |   X87FPGetCondition of { ccRef: ccRef, dest: preg }
 
         (* Binary floating point operations on the X87. *)
-    |   X87FPArith of { opc: fpOps, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
+    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: preg, arg2: argument }
 
         (* Floating point operations: negate and set sign positive. *)
-    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: 'reg, source: 'reg argument }
+    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: preg, source: preg }
 
         (* Load a fixed point value as a floating point value. *)
-    |   FloatFixedInt of { dest: 'reg, source: 'reg argument }
+    |   X87Float of { dest: preg, source: argument }
+
+        (* Load a fixed point value as a floating point value. *)
+    |   SSE2Float of { dest: preg, source: argument }
 
         (* Binary floating point operations using SSE2 instructions. *)
-    |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
+    |   SSE2FPArith of { opc: sse2Operations, resultReg: preg, arg1: preg, arg2: argument }
 
-    val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: reg list,
-            functionName: string, debugSwitches: Universal.universal list } -> address
+        (* Destinations at the end of a basic block. *)
+    and controlFlow =
+        (* Unconditional branch to a label - should be a merge point. *)
+        Unconditional of int
+        (* Conditional branch. Jumps to trueJump if the condional is false, falseJump if false. *)
+    |   Conditional of { ccRef: ccRef, condition: branchOps, trueJump: int, falseJump: int }
+        (* Exit - the last instruction of the block is a return, raise or tailcall. *)
+    |   ExitCode
+        (* Indexed case - this branches to one of a number of labels *)
+    |   IndexedBr of int list
+        (* Set up a handler.  This doesn't cause an immediate branch but the state at the
+           start of the handler is the state at this point. *)
+    |   SetHandler of { handler: int, continue: int }
+        (* Unconditional branch to a handler.  If an exception is raised explicitly
+           within the scope of a handler. *)
+    |   UnconditionalHandle of int
+        (* Conditional branch to a handler.  Occurs if there is a call to a
+           function within the scope of a handler.  It may jump to the handler. *)
+    |   ConditionalHandle of { handler: int, continue: int }
 
-    val printICodeConcrete: reg x86ICode * (string -> unit) -> unit
-    and printICodeAbstract: abstract x86ICode * (string -> unit) -> unit
+    and basicBlock = BasicBlock of { block: x86ICode list, flow: controlFlow }
     
-    val indexRegister: 'reg memoryIndex -> 'reg option
+    (* Return the successor blocks from a control flow. *)
+    val successorBlocks: controlFlow -> int list
+
+    val printICodeAbstract: basicBlock vector * (string -> unit) -> unit
+    
+    val indexRegister: memoryIndex -> preg option
     
     (* Destinations used in move. *)
     datatype destinations = RegDest of reg | StackDest of int
@@ -301,12 +326,23 @@ sig
     structure Sharing:
     sig
         type genReg         = genReg
-        and  'reg argument  = 'reg argument
-        and  iLabel         = iLabel
-        and  'reg x86ICode  = 'reg x86ICode
+        and  argument       = argument
+        and  memoryIndex    = memoryIndex
+        and  x86ICode       = x86ICode
         and  branchOps      = branchOps
         and  reg            = reg
-        and abstract        = abstract
+        and preg            = preg
         and destinations    = destinations
-    end
+        and controlFlow     = controlFlow
+        and basicBlock      = basicBlock
+        and stackLocn       = stackLocn
+        and regProperty     = regProperty
+        and callKinds       = callKinds
+        and arithOp         = arithOp
+        and shiftType       = shiftType
+        and fpOps           = fpOps
+        and fpUnaryOps      = fpUnaryOps
+        and sse2Operations  = sse2Operations
+        and ccRef           = ccRef
+   end
 end;

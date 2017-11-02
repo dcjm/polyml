@@ -71,7 +71,6 @@ public:
     // Typically used to scan or update addresses in the mutable area.
     void ScanAddressesInRegion(PolyWord *region, PolyWord *endOfRegion);
 
-protected:
     // General object processor.
     // If the object is a word object calls ScanAddressesAt for all the addresses.
     //
@@ -85,7 +84,6 @@ protected:
 
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
-public:
     // Extract a constant from the code.
     static PolyWord GetConstantValue(byte *addressOfConstant, ScanRelocationKind code);
     // Store a constant in the code.

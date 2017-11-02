@@ -258,9 +258,14 @@ struct
         val () = PolyML.addPrettyPrinter prettyVol
     end
 
-        
-    fun foreign code args = Compat560.oldForeignGeneral(code:int,args)
-        
+    local
+        val oldForeignGeneralCall = RunCall.rtsCallFull2 "PolyForeignGeneral"
+        fun oldForeignGeneral(code: int, arg: 'a): 'b =
+            RunCall.unsafeCast(oldForeignGeneralCall(RunCall.unsafeCast(code, arg)))
+    in
+        fun foreign code args = oldForeignGeneral(code:int,args)
+    end
+
     local
         val dispatch_index = ref 0;
     in

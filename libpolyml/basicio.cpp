@@ -233,7 +233,7 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
            follow Unix here.  */
         if (err == ERROR_BROKEN_PIPE)
             return true; /* At EOF - will not block. */
-        else raiseSyscallError(taskData, err);
+        else raise_syscall(taskData, "PeekNamedPipe error", err);
         /*NOTREACHED*/
     }
 
@@ -263,7 +263,7 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
       selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
       if (selRes > 0) return true; /* Something waiting. */
       else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
-          raiseSyscallError(taskData, ERRORNUMBER);
+          raise_syscall(taskData, "select error", ERRORNUMBER);
       else return false;
 }
 
@@ -1746,7 +1746,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             // Windows has added symbolic links but reading the target is far from
             // straightforward.   It's probably not worth trying to implement this.
-            raiseSyscallMessage(taskData, "Not implemented");
+            raise_syscall(taskData, "Symbolic links are not implemented", 0);
             return taskData->saveVec.push(TAGGED(0)); /* To keep compiler happy. */
 #else
             int nLen;

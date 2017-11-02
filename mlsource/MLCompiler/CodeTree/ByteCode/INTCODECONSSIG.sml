@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,16 +21,8 @@ sig
     type address = Address.address
     type code
     type opcode
-    type addrs
     type labels
 
-    val noJump: labels
-
-    val jumpFalse  : opcode
-    val jump       : opcode
-    val setHandler : opcode
-    val delHandler : opcode
-    
     val opcode_notBoolean: opcode
     val opcode_isTagged: opcode
     and opcode_cellLength: opcode
@@ -128,24 +120,12 @@ sig
     val opcode_blockMoveByte: opcode
     val opcode_blockEqualByte: opcode
     val opcode_blockCompareByte: opcode
-    
-
-    val addrPlus  : addrs * int -> addrs
-    val addrMinus : addrs * addrs -> int
+    val opcode_deleteHandler: opcode
 
     val codeCreate: string * Universal.universal list -> code  (* makes the initial segment. *)
-  
-    (* ic - Address for the next instruction in the segment. *)
-    val ic: code -> addrs
-  
-    (* putBytes : puts "length" bytes of "val" into locations "addr", "addr"+1 *)
-    val putBytes: int * int * addrs * code -> unit
 
-   (* GEN- routines all put a value at the instruction counter and add
+    (* GEN- routines all put a value at the instruction counter and add
       an appropriate amount to it. *)
-
-   (* genWord - Puts 2 bytes. *)
-   val genWord : int * code -> unit
       
    (* gen... - put instructions and their operands. *)
    val genCallClosure : code -> unit
@@ -159,7 +139,7 @@ sig
    val genIndirect    : int * code -> unit
    val genMoveToVec   : int * code -> unit
    val genSetStackVal : int * code -> unit
-   val genCase        : int * code -> unit
+   val genCase        : int * code -> labels list
    val genTuple       : int * code -> unit
    val genTailCall    : int * int * code -> unit
 
@@ -189,20 +169,17 @@ sig
    val genTupleFromContainer : int * code -> unit
       
    (* copyCode - Finish up after compiling a function. *)
-   val copyCode : code -> address
+   val copyCode : code * int -> address
    
-   (* getBytes - gets "length" bytes from locations "addr", "addr"+1...
-      Returns a negative number if the first bit was set. *)
-   val getBytes: int * addrs * code -> int
-
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)
-   val putBranchInstruction: opcode * code -> labels
+   datatype jumpTypes = Jump | JumpFalse | SetHandler
+   val putBranchInstruction: jumpTypes * labels * code -> unit
    
-   (* Instruction to delete a handler and skip round it. *)
-   val fixup: labels * code -> unit (* Fix up a forward reference. *)
+   val createLabel: unit -> labels
    
-   val linkLabels: labels * labels * code -> labels (* Link label lists. *)
-   val jumpback: addrs * code -> unit (* Backwards jump. *)
+   (* Define the position of a label. *)
+   val setLabel: labels * code -> unit
+   
    val resetStack: int * bool * code -> unit (* Set a pending reset *)
 end ;

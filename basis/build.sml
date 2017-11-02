@@ -18,7 +18,6 @@
 
 (* Thread, Weak and Signal are Poly/ML extensions. *)
 
-val () = Bootstrap.use "basis/RuntimeCalls.ML";
 val () = Bootstrap.use "basis/InitialBasis.ML";
 val () = Bootstrap.use "basis/Universal.ML";
 val () = Bootstrap.use "basis/General.sml";
@@ -123,7 +122,7 @@ val () = Bootstrap.use "basis/SingleAssignment.sml";
 
 (* Build Windows or Unix structure as appropriate. *)
 local
-    val getOS: int = Compat560.osSpecificGeneral (0, 0)
+    val getOS: int = LibrarySupport.getOSType()
 in
     val () =
     if getOS = 0

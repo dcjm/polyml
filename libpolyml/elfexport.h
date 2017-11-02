@@ -96,7 +96,7 @@ class TaskData;
 class ELFExport: public Exporter, public ScanAddress
 {
 public:
-    ELFExport(): relocationCount(0), directReloc(0), symbolNum(0) {}
+    ELFExport(): relocationCount(0), symbolNum(0) {}
 public:
     virtual void exportStore(void);
 
@@ -110,7 +110,7 @@ private:
 private:
     void setRelocationAddress(void *p, ElfXX_Addr *reloc);
     PolyWord createRelocation(PolyWord p, void *relocAddr);
-    PolyWord writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum);
+    PolyWord writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum, bool isFuncPtr);
     void writeSymbol(const char *symbolName, long value, long size, int binding, int sttype, int section);
     unsigned long makeStringTableEntry(const char *str, ExportStringTable *stab);
     void alignFile(int align);
@@ -120,8 +120,6 @@ private:
 
     // There are two tables - one is used for section names, the other for symbol names.
     ExportStringTable symStrings, sectionStrings;
-    unsigned directReloc;
-    bool useRela; // True if we should ElfXX_Rela rather than ElfXX_Rel
     // Table and count for external references.
     ExportStringTable externTable;
     unsigned symbolNum;

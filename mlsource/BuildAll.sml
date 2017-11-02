@@ -23,8 +23,6 @@
 
 PolyML.print_depth 0;
 
-PolyML.use "basis/RuntimeCalls";
-
 PolyML.make "mlsource/MLCompiler";
 
 (* Create the initial basis *)

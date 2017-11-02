@@ -46,6 +46,16 @@ struct
     (* Property tag to indicate which arguments to a function are functions
        that are only ever called. *)
     val closureFreeArgsTag: int list Universal.tag = Universal.tag()
+    
+    datatype maybeCase =
+        IsACase of
+        {
+            cases   : (backendIC * word) list,
+            test    : backendIC,
+            caseType: caseType,
+            default : backendIC
+        }
+    |   NotACase of backendIC
 
     fun staticLinkAndCases (pt, localAddressCount) =
     let
@@ -462,7 +472,7 @@ struct
             and insertAddress{base, index, offset} =
                 {base=insert base, index=Option.map insert index, offset=offset}
 
-          and copyCond (condTest, condThen, condElse) =
+          and copyCond (condTest, condThen, condElse): maybeCase =
             let
               (* Process the then-part. *)
               val insThen = insert condThen
@@ -470,7 +480,7 @@ struct
               val insElse =
                 case condElse of
                     Cond(i, t, e) => copyCond(i, t, e)
-                |   _ => insert condElse
+                |   _ => NotACase(insert condElse)
               (* Process the condition after the then- and else-parts. *)
               val insFirst = insert condTest
           
@@ -491,33 +501,29 @@ struct
               
                |  similar _ = Different;
 
-                (* If we have a call to the int equality operation *)
-                (* then we may be able to use a case statement. *)
-                fun (*findCase (BICBuiltIn(function, argList)) =
+                (* If we have a call to the int equality operation then we may be able to use
+                   an indexed case.  N.B. This works equally for word values (unsigned) and
+                   fixed precision int (unsigned) but is unsafe for arbitrary precision since
+                   the lower levels assume that all values are tagged. *)
+                fun findCase (BICBinary{oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1, arg2}) =
                 let
-                    val isArbitrary = function = RuntimeCalls.POLY_SYS_equal_short_arb
-                    val isWord = function = RuntimeCalls.POLY_SYS_word_eq
                 in
-                    if isArbitrary orelse isWord
-                    then  (* Should be just two arguments. *)
-                    case argList of
-                        [BICConstnt(c1, _), arg2] =>
+                    case (arg1, arg2) of
+                        (BICConstnt(c1, _), arg2) =>
                         if isShort c1
-                        then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
+                        then SOME{tag=toShort c1, test=arg2, caseType = CaseWord}
                         else NONE (* Not a short constant. *)
                     
-                     | [arg1, BICConstnt(c2, _)] =>
+                     | (arg1, BICConstnt(c2, _)) =>
                         if isShort c2
-                        then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
+                        then SOME{tag=toShort c2, test=arg1, caseType = CaseWord}
                         else NONE (* Not a short constant. *)
                     
                     | _ => NONE
                        (* Wrong number of arguments - should raise exception? *)
-                
-                    else NONE (* Function is not a comparison. *)
                 end
 
-             |  *)findCase(BICTagTest { test, tag, maxTag }) =
+             |  findCase(BICTagTest { test, tag, maxTag }) =
                     SOME { tag=tag, test=test, caseType=CaseTag maxTag }
 
              |  findCase _ = NONE
@@ -527,21 +533,21 @@ struct
 
               case testCase of
                     NONE => (* Can't use a case *)
-                        BICCond (insFirst, insThen, reconvertCase insElse)
+                        NotACase(BICCond (insFirst, insThen, reconvertCase insElse))
                 |   SOME { tag=caseTags, test=caseTest, caseType=caseCaseTest } =>
                         (* Can use a case. Can we combine two cases?
                           If we have an expression like 
                                "if x = a then .. else if x = b then ..."
                           we can combine them into a single "case". *)
                         case insElse of
-                            BICCase { cases=nextCases, test=nextTest, default=nextDefault, caseType=nextCaseType } =>
+                            IsACase { cases=nextCases, test=nextTest, default=nextDefault, caseType=nextCaseType } =>
                             (
                                 case (similar(nextTest, caseTest), caseCaseTest = nextCaseType) of
                                   (* Note - it is legal (though completely redundant) for the
                                      same case to appear more than once in the list. This is not
                                       checked for at this stage. *)
                                     (Similar _, true) =>
-                                        BICCase 
+                                        IsACase 
                                         {
                                             cases   = (insThen, caseTags) ::
                                                         map (fn (c, l) => (c, l)) nextCases,
@@ -552,7 +558,7 @@ struct
 
                                     | _ => (* Two case expressions but they test different
                                               variables. We can't combine them. *)
-                                        BICCase
+                                        IsACase
                                         {
                                             cases   = [(insThen, caseTags)],
                                             test    = caseTest,
@@ -560,12 +566,12 @@ struct
                                             caseType=caseCaseTest
                                         }
                             )
-                            | _ => (* insElse is not a case *)
-                                BICCase
+                            | NotACase elsePart => (* insElse is not a case *)
+                                IsACase
                                 {
                                     cases   = [(insThen, caseTags)],
                                     test    = caseTest,
-                                    default = insElse,
+                                    default = elsePart,
                                     caseType=caseCaseTest
                                 }
             end
@@ -575,7 +581,7 @@ struct
                done at the bottom level and the choice of when to use an indexed case was
                made by the architecture-specific code-generator.  That's probably unnecessary
                and complicates the code-generator. *)
-            and reconvertCase(BICCase{cases, test, default, caseType}) =
+            and reconvertCase(IsACase{cases, test, default, caseType}) =
                 let
                     (* Count the number of cases and compute the maximum and minimum. *)
                     (* If we are testing on integers we could have negative values here.
@@ -599,7 +605,61 @@ struct
                             end
                 in
                     if useIndexedCase
-                    then BICCase{cases=cases, test=test, default=default, caseType=caseType}
+                    then
+                    let
+                        (* Create a contiguous range of labels.  Eliminate any duplicates which are
+                           legal but redundant. *)
+                        local
+                            val labelCount = List.length cases
+                            (* Add an extra field before sorting which retains the ordering for
+                               equal labels. *)
+                            val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
+                            fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
+                                if w1 = w2 then n1 <= n2 else w1 < w2
+                            val sorted = List.map #1 (Misc.quickSort leq ordered)
+                            (* Filter out any duplicates. *)
+                            fun filter [] = []
+                            |   filter [p] = [p]
+                            |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
+                                    if lab1 = lab2
+                                    then p :: filter tl
+                                    else p :: filter (q :: tl)
+                        in
+                            val cases = filter sorted
+                        end
+
+                        val (isExhaustive, min, max) =
+                            case caseType of
+                                CaseTag max => (true, 0w0, max)
+                            |   _ =>
+                                let
+                                    val (_, aLabel) = hd cases
+                                    fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                                    val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                                in
+                                    (false, min, max)
+                                end
+
+                        (* Create labels for each of the cases.  Fill in any gaps with entries that
+                           will point to the default.  We have to be careful if max happens to be
+                           the largest value of Word.word.  In that case adding one to the range
+                           will give us a value less than max. *)
+                        fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
+                            if indexVal + min = caseValue
+                            then SOME c :: extendCase(indexVal+0w1, cps)
+                            else NONE :: extendCase(indexVal+0w1, cl)
+
+                        |   extendCase(indexVal, []) =
+                            (* We may not be at the end if this came from a CaseTag *)
+                                if indexVal > max-min
+                                then []
+                                else NONE :: extendCase(indexVal+0w1, [])
+
+                        val fullCaseRange = extendCase(0w0, cases)
+                        val _ = Word.fromInt(List.length fullCaseRange) = max-min+0w1 orelse raise InternalError "Cases"
+                    in
+                        BICCase{cases=fullCaseRange, test=test, default=default, isExhaustive=isExhaustive, firstIndex=min}
+                    end
                     else
                     let
                         fun reconvert [] = default
@@ -607,10 +667,7 @@ struct
                             let
                                 val test =
                                     case caseType of
-                                        CaseInt => raise InternalError "reconvertCase"
-                                            (*mkEval(BICConstnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
-                                                   [test, BICConstnt(toMachineWord t, [])])*)
-                                    |   CaseWord =>
+                                        CaseWord =>
                                             BICBinary{
                                                 oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
                                                 arg1=test, arg2=BICConstnt(toMachineWord t, [])}
@@ -622,7 +679,7 @@ struct
                         reconvert cases
                     end
                 end
-            |   reconvertCase t = t (* Just a simple conditional. *)
+            |   reconvertCase (NotACase t) = t (* Just a simple conditional. *)
             
 
             (* If "makeClosure" is true the function will need a full closure.

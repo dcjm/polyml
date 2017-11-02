@@ -43,7 +43,8 @@ in
     (* XWindows/Motif *)
     val () =
     let
-        val xcall: int*int->int*int = Compat560.xWindowsGeneral
+        val xWindowsGeneralCall = RunCall.rtsCallFull1 "PolyXWindowsGeneral"
+        val xcall: int*int->int*int = xWindowsGeneralCall
         (* See if the RTS supports the X GetTimeOfDay call. *)
         val isX = (xcall(30, 0); true) handle _ => false
     in

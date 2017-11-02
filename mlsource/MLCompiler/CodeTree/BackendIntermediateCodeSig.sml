@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016 David C.J. Matthews
+    Copyright (c) 2012, 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -56,10 +56,11 @@ sig
 
     |   BICCase of (* Case expressions *)
         {
-            cases   : (backendIC * word) list,
+            cases   : backendIC option list, (* NONE means "jump to the default". *)
             test    : backendIC,
-            caseType: caseType,
-            default : backendIC
+            default : backendIC,
+            isExhaustive: bool,
+            firstIndex: word
         }
     
     |   BICBeginLoop of (* Start of tail-recursive inline function. *)
@@ -101,8 +102,7 @@ sig
     |   BICDecContainer of { addr: int, size: int } (* Create a container for a tuple on the stack. *)
 
     and caseType =
-        CaseInt
-    |   CaseWord
+        CaseWord        (* Word or fixed-precision integer. *)
     |   CaseTag of word
 
     and bicLoadForm =

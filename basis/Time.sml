@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Time Signature and structure.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005
+    Copyright   David Matthews 2000, 2005, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,7 +17,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* G&R 2004 status: updated. *)
 
 signature TIME =
 sig
@@ -60,8 +58,13 @@ struct
     type time = LargeInt.int (* Becomes abstract *)
     exception Time
 
-    val doTiming: int*int->time = Compat560.timingGeneral
-    fun callTiming (code: int) args = doTiming (code,args);
+    local
+        val timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
+        fun timingGeneral(code: int, arg:'a):'b =
+            RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
+    in
+        fun callTiming (code: int) args = timingGeneral (code,args)
+    end
 
     (* Get the number of ticks per microsecond and compute the corresponding
        values for milliseconds and seconds. *)

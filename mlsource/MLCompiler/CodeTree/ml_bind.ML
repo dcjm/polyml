@@ -18,20 +18,8 @@
 *)
 
 local
-    structure StronglyConnectMutuals =
-        StronglyConnected(
-            structure Graph =
-                struct
-                    open BaseCodeTree
-                    type node = { addr: int, lambda: lambdaForm, use: codeUse list }
-                    fun nodeAddress({addr, ...}: node) = addr
-                    and arcs({lambda={closure, ...}, ...}: node) =
-                        List.foldl(fn (LoadLocal addr, l) => addr :: l | (_, l) => l) [] closure
-                end
-            )
-
     structure CodetreeFunctions =
-        CODETREE_FUNCTIONS(structure BASECODETREE = BaseCodeTree and STRONGLY = StronglyConnectMutuals)
+        CODETREE_FUNCTIONS(structure BASECODETREE = BaseCodeTree and STRONGLY = StronglyConnected)
 
     structure CodetreeBackend =
         CODETREE_STATIC_LINK_AND_CASES(
