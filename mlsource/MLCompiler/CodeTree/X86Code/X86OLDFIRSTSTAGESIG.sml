@@ -18,6 +18,7 @@
 signature X86OLDFIRSTSTAGESIG =
 sig
     type code
+    type ttab
     eqtype reg
     val regClosure:  reg
     val regStackPtr: reg
@@ -56,10 +57,10 @@ sig
     val storeToHandler: reg -> operations
     val allocStore: { size: int, flags: Word8.word, output: reg, saveRegs: RegSet.regSet } -> operations
     val allocationComplete: operations
-    val backJumpLabel: unit -> operations * backwardLabel
+    val backJumpLabel: ttab -> operations * backwardLabel
     val forwardJumpLabel: forwardLabel -> operations
     val indexedCase:
-            { testReg: reg, workReg: reg, minCase: word, maxCase: word,
+            { ttab: ttab, testReg: reg, workReg: reg, minCase: word, maxCase: word,
               isArbitrary: bool, isExhaustive: bool } -> operations * forwardLabel list * forwardLabel
     
     datatype callKinds =
@@ -72,11 +73,10 @@ sig
     val jumpToFunction: callKinds  -> operations
 
     val codeCreate: string * Address.machineWord * Universal.universal list -> code  (* makes the initial segment. *)
-    val copyCode: code * operations * int * bool * reg list -> Address.address
+    val copyCode: ttab * code * operations * int * bool * reg list -> Address.address
 
     type regSet = RegSet.regSet
     type machineWord = Address.machineWord
-    type ttab
     type loopPush
     type addrs
     type savedState
@@ -191,7 +191,7 @@ sig
     and negativeReal: stackIndex * ttab * regHint -> operation list * mergeResult
     and integerToReal: stackIndex * ttab * regHint -> operation list * mergeResult
 
-    val testOverflow: unit -> operation list (* Raise Overflow if the overflow flag is set. *)
+    val testOverflow: ttab -> operation list (* Raise Overflow if the overflow flag is set. *)
     and branchOnOverflow: ttab -> labels * operation list
     
     val fixedPointOperation:

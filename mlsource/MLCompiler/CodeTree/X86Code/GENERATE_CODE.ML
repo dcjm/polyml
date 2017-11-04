@@ -82,10 +82,11 @@ struct
 
     |   OGCCase of (* Case expressions *)
         {
-            cases   : (oldGenCodeIC * word) list,
+            cases   : oldGenCodeIC option list,
             test    : oldGenCodeIC,
-            caseType: caseType,
-            default : oldGenCodeIC
+            default : oldGenCodeIC,
+            isExhaustive: bool,
+            firstIndex: word
         }
     
     |   OGCBeginLoop of (* Start of tail-recursive inline function. *)
@@ -610,7 +611,7 @@ struct
 
                 |   insert(BICTagTest{test, tag, maxTag}) = OGCTagTest{test=insert test, tag=tag, maxTag=maxTag}
             
-                |   insert(BICCase{cases, test, caseType, default}) =
+                |   insert(BICCase{cases, test, default, isExhaustive, firstIndex}) =
                     let
                         (* We need to compute the usages for each of the branches: i.e. the
                            default plus each of the cases.  Because they are done in parallel
@@ -621,22 +622,22 @@ struct
                         val insDefault = insert default
                         val defaultUsage = saveUsages()
                         val () = setToSaved usagesAfterCase
-                        fun processCase(c, tag) =
+                        fun processCase (SOME c) =
                         let
                             val () = setToSaved usagesAfterCase
                             val insCase = insert c
                             val caseUsage = saveUsages()
                         in
-                            ((insCase, tag), caseUsage)
+                            (SOME insCase, caseUsage)
                         end
+                        |   processCase NONE = (NONE, defaultUsage)
                         val (caseList, usageList) = ListPair.unzip (List.map processCase cases)
                         val kills = computeKillSetLists(defaultUsage :: usageList)
-                        val casePlusKills = ListPair.mapEq(fn ((c, t), k) => (addKillSet(c, k), t)) (caseList, tl kills)
+                        val casePlusKills = ListPair.mapEq(fn (SOME c, k) => SOME(addKillSet(c, k)) | (NONE, _) => NONE) (caseList, tl kills)
                         (* Restore the overall usage by setting the reference to the union of all the branches. *)
                         val () = List.app addFromSaved(defaultUsage :: usageList)
                     in
-                        OGCCase{cases=casePlusKills, test=insert test, caseType=caseType,
-                             default=addKillSet(insDefault, hd kills)}
+                        OGCCase{cases=casePlusKills, test=insert test, default=addKillSet(insDefault, hd kills), isExhaustive=isExhaustive, firstIndex=firstIndex}
                     end
 
                 |   insert(BICLoadOperation{kind, address}) = OGCLoadOperation{address=copyAddress address, kind=kind}
@@ -799,6 +800,7 @@ struct
     (* Code generate a function or global declaration *)
     fun codegen
        (pt               : oldGenCodeIC,
+        transtable,
         declOnPrevLevel  : oldGenCodeLoadForm * (unit -> stackIndex * operations) * ttab -> stackIndex * operations,
         closureLifetime  : int,
         argTypes         : argumentType list,
@@ -815,8 +817,6 @@ struct
            and the result.  This separates them out. *)
         fun cgAndRes(opCode, result) = (codeGenerate(opCode, cvec); result)
 
-        (* make the translation table *)
-        val transtable = ttabCreate(localCount, debugSwitches)
         (* Map from declaration location to pstack entry. *)
         val decToPstack  = Array.array (localCount, noIndex)
 
@@ -1125,15 +1125,15 @@ struct
 
                 |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2} =>
                         cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
-                                                     oper=ADD, checkOverflow=testOverflow})
+                                                     oper=ADD, checkOverflow=fn () => testOverflow transtable})
 
                 |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2} =>
                         cgAndRes(fixedPointOperation{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
-                                                     oper=SUB, checkOverflow=testOverflow})
+                                                     oper=SUB, checkOverflow=fn () => testOverflow transtable})
 
                 |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithMult, arg1, arg2} =>
                         cgAndRes(multiplyFixed{arg1=genToStack arg1, arg2=genToStack arg2, transtable=transtable, whereto=whereto,
-                                               checkOverflow=testOverflow})
+                                               checkOverflow=fn () => testOverflow transtable})
 
                 |   OGCBinary{oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithQuot, arg1, arg2} =>
                         cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -1664,7 +1664,7 @@ struct
                             val (argDestList, clearOps) = getLoopDestinations(argIndexList, transtable)
                             val () = codeGenerate(clearOps, cvec)
                             (* Start of loop.  This is where we jump to if the loop is taken. *)
-                            val (startLoopCode, startLoop) = backJumpLabel()
+                            val (startLoopCode, startLoop) = backJumpLabel transtable
                             val () = codeGenerate(startLoopCode, cvec)
                             val startSp = realstackptr transtable
                             val cacheSet = ref noRegisters and pushList = ref []
@@ -1889,44 +1889,10 @@ struct
                         mergeRes
                     end
 
-                |   OGCCase {cases, test, default, caseType} =>
+                |   OGCCase {cases, test, default, isExhaustive, firstIndex} =>
                     let
-                        (* Cases are constructed by the optimiser out of if-then-else expressions. *)                
+                       (* Cases are constructed by the optimiser out of if-then-else expressions. *)                
                         val whereto = chooseMergeRegister(whereto, tailKind)
-                
-                        (* Sort the cases into ascending order.  It's possible that we may have
-                           duplicates if this came from an if-then-else construction so we
-                           need to retain the ordering for items with the same case label. *)
-                        local
-                            val labelCount = List.length cases
-                            (* Add an extra field before sorting which retains the ordering for
-                               equal labels. *)
-                            val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
-                            fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
-                                if w1 = w2 then n1 <= n2 else w1 < w2
-                            val sorted = List.map #1 (Misc.quickSort leq ordered)
-                            (* Filter out any duplicates. *)
-                            fun filter [] = []
-                            |   filter [p] = [p]
-                            |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
-                                    if lab1 = lab2
-                                    then p :: filter tl
-                                    else p :: filter (q :: tl)
-                        in
-                            val cases = filter sorted
-                        end
-
-                        val (isExhaustive, min, max) =
-                            case caseType of
-                                CaseTag max => (true, 0w0, max)
-                            |   _ =>
-                                let
-                                    val (_, aLabel) = hd cases
-                                    fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                                    val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
-                                in
-                                    (false, min, max)
-                                end
                         val testValue = genToStack (test)
                         val mark = markStack transtable
 
@@ -1937,9 +1903,9 @@ struct
                         val (workReg, regCode) = getRegisterInSet(transtable, generalRegisters)
 
                         val (indexCaseInstr, caseLabels, defaultLabel) =
-                            indexedCase{testReg=testReg, workReg=workReg, minCase=min, maxCase=max, 
-                                    isArbitrary = case caseType of CaseInt => true | _ => false,
-                                    isExhaustive=isExhaustive}
+                            indexedCase{ttab=transtable, testReg=testReg, workReg=workReg, minCase=firstIndex,
+                                        maxCase=firstIndex + Word.fromInt(List.length cases) - 0w1, 
+                                        isArbitrary = false, isExhaustive = isExhaustive}
 
                         val () = codeGenerate(indexCaseInstr @ regCode @ testCode, cvec)
                         val () = codeGenerate(removeStackEntry (transtable, testIndex), cvec)
@@ -1947,8 +1913,7 @@ struct
 
                         val startOfCase = saveState transtable
 
-                        (* Put in the default case.  Even when the case is exhaustive one entry is
-                           always treated as a default and not included in the list of cases. *)
+                        (* Put in the default case. *)
                         local
                             (* We have to set "branched" to true before calling fixup. *)
                             val () = exiting transtable
@@ -1957,22 +1922,12 @@ struct
 
                             (* Go down the list of cases and fix up any default labels to come here.
                                Default entries are represented by "holes" in the case list. *)
-                            fun genDefaults(indexVal, label :: labelList, cl as ((_, caseLabel) :: cps)) =
-                                if indexVal = caseLabel
-                                then genDefaults(indexVal+0w1, labelList, cps)
-                                else
-                                (
-                                    codeGenerate(forwardJumpLabel label, cvec);
-                                    genDefaults(indexVal+0w1, labelList, cl)
-                                ) 
-                            |   genDefaults(indexVal, label :: labelList, []) =
-                                (
-                                    codeGenerate(forwardJumpLabel label, cvec);
-                                    genDefaults(indexVal+0w1, labelList, [])
-                                )
-                            |   genDefaults(_, [], _) = ()
-                    
-                            val () = genDefaults(min, caseLabels, cases)
+                            local
+                                fun cgDef (label, NONE) = codeGenerate(forwardJumpLabel label, cvec)
+                                |   cgDef _ = ()
+                            in
+                                val () = ListPair.appEq cgDef (caseLabels, cases)
+                            end
 
                             val defaultRes =
                                 genToRegister (default, whereto, tailKind, loopAddr);
@@ -1999,11 +1954,9 @@ struct
                         end
 
                         (* Generate the cases. *)
-                        fun genCases(indexVal, label :: labelList, (caseExp, caseLabel) :: cps) =
-                            if indexVal <> caseLabel
-                            then (* We have a hole.  Skip this item. *)
-                                genCases(indexVal+0w1, labelList, (caseExp, caseLabel) :: cps)
-                            else (* The index value corresponds to a label. *)
+                        fun genCases(_ :: labelList, NONE :: cps) = genCases(labelList, cps)
+
+                        |   genCases(label :: labelList, SOME caseExp :: cps) =
                             let
                                 val startCode = fixup(makeLabels(NoMerge, label, startOfCase), transtable)
                                 val () = codeGenerate(startCode, cvec)
@@ -2016,9 +1969,12 @@ struct
                                 val () =
                                     if isEndOfProc tailKind andalso not (haveExited transtable)
                                     then codeGenerate(exit (), cvec)
-                                    else ();
+                                    else ()
+                                
+                                val finished = 
+                                    not(isSome(List.find (fn SOME _ => true | NONE => false) cps))
                             in
-                                if null cps
+                                if finished
                                 then (*  Finished. *) expResult (* Last expression. *)
                                 else
                                 let
@@ -2031,7 +1987,7 @@ struct
                                                 codeGenerate(removeStackEntry(transtable, expIndex), cvec)
                                         |   NoMerge => ();
 
-                                    val lastResult = genCases(indexVal+0w1, labelList, cps)
+                                    val lastResult = genCases(labelList, cps)
                                     val (mergeRes, mergeCode) = (* Now fix up the exit label. *)
                                         merge (lab, transtable, lastResult, mark)
                                     val () = codeGenerate(mergeCode, cvec)
@@ -2039,9 +1995,10 @@ struct
                                     mergeRes
                                 end
                             end
-                        | genCases _ = raise InternalError "genCase - null case list"
 
-                        val caseResult = genCases(min, caseLabels, cases)
+                        |   genCases _ = raise InternalError "genCase - null case list"
+
+                        val caseResult = genCases(caseLabels, cases)
                         val (mergeRes, mergeCode) = merge (exitDefault, transtable, caseResult, mark)
                         val () = codeGenerate(mergeCode, cvec)
                     in
@@ -2257,12 +2214,14 @@ struct
                     raise InternalError "genProc: previous: NotConst"
            |    previous _ = raise InternalError "previous: local"
   
+            (* make the translation table *)
+            val newtable = ttabCreate(localCount, debugSwitches)
             val (ops, maxStack, callsAFunction, saveRegs) = 
-                    codegen (lambdaBody, previous,
+                    codegen (lambdaBody, newtable, previous,
                         0, (* Discard regClosure *) argTypes, argLifetimes, resultType,
                         localCount, profileObject, debugSwitches)
         
-            val codeAddr = copyCode (newCode, ops, maxStack, callsAFunction, saveRegs)
+            val codeAddr = copyCode (newtable, newCode, ops, maxStack, callsAFunction, saveRegs)
             val () = Address.assignWord(closure, 0w0, Address.toMachineWord codeAddr)
             val () = Address.lock closure
             val result = pushConst (transtable, Address.toMachineWord closure)
@@ -2321,12 +2280,13 @@ struct
             val profileObject = createProfileObject lambdaName
             val newCode = codeCreate (lambdaName, profileObject, debugSwitches)
     
+            val newtable = ttabCreate(localCount, debugSwitches)
             val (ops, maxStack, callsAFunction, saveRegs) = (* code-gen function *)
-                codegen (lambdaBody, previous,
+                codegen (lambdaBody, newtable, previous,
                     closureRefs, argTypes, argLifetimes, resultType, localCount,
                     profileObject, debugSwitches)
 
-            val codeAddr = copyCode (newCode, ops, maxStack, callsAFunction, saveRegs)
+            val codeAddr = copyCode (newtable, newCode, ops, maxStack, callsAFunction, saveRegs)
     
             val res = Address.toMachineWord codeAddr
 
@@ -3333,14 +3293,15 @@ struct
         val profileObject = createProfileObject name
         val newCode = codeCreate (name, profileObject, debugSwitches); 
 
+        val newtable = ttabCreate(localCount, debugSwitches)
         val (ops, maxStack, callsAFunction, saveRegs) =
             codegen
-                (body,
+                (body, newtable,
                 fn (_ , _, newtab) => (pushConst (newtab, toMachineWord closure), []),
                 0, (* Discard regClosure *)
                 argTypes, argLifetimes, resultType, localCount, profileObject, debugSwitches)
 
-        val codeAddr = copyCode (newCode, ops, maxStack, callsAFunction, saveRegs)
+        val codeAddr = copyCode (newtable, newCode, ops, maxStack, callsAFunction, saveRegs)
     in
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure

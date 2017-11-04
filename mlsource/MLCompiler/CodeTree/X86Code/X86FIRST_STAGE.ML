@@ -31,7 +31,9 @@ functor X86FIRST_STAGE (
 	    type code
 	    type operations = operation list
 
-	    val optimise: code * operations -> operations
+        type address = Address.address
+
+        val generateCode: {code: code, ops: operations, labelCount: int} -> address
 
 	    structure Sharing:
 	    sig
@@ -224,7 +226,8 @@ struct
         markReal:     int ref,
         lowestDirect: stackIndex ref,
         pstackTrace:  bool,
-        printStream:  string->unit
+        printStream:  string->unit,
+        labelCtr:     int ref
     }
 
     fun ttabCreate(localCount, debugSwitches) =
@@ -246,12 +249,15 @@ struct
             markReal     = ref 0,
             lowestDirect = ref first,
             pstackTrace  = false (*DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches*),
-            printStream  = printStream
+            printStream  = printStream,
+            labelCtr     = ref 0
         }
     end
 
     fun pstackEntry (Ttab{pstack, ...}, locn) = StretchArray.sub(pstack, locn)
     and setPstackEntry(Ttab{pstack, ...}, locn, entry) = StretchArray.update(pstack, locn, entry)
+    
+    fun mkLabel(Ttab{labelCtr, ...}) = Label{labelNo= !labelCtr} before labelCtr := !labelCtr + 1
 
     (* Returns the entry after removing the option type. *)
     fun pstackRealEntry (ttab, locn) =
@@ -415,16 +421,11 @@ struct
     and jumpToFunction v = [JumpToFunction v]
     and returnFromFunction v = [ReturnFromFunction v]
 
-    and indexedCase { testReg=GenReg testR, workReg =GenReg workR, minCase, maxCase, isArbitrary, isExhaustive } =
+    and indexedCase { ttab, testReg=GenReg testR, workReg =GenReg wReg, minCase, maxCase, isExhaustive, ... } =
     let
-        val defaultLab as Labels{uses=defUses, ...} = mkLabel()
-        fun makeLab _ =
-        let
-            val lab as Labels{uses, ...} = mkLabel()
-        in
-            uses := 1;
-            lab
-        end
+        val defaultLab = mkLabel ttab
+        fun makeLab _ = mkLabel ttab
+
         val indexLabels =
             List.tabulate(Word.toInt(maxCase-minCase+0w1), makeLab)
         val testCode =
@@ -432,17 +433,6 @@ struct
             then []
             else
             let
-                (* If this is an arbitrary precision int we need to check it's short
-                   and go to the default if it isn't. *)
-                val testTag =
-                    if isArbitrary
-                    then
-                    (
-                        defUses := 3;
-                        [ConditionalBranch{test=JE, predict=PredictNotTaken, label=defaultLab},
-                         TestTagR testR]
-                    )
-                    else (defUses := 2; [])
                 (* Range checks. *)
                 val range1 =
                     [ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab},
@@ -451,10 +441,17 @@ struct
                     [ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLab},
                      ArithToGenReg{ opc=CMP, output=testR, source=NonAddressConstArg(tag(Word.toLargeInt maxCase)) }]
             in
-                range2 @ range1 @ testTag
+                range2 @ range1
             end
-        val code = [IndexedCase{testReg=testR, workReg=workR, min=minCase, cases=indexLabels}] @ testCode
-    in
+        
+        val startJumpTable = mkLabel ttab
+        (* We use JumpToFunction even though we're not actually going to a new function. *)
+        val jumpSize = ref JumpSize8
+        val code =
+            JumpTable{cases=indexLabels, jumpSize=jumpSize} :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
+                IndexedJumpCalc{ addrReg=wReg, indexReg=testR, jumpSize=jumpSize } ::
+                LoadLabelAddress{label=startJumpTable, output=wReg} :: testCode
+in
         (code, indexLabels, defaultLab)
     end
     |   indexedCase _ = raise InternalError "indexedCase"
@@ -467,7 +464,7 @@ struct
        after branches which puts them in the wrong position. *)
     and activeRegister _ = []
     and freeRegister r =
-        if r ins floatingPtRegisters then [FreeRegisters(singleton r)] else []
+        if r ins floatingPtRegisters then [(*FreeRegisters(singleton r)*)] else []
 
     and moveRegisterToRegister(GenReg source, GenReg output) =
         [MoveToRegister{source=RegisterArg source, output=output}]
@@ -535,31 +532,29 @@ struct
 
     fun resetStack 0 = []
     |   resetStack n =
-        if n < 0 then raise InternalError "resetStack: negative" else [ResetStack n]
+        if n < 0 then raise InternalError "resetStack: negative" else [ResetStack{numWords=n, preserveCC=false}]
 
     val raiseException = [RaiseException]
     
     val pushToReserveSpace = pushConstantToStack(toMachineWord 0)
 
-    fun uncondBranch() =
+    fun uncondBranch ttab =
     let
-        val label as Labels{uses, ...} = mkLabel()
+        val label = mkLabel ttab
     in
-        uses := 1;
         ([UncondBranch label], label)
     end
 
-    fun condBranch(test, predict) =
+    fun condBranch(ttab, test, predict) =
     let
-        val label as Labels{uses, ...} = mkLabel()
+        val label = mkLabel ttab
     in
-        uses := 1;
         ([ConditionalBranch{test=test, predict=predict, label=label}], label)
     end
 
-    fun backJumpLabel() =
+    fun backJumpLabel ttab =
     let
-        val loopLabel = mkLabel()
+        val loopLabel = mkLabel ttab
     in
         ([JumpLabel loopLabel], loopLabel)
     end
@@ -572,22 +567,12 @@ struct
     
     val pushCurrentHandler = [PushToStack(MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex})]
 
-    fun loadHandlerAddress v = [LoadHandlerAddress v]
-
-    (* Start of handler.  Set the label, reload esp from the handler register, remove the handler
-       address and restore old handler. *)
-    and startHandler v =
-        storeToHandler ebx @
-        [ ResetStack 2, MoveToRegister{source=MemoryArg{base=esp, offset=wordSize, index=NoIndex}, output=ebx }]
-        @ loadCurrentHandler esp @ [StartHandler v]
-
     fun isPushI _ = true
     
     (* Code to raise the overflow exception if the overflow flag is set. *)
-    fun testOverflow() =
+    fun testOverflow ttab =
     let
-        val label as Labels{uses, ...} = mkLabel()
-        val () = uses := 1
+        val label = mkLabel ttab
     in
         [
             JumpLabel label,
@@ -606,7 +591,7 @@ struct
     val minStackCheck = 20
   
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun copyCode (cvec, operations, stackRequired, callsAProc, saveRegs) : address =
+    fun copyCode (ttab as Ttab{labelCtr, ...}, cvec, operations, stackRequired, callsAProc, saveRegs) : address =
     let
         val saveGenRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) saveRegs
         (* Prelude consists of stack checking code.  N.B.  This is added on
@@ -616,7 +601,7 @@ struct
             fun testRegAndTrap(reg, entryPt) =
             let
                 (* Normally we won't have a stack overflow so we will skip the check. *)
-                val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
+                val (skipCheck, skipCheckLab) = condBranch(ttab, JNB, PredictTaken)
            in
                 [ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex }}] @
                 skipCheck @ [CallRTS{rtsEntry=entryPt, saveRegs=saveGenRegs}] @ forwardJumpLabel skipCheckLab
@@ -641,7 +626,7 @@ struct
 
         (* The code is in reverse order.  Reverse it and put the prelude first. *)
     in
-        createCodeSegment(X86OPTIMISE.optimise(cvec, preludeCode @ List.rev operations), cvec)
+        X86OPTIMISE.generateCode{code=cvec, ops=preludeCode @ List.rev operations, labelCount= !labelCtr}
     end
 
     fun free ({freeRegs, vec, ...}) reg =
@@ -2529,7 +2514,7 @@ struct
     else
     let
         val state = saveState table
-        val (branchCode, label) = uncondBranch()
+        val (branchCode, label) = uncondBranch table
     in
         branched := true;
         (makeLabels(result, label, state), branchCode)
@@ -2556,11 +2541,10 @@ struct
         ]
     end*)
 
-    fun jumpBack(start as Labels{uses=startUses, ...}, Ttab { branched, ...}): operation list =
+    fun jumpBack(start, Ttab { branched, ...}): operation list =
     (
         branched := true;
         (* Check for interrupts when jumping backwards. *)
-        startUses := !startUses+1;
         [
             UncondBranch start
         ]
@@ -3178,7 +3162,7 @@ struct
         end;
     end;
   
-    type handler = { lab: addrs ref, oldps: stackIndex };
+    type handler = { lab: label, oldps: stackIndex };
   
     (* Push the address of a handler. *)
     fun pushAddress (table as Ttab{pstackptr, ...}, offset) =
@@ -3186,20 +3170,20 @@ struct
         (* This is just after a mark. *)
         val (reg, regCode) = getAnyRegister table
         val oldps = ! pstackptr
-        val labelRef = ref addrZero
+        val labelRef = mkLabel table
 
         (* Load the address of the handler into a register. *)
-        val loadCode = loadHandlerAddress{ handlerLab=labelRef, output=reg}
+        val loadCode = LoadLabelAddress{ label=labelRef, output=reg}
         val regEntry = pushReg(table, GenReg reg)
 
         (* Push it onto the stack at the specific offset. *)
         val (pushedEntry, pushCode) = pushValueToStack (table, regEntry, offset)
     in
-        (pushedEntry, {lab = labelRef, oldps = oldps}, pushCode @ loadCode @ regCode)
+        (pushedEntry, {lab = labelRef, oldps = oldps}, pushCode @ loadCode :: regCode)
     end
 
     (* Fixup the address at the start of a handler. *)
-    fun fixupH ({lab, oldps}, oldsp, table as Ttab{branched, exited, pstackptr, realstackptr, ...}) =
+    fun fixupH ({lab, oldps}: handler, oldsp, table as Ttab{branched, exited, pstackptr, realstackptr, ...}) =
     let 
         val clear = clearCache table (* Don't know the registers here. *)
     in
@@ -3210,7 +3194,9 @@ struct
         (* Remove any entries above the old pstack pointer. If the expression
            whose exceptions we are handling contained static-link functions
            there may be entries whose use-counts have not gone to zero. *)
-        startHandler{ handlerLab=lab} @
+        storeToHandler ebx @
+        [ ResetStack{numWords=2, preserveCC=false}, MoveToRegister{source=MemoryArg{base=esp, offset=wordSize, index=NoIndex}, output=ebx }]
+        @ loadCurrentHandler esp @ [JumpLabel lab] @
             revfoldIndDownTo(fn s => fn l => removeEntry(table, s, false) @ l, [], ! pstackptr - 1, oldps) @
                 clear
     end
@@ -4636,8 +4622,6 @@ struct
                 |   (ActInRegisterSet s1, ActInRegisterSet s2) =>
                     let
                         val reg1 = chooseGenReg s1 and reg2 = chooseGenReg s2
-                        val Labels{uses, ...} = destLabel
-                        val () = uses := !uses+1
                     in
                         actionDone{ outReg=NONE,
                                     operation=
@@ -4648,8 +4632,6 @@ struct
                 |   (ActInRegisterSet s1, ActLiteralSource constnt) =>
                     let
                         val reg1 = chooseGenReg s1
-                        val Labels{uses, ...} = destLabel
-                        val () = uses := !uses+1
                     in
                         actionDone{ outReg=NONE,
                                     operation=
@@ -4663,8 +4645,6 @@ struct
                 |   (ActLiteralSource constnt, ActInRegisterSet s2) =>
                     let
                         val reg2 = chooseGenReg s2
-                        val Labels{uses, ...} = destLabel
-                        val () = uses := !uses+1
                         val revTest = reverseTestOp testType
                     in
                         actionDone{ outReg=NONE,
@@ -4680,8 +4660,6 @@ struct
                 |   (ActInRegisterSet s1, Act(base, offset)) =>
                     let
                         val reg1 = chooseGenReg s1
-                        val Labels{uses, ...} = destLabel
-                        val () = uses := !uses+1
                     in
                         actionDone{ outReg=NONE,
                                     operation=
@@ -4692,8 +4670,6 @@ struct
                 |   (Act(base, offset), ActInRegisterSet s2) =>
                     let
                         val reg2 = chooseGenReg s2
-                        val Labels{uses, ...} = destLabel
-                        val () = uses := !uses+1
                         val revTest = reverseTestOp testType
                     in
                         actionDone{ outReg=NONE,
@@ -4709,8 +4685,6 @@ struct
                             constant area.  That requires memory addressing and we don't have
                             memory-memory comparison operations. *)
                     let
-                        val Labels{uses, ...} = destLabel
-                        val () = uses := !uses+1
                     in
                         actionDone{ outReg=NONE,
                                     operation=
@@ -4728,8 +4702,6 @@ struct
                     if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
                     then
                     let
-                        val Labels{uses, ...} = destLabel
-                        val () = uses := !uses+1
                         val revTest = reverseTestOp testType
                     in
                         actionDone{ outReg=NONE,
@@ -4751,29 +4723,27 @@ struct
                 |   testActions _ _  = raise InternalError "testActions"
                 
 
-            fun makeBranch testType () =
+            fun makeBranch (ttab, testType) () =
             let
-                val destLabel = mkLabel()
+                val destLabel = mkLabel ttab
             in
                 (testActions(testType, destLabel), destLabel)
             end
 
-            fun lengthTest test () =
+            fun lengthTest (ttab, test) () =
             let
-                val destLabel as Labels{uses, ...} = mkLabel()
+                val destLabel = mkLabel ttab
                 fun testActions (tArgs as (table, [arg], _)) =
                 (
                     case argAsSource table arg of
                         ActInRegisterSet regs =>
                         (
-                            uses := !uses+1;
                             actionDone { outReg=NONE,
                                 operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
                                            TestTagR(chooseGenReg regs)]} tArgs
                         )
                     |   Act(base, offset) =>
                         (
-                            uses := !uses+1;
                             actionDone { outReg=NONE,
                                 operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
                                            TestByteMem{base=base, offset=offset, bits=0w1}]} tArgs
@@ -4791,31 +4761,31 @@ struct
 
          in
             fun notEqualWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JNE, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JNE), transtable)
             and equalWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JE, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JE), transtable)
             and greaterOrEqualWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JNB, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JNB), transtable)
             and greaterThanWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JA, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JA), transtable)
             and lessOrEqualWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JNA, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JNA), transtable)
             and lessThanWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JB, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JB), transtable)
 
             fun greaterOrEqualFixed(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JGE, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JGE), transtable)
             and greaterThanFixed(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JG, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JG), transtable)
             and lessOrEqualFixed(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JLE, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JLE), transtable)
             and lessThanFixed(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch JL, transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JL), transtable)
 
             fun testShortInt(arg, transtable) =
-                compareAndBranch ([arg], lengthTest JNE, transtable)
+                compareAndBranch ([arg], lengthTest(transtable, JNE), transtable)
             and testNotShortInt(arg, transtable) =
-                compareAndBranch ([arg], lengthTest JE, transtable)
+                compareAndBranch ([arg], lengthTest(transtable, JE), transtable)
         end
 
         local
@@ -4850,15 +4820,10 @@ struct
 
             |   generateByteVec _ _ = raise InternalError "generateByteVec"
  
-            fun genByteVec (test, bOffsetL, bOffsetR) () =
+            fun genByteVec (ttab, test, bOffsetL, bOffsetR) () =
             let
-                val destLabel as Labels{uses, ...} = mkLabel()
-                fun doTest () =
-                let
-                    val () = uses := !uses+1
-                in
-                    [ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral }]
-                end
+                val destLabel = mkLabel ttab
+                fun doTest () = [ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral }]
                 
                 fun generateCode (operands, _) =
                     actionDone{ outReg=NONE, operation=generateByteVec(doTest, bOffsetL, bOffsetR) (List.map valOf operands) }
@@ -4881,18 +4846,13 @@ struct
             
             (* This is almost the same as genByteVec but that generates a test for equality and this
                generates a result value or -1, 0, +1 depending on the order. *)
-            fun genByteVecCompare (bOffsetL, bOffsetR) (args, SOME(GenReg resultReg)) =
+            fun genByteVecCompare (ttab, bOffsetL, bOffsetR) (args, SOME(GenReg resultReg)) =
                 let
-                    val labLess as Labels{uses=useLess, ...} = mkLabel()
-                    and labGtr as Labels{uses=useGtr, ...} = mkLabel()
-                    val labExit as Labels{uses=useExit, ...} = mkLabel()
+                    val labLess = mkLabel ttab
+                    and labGtr = mkLabel ttab
+                    val labExit = mkLabel ttab
                     
                     fun doTest() =
-                    let
-                        val _ = useLess := !useLess+1
-                        and _ = useGtr := !useGtr+1
-                        and _ = useExit := !useExit+2 (* Used twice. *)
-                    in
                         [
                             JumpLabel labExit,
                             MoveToRegister{source=NonAddressConstArg(tag 1), output=resultReg},
@@ -4905,7 +4865,6 @@ struct
                             ConditionalBranch{test=JG, label=labGtr, predict=PredictNeutral},
                             ConditionalBranch{test=JL, label=labLess, predict=PredictNeutral}
                         ]
-                    end
                 in
                     generateByteVec (doTest, bOffsetL, bOffsetR) args
                 end
@@ -4918,19 +4877,19 @@ struct
                             loadToRegOrLiteral(generalRegisters, false, 2,
                                 loadToRegOrLiteral(generalRegisters, false, 3,
                                     getResultRegister(generalRegisters,
-                                        generateInstruction(genByteVecCompare(bOffsetL, bOffsetR))))))))
+                                        generateInstruction(genByteVecCompare(transtable, bOffsetL, bOffsetR))))))))
                                     ([NONE, NONE, NONE, NONE, NONE], NONE) (transtable, args, whereto)
         in
             fun testByteVecEq{left={base=baseL, index=indexL, byteOffset=bOffsetL},
                               right={base=baseR, index=indexR, byteOffset=bOffsetR},
                               length, transtable} =
                 compareAndBranch ([baseL, baseR, indexL, indexR, length],
-                        genByteVec(JE, Word.toInt bOffsetL, Word.toInt bOffsetR), transtable)
+                        genByteVec(transtable, JE, Word.toInt bOffsetL, Word.toInt bOffsetR), transtable)
             and testByteVecNe{left={base=baseL, index=indexL, byteOffset=bOffsetL},
                               right={base=baseR, index=indexR, byteOffset=bOffsetR},
                               length, transtable} =
                 compareAndBranch ([baseL, baseR, indexL, indexR, length],
-                        genByteVec(JNE, Word.toInt bOffsetL, Word.toInt bOffsetR), transtable)
+                        genByteVec(transtable, JNE, Word.toInt bOffsetL, Word.toInt bOffsetR), transtable)
             
             fun byteVecComparison{left={base=baseL, index=indexL, byteOffset=bOffsetL},
                                   right={base=baseR, index=indexR, byteOffset=bOffsetR},
@@ -4945,14 +4904,12 @@ struct
         end
         
         local
-            fun makeBranchLarge testType () =
+            fun makeBranchLarge (transtable, testType) () =
             let
-                val destLabel = mkLabel()
+                val destLabel = mkLabel transtable
                 
                 fun genLargeWordCompare([InRegister(GenReg arg1Reg), InRegister(GenReg arg2Reg)]) =
                     let
-                        val Labels{uses, ...} = destLabel
-                        val () = uses := !uses+1
                     in
                         (* TODO: This could be improved.  For the moment we load both arguments into
                            registers and use a modifiable reg for the first arg.  Then we load the
@@ -4977,17 +4934,17 @@ struct
             end
         in
             fun notEqualLargeWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranchLarge JNE, transtable)
+                compareAndBranch ([arg1, arg2], makeBranchLarge(transtable, JNE), transtable)
             and equalLargeWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranchLarge JE, transtable)
+                compareAndBranch ([arg1, arg2], makeBranchLarge(transtable, JE), transtable)
             and greaterOrEqualLargeWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranchLarge JNB, transtable)
+                compareAndBranch ([arg1, arg2], makeBranchLarge(transtable, JNB), transtable)
             and greaterThanLargeWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranchLarge JA, transtable)
+                compareAndBranch ([arg1, arg2], makeBranchLarge(transtable, JA), transtable)
             and lessOrEqualLargeWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranchLarge JNA, transtable)
+                compareAndBranch ([arg1, arg2], makeBranchLarge(transtable, JNA), transtable)
             and lessThanLargeWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranchLarge JB, transtable)
+                compareAndBranch ([arg1, arg2], makeBranchLarge(transtable, JB), transtable)
         end
 
         local
@@ -5018,7 +4975,7 @@ struct
                         actionDone{ outReg=outputReg, operation=genInstr(ops, outputReg) } tArgs
                     end
 
-            fun genTest(opc, destLabel as Labels{uses, ...}) ([arg1, arg2], _) =
+            fun genTest(opc, destLabel) ([arg1, arg2], _) =
                 let
                     (* We need one argument at the top of the stack.  The second
                        can be anywhere.  The order depends on the operation. *)
@@ -5055,8 +5012,6 @@ struct
                         |   JNB => c0 orb c2
                         |   JNA => c0 orb c2
                         |   _ => raise InternalError "testActions"
-
-                    val () = uses := !uses+1
                 in
                     [ConditionalBranch { test=if opc = JNE then JNE else JE, label=destLabel, predict=PredictNeutral }] @
                     (* We use these operations to set the condition codes.
@@ -5075,9 +5030,9 @@ struct
                 end
             | genTest _ _ = raise InternalError "genTest"
 
-            fun fpTests opc (): nextAction * label =
+            fun fpTests (ttab, opc) (): nextAction * label =
             let
-                val destLabel = mkLabel()
+                val destLabel = mkLabel ttab
             in
                 (* We need eax as a work register. *)
                 (actionGetWorkReg{regSet=singleton(GenReg eax),
@@ -5184,7 +5139,7 @@ struct
                     in
                         [
                             FPStoreToFPReg{output=output, andPop=true}, (* Store into dest. *)
-                            ResetStack 1, (* Remove - it's not an address. *)
+                            ResetStack{numWords=1, preserveCC=false}, (* Remove - it's not an address. *)
                             FPLoadInt{base=regStackPtr, offset=0},
                             PushToStack(RegisterArg source), (* Push to the stack. *)
                             ShiftConstant{shiftType=SAR, output=source, shift=0w1} (* Untag *)
@@ -5205,17 +5160,17 @@ struct
             end
 
             fun notEqualReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JNE, transtable)
+                compareAndBranch ([arg1, arg2], fpTests(transtable, JNE), transtable)
             and equalReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JE, transtable)
+                compareAndBranch ([arg1, arg2], fpTests(transtable, JE), transtable)
             and greaterOrEqualReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JNB, transtable)
+                compareAndBranch ([arg1, arg2], fpTests(transtable, JNB), transtable)
             and greaterThanReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JA, transtable)
+                compareAndBranch ([arg1, arg2], fpTests(transtable, JA), transtable)
             and lessOrEqualReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JNA, transtable)
+                compareAndBranch ([arg1, arg2], fpTests(transtable, JNA), transtable)
             and lessThanReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JB, transtable)
+                compareAndBranch ([arg1, arg2], fpTests(transtable, JB), transtable)
         end
 
         local
@@ -5368,8 +5323,7 @@ struct
         (* Check for overflow - used with fixedPointOperation for arbitrary precision. *)
         fun branchOnOverflow table =
         let
-            val destLabel as Labels{uses, ...} = mkLabel()
-            val () = uses := 1
+            val destLabel = mkLabel table
             val code =
                 [ConditionalBranch { test=JO, label=destLabel, predict=PredictNotTaken }]
         in
@@ -5525,7 +5479,7 @@ struct
             [
                 (* Add back the tag, but don't shift. *)
                 ArithToGenReg{opc=ADD, output=eax, source=NonAddressConstArg 1},
-                MultiplyRR{source=edx, output=eax},
+                MultiplyR{source=RegisterArg edx, output=eax},
                 (* Shift down the multiplier. *)
                 ShiftConstant{shiftType=SHR, output=edx, shift=0w1 },
                 (* Untag, but don't shift the multiplicand. *)
@@ -5597,7 +5551,7 @@ struct
                         (* Add back the tag, but don't shift. *)
                         [ ArithToGenReg{opc=ADD, output=m1, source=NonAddressConstArg 1}] @ checkOverflow() @
                         [
-                            MultiplyRR{source=m2, output=m1},
+                            MultiplyR{source=RegisterArg m2, output=m1},
                             (* Shift down the multiplier. *)
                             ShiftConstant{shiftType=SAR, output=m2, shift=0w1 },
                             (* Untag, but don't shift the multiplicand. *)
@@ -6061,7 +6015,7 @@ struct
                     [
                         StoreInitialised,
                         StoreRegToMemory { toStore=arg1Reg, address={base=output, offset=0, index=NoIndex}},
-                        MultiplyRM{ output=arg1Reg, offset=0, base=arg2Reg },
+                        MultiplyR{ output=arg1Reg, source=MemoryArg{offset=0, base=arg2Reg, index=NoIndex} },
                         MoveToRegister{source=MemoryArg{base=arg1Reg, offset=0, index=NoIndex}, output=arg1Reg }
                     ] @
                     allocStore{size=1, flags=F_bytes, output=output, saveRegs=saveRegs}
