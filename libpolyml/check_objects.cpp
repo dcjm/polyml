@@ -46,7 +46,8 @@
 
 static void CheckAddress(PolyWord *pt)
 {
-    MemSpace *space = gMem.SpaceForAddress(pt-1);
+    PolyObject *obj = (PolyObject*)pt;
+    MemSpace *space = gMem.SpaceForObjectAddress(obj);
     if (space == 0)
     {
         Log("Check: Bad pointer %p (no space found)\n", pt);
@@ -54,7 +55,6 @@ static void CheckAddress(PolyWord *pt)
     }
     if (space->spaceType == ST_STACK) // This may not have valid length words.
         return;
-    PolyObject *obj = (PolyObject*)pt;
     ASSERT(obj->ContainsNormalLengthWord());
     POLYUNSIGNED length = obj->Length();
     if (pt+length > space->top)
@@ -95,7 +95,7 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
 
     PolyWord *pt  = (PolyWord*)base;
     CheckAddress(pt);
-    MemSpace *space = gMem.SpaceForAddress(pt-1);
+    MemSpace *space = gMem.SpaceForObjectAddress(base);
     if (space == 0)
         Crash ("Bad pointer 0x%08" PRIxPTR " found", (uintptr_t)pt);
 

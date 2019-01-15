@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010-13, 2016-17
+    and David C. J. Matthews 2006, 2010-13, 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -414,7 +414,7 @@ POLYUNSIGNED DepthVector::MergeSameItems()
             // If we can't find a permanent space choose a space that isn't
             // an allocation space.  Otherwise we could break the invariant
             // that immutable areas never point into the allocation area.
-            MemSpace *space = gMem.SpaceForAddress((PolyWord*)ptrVector[j]-1);
+            MemSpace *space = gMem.SpaceForObjectAddress(ptrVector[j]);
             if (bestSpace == 0)
             {
                 bestShare = ptrVector[j];
@@ -721,7 +721,7 @@ POLYUNSIGNED ProcessAddToVector::AddPolyWordToDepthVectors(PolyWord old)
 // grow.
 POLYUNSIGNED ProcessAddToVector::AddObjectToDepthVector(PolyObject *obj)
 {
-    MemSpace *space = gMem.SpaceForAddress(((PolyWord*)obj)-1);
+    MemSpace *space = gMem.SpaceForObjectAddress(obj);
     if (space == 0)
         return 0;
 

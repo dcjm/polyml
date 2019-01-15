@@ -116,7 +116,7 @@ void shareWith(PolyObject *objToSet, PolyObject *objToShare)
     // We need to remove the bit from this so that we know it's not
     // a share chain.
     PolyWord *lengthWord = ((PolyWord*)objToSet) - 1;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+    LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(objToSet);
     ASSERT(space);
     PLocker locker(&space->bitmapLock);
     ASSERT(space->bitmap.TestBit(space->wordNo(lengthWord)));
@@ -134,7 +134,7 @@ typedef enum { REALOBJECT, FORWARDED, CHAINED } objectState;
 objectState getObjectState(PolyObject *p)
 {
     PolyWord *lengthWord = ((PolyWord*)p) - 1;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+    LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(p);
     if (space == 0)
         return REALOBJECT; // May be the address of a permanent or something else.
     PLocker locker(&space->bitmapLock);
@@ -256,7 +256,7 @@ bool GetSharing::TestForScan(PolyWord *pt)
         ASSERT(p.IsDataPtr());
         obj = p.AsObjPtr();
         PolyWord *lengthWord = ((PolyWord*)obj) - 1;
-        LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+        LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(obj);
         if (space == 0)
             return false; // Ignore it if it points to a permanent area
 
@@ -284,7 +284,7 @@ void GetSharing::MarkAsScanning(PolyObject *obj)
 {
     ASSERT(obj->ContainsNormalLengthWord());
     PolyWord *lengthWord = ((PolyWord*)obj) - 1;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+    LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(obj);
     ASSERT(! space->bitmap.TestBit(space->wordNo(lengthWord)));
     space->bitmap.SetBit(space->wordNo(lengthWord));
 }
@@ -297,8 +297,7 @@ void GetSharing::Completed(PolyObject *obj)
     // will be mutable so would be ignored but cells that have been
     // locked will now be immutable.  The test in TestForScan is bypassed
     // by ScanAddressesInRegion.
-    PolyWord *lengthWord = ((PolyWord*)obj) - 1;
-    if (gMem.LocalSpaceForAddress(lengthWord) == 0)
+    if (gMem.LocalSpaceForObjectAddress(obj) == 0)
         return;
 
     POLYUNSIGNED L = obj->LengthWord();

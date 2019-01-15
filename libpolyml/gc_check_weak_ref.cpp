@@ -64,16 +64,14 @@ void MTGCCheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
     /* to be closed if there is no other reference to them.                */
     
     PolyObject *val = *pt;
-    PolyWord w = val;
-    
     if (weak == STRENGTH_STRONG)
         return;
 
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(w.AsStackAddr()-1);
+    LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(val);
     if (space == 0)
         return; // Not in local area
     // If it hasn't been marked set it to zero.
-    if (! space->bitmap.TestBit(space->wordNo(w.AsStackAddr())))
+    if (! space->bitmap.TestBit(space->wordNo(((PolyWord)(val)).AsStackAddr())))
          *pt = 0;
 }
 
@@ -90,7 +88,7 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
         PolyWord someAddr = baseAddr[i];
         if (someAddr.IsDataPtr())
         {
-            LocalMemSpace *someSpace = gMem.LocalSpaceForAddress(someAddr.AsStackAddr()-1);
+            LocalMemSpace *someSpace = gMem.LocalSpaceForObjectAddress(someAddr.AsObjPtr());
             if (someSpace != 0)
             {
                 PolyObject *someObj = someAddr.AsObjPtr();
@@ -108,7 +106,7 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
                 else
                 {
                     // Usual case: the contents of the SOME cell is the address of a ref.
-                    LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsStackAddr());
+                    LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(refAddress.AsObjPtr());
                     if (space != 0) // If the ref is permanent it's always there.
                     {
                         uintptr_t new_bitno = space->wordNo(refAddress.AsStackAddr());

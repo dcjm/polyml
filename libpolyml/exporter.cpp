@@ -280,7 +280,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
 POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 {
     PolyObject *obj = *pt;
-    MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj - 1);
+    MemSpace *space = gMem.SpaceForObjectAddress(obj);
     ASSERT(space != 0);
     // We may sometimes get addresses that have already been updated
     // to point to the new area.  e.g. (only?) in the case of constants
@@ -515,7 +515,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
         PolyObject *forwardedTo;
 #ifdef POLYML32IN64
         {
-            MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj - 1);
+            MemSpace *space = gMem.SpaceForObjectAddress(obj);
             if (space->isCode)
                 forwardedTo = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
             else forwardedTo = obj->GetForwardingPtr();
@@ -524,7 +524,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
         forwardedTo = obj->GetForwardingPtr();
 #endif
         POLYUNSIGNED length = GetObjLength(forwardedTo);
-        MemSpace *space = gMem.SpaceForAddress((PolyWord*)forwardedTo-1);
+        MemSpace *space = gMem.SpaceForObjectAddress(forwardedTo);
         if (space->spaceType == ST_EXPORT)
             obj->SetLengthWord(length);
         return length;

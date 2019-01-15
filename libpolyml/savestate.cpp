@@ -405,7 +405,7 @@ PolyObject *SaveFixupAddress::ScanObjectAddress(PolyObject *obj)
     if (obj->ContainsForwardingPtr()) // tombstone is a pointer to a moved object
     {
 #ifdef POLYML32IN64
-        MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj - 1);
+        MemSpace *space = gMem.SpaceForObjectAddress(obj);
         PolyObject *newp;
         if (space->isCode)
             newp = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
@@ -435,7 +435,7 @@ void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
         PolyObject *dest = obj;
         while (dest->ContainsForwardingPtr())
         {
-            MemSpace *space = gMem.SpaceForAddress((PolyWord*)dest - 1);
+            MemSpace *space = gMem.SpaceForObjectAddress(dest);
             if (space->isCode)
                 dest = (PolyObject*)(globalCodeBase + ((dest->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
             else dest = dest->GetForwardingPtr();

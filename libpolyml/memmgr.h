@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010-12, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-12, 2016-19 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -299,12 +299,21 @@ public:
         return 0;
     }
 
-    // Find a local address for a space.
-    // N.B.  The argument should generally be the length word.  See
-    // comment on SpaceForAddress.
-    LocalMemSpace *LocalSpaceForAddress(const void *pt) const
+    // Cell addresses point after the length word of the cell.
+    // A cell of size zero which occupies the last word of a segment
+    // will have an address which points to the base of the next
+    // segment.  We have to point to the base of the length word.
+    // N.B.  The cast to PolyWord* is essential.
+    MemSpace *SpaceForObjectAddress(const PolyObject *obj) const
     {
-        MemSpace *s = SpaceForAddress(pt);
+        PolyWord *lengthWordPtr = ((PolyWord*)obj) - 1;
+        return SpaceForAddress(lengthWordPtr);
+    }
+
+    // Find a local address for a space.
+    LocalMemSpace *LocalSpaceForObjectAddress(const PolyObject *obj) const
+    {
+        MemSpace *s = SpaceForObjectAddress(obj);
         if (s != 0 && s->spaceType == ST_LOCAL)
             return (LocalMemSpace*)s;
         else return 0;

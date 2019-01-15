@@ -2200,7 +2200,7 @@ void IntTaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpa
 {
     if (! val.IsDataPtr()) return;
 
-    MemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr()-1);
+    MemSpace *space = gMem.LocalSpaceForObjectAddress(val.AsObjPtr());
     if (space != 0)
         val = process->ScanObjectAddress(val.AsObjPtr());
 }

@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011-12, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12, 2016-19 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
