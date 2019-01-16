@@ -253,6 +253,11 @@ public:
     // it may set this thread (or other threads) to raise an exception.
     PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg);
 
+#ifdef POLYML32IN64
+    // Get space for allocating pairs.  Just sets the allocation pointers.
+    virtual bool GetPairAllocationSpace(TaskData *taskData);
+#endif
+
     // Find a task that matches the specified identifier and returns
     // it if it exists.  MUST be called with schedLock held.
     TaskData *TaskForIdentifier(PolyObject *taskId);
@@ -817,6 +822,13 @@ TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), 
     threadHandle = 0;
 #endif
     threadExited = false;
+#ifdef POLYML32IN64
+    pairAllocPointer = 0;
+    pairAllocLimit = 0;
+    pairAllocSize = MIN_HEAP_SIZE;
+    pairAllocCount = 0;
+#endif
+
 }
 
 TaskData::~TaskData()
@@ -1119,6 +1131,100 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
     }
 }
 
+#ifdef POLYML32IN64
+// Get space for allocating pairs.  Just sets the allocation pointers.
+// This is only used in SetMemRegisters.
+// This code be merged with the above.
+bool Processes::GetPairAllocationSpace(TaskData *taskData)
+{
+    bool triedInterrupt = false;
+
+    while (1)
+    {
+        // After a GC allocPointer and allocLimit are zero and when allocating the
+        // heap segment we request a minimum of zero words.
+        if (taskData->pairAllocPointer != 0 && taskData->pairAllocPointer >= taskData->pairAllocLimit + 2)
+            return true; // There's sufficient space.
+        else // Insufficient space in this area. 
+        {
+            // Get another heap segment with enough space for this object.
+            uintptr_t requestSpace = taskData->pairAllocSize + 2;
+            uintptr_t spaceSize = requestSpace;
+            // Get the space and update spaceSize with the actual size.
+            PolyWord *space = gMem.AllocHeapSpace(2*2, spaceSize);
+            if (space)
+            {
+                // Double the allocation size for the next time if
+                // we succeeded in allocating the whole space.
+                taskData->pairAllocCount++;
+                if (spaceSize == requestSpace) taskData->pairAllocSize = taskData->pairAllocSize * 2;
+                // Don't use the bottom cell.  We mustn't have a pointer to the base of the area because
+                // then we wouldn't know if we had a pointer to the cell or a pointer to a zero-sized
+                // cell at the top of the segment below.
+                taskData->pairAllocLimit = space+2;
+                taskData->pairAllocPointer = space + spaceSize;
+                // Fill the space with tagged zeros.  This may not be necessary but
+                // maintains the invariant that the space is filled with valid cells.
+                for (PolyWord *p = space; p < taskData->pairAllocPointer; p++)
+                    *p = TAGGED(0);
+                return true;
+            }
+
+            // It's possible that another thread has requested a GC in which case
+            // we will have memory when that happens.  We don't want to start
+            // another GC.
+            if (!singleThreaded)
+            {
+                PLocker locker(&schedLock);
+                if (threadRequest != 0)
+                {
+                    ThreadReleaseMLMemoryWithSchedLock(taskData);
+                    ThreadUseMLMemoryWithSchedLock(taskData);
+                    continue; // Try again
+                }
+            }
+
+            // Try garbage-collecting.  If this failed return 0.
+            if (!QuickGC(taskData, 2))
+            {
+                extern FILE *polyStderr;
+                if (!triedInterrupt)
+                {
+                    triedInterrupt = true;
+                    fprintf(polyStderr, "Run out of store - interrupting threads\n");
+                    if (debugOptions & DEBUG_THREADS)
+                        Log("THREAD: Run out of store, interrupting threads\n");
+                    BroadcastInterrupt();
+                    try {
+                        if (ProcessAsynchRequests(taskData))
+                            return 0; // Has been interrupted.
+                    }
+                    catch (KillException &)
+                    {
+                        // The thread may have been killed.
+                        ThreadExit(taskData);
+                    }
+                    // Not interrupted: pause this thread to allow for other
+                    // interrupted threads to free something.
+#if defined(_WIN32)
+                    Sleep(5000);
+#else
+                    sleep(5);
+#endif
+                    // Try again.
+                }
+                else {
+                    // That didn't work.  Exit.
+                    fprintf(polyStderr, "Failed to recover - exiting\n");
+                    RequestProcessExit(1); // Begins the shutdown process
+                    ThreadExit(taskData); // And terminate this thread.
+                }
+            }
+            // Try again.  There should be space now.
+        }
+    }
+}
+#endif
 #ifdef _MSC_VER
 // Don't tell me that exitThread has a non-void type.
 #pragma warning(disable:4646)
@@ -2122,6 +2228,11 @@ void TaskData::GarbageCollect(ScanAddress *process)
     // The allocation spaces are no longer valid.
     allocPointer = 0;
     allocLimit = 0;
+#ifdef POLYML32IN64
+    pairAllocPointer = 0;
+    pairAllocLimit = 0;
+#endif
+
     // Divide the allocation size by four. If we have made a single allocation
     // since the last GC the size will have been doubled after the allocation.
     // On average for each thread, apart from the one that ran out of space

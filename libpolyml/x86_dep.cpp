@@ -180,7 +180,7 @@ public:
     uintptr_t       saveCStack;         // Saved C stack frame.
     PolyWord        threadId;           // My thread id.  Saves having to call into RTS for it.
     stackItem       *stackPtr;          // Current stack pointer
-    byte            *noLongerUsed;      // Now removed
+    PolyWord        *pairLocalMBottom;  // Limit when allocating pairs.  Unused except in 32-in-64.
     byte            *heapOverFlowCall;  // These are filled in with the functions.
     byte            *stackOverFlowCall;
     byte            *stackOverFlowCallEx;
@@ -216,6 +216,9 @@ public:
     X86TaskData();
     unsigned allocReg; // The register to take the allocated space.
     POLYUNSIGNED allocWords; // The words to allocate.
+#ifdef POLYML32IN64
+    bool allocPair; // True if we're trying to allocate a pair
+#endif
     Handle callBackResult;
     AssemblyArgs assemblyInterface;
     int saveRegisterMask; // Registers that need to be updated by a GC.
@@ -345,6 +348,9 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
     savedErrno = 0;
+#ifdef POLYML32IN64
+    allocPair = false;
+#endif
 }
 
 void X86TaskData::GarbageCollect(ScanAddress *process)
@@ -875,8 +881,42 @@ void X86TaskData::SetMemRegisters()
     if (this->allocPointer == 0) this->allocPointer += MAX_OBJECT_SIZE;
     if (this->allocLimit == 0) this->allocLimit += MAX_OBJECT_SIZE;
 
+#ifdef POLYML32IN64
+    if (this->pairAllocPointer <= this->pairAllocLimit + (this->allocPair ? 2:0))
+    {
+        if (this->pairAllocPointer < this->pairAllocLimit)
+            Crash("Bad length in heap overflow trap");
+
+        if (!processes->GetPairAllocationSpace(this))
+        {
+            // We will now raise an exception instead of returning.
+            // Set allocPair to false so we don't set the allocation register
+            // since that could be holding the exception packet.
+            this->allocPair = false;
+        }
+    }
+
+    if (this->allocPair)
+    {
+        // If we have had a heap trap we actually do the allocation here.
+        // We will have already garbage collected and recovered sufficient space.
+        // This also happens if we have just trapped because of store profiling.
+        this->pairAllocPointer -= 2; // Now allocate
+        if (this->allocReg < 14)
+            get_reg(this->allocReg)[0].codeAddr = (POLYCODEPTR)(this->pairAllocPointer + 1); /* remember: it's off-by-one */
+        this->allocPair = false;
+    }
+
+    if (this->pairAllocPointer == 0) this->pairAllocPointer += MAX_OBJECT_SIZE;
+    if (this->pairAllocLimit == 0) this->pairAllocLimit += MAX_OBJECT_SIZE;
+
+    this->assemblyInterface.p_r14.codeAddr = (POLYCODEPTR)this->pairAllocPointer;
+    this->assemblyInterface.pairLocalMBottom = this->pairAllocLimit;
+#endif
+
     this->assemblyInterface.localMbottom = this->allocLimit + 1;
     this->assemblyInterface.localMpointer = this->allocPointer + 1;
+
     // If we are profiling store allocation we set mem_hl so that a trap
     // will be generated.
     if (profileMode == kProfileStoreAllocation)
@@ -894,6 +934,10 @@ void X86TaskData::SaveMemRegisters()
     this->allocWords = 0;
     this->assemblyInterface.exceptionPacket = TAGGED(0);
     this->saveRegisterMask = 0;
+#ifdef POLYML32IN64
+    this->pairAllocPointer = (PolyWord*)this->assemblyInterface.p_r14.codeAddr;
+    this->allocPair = false;
+#endif
 }
 
 // Called on a GC or stack overflow trap.  The register mask

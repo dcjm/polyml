@@ -2,7 +2,7 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007-8, 2012, 2015, 2017 David C.J. Matthews
+    Copyright (c) 2007-8, 2012, 2015, 2017, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -148,6 +148,12 @@ public:
     PolyWord    *allocLimit;    // ... lower limit of allocation
     POLYUNSIGNED allocSize;     // The preferred heap segment size
     unsigned    allocCount;     // The number of allocations since the last GC
+#ifdef POLYML32IN64
+    PolyWord    *pairAllocPointer; // As above specifically for pairs
+    PolyWord    *pairAllocLimit;
+    POLYUNSIGNED pairAllocSize;
+    unsigned    pairAllocCount;
+#endif
     StackSpace  *stack;
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
@@ -334,6 +340,11 @@ public:
     // If the allocation succeeds it may update the allocation values in the taskData object.
     // If the heap is exhausted it may set this thread (or other threads) to raise an exception.
     virtual PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg) = 0;
+
+#ifdef POLYML32IN64
+    // Get space for allocating pairs.  Just sets the allocation pointers.
+    virtual bool GetPairAllocationSpace(TaskData *taskData) = 0;
+#endif
 
     // Signal handling support.  The ML signal handler thread blocks until it is
     // woken up by the signal detection thread.
