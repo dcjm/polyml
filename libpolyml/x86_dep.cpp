@@ -903,7 +903,7 @@ void X86TaskData::SetMemRegisters()
         // This also happens if we have just trapped because of store profiling.
         this->pairAllocPointer -= 2; // Now allocate
         if (this->allocReg < 14)
-            get_reg(this->allocReg)[0].codeAddr = (POLYCODEPTR)(this->pairAllocPointer + 1); /* remember: it's off-by-one */
+            get_reg(this->allocReg)[0].codeAddr = (POLYCODEPTR)this->pairAllocPointer;
         this->allocPair = false;
     }
 
@@ -911,7 +911,9 @@ void X86TaskData::SetMemRegisters()
     if (this->pairAllocLimit == 0) this->pairAllocLimit += MAX_OBJECT_SIZE;
 
     this->assemblyInterface.p_r14.codeAddr = (POLYCODEPTR)this->pairAllocPointer;
-    this->assemblyInterface.pairLocalMBottom = this->pairAllocLimit;
+    if (profileMode == kProfileStoreAllocation)
+        this->assemblyInterface.pairLocalMBottom = this->pairAllocPointer;
+    else this->assemblyInterface.pairLocalMBottom = this->pairAllocLimit;
 #endif
 
     this->assemblyInterface.localMbottom = this->allocLimit + 1;
@@ -1026,31 +1028,32 @@ void X86TaskData::HeapOverflowTrap(byte *pcPtr)
     /* length in words, including length word */
 
     ASSERT (wordsNeeded <= (1<<24)); /* Max object size including length/flag word is 2^24 words.  */
+    if (profileMode == kProfileStoreAllocation)
+        addProfileCount(wordsNeeded);
+    this->allocWords = wordsNeeded; // The actual allocation is done in SetMemRegisters.
 #else /* HOSTARCHITECTURE_X86_64 */
-    ASSERT(pcPtr[1] == 0x89 || pcPtr[1] == 0x8b);
-    if (pcPtr[1] == 0x89)
+    bool isGeneralAlloc = true;
+    ASSERT(pcPtr[1] == 0x89);  // New (5.4) format.  This should be movq REG,%r15
+    ASSERT(pcPtr[0] == 0x49 || pcPtr[0] == 0x4d);
+    this->allocReg = (pcPtr[2] >> 3) & 7; // Remember this until we allocate the memory
+    if (pcPtr[0] & 0x4) this->allocReg += 8;
+    stackItem *reg = get_reg(this->allocReg);
+    stackItem reg_val = *reg;
+    if ((pcPtr[2] & 7) == 6) // r14 - pair allocation
     {
-        // New (5.4) format.  This should be movq REG,%r15
-        ASSERT(pcPtr[0] == 0x49 || pcPtr[0] == 0x4d);
-        mdTask->allocReg = (pcPtr[2] >> 3) & 7; // Remember this until we allocate the memory
-        if (pcPtr[0] & 0x4) mdTask->allocReg += 8;
+        this->allocPair = true;
+        if (profileMode == kProfileStoreAllocation)
+            addProfileCount(2);
     }
     else
     {
-        // Alternative form of movq REG,%r15
-        ASSERT(pcPtr[0] == 0x4c || pcPtr[0] == 0x4d);
-        mdTask->allocReg = pcPtr[2] & 7; // Remember this until we allocate the memory
-        if (pcPtr[0] & 0x1) mdTask->allocReg += 8;
+        ASSERT((pcPtr[2] & 7) == 7); // r15 - general allocation
+        wordsNeeded = (POLYUNSIGNED)((this->allocPointer - (PolyWord*)reg_val.stackAddr) + 1);
+        if (profileMode == kProfileStoreAllocation)
+            addProfileCount(wordsNeeded);
+        this->allocWords = wordsNeeded; // The actual allocation is done in SetMemRegisters.
     }
-    stackItem *reg = get_reg(this->allocReg);
-    stackItem reg_val = *reg;
-    wordsNeeded = (POLYUNSIGNED)((this->allocPointer - (PolyWord*)reg_val.stackAddr) + 1);
-    *reg = TAGGED(0); // Clear this - it's not a valid address.
  #endif /* HOSTARCHITECTURE_X86_64 */
-    if (profileMode == kProfileStoreAllocation)
-        addProfileCount(wordsNeeded);
-
-    mdTask->allocWords = wordsNeeded; // The actual allocation is done in SetMemRegisters.
 }
 
 void X86TaskData::SetException(poly_exn *exc)

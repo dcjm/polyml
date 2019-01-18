@@ -782,11 +782,11 @@ struct
                                         regArgLoads @ stackArgLoads @ code
                         end
 
-                    |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, ...}, ...}, code) =
+                    |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, requireLength, ...}, ...}, code) =
                         let
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ AllocateMemoryOperation{size=size, flags=flags, dest=destVal, saveRegs=[]} :: code
+                            destCode @ AllocateMemoryOperation{size=size, flags=flags, dest=destVal, requireLength=requireLength, saveRegs=[]} :: code
                         end
 
                     |   pushRegisters({instr=AllocateMemoryVariable{size, dest, ...}, ...}, code) =

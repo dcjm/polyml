@@ -499,38 +499,37 @@ struct
         val addAllocatingFunction =
             DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
 
-        fun llAllocateMemoryOperation ({ size, flags, dest, saveRegs}, code) =
+        fun llAllocateMemoryOperation ({ size, flags, dest, saveRegs, requireLength}, code) =
         let
             val toReg = asGenReg dest
             val preserve = saveRegs
-
-            (* Allocate memory.  N.B. Instructions are in reverse order. *)
-            fun allocStore{size, flags, output, preserve} =
-            if targetArch = Native64Bit andalso flags <> 0w0
-            then
-                [Move{moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt flags), destination=MemoryArg {offset= ~1, base=output, index=NoIndex}},
-                 Move{source=NonAddressConstArg(LargeInt.fromInt size),
-                      destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=output, index=NoIndex},
-                      moveSize=opSizeToMove polyWordOpSize},
-                 AllocStore{size=size, output=output, saveRegs=preserve}]
-            else
-            let
-                val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
-            in
-                [Move{source=NonAddressConstArg lengthWord, destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=output, index=NoIndex},
-                      moveSize=opSizeToMove polyWordOpSize},
-                 AllocStore{size=size, output=output, saveRegs=preserve}]
-            end
-
-            val allocCode =
+            val (allocSize, allocFlags, setProfile) =
                 (* If we need to add the profile object *)
                 if addAllocatingFunction
-                then
-                    allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=preserve} @
+                then (size+1, Word8.orb(flags, Address.F_profile),
                         [Move{moveSize=opSizeToMove polyWordOpSize, source=AddressConstArg profileObject,
-                              destination=MemoryArg {base=toReg, offset=size*Word.toInt wordSize, index=NoIndex}}]
-                else allocStore {size=size, flags=flags, output=toReg, preserve=preserve}
+                              destination=MemoryArg {base=toReg, offset=size*Word.toInt wordSize, index=NoIndex}}])
+                else (size, flags, [])
             
+            val allocAndSetLength =
+                if targetArch = ObjectId32Bit andalso size = 2 andalso flags = 0w0 andalso not requireLength
+                then (* We can put it in the pair area. *) [AllocStorePair{output=toReg, saveRegs=preserve}]
+                else if targetArch = Native64Bit andalso allocFlags <> 0w0
+                then
+                    [Move{moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt allocFlags), destination=MemoryArg {offset= ~1, base=toReg, index=NoIndex}},
+                     Move{source=NonAddressConstArg(LargeInt.fromInt allocSize),
+                          destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=toReg, index=NoIndex},
+                          moveSize=opSizeToMove polyWordOpSize},
+                     AllocStore{size=allocSize, output=toReg, saveRegs=preserve}]
+                else
+                let
+                    val lengthWord = IntInf.orb(IntInf.fromInt allocSize, IntInf.<<(Word8.toLargeInt allocFlags, 0w24))
+                in
+                    [Move{source=NonAddressConstArg lengthWord, destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=toReg, index=NoIndex},
+                          moveSize=opSizeToMove polyWordOpSize},
+                     AllocStore{size=allocSize, output=toReg, saveRegs=preserve}]
+                end
+
             (* Convert to an object index if necessary. *)
             val convertToObjId =
                 if targetArch = ObjectId32Bit
@@ -538,7 +537,7 @@ struct
                        ArithToGenReg{ opc=SUB, output=toReg, source=RegisterArg ebx, opSize=nativeWordOpSize } ]
                 else []
         in
-            convertToObjId @ allocCode @ code
+            convertToObjId @ setProfile @ allocAndSetLength @ code
         end
 
         (* Check the stack limit "register".  This is used both at the start of a function for genuine
@@ -925,11 +924,11 @@ struct
                     makeSaves(saveRegs, loadConstArgs)) 
             end
 
-        |   codeExtended _ ({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =
+        |   codeExtended _ ({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs, requireLength}, ...}, code) =
             let
                 val preserve = getSaveRegs saveRegs
             in
-                llAllocateMemoryOperation({ size=size, flags=flags, dest=getAllocatedReg dReg, saveRegs=preserve}, code)
+                llAllocateMemoryOperation({ size=size, flags=flags, dest=getAllocatedReg dReg, saveRegs=preserve, requireLength=requireLength}, code)
             end
 
         |   codeExtended _ ({instr=AllocateMemoryVariable{size=PReg size, dest=PReg dest, saveRegs}, ...}, code) =
@@ -1386,7 +1385,7 @@ struct
             in
                 StoreInitialised ::
                     llStoreArgument{ source=RegisterArg srcReg, offset=0, base=bReg, index=index, kind=moveKind} ::
-                        llAllocateMemoryOperation({ size=boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve}, code)
+                        llAllocateMemoryOperation({ size=boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve, requireLength=false}, code)
             end
 
         |   codeExtended _ ({instr=CompareByteVectors{vec1Addr=PReg v1Reg, vec2Addr=PReg v2Reg, length=PReg lReg, ...}, ...}, code) =

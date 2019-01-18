@@ -681,8 +681,8 @@ struct
                            of registers to save. *)
                         val convertedInstr =
                             case instr of
-                                AllocateMemoryOperation{size, flags, dest, saveRegs=_} =>
-                                    AllocateMemoryOperation{size=size, flags=flags, dest=dest,
+                                AllocateMemoryOperation{size, flags, dest, requireLength, saveRegs=_} =>
+                                    AllocateMemoryOperation{size=size, flags=flags, dest=dest, requireLength=requireLength,
                                         saveRegs=getSaveSet(regNo dest)}
 
                             |   AllocateMemoryVariable{size, dest, saveRegs=_} =>

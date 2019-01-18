@@ -673,7 +673,7 @@ struct
                             fun clear n =
                                 if n = sizeClosure
                                 then [BlockSimple(AllocateMemoryOperation{size=sizeClosure,
-                                        flags=if targetArch = ObjectId32Bit then Word8.orb(F_mutable, F_closure) else F_mutable, dest=dest, saveRegs=[]})]
+                                        flags=if targetArch = ObjectId32Bit then Word8.orb(F_mutable, F_closure) else F_mutable, dest=dest, requireLength=false, saveRegs=[]})]
                                 else
                                     (clear (n+1) @
                                         [BlockSimple(
@@ -836,7 +836,7 @@ struct
                 |   _ =>   raise InternalError "codeToICodeRev-BICField"                      
             end
 
-        |   codeToICodeRev(BICLoadContainer{base, offset}, context as { stackPtr, ...}, _, destination, tailCode) =
+        |   codeToICodeRev(BICLoadContainer{base, offset}, context, _, destination, tailCode) =
             let
                 val (codeBase, baseEntry, _) = codeToICodeRev(base, context, false, Allowed allowInPReg, tailCode)
                 val multiplier = Word.toInt(nativeWordSize div wordSize)
@@ -1160,7 +1160,7 @@ struct
                                 StoreArgument{ source=RegisterArgument codeReg, offset=0, base=memAddr, index=ObjectIndex, kind=moveNativeWord, isMutable=false}) ::
                             BlockSimple(LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex, cache=NONE}, dest=codeReg, kind=Move64Bit}) ::
                             BlockSimple(LoadArgument{ source=AddressConstant(toMachineWord closureRef), dest=closureReg, kind=movePolyWord}) ::
-                            BlockSimple(AllocateMemoryOperation{size=n, flags=F_closure, dest=memAddr, saveRegs=[]}) :: tlCode
+                            BlockSimple(AllocateMemoryOperation{size=n, flags=F_closure, dest=memAddr, requireLength=false, saveRegs=[]}) :: tlCode
                         end
                     |   loadFields(f :: rest, n, tlCode) =
                         let
@@ -1504,7 +1504,7 @@ struct
                 val target = asTarget destination (* Actually we want this. *)
                 val memAddr = newPReg()
                 fun loadFields([], n, tlCode) =
-                        BlockSimple(AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]}) :: tlCode
+                        BlockSimple(AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, requireLength=false, saveRegs=[]}) :: tlCode
                 |   loadFields(f :: rest, n, tlCode) =
                     let
                         (* Defer the evaluation if possible.  We may have a constant that we can't move
@@ -3016,7 +3016,8 @@ struct
                     BlockSimple(StoreArgument{ source=RegisterArgument valueReg, offset=n*Word.toInt wordSize, base=memAddr, index=memIndexOrObject, kind=movePolyWord, isMutable=false})
                 val code =
                     codeToICodeTarget(initial, context, false, valueReg) @
-                    [BlockSimple(AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr, saveRegs=[]})] @
+                    (* We may be using this to allocate a vector in which case we need to have the length word even if it is a pair. *)
+                    [BlockSimple(AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr, saveRegs=[], requireLength=true})] @
                     List.tabulate(vecLength, initialise) @
                     [BlockSimple InitialisationComplete,
                      BlockSimple(LoadArgument{source=RegisterArgument memAddr, dest=target, kind=movePolyWord})]

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-18
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-19
     
     Based on original code:    
     Copyright (c) 2000
@@ -148,6 +148,7 @@ struct
     and memRegCStackPtr           = 6 * Word.toInt nativeWordSize
     and memRegThreadSelf          = 7 * Word.toInt nativeWordSize
     and memRegStackPtr            = 8 * Word.toInt nativeWordSize
+    and memRegPairLocalMbottom    = 9 * Word.toInt nativeWordSize
     and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
     and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
     and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
@@ -1140,6 +1141,7 @@ struct
     |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
     |   AllocStoreVariable of { size: genReg, output: genReg, saveRegs: genReg list }
+    |   AllocStorePair  of { output: genReg, saveRegs: genReg list }
     |   StoreInitialised
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
@@ -1309,6 +1311,8 @@ struct
 
         |   AllocStoreVariable { output, size, ...} =>
                 (stream "AllocStoreVariable "; printGReg size; stream " => "; printGReg output )
+
+        |   AllocStorePair { output, ... } => (stream "AllocStorePair => "; printGReg output )
         
         |   StoreInitialised => stream "StoreInitialised"
 
@@ -1909,6 +1913,8 @@ struct
         |   cgOp(AllocStore _) = raise InternalError "cgOp: AllocStore"
 
         |   cgOp(AllocStoreVariable _) = raise InternalError "cgOp: AllocStoreVariable"
+
+        |   cgOp(AllocStorePair _) = raise InternalError "cgOp: AllocStorePair"
 
         |   cgOp StoreInitialised = raise InternalError "cgOp: StoreInitialised"
 
@@ -2794,6 +2800,30 @@ struct
                 val resultCode = startCode @ roundCode @ allocStoreCommonCode(output, true, saveRegs)
             in
                 doExpansion(instrs, (List.rev resultCode) @ code, true)
+            end
+
+
+        |   doExpansion(AllocStorePair {output, saveRegs} :: instrs, code, inAllocation) =
+            let
+                val _ = inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
+                val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStorePair: in set" else ()
+                val _ = targetArch = ObjectId32Bit orelse raise InternalError "AllocStorePair: not 32-in-64"
+                val noTrapLabel = mkLabel()
+                (* Code: in reverse:
+                   Subtract 8 from r14 and put in the output reg,
+                   Check it against the limit and skip if it is above or equal,
+                   otherwise trap to the RTS,
+                   Update r14 with the new value. *)
+                val resultCode =
+                    Move{source=RegisterArg output, destination=RegisterArg r14, moveSize=Move64} ::
+                    JumpLabel noTrapLabel ::
+                    CallRTS{rtsEntry=HeapOverflowCall, saveRegs=saveRegs} ::
+                    ConditionalBranch{test=JNB, label=noTrapLabel} ::
+                    ArithToGenReg{opc=CMP, output=output,
+                        source=MemoryArg{base=ebp, offset=memRegPairLocalMbottom, index=NoIndex}, opSize=nativeWordOpSize} ::
+                    LoadAddress{output=output, offset = ~8, base=SOME r14, index=NoIndex, opSize=OpSize64} :: code
+            in
+                doExpansion(instrs, resultCode, true)
             end
 
         |   doExpansion(StoreInitialised :: instrs, code, _) = doExpansion(instrs, code, false)

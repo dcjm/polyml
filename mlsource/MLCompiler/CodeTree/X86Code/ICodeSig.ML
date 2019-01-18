@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -169,7 +169,7 @@ sig
            required.  This sets the length word including the flags bits.
            saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
-    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: preg, saveRegs: preg list }
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, requireLength: bool, dest: preg, saveRegs: preg list }
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
            argument is the number of words. *)
