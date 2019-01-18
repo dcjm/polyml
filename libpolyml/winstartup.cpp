@@ -435,20 +435,21 @@ int PolyWinMain(
         standardOutput = standOut;
         // Leave the existing stdout and use it for diagnostics if necessary.
         polyStdout = stdout;
-        // We had a stdout but maybe not stderr.  We could choose to direct stderr output
-        // to the provided stdout but maybe that's not what the user wants.  Instead
-        // we open one on NUL.
 
         if (hStdErrHandle == INVALID_HANDLE_VALUE)
         {
+            // We had a stdout but not stderr.  We could choose to direct stderr output
+            // to the provided stdout but maybe that's not what the user wants.  Instead
+            // we open one on NUL.
             polyStderr = fopen("NUL", "wt");
             HANDLE hStdErr = (HANDLE)_get_osfhandle(fileno(polyStderr));
             SetStdHandle(STD_ERROR_HANDLE, hStdErr);
-            // Also use this for ML writes to stdErr i.e. discard them.
-            WinInOutStream *stdErr = new WinInOutStream;
-            stdErr->openHandle(hStdErr, OPENWRITE, true);
-            standardError = stdErr;
+            hStdErrHandle = hStdErr;
         }
+        // Set up a stream for writes from ML.
+        WinInOutStream *stdErr = new WinInOutStream;
+        stdErr->openHandle(hStdErrHandle, OPENWRITE, true);
+        standardError = stdErr;
     }
 
     // Set nArgs and lpArgs to the command line arguments.

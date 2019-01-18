@@ -146,8 +146,10 @@ bool MemMgr::Initialise()
         return false;
     globalHeapBase = (PolyWord*)heapBase;
 
-    // Allocate a 1 gbyte area for the stacks
-    if (!osStackAlloc.Initialise((size_t)1 * 1024 * 1024 * 1024))
+    // Allocate a 4 gbyte area for the stacks.
+    // It's important that the stack and code areas have addresses with
+    // non-zero top 32-bits.
+    if (!osStackAlloc.Initialise((size_t)4 * 1024 * 1024 * 1024))
         return false;
 
     // Allocate a 2G area for the code.

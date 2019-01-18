@@ -210,7 +210,7 @@ struct
             then LargeInt.toInt o toArbitrary o realTrunc else FixedInt.toInt o Real.truncFix o checkNan
         and round   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realTrunc else FixedInt.toInt o Real.roundFix o checkNan
+            then LargeInt.toInt o toArbitrary o realRound else FixedInt.toInt o Real.roundFix o checkNan
         
         fun toInt IEEEReal.TO_NEGINF = floor
          |  toInt IEEEReal.TO_POSINF = ceil

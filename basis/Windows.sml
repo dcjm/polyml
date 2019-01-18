@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Windows signature and structure
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2012, 2018
+    Copyright   David Matthews 2000, 2005, 2012, 2018, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -512,7 +512,7 @@ struct
     in
         fun execute(command, arg): ('a,'b) proc =
         let
-            val run: pid = RunCall.unsafeCast(winCall (1000, (command, arg)))
+            val run: pid = winCall (1000, (command, arg))
         in
             WinProc{ pid=run, result=ref NONE, closeActions=ref [], lock=Thread.Mutex.mutex() }
         end
@@ -630,8 +630,8 @@ struct
            the whole of ML will be blocked until the process completes. *)
         fun simpleExecute (command, arg) =
         let
-            val process =
-                winCall(1037, (command, arg))
+            val run: pid = winCall(1037, (command, arg))
+            val process = WinProc{ pid=run, result=ref NONE, closeActions=ref [], lock=Thread.Mutex.mutex() }
         in
             reap process
         end
