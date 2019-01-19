@@ -2360,7 +2360,8 @@ struct
             let
                 val target = asTarget destination
                 val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
-                (* Use a semitagged value for XOR.  This preserves the tag bit. *)
+                (* Use a semitagged value for XOR.  This preserves the tag bit.  Use toLargeIntX here because
+                   the operations will sign-extend 32-bit values. *)
                 val constVal =
                     if isShort value
                     then (case logOp of BuiltIns.LogicalXor => semitag | _ => tag) (Word.toLargeIntX(toShort value))
@@ -2368,7 +2369,7 @@ struct
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
                 (* If we AND with a value that fits in 32-bits we can use a 32-bit operation. *)
                 val opSize =
-                    if logOp = BuiltIns.LogicalAnd andalso constVal <= 0xffffffff
+                    if logOp = BuiltIns.LogicalAnd andalso constVal <= 0xffffffff andalso constVal >= 0
                     then OpSize32 else polyWordOpSize
                 val code =
                     arg1Code @
@@ -2390,7 +2391,7 @@ struct
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
                 (* If we AND with a value that fits in 32-bits we can use a 32-bit operation. *)
                 val opSize =
-                    if logOp = BuiltIns.LogicalAnd andalso constVal <= 0xffffffff
+                    if logOp = BuiltIns.LogicalAnd andalso constVal <= 0xffffffff andalso constVal >= 0
                     then OpSize32 else polyWordOpSize
                 val code =
                     arg2Code @
@@ -2682,7 +2683,7 @@ struct
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
                 (* If we AND with a value that fits in 32-bits we can use a 32-bit operation. *)
                 val opSize =
-                    if logOp = BuiltIns.LogicalAnd andalso constantValue <= 0xffffffff
+                    if logOp = BuiltIns.LogicalAnd andalso constantValue <= 0xffffffff andalso constantValue >= 0
                     then OpSize32 else nativeWordOpSize
                 val code = arg1Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=moveNativeWord}),
@@ -2703,7 +2704,7 @@ struct
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
                 (* If we AND with a value that fits in 32-bits we can use a 32-bit operation. *)
                 val opSize =
-                    if logOp = BuiltIns.LogicalAnd andalso constantValue <= 0xffffffff
+                    if logOp = BuiltIns.LogicalAnd andalso constantValue <= 0xffffffff andalso constantValue >= 0
                     then OpSize32 else nativeWordOpSize
                 val code = arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg, kind=moveNativeWord}),

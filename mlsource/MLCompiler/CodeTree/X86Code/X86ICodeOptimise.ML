@@ -206,13 +206,20 @@ struct
                                            operand2=source, ccRef=ccRef, opSize=opSize}::code)
                 end
 
-            |   optCode({instr=TestTagBit{arg, ccRef}, kill, ...} :: rest, _, regMap, code) =
+            |   optCode({instr as TestTagBit{arg, ccRef}, kill, ...} :: rest, _, regMap, code) =
                 let
-                    (* Replace register reference with memory if possible. *)
+                    (* Replace register reference with memory.  In some circumstances it can try to
+                       replace it with a constant.  Since we don't code-generate that case we
+                       need to filter it out and retain the original register. *)
                     val (source, memRefsOut) = replaceWithValue(arg, kill, regMap, polyWordOpSize)
+                    val resultInstr =
+                        case source of
+                            IntegerConstant _ => instr (* Use original *)
+                        |   AddressConstant _ => instr
+                        |   _ => TestTagBit{arg=source, ccRef=ccRef}
                 in
                     (* This affects the CC. *)
-                    optCode(rest, BRNone, memRefsOut, TestTagBit{arg=source, ccRef=ccRef}::code)
+                    optCode(rest, BRNone, memRefsOut, resultInstr::code)
                 end
 
             |   optCode({instr=UntagFloat{source, dest, cache=_}, kill, ...} :: rest, _, regMap, code) =
