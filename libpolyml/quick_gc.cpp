@@ -357,7 +357,8 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
                 PolyObject *obj = val.AsObjPtr();
                 // Load the length word without any interlock.  We can't assume that
                 // another thread won't also copy this at the same time.
-                POLYUNSIGNED L = obj->LengthWord();
+                POLYUNSIGNED L = space->isPair ? 2 : obj->LengthWord();
+                ASSERT(!space->isPair); // Can't deal with this - we need to handle forwarding pointers
 
                 // Has it been moved already? N.B.  Another thread may be in the process of
                 // moving it so the new object may not be fully copied.

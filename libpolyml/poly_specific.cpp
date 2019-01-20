@@ -1,7 +1,7 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006, 2015-17 David C. J. Matthews
+    Copyright (c) 2006, 2015-19 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -72,6 +72,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord c);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(PolyWord closure, PolyWord offset);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCellLength(PolyWord addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCellFlags(PolyWord addr);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -536,6 +538,23 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array)
     return (TAGGED(1)).AsUnsigned();
 }
 
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCellLength(PolyWord addr)
+{
+    PolyObject *obj = addr.AsObjPtr();
+    MemSpace *space = gMem.SpaceForObjectAddress(obj);
+    if (space->isPair) return (TAGGED(2)).AsUnsigned();
+    else return (TAGGED(obj->Length())).AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCellFlags(PolyWord addr)
+{
+    PolyObject *obj = addr.AsObjPtr();
+    MemSpace *space = gMem.SpaceForObjectAddress(obj);
+    if (space->isPair) return (TAGGED(0)).AsUnsigned();
+    else return TAGGED(obj->LengthWord() >> OBJ_PRIVATE_FLAGS_SHIFT).AsUnsigned();
+}
+
+
 struct _entrypts polySpecificEPT[] =
 {
     { "PolySpecificGeneral",            (polyRTSFunction)&PolySpecificGeneral},
@@ -548,6 +567,8 @@ struct _entrypts polySpecificEPT[] =
     { "PolySetCodeByte",                (polyRTSFunction)&PolySetCodeByte },
     { "PolyGetCodeByte",                (polyRTSFunction)&PolyGetCodeByte },
     { "PolySortArrayOfAddresses",       (polyRTSFunction)&PolySortArrayOfAddresses },
+    { "PolyGetCellLength",              (polyRTSFunction)&PolyGetCellLength },
+    { "PolyGetCellFlags",               (polyRTSFunction)&PolyGetCellFlags },
 
     { NULL, NULL} // End of list.
 };

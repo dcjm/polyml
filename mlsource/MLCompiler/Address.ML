@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
  
-    Further development copyright David C.J. Matthews 2000-2017
+    Further development copyright David C.J. Matthews 2000-2017, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -133,8 +133,11 @@ struct
     and lock:       address -> unit = RunCall.clearMutableBit
     (* wordSize is the number of bytes in a Poly word. *)
     and wordSize:   word = RunCall.bytesPerWord
-    and length:     address -> Word.word = RunCall.memoryCellLength
-    and flags:      address -> Word8.word  = Word8.fromLargeWord o Word.toLargeWord o RunCall.memoryCellFlags
+    
+    (* Need to use RTS calls here because the address may be in a pair area and
+       not have a length field. *)
+    and length:     address -> Word.word = RunCall.rtsCallFast1 "PolyGetCellLength"
+    and flags:      address -> Word8.word  = RunCall.rtsCallFast1 "PolyGetCellFlags"
     
     (* The native word size is the number of bytes in an address.  This is the same as
        wordSize except in 32-in-64. *)
