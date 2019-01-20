@@ -216,9 +216,7 @@ public:
     X86TaskData();
     unsigned allocReg; // The register to take the allocated space.
     POLYUNSIGNED allocWords; // The words to allocate.
-#ifdef POLYML32IN64
     bool allocPair; // True if we're trying to allocate a pair
-#endif
     Handle callBackResult;
     AssemblyArgs assemblyInterface;
     int saveRegisterMask; // Registers that need to be updated by a GC.
@@ -342,15 +340,12 @@ extern "C" {
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
 };
 
-X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
+X86TaskData::X86TaskData(): allocReg(0), allocWords(0), allocPair(false), saveRegisterMask(0)
 {
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
     savedErrno = 0;
-#ifdef POLYML32IN64
-    allocPair = false;
-#endif
 }
 
 void X86TaskData::GarbageCollect(ScanAddress *process)

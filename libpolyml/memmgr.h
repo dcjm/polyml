@@ -74,8 +74,9 @@ protected:
 
 public:
     SpaceType       spaceType;
-    bool            isMutable;
-    bool            isCode;
+    bool            isMutable;  // Contains mutable data.
+    bool            isCode;     // Contains code rather than data
+    bool            isPair;     // Has pairs without length words.
 
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
@@ -217,9 +218,9 @@ public:
     bool Initialise();
 
     // Create a local space for initial allocation.
-    LocalMemSpace *CreateAllocationSpace(uintptr_t size);
+    LocalMemSpace *CreateAllocationSpace(uintptr_t size, bool isPairSpace);
     // Create and initialise a new local space and add it to the table.
-    LocalMemSpace *NewLocalSpace(uintptr_t size, bool mut);
+    LocalMemSpace *NewLocalSpace(uintptr_t size, bool mut, bool isPairSpace=false);
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, uintptr_t words,
         unsigned flags, unsigned index, unsigned hierarchy = 0);
@@ -240,9 +241,7 @@ public:
     // are the same) and when allocating heap segments.  If there is insufficient
     // space to satisfy the minimum it will return 0.  Updates "maxWords" with
     // the space actually allocated
-    PolyWord *AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool doAllocation = true);
-    PolyWord *AllocHeapSpace(uintptr_t words)
-        { uintptr_t allocated = words; return AllocHeapSpace(words, allocated); }
+    PolyWord *AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool isPairSpace);
 
     CodeSpace *NewCodeSpace(uintptr_t size);
     // Allocate space for code.  This is initially mutable to allow the code to be built.
@@ -404,6 +403,9 @@ private:
 
     void AddTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
     void RemoveTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
+
+    // Find a space that has sufficient memory to allocate minWords words.
+    LocalMemSpace *FindSpaceForAllocation(uintptr_t minWords, bool isPairSpace);
 
     OSMem osHeapAlloc, osStackAlloc, osCodeAlloc;
 };

@@ -63,6 +63,7 @@ MemSpace::MemSpace(OSMem *alloc): SpaceTree(true)
     top = 0;
     isCode = false;
     allocator = alloc;
+    isPair = false;
 }
 
 MemSpace::~MemSpace()
@@ -95,12 +96,6 @@ bool LocalMemSpace::InitSpace(PolyWord *heapSpace, uintptr_t size, bool mut)
     upperAllocPtr = partialGCTop = fullGCRescanStart = fullGCLowerLimit = lowestWeak = top;
     lowerAllocPtr = partialGCScan = partialGCRootBase = partialGCRootTop =
         fullGCRescanEnd = highestWeak = bottom;
-#ifdef POLYML32IN64
-    // The address must be on an odd-word boundary so that after the length
-    // word is put in the actual cell address is on an even-word boundary.
-    lowerAllocPtr[0] = PolyWord::FromUnsigned(0);
-    lowerAllocPtr = bottom + 1;
-#endif
     spaceOwner = 0;
 
     allocationSpace = false;
@@ -164,7 +159,7 @@ bool MemMgr::Initialise()
 }
 
 // Create and initialise a new local space and add it to the table.
-LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
+LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut, bool isPairSpace)
 {
     try {
         LocalMemSpace *space = new LocalMemSpace(&osHeapAlloc);
@@ -192,7 +187,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
         // The size may have been rounded up to a block boundary.
         size = iSpace / sizeof(PolyWord);
         bool success = heapSpace != 0 && space->InitSpace(heapSpace, size, mut) && AddLocalSpace(space);
-
+        space->isPair = isPairSpace;
         if (reservation != 0) osHeapAlloc.Free(reservation, rSpace);
         if (success)
         {
@@ -218,9 +213,9 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
 }
 
 // Create a local space for initial allocation.
-LocalMemSpace *MemMgr::CreateAllocationSpace(uintptr_t size)
+LocalMemSpace *MemMgr::CreateAllocationSpace(uintptr_t size, bool isPairSpace)
 {
-    LocalMemSpace *result = NewLocalSpace(size, true);
+    LocalMemSpace *result = NewLocalSpace(size, true, isPairSpace);
     if (result) 
     {
         result->allocationSpace = true;
@@ -613,7 +608,8 @@ void MemMgr::FillUnusedSpace(PolyWord *base, uintptr_t words)
         // Make sure that any dummy object we insert is properly aligned.
         if (((uintptr_t)pDummy) & 4)
         {
-            *pDummy++ = PolyWord::FromUnsigned(0);
+            pDummy[-1] = PolyWord::FromUnsigned(0);
+            pDummy++;
             words--;
             continue;
         }
@@ -634,15 +630,73 @@ void MemMgr::FillUnusedSpace(PolyWord *base, uintptr_t words)
 // This is used both when allocating single objects (when minWords and maxWords
 // are the same) and when allocating heap segments.  If there is insufficient
 // space to satisfy the minimum it will return 0.
-PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool doAllocation)
+PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool isPairSpace)
 {
     PLocker locker(&allocLock);
+    LocalMemSpace *space = FindSpaceForAllocation(minWords, isPairSpace);
+    if (space == 0) return 0;
+
+    uintptr_t available = space->freeSpace();
+    ASSERT(available >= minWords);
+    // Reduce the maximum value if we had less than that.
+    if (available < maxWords) maxWords = available;
+#ifdef POLYML32IN64
+    if (!isPairSpace)
+    {
+        if (((space->lowerAllocPtr - space->bottom) & 1) == 0 && space->lowerAllocPtr < space->upperAllocPtr)
+        {
+            *space->lowerAllocPtr = PolyWord::FromUnsigned(0);
+            space->lowerAllocPtr++;
+            maxWords--;
+        }
+        // If necessary round down to an even boundary
+        if (maxWords & 1)
+        {
+            maxWords--;
+            space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
+        }
+    }
+#endif
+    ASSERT(space->lowerAllocPtr < space->upperAllocPtr);
+    PolyWord *result = space->lowerAllocPtr; // Return the address.
+    space->lowerAllocPtr += maxWords; // Allocate it.
+#ifdef POLYML32IN64
+    if (isPairSpace)
+    {
+        ASSERT(((uintptr_t)result & 4) == 0); // Must be even-word aligned
+    }
+    else
+    {
+        ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
+    }
+#endif
+    return result;
+}
+
+
+// Check that we have sufficient space for an allocation to succeed.
+// Called from the GC to ensure that we will not get into an infinite
+// loop trying to allocate, failing and garbage-collecting again.
+bool MemMgr::CheckForAllocation(uintptr_t words)
+{
+    PLocker locker(&allocLock);
+    return FindSpaceForAllocation(words, false) != 0;
+}
+
+LocalMemSpace *MemMgr::FindSpaceForAllocation(uintptr_t minWords, bool isPairSpace)
+{
+    //PLocker locker(&allocLock); // The lock needs to be held already.
     // We try to distribute the allocations between the memory spaces
     // so that at the next GC we don't have all the most recent cells in
     // one space.  The most recent cells will be more likely to survive a
     // GC so distibuting them improves the load balance for a multi-thread GC.
     nextAllocator++;
     if (nextAllocator > gMem.lSpaces.size()) nextAllocator = 0;
+#ifdef POLYML32IN64
+    // We may need to align lowerAllocPointer so make sure there's a word to do that.
+    // This may be overkill.
+    minWords++;
+#endif
 
     unsigned j = nextAllocator;
     for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
@@ -651,26 +705,15 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         LocalMemSpace *space = gMem.lSpaces[j++];
         if (space->allocationSpace)
         {
-            uintptr_t available = space->freeSpace();
-            if (available > 0 && available >= minWords)
+            // We can change the space type if it's completely empty.
+            if (space->lowerAllocPtr == space->bottom && space->upperAllocPtr == space->top)
+                space->isPair = isPairSpace;
+            // Otherwise we have to retain the space type.
+            if (space->isPair == isPairSpace)
             {
-                // Reduce the maximum value if we had less than that.
-                if (available < maxWords) maxWords = available;
-#ifdef POLYML32IN64
-                // If necessary round down to an even boundary
-                if (maxWords & 1)
-                {
-                    maxWords--;
-                    space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
-                }
-#endif
-                PolyWord *result = space->lowerAllocPtr; // Return the address.
-                if (doAllocation)
-                    space->lowerAllocPtr += maxWords; // Allocate it.
-#ifdef POLYML32IN64
-                ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
-#endif
-                return result;
+                uintptr_t available = space->freeSpace();
+                if (available > 0 && available >= minWords)
+                    return space; // There is space in this block
             }
         }
     }
@@ -688,41 +731,13 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         // that to happen so that we can successfully allocate very large objects even if
         // we have a new GC very shortly.
         uintptr_t spaceSize = defaultSpaceSize;
-#ifdef POLYML32IN64
-        // When we create the allocation space we take one word so that the first
-        // length word is on an odd-word boundary.  We need to allow for that otherwise
-        // we may have available < minWords.
-        if (minWords >= spaceSize) spaceSize = minWords+1; // If we really want a large space.
-#else
         if (minWords > spaceSize) spaceSize = minWords; // If we really want a large space.
-#endif
-        LocalMemSpace *space = CreateAllocationSpace(spaceSize);
-        if (space == 0) return 0; // Can't allocate it
-        // Allocate our space in this new area.
-        uintptr_t available = space->freeSpace();
-        ASSERT(available >= minWords);
-        if (available < maxWords)
-        {
-            maxWords = available;
-#ifdef POLYML32IN64
-            // If necessary round down to an even boundary
-            if (maxWords & 1)
-            {
-                maxWords--;
-                space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
-            }
-#endif
-        }
-        PolyWord *result = space->lowerAllocPtr; // Return the address.
-        if (doAllocation)
-            space->lowerAllocPtr += maxWords; // Allocate it.
-#ifdef POLYML32IN64
-        ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
-#endif
-        return result;
+        LocalMemSpace *newSpace = CreateAllocationSpace(spaceSize, isPairSpace);
+        return newSpace;
     }
     return 0; // There isn't space even for the minimum.
 }
+
 
 CodeSpace::CodeSpace(PolyWord *start, uintptr_t spaceSize, OSMem *alloc): MarkableSpace(alloc)
 {
@@ -897,15 +912,6 @@ bool MemMgr::AddCodeSpace(CodeSpace *space)
         return false;
     }
     return true;
-}
-
-// Check that we have sufficient space for an allocation to succeed.
-// Called from the GC to ensure that we will not get into an infinite
-// loop trying to allocate, failing and garbage-collecting again.
-bool MemMgr::CheckForAllocation(uintptr_t words)
-{
-    uintptr_t allocated = 0;
-    return AllocHeapSpace(words, allocated, false) != 0;
 }
 
 // Adjust the allocation area by removing free areas so that the total

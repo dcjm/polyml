@@ -1047,7 +1047,8 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
             {
                 // If the object we want is larger than the heap segment size
                 // we allocate it separately rather than in the segment.
-                PolyWord *foundSpace = gMem.AllocHeapSpace(words);
+                uintptr_t allocSpace = words;
+                PolyWord *foundSpace = gMem.AllocHeapSpace(words, allocSpace, false);
                 if (foundSpace) return foundSpace;
             }
             else
@@ -1058,7 +1059,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 uintptr_t requestSpace = taskData->allocSize+words;
                 uintptr_t spaceSize = requestSpace;
                 // Get the space and update spaceSize with the actual size.
-                PolyWord *space = gMem.AllocHeapSpace(words, spaceSize);
+                PolyWord *space = gMem.AllocHeapSpace(words, spaceSize, false);
                 if (space)
                 {
                     // Double the allocation size for the next time if
@@ -1151,7 +1152,7 @@ bool Processes::GetPairAllocationSpace(TaskData *taskData)
             uintptr_t requestSpace = taskData->pairAllocSize + 2;
             uintptr_t spaceSize = requestSpace;
             // Get the space and update spaceSize with the actual size.
-            PolyWord *space = gMem.AllocHeapSpace(2*2, spaceSize);
+            PolyWord *space = gMem.AllocHeapSpace(2*2, spaceSize, true);
             if (space)
             {
                 // Double the allocation size for the next time if
@@ -1162,7 +1163,9 @@ bool Processes::GetPairAllocationSpace(TaskData *taskData)
                 // then we wouldn't know if we had a pointer to the cell or a pointer to a zero-sized
                 // cell at the top of the segment below.
                 taskData->pairAllocLimit = space+2;
+                ASSERT((spaceSize & 1) == 0); // And that's currently even
                 taskData->pairAllocPointer = space + spaceSize;
+                //taskData->pairAllocPointer = space + spaceSize;
                 // Fill the space with tagged zeros.  This may not be necessary but
                 // maintains the invariant that the space is filled with valid cells.
                 for (PolyWord *p = space; p < taskData->pairAllocPointer; p++)

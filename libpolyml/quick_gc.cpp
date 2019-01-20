@@ -188,9 +188,21 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
 {
     bool isMutable = OBJ_IS_MUTABLE_OBJECT(L);
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+#ifdef POLYML32IN64
+    LocalMemSpace *lSpace = FindSpace(n+1, isMutable);
+    if (lSpace == 0)
+        return 0; // Unable to move it.
+    // Ensure the address of the new cell is even.
+    if (((lSpace->lowerAllocPtr - lSpace->bottom) & 1) == 0 && lSpace->lowerAllocPtr < lSpace->upperAllocPtr)
+    {
+        *lSpace->lowerAllocPtr = PolyWord::FromUnsigned(0);
+        lSpace->lowerAllocPtr++;
+    }
+#else
     LocalMemSpace *lSpace = FindSpace(n, isMutable);
     if (lSpace == 0)
         return 0; // Unable to move it.
+#endif
     PolyObject *newObject = (PolyObject*)(lSpace->lowerAllocPtr+1);
 
     // It's possible that another thread may have actually copied the 
@@ -230,14 +242,6 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     }
 
     lSpace->lowerAllocPtr += n+1;
-#ifdef POLYML32IN64
-    // Maintain the odd-word alignment of lowerAllocPtr
-    if ((n & 1) == 0 && lSpace->lowerAllocPtr < lSpace->upperAllocPtr)
-    {
-        *lSpace->lowerAllocPtr = PolyWord::FromUnsigned(0);
-        lSpace->lowerAllocPtr++;
-    }
-#endif
     CopyObjectToNewAddress(obj, newObject, L);
     objectCopied = true;
     return newObject;
@@ -667,12 +671,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
             uintptr_t free;
             if (lSpace->allocationSpace)
             {
-#ifdef POLYML32IN64
-                lSpace->lowerAllocPtr = lSpace->bottom + 1;
-                lSpace->lowerAllocPtr[-1] = PolyWord::FromUnsigned(0);
-#else
                 lSpace->lowerAllocPtr = lSpace->bottom;
-#endif
                 free = lSpace->freeSpace();
 #ifdef FILL_UNUSED_MEMORY
                 // This provides extra checking if we have dangling pointers

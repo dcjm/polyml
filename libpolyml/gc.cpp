@@ -184,12 +184,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         LocalMemSpace *lSpace = *i;
         // Reset the allocation pointers.  They will be set to the
         // limits of the retained data.
-#ifdef POLYML32IN64
-        lSpace->lowerAllocPtr = lSpace->bottom+1; // Must be odd-word aligned
-        lSpace->lowerAllocPtr[-1] = PolyWord::FromUnsigned(0);
-#else
         lSpace->lowerAllocPtr = lSpace->bottom;
-#endif
         lSpace->upperAllocPtr = lSpace->top;
     }
 
@@ -330,7 +325,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 void CreateHeap()
 {
     // Create an initial allocation space.
-    if (gMem.CreateAllocationSpace(gMem.DefaultSpaceSize()) == 0)
+    if (gMem.CreateAllocationSpace(gMem.DefaultSpaceSize(), false) == 0)
         Exit("Insufficient memory to allocate the heap");
 
     // Create the task farm if required
