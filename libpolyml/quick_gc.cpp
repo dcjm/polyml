@@ -225,7 +225,7 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
         // pointer is in the data.
         PLocker locker(&srcSpace->bitmapLock);
         uintptr_t wordNo = srcSpace->wordNo((PolyWord*)obj);
-        if (srcSpace->bitmap.TestBit(wordNo))
+        if (srcSpace->pairForwardingMap.TestBit(wordNo))
         {
             newObject = obj->Get(0).AsObjPtr();
             if (debugOptions & DEBUG_GC_DETAIL)
@@ -233,7 +233,7 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
             objectCopied = false;
             return newObject;
         }
-        srcSpace->bitmap.SetBit(wordNo);
+        srcSpace->pairForwardingMap.SetBit(wordNo);
         lSpace->lowerAllocPtr += n + 1;
         // Because the forwarding pointer is in the data we
         // have to copy the cell before setting it.
@@ -393,7 +393,7 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
                 if (space->isPair)
                 {
                     PLocker locker(&space->bitmapLock);
-                    if (space->bitmap.TestBit(space->wordNo((PolyWord*)obj)))
+                    if (space->pairForwardingMap.TestBit(space->wordNo((PolyWord*)obj)))
                         newAddress = obj->Get(0).AsObjPtr();
                 }
                 else if (OBJ_IS_POINTER(L))
@@ -615,7 +615,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
         if (! lSpace->allocationSpace)
             spaceBeforeGC += lSpace->allocatedSpace();
         if (lSpace->isPair)
-            lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
+            lSpace->pairForwardingMap.ClearBits(0, lSpace->spaceSize());
     }
 
     // First scan the roots, copying the data into the mutable and immutable areas.

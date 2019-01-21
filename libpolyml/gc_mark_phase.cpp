@@ -308,17 +308,28 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
     // be following any forwarding pointers here.  However it's safe
     // because they will update it with the same value.
     PolyObject *obj = (*pt).AsObjPtr();
-    if (obj->ContainsForwardingPtr())
+    MemSpace *sp = gMem.SpaceForObjectAddress(obj);
+    if (sp->isPair)
+    {
+        LocalMemSpace *lSpace = (LocalMemSpace*)sp;
+        if (lSpace->pairForwardingMap.TestBit(lSpace->wordNo((PolyWord*)obj)))
+        {
+            obj = obj->Get(0).AsObjPtr();
+            sp = gMem.SpaceForObjectAddress(obj);
+        }
+    }
+    else if (obj->ContainsForwardingPtr())
     {
         obj = FollowForwarding(obj);
         *pt = obj;
+        sp = gMem.SpaceForObjectAddress(obj);
     }
 
-    MemSpace *sp = gMem.SpaceForObjectAddress(obj);
     if (sp == 0 || (sp->spaceType != ST_LOCAL && sp->spaceType != ST_CODE))
         return false; // Ignore it if it points to a permanent area
 
-    POLYUNSIGNED L = obj->LengthWord();
+    POLYUNSIGNED L = sp->isPair ? 2 : obj->LengthWord();
+
     if (L & _OBJ_GC_MARK)
         return false; // Already marked
 

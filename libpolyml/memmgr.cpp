@@ -187,7 +187,11 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut, bool isPairSpace)
         // The size may have been rounded up to a block boundary.
         size = iSpace / sizeof(PolyWord);
         bool success = heapSpace != 0 && space->InitSpace(heapSpace, size, mut) && AddLocalSpace(space);
-        space->isPair = isPairSpace;
+        if (success && isPairSpace)
+        {
+            space->isPair = true;
+            success = space->pairForwardingMap.Create(size);
+        }
         if (reservation != 0) osHeapAlloc.Free(reservation, rSpace);
         if (success)
         {
@@ -705,10 +709,6 @@ LocalMemSpace *MemMgr::FindSpaceForAllocation(uintptr_t minWords, bool isPairSpa
         LocalMemSpace *space = gMem.lSpaces[j++];
         if (space->allocationSpace)
         {
-            // We can change the space type if it's completely empty.
-            if (space->lowerAllocPtr == space->bottom && space->upperAllocPtr == space->top)
-                space->isPair = isPairSpace;
-            // Otherwise we have to retain the space type.
             if (space->isPair == isPairSpace)
             {
                 uintptr_t available = space->freeSpace();

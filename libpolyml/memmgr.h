@@ -159,6 +159,7 @@ public:
 
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     PLock        bitmapLock;      // Lock used in GC sharing pass.
+    Bitmap       pairForwardingMap; // Used in pairs in place of the forwarding bit in the length word.
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
     uintptr_t start[NSTARTS];  /* starting points for bit searches.                 */
     unsigned     start_index;     /* last index used to index start array              */
