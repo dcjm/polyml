@@ -1,7 +1,7 @@
 /*
     Title:      Quick copying garbage collector
 
-    Copyright (c) 2011-12, 2016-17 David C. J. Matthews
+    Copyright (c) 2011-12, 2016-19 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -217,7 +217,34 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     // copy.
     // Avoiding locking for immutables provides only a small speed-up so may not
     // be worth-while.
-    if (isMutable || OBJ_IS_CODE_OBJECT(L))
+    if (srcSpace->isPair)
+    {
+        // We need to do this under a lock.  It's possible another thread
+        // has copied it since we last checked.  Even though it's immutable we
+        // can't use weak coherence because we're using a bitmap and the forwarding
+        // pointer is in the data.
+        PLocker locker(&srcSpace->bitmapLock);
+        uintptr_t wordNo = srcSpace->wordNo((PolyWord*)obj);
+        if (srcSpace->bitmap.TestBit(wordNo))
+        {
+            newObject = obj->Get(0).AsObjPtr();
+            if (debugOptions & DEBUG_GC_DETAIL)
+                Log("GC: Quick: %p %lu %u has already moved to %p\n", obj, n, GetTypeBits(L), newObject);
+            objectCopied = false;
+            return newObject;
+        }
+        srcSpace->bitmap.SetBit(wordNo);
+        lSpace->lowerAllocPtr += n + 1;
+        // Because the forwarding pointer is in the data we
+        // have to copy the cell before setting it.
+        newObject->SetLengthWord(L);
+        newObject->Set(0, obj->Get(0));
+        newObject->Set(1, obj->Get(1));
+        objectCopied = true;
+        obj->Set(0, newObject);
+        return newObject;
+    }
+    else if (isMutable || OBJ_IS_CODE_OBJECT(L))
     {
         if (! atomiclySetForwarding(srcSpace, (ptrasint*)obj, L, OBJ_SET_POINTER(newObject)))
         {
@@ -355,15 +382,25 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
                 ASSERT(OBJ_IS_DATAPTR(val));
 
                 PolyObject *obj = val.AsObjPtr();
+
                 // Load the length word without any interlock.  We can't assume that
                 // another thread won't also copy this at the same time.
                 POLYUNSIGNED L = space->isPair ? 2 : obj->LengthWord();
-                ASSERT(!space->isPair); // Can't deal with this - we need to handle forwarding pointers
 
                 // Has it been moved already? N.B.  Another thread may be in the process of
                 // moving it so the new object may not be fully copied.
-                if (OBJ_IS_POINTER(L))
-                    *pt = OBJ_GET_POINTER(L);
+                PolyObject *newAddress = 0;
+                if (space->isPair)
+                {
+                    PLocker locker(&space->bitmapLock);
+                    if (space->bitmap.TestBit(space->wordNo((PolyWord*)obj)))
+                        newAddress = obj->Get(0).AsObjPtr();
+                }
+                else if (OBJ_IS_POINTER(L))
+                    newAddress = OBJ_GET_POINTER(L);
+
+                if (newAddress != 0)
+                    *pt = newAddress;
                 else
                 {
                     // We need to copy this object.
@@ -577,6 +614,8 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
         // Add up the space in the mutable and immutable areas
         if (! lSpace->allocationSpace)
             spaceBeforeGC += lSpace->allocatedSpace();
+        if (lSpace->isPair)
+            lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
     }
 
     // First scan the roots, copying the data into the mutable and immutable areas.
