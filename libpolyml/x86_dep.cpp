@@ -831,30 +831,43 @@ void X86TaskData::InterruptCode()
 // This is called from SwitchToPoly before we enter the ML code.
 void X86TaskData::SetMemRegisters()
 {
-    // Copy the current store limits into variables before we go into the assembly code.
-
-    // If we haven't yet set the allocation area or we don't have enough we need
-    // to create one (or a new one).
-    if (this->allocPointer <= this->allocLimit + this->allocWords)
-    {
-        if (this->allocPointer < this->allocLimit)
-            Crash ("Bad length in heap overflow trap");
-
-        // Find some space to allocate in.  Updates taskData->allocPointer and
-        // returns a pointer to the newly allocated space (if allocWords != 0)
-        PolyWord *space =
-            processes->FindAllocationSpace(this, this->allocWords, true);
-        if (space == 0)
+    // Do any allocation here.  We can get a GC either if we have insufficient space in
+    // either the general area or the pair area.  If we do we will set this->allocPointer
+    // and this->pairAllocPointer to zero.
+    do {
+        if (this->allocPointer <= this->allocLimit + this->allocWords)
         {
-            // We will now raise an exception instead of returning.
-            // Set allocWords to zero so we don't set the allocation register
-            // since that could be holding the exception packet.
-            this->allocWords = 0;
+            // Find some space to allocate in.  Updates taskData->allocPointer and
+            // returns a pointer to the newly allocated space (if allocWords != 0)
+            PolyWord *space =
+                processes->FindAllocationSpace(this, this->allocWords, true);
+            if (space == 0)
+            {
+                // We will now raise an exception instead of returning.
+                // Set allocWords to zero so we don't set the allocation register
+                // since that could be holding the exception packet.
+                this->allocWords = 0;
+                break;
+            }
+            // Undo the allocation just now.
+            this->allocPointer += this->allocWords;
         }
-        // Undo the allocation just now.
-        this->allocPointer += this->allocWords;
-    }
+#ifdef POLYML32IN64
+        if (this->pairAllocPointer <= this->pairAllocLimit + (this->allocPair ? 2 : 0))
+        {
+            if (this->pairAllocPointer < this->pairAllocLimit)
+                Crash("Bad length in heap overflow trap");
 
+            if (!processes->GetPairAllocationSpace(this))
+            {
+                this->allocPair = false;
+                break;
+            }
+        }
+#endif
+    } while (this->allocPointer == 0);
+
+    // Copy the current store limits into variables before we go into the assembly code.
     if (this->allocWords != 0)
     {
         // If we have had a heap trap we actually do the allocation here.
@@ -877,20 +890,6 @@ void X86TaskData::SetMemRegisters()
     if (this->allocLimit == 0) this->allocLimit += MAX_OBJECT_SIZE;
 
 #ifdef POLYML32IN64
-    if (this->pairAllocPointer <= this->pairAllocLimit + (this->allocPair ? 2:0))
-    {
-        if (this->pairAllocPointer < this->pairAllocLimit)
-            Crash("Bad length in heap overflow trap");
-
-        if (!processes->GetPairAllocationSpace(this))
-        {
-            // We will now raise an exception instead of returning.
-            // Set allocPair to false so we don't set the allocation register
-            // since that could be holding the exception packet.
-            this->allocPair = false;
-        }
-    }
-
     if (this->allocPair)
     {
         // If we have had a heap trap we actually do the allocation here.
@@ -922,6 +921,8 @@ void X86TaskData::SetMemRegisters()
     this->assemblyInterface.returnReason = RETURN_IO_CALL_NOW_UNUSED;
 
     this->assemblyInterface.threadId = this->threadObject;
+
+    ASSERT(gMem.LocalSpaceForObjectAddress((PolyObject*)this->assemblyInterface.localMpointer) != 0);
 }
 
 // This is called whenever we have returned from ML to C.

@@ -304,7 +304,7 @@ class PolyObject {
 public:
     byte *AsBytePtr(void)const { return (byte*)this; }
     PolyWord *AsWordPtr(void)const { return (PolyWord*)this; }
-    POLYUNSIGNED LengthWord(void)const { return ((PolyWord*)this)[-1].AsUnsigned(); }
+    POLYUNSIGNED LengthWord(void)const { CheckNotPairSpace();  return ((PolyWord*)this)[-1].AsUnsigned(); }
     POLYUNSIGNED Length(void)const { return OBJ_OBJECT_LENGTH(LengthWord()); }
 
     // Get and set a word
@@ -314,8 +314,8 @@ public:
 
     // Create a length word from a length and the flags in the top byte. 
     void SetLengthWord(POLYUNSIGNED l, byte f)
-        { ((POLYUNSIGNED*)this)[-1] = l | ((POLYUNSIGNED)f << OBJ_PRIVATE_FLAGS_SHIFT); }
-    void SetLengthWord(POLYUNSIGNED l) { ((PolyWord*)this)[-1] = PolyWord::FromUnsigned(l); }
+        { CheckNotPairSpace();  ((POLYUNSIGNED*)this)[-1] = l | ((POLYUNSIGNED)f << OBJ_PRIVATE_FLAGS_SHIFT); }
+    void SetLengthWord(POLYUNSIGNED l) { CheckNotPairSpace();  ((PolyWord*)this)[-1] = PolyWord::FromUnsigned(l); }
 
     bool IsByteObject(void) const { return OBJ_IS_BYTE_OBJECT(LengthWord()); }
     bool IsCodeObject(void) const { return OBJ_IS_CODE_OBJECT(LengthWord()); }
@@ -325,9 +325,9 @@ public:
     bool IsWeakRefObject(void) const { return OBJ_IS_WEAKREF_OBJECT(LengthWord()); }
     bool IsNoOverwriteObject(void) const { return OBJ_IS_NO_OVERWRITE(LengthWord()); }
 
-    bool ContainsForwardingPtr(void) const { return OBJ_IS_POINTER(LengthWord()); }
-    PolyObject *GetForwardingPtr(void) const { return OBJ_GET_POINTER(LengthWord()); }
-    void SetForwardingPtr(PolyObject *newp) { ((PolyWord*)this)[-1] = PolyWord::FromUnsigned(OBJ_SET_POINTER(newp)); }
+    bool ContainsForwardingPtr(void) const { CheckNotPairSpace(); return OBJ_IS_POINTER(LengthWord()); }
+    PolyObject *GetForwardingPtr(void) const { CheckNotPairSpace(); return OBJ_GET_POINTER(LengthWord()); }
+    void SetForwardingPtr(PolyObject *newp) { CheckNotPairSpace(); ((PolyWord*)this)[-1] = PolyWord::FromUnsigned(OBJ_SET_POINTER(newp)); }
 
     bool ContainsNormalLengthWord(void) const { return OBJ_IS_LENGTH(LengthWord()); }
 
@@ -357,6 +357,8 @@ public:
             return GetForwardingPtr()->FollowForwardingChain();
         else return this;
     }
+
+    void CheckNotPairSpace() const;
 };
 
 /* There was a problem with version 2.95 on Sparc/Solaris at least.  The PolyObject

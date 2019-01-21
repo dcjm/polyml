@@ -517,7 +517,7 @@ static int compare(const void *a, const void *b)
     PolyWord *bv = (PolyWord*)b;
     if ((*av).IsTagged() || (*bv).IsTagged()) return 0; // Shouldn't happen
     PolyObject *ao = (*av).AsObjPtr(), *bo = (*bv).AsObjPtr();
-    if (ao->Length() < 1 || bo->Length() < 1) return 0; // Shouldn't happen
+//    if (ao->Length() < 1 || bo->Length() < 1) return 0; // Shouldn't happen - Can no longer check this because of pair spaces.
     if (ao->Get(0).AsUnsigned() < bo->Get(0).AsUnsigned())
         return -1;
     if (ao->Get(0).AsUnsigned() > bo->Get(0).AsUnsigned())

@@ -1364,3 +1364,8 @@ POLYOBJECTPTR PolyWord::AddressToObjectPtr(void *address)
 
 MemMgr gMem; // The one and only memory manager object
 
+void PolyObject::CheckNotPairSpace() const
+{
+    MemSpace *space = gMem.SpaceForObjectAddress(this);
+    ASSERT(!space->isPair);
+}

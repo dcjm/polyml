@@ -739,7 +739,8 @@ static void CreateBitmapsTask(GCTaskId *, void *arg1, void *arg2)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
-    SetBitmaps(lSpace, lSpace->bottom, lSpace->top);
+    if (!lSpace->isPair)
+        SetBitmaps(lSpace, lSpace->bottom, lSpace->top);
 }
 
 // Parallel task to check the marks on cells in the code area and
