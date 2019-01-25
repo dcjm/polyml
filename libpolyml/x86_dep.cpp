@@ -1079,16 +1079,16 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
 
     // Set up an exception handler so we will enter callBackException if there is an exception.
     (--regSP())->stackAddr = assemblyInterface.handlerRegister; // Create a special handler entry
-    *(--regSP()) = PolyWord::FromCodePtr((byte*)&X86AsmCallbackException);
+    (--regSP())->codeAddr = (byte*)&X86AsmCallbackException;
     assemblyInterface.handlerRegister = regSP();
     // Push the call to callBackReturn onto the stack as the return address.
-    *(--regSP()) = PolyWord::FromCodePtr((byte*)&X86AsmCallbackReturn);
+    (--regSP())->codeAddr = (byte*)&X86AsmCallbackReturn;
     // Set up the entry point of the callback.
     PolyObject *functToCall = func->WordP();
     regDX() = (PolyWord)functToCall; // Closure address
     regAX() = args->Word();
     // Push entry point address
-    *(--regSP()) = functToCall->Get(0); // First word of closure is entry pt.
+    (--regSP())->codeAddr = *(POLYCODEPTR*)functToCall; // First word of closure is entry pt.
 
     return EnterPolyCode();
 }

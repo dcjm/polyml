@@ -82,8 +82,7 @@ typedef void *HANDLE;
 // are read and set by the ML code.
 class ThreadObject: public PolyObject {
 public:
-    PolyWord    index;  // Tagged integer with the index into the taskArray
-                        // Not used by ML
+    PolyWord    threadRef;  // Weak ref containing the address of the thread data. Not used by ML
     PolyWord    flags;  // Tagged integer containing flags indicating how interrupts
                         // are handled.  Set by ML but only by the thread itself
     PolyWord    threadLocal; // Head of a list of thread-local store items.
@@ -146,7 +145,7 @@ public:
     SaveVec     saveVec;
     PolyWord    *allocPointer;  // Allocation pointer - decremented towards...
     PolyWord    *allocLimit;    // ... lower limit of allocation
-    POLYUNSIGNED allocSize;     // The preferred heap segment size
+    uintptr_t   allocSize;     // The preferred heap segment size
     unsigned    allocCount;     // The number of allocations since the last GC
 #ifdef POLYML32IN64
     PolyWord    *pairAllocPointer; // As above specifically for pairs
@@ -162,7 +161,13 @@ public:
     bool        inML;          // True when this is in ML, false in the RTS
 
     // Get a TaskData pointer given the ML taskId.
-    static TaskData *FindTaskForId(PolyObject *taskId);
+    // This is called at the start of every RTS function that may allocate memory.
+    // It is can be called safely to get the thread's own TaskData object without
+    // a lock but any call to get the TaskData for another thread must take the
+    // schedLock first in case the thread is exiting.
+    static TaskData *FindTaskForId(PolyObject *taskId) {
+        return *(TaskData**)(((ThreadObject*)taskId)->threadRef.AsObjPtr());
+    }
 
 private:
     // If a thread has to block it will block on this.
