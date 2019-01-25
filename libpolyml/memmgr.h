@@ -138,7 +138,7 @@ class LocalMemSpace: public MarkableSpace
 {
 protected:
     LocalMemSpace(OSMem *alloc);
-    virtual ~LocalMemSpace() {}
+    virtual ~LocalMemSpace();
     bool InitSpace(PolyWord *heapPtr, uintptr_t size, bool mut);
 
 public:
@@ -159,7 +159,6 @@ public:
 
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     PLock        bitmapLock;      // Lock used in GC sharing pass.
-    Bitmap       pairForwardingMap; // Used in pairs in place of the forwarding bit in the length word.
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
     uintptr_t start[NSTARTS];  /* starting points for bit searches.                 */
     unsigned     start_index;     /* last index used to index start array              */
@@ -185,6 +184,13 @@ public:
     // Used when converting to and from bit positions in the bitmap
     uintptr_t wordNo(PolyWord *pt) { return pt - bottom; }
     PolyWord *wordAddr(uintptr_t bitno) { return bottom + bitno; }
+
+    bool PairHasForward(PolyObject *obj);
+    PolyObject *PairGetForward(PolyObject *obj);
+    void PairSetForward(PolyObject *forObj, PolyObject *toObj);
+
+    // Pair spaces need a byte vector with a byte for each cell.
+    byte    *pairFlags;
 
     friend class MemMgr;
 };

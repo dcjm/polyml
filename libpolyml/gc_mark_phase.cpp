@@ -83,6 +83,32 @@ Many of the ideas are drawn from Flood, Detlefs, Shavit and Zhang 2001
 #define MARK_STACK_SIZE 3000
 #define LARGECACHE_SIZE 20
 
+#ifdef POLYML32IN64
+#define PAIRGCBIT 0x40
+
+inline bool isMarked(PolyObject *obj) {
+    LocalMemSpace *lSpace = gMem.LocalSpaceForObjectAddress(obj);
+    if (lSpace && lSpace->isPair)
+        return (lSpace->pairFlags[(void**)obj - (void**)lSpace->bottom] & PAIRGCBIT) != 0;
+    else return (obj->LengthWord() & _OBJ_GC_MARK) != 0;
+}
+
+inline void setMark(PolyObject *obj) {
+    LocalMemSpace *lSpace = gMem.LocalSpaceForObjectAddress(obj);
+    if (lSpace && lSpace->isPair)
+        lSpace->pairFlags[(void**)obj - (void**)lSpace->bottom] |= PAIRGCBIT;
+    else obj->SetLengthWord(obj->LengthWord() | _OBJ_GC_MARK);
+}
+#else
+inline bool isMarked(PolyObject *obj) {
+    return (obj->LengthWord() & _OBJ_GC_MARK) != 0;
+}
+
+inline void setMark(PolyObject *obj) {
+    obj->SetLengthWord(obj->LengthWord() | _OBJ_GC_MARK);
+}
+#endif
+
 class MTGCProcessMarkPointers: public ScanAddress
 {
 public:
@@ -218,7 +244,7 @@ void MTGCProcessMarkPointers::StackOverflow(PolyObject *obj)
     POLYUNSIGNED n = obj->Length();
     if (space->fullGCRescanEnd < ((PolyWord*)obj) + n)
         space->fullGCRescanEnd = ((PolyWord*)obj) + n;
-    ASSERT(obj->LengthWord() & _OBJ_GC_MARK); // Should have been marked.
+    ASSERT(isMarked(obj)); // Should have been marked.
     if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Mark: Stack overflow.  Rescan for %p\n", obj);
 }
@@ -312,9 +338,10 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
     if (sp->isPair)
     {
         LocalMemSpace *lSpace = (LocalMemSpace*)sp;
-        if (lSpace->pairForwardingMap.TestBit(lSpace->wordNo((PolyWord*)obj)))
+        // We don't need a lock here because we aren't going to set it.
+        if (lSpace->PairHasForward(obj))
         {
-            obj = obj->Get(0).AsObjPtr();
+            obj = lSpace->PairGetForward(obj);
             sp = gMem.SpaceForObjectAddress(obj);
         }
     }
@@ -328,17 +355,17 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
     if (sp == 0 || (sp->spaceType != ST_LOCAL && sp->spaceType != ST_CODE))
         return false; // Ignore it if it points to a permanent area
 
-    POLYUNSIGNED L = sp->isPair ? 2 : obj->LengthWord();
-
-    if (L & _OBJ_GC_MARK)
+    if (isMarked(obj))
         return false; // Already marked
+
+    POLYUNSIGNED L = sp->isPair ? 2 : obj->LengthWord();
 
     if (debugOptions & DEBUG_GC_DETAIL)
         Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, OBJ_OBJECT_LENGTH(L), GetTypeBits(L));
 
     if (OBJ_IS_BYTE_OBJECT(L))
     {
-        obj->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
+        setMark(obj); // Mark it
         return false; // We've done as much as we need
     }
     return true;
@@ -346,11 +373,7 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
 
 void MTGCProcessMarkPointers::MarkAndTestForScan(PolyWord *pt)
 {
-    if (TestForScan(pt))
-    {
-        PolyObject *obj = (*pt).AsObjPtr();
-        obj->SetLengthWord(obj->LengthWord() | _OBJ_GC_MARK);
-    }
+    if (TestForScan(pt)) setMark((*pt).AsObjPtr());
 }
 
 // The initial entry to process the roots.  These may be RTS addresses or addresses in
@@ -371,10 +394,11 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 
     ASSERT(obj->ContainsNormalLengthWord());
 
-    POLYUNSIGNED L = obj->LengthWord();
-    if (L & _OBJ_GC_MARK)
+
+    if (isMarked(obj))
         return obj; // Already marked
-    obj->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
+    setMark(obj); // Mark it
+    POLYUNSIGNED L = obj->LengthWord();
 
     if (profileMode == kProfileLiveData || (profileMode == kProfileLiveMutables && obj->IsMutable()))
         AddObjectProfile(obj);
@@ -516,7 +540,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         else if (secondWord != 0)
         {
             // Mark it now because we will process it.
-            secondWord->SetLengthWord(secondWord->LengthWord() | _OBJ_GC_MARK);
+            setMark(secondWord);
             // Put this on the stack.  If this is a list node we will be
             // pushing the tail.
             PushToStack(secondWord);
@@ -525,7 +549,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         if (firstWord != 0)
         {
             // Mark it and process it immediately.
-            firstWord->SetLengthWord(firstWord->LengthWord() | _OBJ_GC_MARK);
+            setMark(firstWord);
             obj = firstWord;
         }
         else if (msp == 0)
@@ -544,7 +568,14 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             obj = markStack[--msp]; // Pop something.
         }
 
+#ifdef POLYML32IN64
+        MemSpace *space = gMem.SpaceForObjectAddress(obj);
+        if (space->isPair)
+            lengthWord = 2;
+        else lengthWord = obj->LengthWord();
+#else
         lengthWord = obj->LengthWord();
+#endif
     }
 }
 

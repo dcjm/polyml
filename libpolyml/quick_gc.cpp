@@ -224,16 +224,15 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
         // can't use weak coherence because we're using a bitmap and the forwarding
         // pointer is in the data.
         PLocker locker(&srcSpace->bitmapLock);
-        uintptr_t wordNo = srcSpace->wordNo((PolyWord*)obj);
-        if (srcSpace->pairForwardingMap.TestBit(wordNo))
+        if (srcSpace->PairHasForward(obj))
         {
-            newObject = obj->Get(0).AsObjPtr();
+            newObject = srcSpace->PairGetForward(obj);
             if (debugOptions & DEBUG_GC_DETAIL)
                 Log("GC: Quick: %p %lu %u has already moved to %p\n", obj, n, GetTypeBits(L), newObject);
             objectCopied = false;
             return newObject;
         }
-        srcSpace->pairForwardingMap.SetBit(wordNo);
+
         lSpace->lowerAllocPtr += n + 1;
         // Because the forwarding pointer is in the data we
         // have to copy the cell before setting it.
@@ -241,7 +240,7 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
         newObject->Set(0, obj->Get(0));
         newObject->Set(1, obj->Get(1));
         objectCopied = true;
-        obj->Set(0, newObject);
+        srcSpace->PairSetForward(obj, newObject);
         return newObject;
     }
     else if (isMutable || OBJ_IS_CODE_OBJECT(L))
@@ -393,8 +392,8 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
                 if (space->isPair)
                 {
                     PLocker locker(&space->bitmapLock);
-                    if (space->pairForwardingMap.TestBit(space->wordNo((PolyWord*)obj)))
-                        newAddress = obj->Get(0).AsObjPtr();
+                    if (space->PairHasForward(obj))
+                        newAddress = space->PairGetForward(obj);
                 }
                 else if (OBJ_IS_POINTER(L))
                     newAddress = OBJ_GET_POINTER(L);
@@ -615,7 +614,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
         if (! lSpace->allocationSpace)
             spaceBeforeGC += lSpace->allocatedSpace();
         if (lSpace->isPair)
-            lSpace->pairForwardingMap.ClearBits(0, lSpace->spaceSize());
+            memset(lSpace->pairFlags, 0, (void**)lSpace->top - (void**)lSpace->bottom);
     }
 
     // First scan the roots, copying the data into the mutable and immutable areas.

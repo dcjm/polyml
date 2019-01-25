@@ -322,13 +322,14 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
             {
                 PolyWord *tombAddr = g->graves + ((PolyWord*)obj - g->startAddr);
                 PolyObject *tombObject = (PolyObject*)tombAddr;
-                if (tombObject->ContainsForwardingPtr())
+                POLYUNSIGNED lengthWord = tombAddr[-1].AsUnsigned();
+                if (lengthWord & _OBJ_TOMBSTONE_BIT)
                 {
 #ifdef POLYML32IN64
                     PolyObject *newAddr;
                     if (space->isCode)
-                        newAddr = (PolyObject*)(globalCodeBase + ((tombObject->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
-                    else newAddr = tombObject->GetForwardingPtr();
+                        newAddr = (PolyObject*)(globalCodeBase + ((lengthWord & ~_OBJ_TOMBSTONE_BIT) << 1));
+                    else newAddr = (PolyObject*)(globalHeapBase + ((lengthWord & ~_OBJ_TOMBSTONE_BIT) << 1));
 #else
                     PolyObject *newAddr = tombObject->GetForwardingPtr();
 #endif
@@ -436,15 +437,12 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
             if ((PolyWord*)obj >= g->startAddr && (PolyWord*)obj < g->endAddr)
             {
                 PolyWord *tombAddr = g->graves + ((PolyWord*)obj - g->startAddr);
-                PolyObject *tombObject = (PolyObject*)tombAddr;
 #ifdef POLYML32IN64
-                if (isCodeObj)
-                {
-                    POLYUNSIGNED ll = (POLYUNSIGNED)(((PolyWord*)newObj - globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT);
-                    tombObject->SetLengthWord(ll);
-                }
-                else tombObject->SetForwardingPtr(newObj);
+                POLYUNSIGNED ll = (POLYUNSIGNED)(((PolyWord*)newObj - (isCodeObj ? globalCodeBase : globalHeapBase)) >> 1 | _OBJ_TOMBSTONE_BIT);
+                // Don't use SetForwardingPtr at the moment because this isn't in a valid memory space.
+                tombAddr[-1] = PolyWord::FromUnsigned(ll);
 #else
+                PolyObject *tombObject = (PolyObject*)tombAddr;
                 tombObject->SetForwardingPtr(newObj);
 #endif
                 break; // No need to look further

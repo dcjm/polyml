@@ -85,6 +85,12 @@ LocalMemSpace::LocalMemSpace(OSMem *alloc): MarkableSpace(alloc)
     start_index = 0;
     i_marked = m_marked = updated = 0;
     allocationSpace = false;
+    pairFlags = 0;
+}
+
+LocalMemSpace::~LocalMemSpace()
+{
+    free(pairFlags);
 }
 
 bool LocalMemSpace::InitSpace(PolyWord *heapSpace, uintptr_t size, bool mut)
@@ -102,6 +108,27 @@ bool LocalMemSpace::InitSpace(PolyWord *heapSpace, uintptr_t size, bool mut)
 
     // Bitmap for the space.
     return bitmap.Create(size);
+}
+
+// Use the same bit as the forwarding it in the length word.
+#define PAIRFORWARDBIT 0x80
+
+bool LocalMemSpace::PairHasForward(PolyObject *obj)
+{
+    ASSERT(pairFlags != 0);
+    return (pairFlags[(void**)obj - (void**)bottom] & PAIRFORWARDBIT) != 0;
+}
+
+PolyObject *LocalMemSpace::PairGetForward(PolyObject *obj)
+{
+    return obj->Get(0).AsObjPtr();
+}
+
+void LocalMemSpace::PairSetForward(PolyObject *forObj, PolyObject *toObj)
+{
+    ASSERT(pairFlags != 0);
+    pairFlags[(void**)forObj - (void**)bottom] |= PAIRFORWARDBIT;
+    forObj->Set(0, toObj);
 }
 
 MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
@@ -190,7 +217,8 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut, bool isPairSpace)
         if (success && isPairSpace)
         {
             space->isPair = true;
-            success = space->pairForwardingMap.Create(size);
+            space->pairFlags = (byte*)malloc(iSpace / sizeof(void*));
+            success = space->pairFlags != 0;
         }
         if (reservation != 0) osHeapAlloc.Free(reservation, rSpace);
         if (success)

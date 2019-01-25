@@ -66,8 +66,25 @@ public:
 private:
     static void UpdateAddress(PolyObject *&obj)
     {
-        while (obj->ContainsForwardingPtr())
-            obj = obj->GetForwardingPtr();
+#ifdef POLYML32IN64
+        LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(obj);
+        if (space && space->isPair)
+        {
+            if (space->PairHasForward(obj))
+            {
+                obj = space->PairGetForward(obj);
+                UpdateAddress(obj);
+            }
+        }
+        else
+#endif
+        {
+            if (obj->ContainsForwardingPtr())
+            {
+                obj = obj->GetForwardingPtr();
+                UpdateAddress(obj);
+            }
+        }
     }
 };
 
@@ -182,11 +199,25 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
                     if (! val.IsTagged() && val != PolyWord::FromUnsigned(0))
                     {
                         PolyObject *obj = val.AsObjPtr();
-                    
-                        if (obj->ContainsForwardingPtr())
+#ifdef POLYML32IN64
+                        LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(obj);
+                        if (space && space->isPair)
                         {
-                            UpdateAddress(obj);
-                            *pt = obj;
+
+                            if (space->PairHasForward(obj))
+                            {
+                                UpdateAddress(obj);
+                                *pt = obj;
+                            }
+                        }
+                        else
+#endif
+                        {
+                            if (obj->ContainsForwardingPtr())
+                            {
+                                UpdateAddress(obj);
+                                *pt = obj;
+                            }
                         }
                     }
                     
