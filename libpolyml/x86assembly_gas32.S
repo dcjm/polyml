@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2019
+   Copyright (c) David C. J. Matthews 2000-2020
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -70,7 +70,7 @@ EXTNAME(id):
 #define Arg_ExceptionPacket     0x10  /* Address of packet to raise */
 #define Arg_RequestCode         0x14 /* Byte: Io function to call. */
 #define Arg_ReturnReason        0x16  /* Byte: Reason for returning from ML. */
-#define Arg_FullRestore         0x17  /* Byte: Full/partial restore */
+#define Arg_Pflags              0x17  /* Byte: Flags byte - used in arb prec compare */
 #define Arg_SaveCStack          0x18  /* Save C Stack pointer */
 #define Arg_ThreadId            0x1c  /* My thread id */
 #define Arg_StackPtr            0x20  /* Stack Pointer */
@@ -85,6 +85,7 @@ EXTNAME(id):
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
+#define RETURN_ARB_EMULATION        5
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_KILL_SELF            9
@@ -128,6 +129,8 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     cmpl    $1,%eax                             # Did we raise an exception?
     jnz     raisexlocal
     FRSTOR  Arg_SaveFP(%ebp)
+    movb    Arg_Pflags(%ebp),%ah
+    sahf
     movl    Arg_SaveRAX(%ebp),%eax              # Load the registers
     movl    Arg_SaveRBX(%ebp),%ebx              # Load the registers
     movl    Arg_SaveRCX(%ebp),%ecx
@@ -158,15 +161,6 @@ SaveFullState:
     popl    %ebp
     ret
 
-INLINE_ROUTINE(X86AsmCallExtraRETURN_HEAP_OVERFLOW)
-    CALL_EXTRA(RETURN_HEAP_OVERFLOW)
-
-INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
-    CALL_EXTRA(RETURN_STACK_OVERFLOW)
-
-INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
-    CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
-
 /* Used when entering new code.  The argument and closure are on the stack
    in case there is a GC before we enter the code. */
 INLINE_ROUTINE(X86AsmPopArgAndClosure)
@@ -181,6 +175,15 @@ raisexlocal:
 
 # Additional assembly code routines
 
+INLINE_ROUTINE(X86AsmCallExtraRETURN_HEAP_OVERFLOW)
+    CALL_EXTRA(RETURN_HEAP_OVERFLOW)
+
+INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
+    CALL_EXTRA(RETURN_STACK_OVERFLOW)
+
+INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
+    CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
+
 # RTS call to kill the current thread. 
 INLINE_ROUTINE(X86AsmKillSelf)
     CALL_EXTRA(RETURN_KILL_SELF)
@@ -190,6 +193,9 @@ INLINE_ROUTINE(X86AsmCallbackReturn)
 
 INLINE_ROUTINE(X86AsmCallbackException)
     CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
+
+INLINE_ROUTINE(X86AsmCallExtraRETURN_ARB_EMULATIONX)
+    CALL_EXTRA(RETURN_ARB_EMULATION)
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)

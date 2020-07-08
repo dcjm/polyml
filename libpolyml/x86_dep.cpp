@@ -176,12 +176,12 @@ public:
     byte            unusedRequestCode;  // No longer used.
     byte            unusedFlag;         // No longer used
     byte            returnReason;       // Reason for returning from ML.
-    byte            unusedRestore;      // No longer used.
+    byte            p_flags;            // Flags - used when emulating arb prec compare.
     uintptr_t       saveCStack;         // Saved C stack frame.
     PolyWord        threadId;           // My thread id.  Saves having to call into RTS for it.
     stackItem       *stackPtr;          // Current stack pointer
-    byte            *noLongerUsed;      // Now removed
-    byte            *heapOverFlowCall;  // These are filled in with the functions.
+    byte            *arbEmulationCall;  // These are filled in with the functions.
+    byte            *heapOverFlowCall; 
     byte            *stackOverFlowCall;
     byte            *stackOverFlowCallEx;
     // Saved registers, where applicable.
@@ -318,6 +318,7 @@ enum RETURN_REASON {
     RETURN_HEAP_OVERFLOW = 1,
     RETURN_STACK_OVERFLOW = 2,
     RETURN_STACK_OVERFLOWEX = 3,
+    RETURN_ARB_EMULATION = 5,
     RETURN_CALLBACK_RETURN = 6,
     RETURN_CALLBACK_EXCEPTION = 7,
     RETURN_KILL_SELF = 9
@@ -333,6 +334,7 @@ extern "C" {
     extern int X86AsmCallbackException(void);
     extern int X86AsmPopArgAndClosure(void);
     extern int X86AsmRaiseException(void);
+    extern int X86AsmCallExtraRETURN_ARB_EMULATION(void);
     extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
@@ -346,6 +348,7 @@ static byte *popArgAndClosure, *killSelf, *raiseException, *callbackException, *
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
+    assemblyInterface.arbEmulationCall = (byte*)X86AsmCallExtraRETURN_ARB_EMULATION;
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
@@ -647,6 +650,10 @@ int X86TaskData::SwitchToPoly()
         case RETURN_KILL_SELF:
             exitThread(this);
 
+        case RETURN_ARB_EMULATION:
+            ASSERT(0);
+            break;
+
         default:
             Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
         }
@@ -718,6 +725,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     assemblyInterface.p_fp.cw = 0x027f ; // Control word
     assemblyInterface.p_fp.tw = 0xffff; // Tag registers - all unused
 #endif
+    assemblyInterface.p_flags = 0;
     // Initial entry point - on the stack.
     stackTop[0].codeAddr = popArgAndClosure;
 
@@ -944,6 +952,7 @@ void X86TaskData::SaveMemRegisters()
     this->allocWords = 0;
     this->assemblyInterface.exceptionPacket = TAGGED(0);
     this->saveRegisterMask = 0;
+    assemblyInterface.p_flags = 0;
 }
 
 // Called on a GC or stack overflow trap.  The register mask

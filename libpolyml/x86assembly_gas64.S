@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2019
+   Copyright (c) David C. J. Matthews 2000-2020
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -80,7 +80,7 @@ EXTNAME(id):
 #define Arg_ExceptionPacket     0x20  /* Address of packet to raise */
 #define Arg_RequestCode         0x28  /* Byte: Io function to call. */
 #define Arg_ReturnReason        0x2a  /* Byte: Reason for returning from ML. */
-#define Arg_UnusedRestore       0x2b  /* Byte: Full/partial restore */
+#define Arg_Pflags              0x2b  /* Byte: Flags byte - used in arb prec compare */
 #define Arg_SaveCStack          0x30  /* Current stack base */
 #define Arg_ThreadId            0x38  /* My thread id */
 #define Arg_StackPtr            0x40  /* Stack Pointer */
@@ -112,6 +112,7 @@ EXTNAME(id):
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
+#define RETURN_ARB_EMULATION        5
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_RAISE_OVERFLOW       8
@@ -182,6 +183,8 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    Arg_ExceptionPacket(%rbp),%rax
     cmpq    $1,%rax                             # Did we raise an exception?
     jnz     raisexLocal
+    movb    Arg_Pflags(%rbp),%ah
+    sahf
     movq    Arg_SaveRAX(%rbp),%rax
     cld                                     # Clear this just in case
     ret
@@ -267,6 +270,9 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
 
 INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
     CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
+
+INLINE_ROUTINE(X86AsmCallExtraRETURN_ARB_EMULATIONX)
+    CALL_EXTRA(RETURN_ARB_EMULATION)
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)

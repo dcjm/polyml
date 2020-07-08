@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2019
+;  Copyright (c) David C. J. Matthews 2000-2020
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -46,7 +46,7 @@ ExceptionPacket     DWORD   ?       ; Address of packet to raise
 UnusedRequestCode   DB      ?       ; Byte: Io function to call.
 UnusedFlag          DB      ?
 ReturnReason        DB      ?       ; Byte: Reason for returning from ML.
-UnusedRestore       DB      ?       ; 
+Pflags              DB      ?       ; Byte: Flags to set - used in arbitrary precision
 SaveCStack          DWORD   ?       ; Saved C stack pointer
 ThreadId            DWORD   ?       ; My thread id
 StackPtr            DWORD   ?       ; Stack pointer
@@ -68,6 +68,7 @@ ArgVector ENDS
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
+RETURN_ARB_EMULATION        EQU 5
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
 RETURN_KILL_SELF            EQU 9
@@ -101,6 +102,8 @@ X86AsmSwitchToPoly:
     cmp     eax,1                                           ; Did we raise an exception?
     jnz     raisex
     frstor  [ArgVector.SaveFP+ebp]
+    mov     ah,[ArgVector.Pflags+ebp]
+    sahf
     mov     eax,[ArgVector.SaveRAX+ebp]
     mov     ebx,[ArgVector.SaveRBX+ebp]
     mov     ecx,[ArgVector.SaveRCX+ebp]
@@ -187,6 +190,7 @@ X86AsmCallExtra&index&:
     ENDM
 
 
+CREATE_EXTRA_CALL RETURN_ARB_EMULATION
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
