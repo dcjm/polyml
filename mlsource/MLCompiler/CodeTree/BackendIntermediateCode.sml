@@ -86,6 +86,8 @@ struct
         |   RealComparison of testConditions * precision
         |   RealArith of arithmeticOperations * precision
         |   PointerEq
+        |   LongArbComparison of testConditions
+        |   LongArbArith of arithmeticOperations
         
         fun unaryRepr NotBoolean = "NotBoolean"
         |   unaryRepr IsTaggedValue = "IsTaggedValue"
@@ -121,6 +123,8 @@ struct
         |   binaryRepr (RealComparison (test, prec)) = "Test" ^ testRepr test ^ precRepr prec
         |   binaryRepr (RealArith (arithOp, prec)) = arithRepr arithOp ^ precRepr prec
         |   binaryRepr PointerEq = "PointerEq"
+        |   binaryRepr (LongArbComparison test) = "LongArbTest" ^ (testRepr test)
+        |   binaryRepr (LongArbArith arithOp) = (arithRepr arithOp) ^ "LongArb"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestLess           = "Less"

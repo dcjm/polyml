@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2006-10, 2015-16  David C. J. Matthews
+    Copyright (c) 2006-10, 2015-16, 2020  David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,8 +28,10 @@ let
        the basis library and exports the compiler along with the basis library
        as an operating-system specific object file. *)
     val globalTable : Make.gEnv = Make.makeGEnv ()
-    val test = List.exists (fn "--intIsIntInf" => true | _ => false) (CommandLine.arguments())
-    val () = Initialise.initGlobalEnv{globalTable=globalTable, intIsArbitraryPrecision=test}
+    val testIntIsArb = List.exists (fn "--intIsIntInf" => true | _ => false) (CommandLine.arguments())
+    val testArbUseEmulation = List.exists (fn "--useCompactIntInf" => true | _ => false) (CommandLine.arguments())
+    val () = Initialise.initGlobalEnv{globalTable=globalTable,
+                    intIsArbitraryPrecision=testIntIsArb, useEmulationForArbitrary=testArbUseEmulation}
 in
     Make.shellProc globalTable()
 end;

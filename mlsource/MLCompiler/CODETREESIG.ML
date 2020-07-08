@@ -127,8 +127,10 @@ sig
 
     val mkUnaryFn: BuiltIns.unaryOps -> codetree
     and mkBinaryFn: BuiltIns.binaryOps -> codetree
-    and mkArbitraryFn: arbPrecisionOps -> codetree
-    
+
+    val mkArbitraryFnWithCall: arbPrecisionOps -> codetree
+    val mkArbitraryFnWithEmulation: arbPrecisionOps -> codetree
+
     val getCurrentThreadId: codetree
     and getCurrentThreadIdFn: codetree
     val mkAllocateWordMemory: codetree * codetree * codetree -> codetree

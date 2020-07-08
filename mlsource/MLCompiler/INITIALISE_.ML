@@ -76,7 +76,7 @@ functor INITIALISE_ (
 
 sig
   type gEnv
-  val initGlobalEnv : {globalTable  : gEnv, intIsArbitraryPrecision: bool } -> unit
+  val initGlobalEnv : {globalTable  : gEnv, intIsArbitraryPrecision: bool, useEmulationForArbitrary: bool } -> unit
 end =
 
 struct
@@ -100,7 +100,7 @@ struct
     fun applyList _ []       = ()
     |   applyList f (h :: t) = (f h : unit; applyList f t);
 
-    fun initGlobalEnv{globalTable  : gEnv, intIsArbitraryPrecision: bool } =
+    fun initGlobalEnv{globalTable  : gEnv, intIsArbitraryPrecision, useEmulationForArbitrary } =
     let
         val Env globalEnv = MAKE.gEnvAsEnv globalTable
    
@@ -553,9 +553,12 @@ struct
             val arithType =
                 mkProductType[intInfType, intInfType, intInfType ** intInfType ->> intInfType] ->> intInfType
 
+            val arbOperation =
+                if useEmulationForArbitrary then mkArbitraryFnWithEmulation else mkArbitraryFnWithCall
+
             fun enterArbitrary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkArbitraryFn oper, declInBasis)
+                val value = mkGvar (name, typ, arbOperation oper, declInBasis)
             in
                 #enterVal largeIntEnv (name, value)
             end

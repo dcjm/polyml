@@ -2970,6 +2970,13 @@ struct
             in
                 (code, RegisterArgument target, false)
             end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.LongArbComparison test, arg1, arg2}, context, _, destination, tailCode) =
+                raise InternalError "codeToICodeBinaryRev:LongArbComparison"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.LongArbArith arithOp, arg1, arg2}, context, _, destination, tailCode) =
+                raise InternalError "codeToICodeBinaryRev:LongArbArith"
+
         
         (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use
            various short cuts. *)

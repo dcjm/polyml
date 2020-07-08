@@ -27,7 +27,7 @@ PolyML.make "mlsource/MLCompiler";
 
 (* Create the initial basis *)
 val globalTable : Make.gEnv = Make.makeGEnv ();
-val () = Initialise.initGlobalEnv {globalTable=globalTable, intIsArbitraryPrecision=false};
+val () = Initialise.initGlobalEnv {globalTable=globalTable, intIsArbitraryPrecision=false, useEmulationForArbitrary=false};
 
 (* Compile the basis in the new compiler. *)
 MLCompiler.useIntoEnv globalTable [] "mlsource/BuildBasis.sml";

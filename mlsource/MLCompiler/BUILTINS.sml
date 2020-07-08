@@ -98,6 +98,9 @@ sig
            if we try to use an indexed case there must be a check that the
            values are tagged. *)
     |   PointerEq
+        (* Arbitrary precision operations using emulation. *)
+    |   LongArbComparison of testConditions
+    |   LongArbArith of arithmeticOperations
         
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string

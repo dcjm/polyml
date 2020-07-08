@@ -570,13 +570,12 @@ struct
         val testShort = mkCand(mkIsShort argX, mkIsShort argY)
         val longCall = mkEval(mkInd(2, mkLoadArgument 0), [mkTuple[argX, argY]])
     in
-
-        fun mkArbitraryFn (oper as ArbArith arith) =
+        fun mkArbitraryFnWithCall (oper as ArbArith arith) =
             mkInlproc(
                 Arbitrary{oper=oper, shortCond=testShort, arg1=argX, arg2=argY, longCall=longCall },
                 1, "Arbitrary" ^  BuiltIns.arithRepr arith ^ "()", [], 0)
 
-        |   mkArbitraryFn (oper as ArbCompare test) =
+        |   mkArbitraryFnWithCall (oper as ArbCompare test) =
             (* The long function here is PolyCompareArbitrary which returns -1,0,+1 so the
                result has to be compared with zero. *)
             let
@@ -587,6 +586,18 @@ struct
                     Arbitrary{oper=oper, shortCond=testShort, arg1=argX, arg2=argY, longCall=comparedResult },
                     1, "Arbitrary" ^ BuiltIns.testRepr test ^ "()", [], 0)
             end
+
+        and mkArbitraryFnWithEmulation (oper as ArbArith arith) =
+            mkInlproc(
+                Arbitrary{oper=oper, shortCond=testShort, arg1=argX, arg2=argY,
+                    longCall=Binary{oper=BuiltIns.LongArbArith arith, arg1=argX, arg2=argY}  },
+                1, "Arbitrary" ^  BuiltIns.arithRepr arith ^ "()", [], 0)
+
+        |   mkArbitraryFnWithEmulation (oper as ArbCompare test) =
+            mkInlproc(
+                Arbitrary{oper=oper, shortCond=testShort, arg1=argX, arg2=argY,
+                    longCall=Binary{oper=BuiltIns.LongArbComparison test, arg1=argX, arg2=argY} },
+                1, "Arbitrary" ^ BuiltIns.testRepr test ^ "()", [], 0)
     end
 
     structure Foreign = BACKEND.Foreign
