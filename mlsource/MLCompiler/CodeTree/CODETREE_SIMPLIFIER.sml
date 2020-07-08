@@ -1130,7 +1130,7 @@ struct
     end
 
     (* Arbitrary precision operations.  This is a sort of mixture of a built-in and a conditional. *)
-    and simpArbitraryCompare(TestEqual, shortCond, arg1, arg2, longCall, context, tailDecs) =
+    and simpArbitraryCompare(TestEqual, _, _, _, _, _, _) =
         (* We no longer generate this for equality.  General equality for arbitrary precision
            uses a combination of PointerEq and byte comparison. *)
             raise InternalError "simpArbitraryCompare: TestEqual"
