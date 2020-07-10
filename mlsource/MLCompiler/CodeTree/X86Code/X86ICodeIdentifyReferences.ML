@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-19 David C.J. Matthews
+    Copyright (c) 2016-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -305,6 +305,13 @@ struct
 
     |   getInstructionState(TouchArgument{source}) =
             { sources=[source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(LongArbComparison{arg1, arg2, ccRef, ...}) =
+            { sources=arg1 :: argRegs arg2, dests=[], sStacks=argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+
+    |   getInstructionState(LongArbArithmetic{resultReg, operand1, operand2, ...}) =
+            { sources=operand1 :: argRegs operand2, dests=[resultReg],
+              sStacks=argStacks operand2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
@@ -725,6 +732,13 @@ struct
                                     else print("Register " ^ Int.toString dreg ^ " inactive-" ^ PolyML.makestring instr ^ "\n");
                                     instr
                                 )
+
+                            |   LongArbComparison{arg1, arg2, ccRef, saveRegs= _} =>
+                                    LongArbComparison{arg1=arg1, arg2=arg2, ccRef=ccRef, saveRegs=getSaveSet(~1 (* No destination *))}
+                            
+                            |   LongArbArithmetic{oper, resultReg, operand1, operand2, saveRegs= _ } =>
+                                    LongArbArithmetic{oper=oper, resultReg=resultReg, operand1=operand1, operand2=operand2,
+                                                      saveRegs=getSaveSet(regNo resultReg) }
 
                             |   _ => instr
                     end

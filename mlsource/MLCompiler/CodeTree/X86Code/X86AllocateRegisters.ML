@@ -791,6 +791,39 @@ struct
         |   registerAllocate({instr=TouchArgument{source=PReg srcReg}, ...}) =
                 allocateRegister(srcReg, NONE, generalRegisters)
 
+        |   registerAllocate({instr=LongArbComparison{ arg1=PReg arg1Reg, arg2, saveRegs, ... }, ...}) =
+            (
+                List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
+                allocateRegister(arg1Reg, NONE, generalRegisters);
+                allocateArgGeneral arg2
+            )
+
+        |   registerAllocate{instr=LongArbArithmetic{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
+                                            operand2, saveRegs, ...}, ...} =
+            (* Subtraction  - As with the unemulated case, we can only do this one way round. *)
+            let
+                val realDestReg = findRegister(resReg, NONE, generalRegisters)
+                (* Try to put the argument into the same register as the result. *)
+            in
+                List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
+                allocateRegister(op1Reg, SOME realDestReg, generalRegisters);
+                allocateArgGeneral operand2
+            end
+
+        |   registerAllocate({instr=LongArbArithmetic{resultReg=PReg resReg, operand1=PReg op1Reg, operand2, saveRegs, ...}, ...}) =
+            let
+                val realDestReg = findRegister(resReg, NONE, generalRegisters)
+                val () = allocateRegister(op1Reg, SOME realDestReg, generalRegisters)
+                val () = List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
+            in
+                case decache operand2 of
+                    RegisterArgument(PReg op2Reg) =>
+                    (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
+                       we can try to put either argument into the result reg and then do the operation on the other arg. *)
+                        allocateRegister(op2Reg, SOME realDestReg, generalRegisters)
+                |   operand2 => allocateArgGeneral operand2
+            end
+
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)
 

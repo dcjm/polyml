@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016-19
+    Copyright David C. J. Matthews 2016-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -354,6 +354,13 @@ sig
 
         (* Touch an entry.  Actually doesn't do anything except make sure it is referenced. *)
     |   TouchArgument of { source: preg }
+
+        (* Emulate a comparison of arbitrary precision values.  The first argument must be a register. *)
+    |   LongArbComparison of { arg1: preg, arg2: argument, ccRef: ccRef, saveRegs: preg list }
+    
+        (* Emulate arithmetic of arbitrary precision values*)
+    |   LongArbArithmetic of
+            { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, saveRegs: preg list }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =

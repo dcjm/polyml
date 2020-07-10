@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-19
+    Copyright David C. J. Matthews 2016-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1336,6 +1336,24 @@ struct
                             val (sourceVal, sourceCode) = mapSrcReg source
                         in
                             TouchArgument{source=sourceVal} :: sourceCode @ code
+                        end
+ 
+                    |   pushRegisters({instr=LongArbComparison{arg1, arg2, ccRef, ...}, ...}, code) =
+                        let
+                            val (loadedOp1, op1Code) = mapSrcReg arg1
+                            val (op2Val, op2Code) = mapSource(arg2, movePolyWord)
+                        in
+                            LongArbComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef, saveRegs=[]} :: op2Code @ op1Code @ code
+                        end
+
+                    |   pushRegisters({instr=LongArbArithmetic{oper, resultReg, operand1, operand2, ...}, ...}, code) =
+                        let
+                            val (loadedOp1, op1Code) = mapSrcReg operand1
+                            val (op2Val, op2Code) = mapSource(operand2, movePolyWord)
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @ LongArbArithmetic{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, saveRegs=[]} ::
+                                    op2Code @ op1Code @ code
                         end
 
                     (* Find the common cache state. *)

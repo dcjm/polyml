@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-19
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-20
     
     Based on original code:    
     Copyright (c) 2000
@@ -148,6 +148,7 @@ struct
     and memRegCStackPtr           = 6 * Word.toInt nativeWordSize
     and memRegThreadSelf          = 7 * Word.toInt nativeWordSize
     and memRegStackPtr            = 8 * Word.toInt nativeWordSize
+    and memRegArbPrecisionCall    = 9 * Word.toInt nativeWordSize
     and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
     and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
     and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
@@ -1074,6 +1075,7 @@ struct
         StackOverflowCall
     |   StackOverflowCallEx
     |   HeapOverflowCall
+    |   ArbPrecisionEmulate
 
     (* RTS call.  We need to save any registers that may contain addresses to the stack.
        All the registers are preserved but not seen by the GC. *)
@@ -1084,6 +1086,7 @@ struct
                     StackOverflowCall   => memRegStackOverflowCall
                 |   StackOverflowCallEx => memRegStackOverflowCallEx
                 |   HeapOverflowCall    => memRegHeapOverflowCall
+                |   ArbPrecisionEmulate => memRegArbPrecisionCall
             val regSet = List.foldl(fn (r, a) => (0w1 << Word.fromInt(nReg(GenReg r))) orb a) 0w0 regSet
             val callInstr =
                 opPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *))
@@ -1286,6 +1289,7 @@ struct
                     StackOverflowCall => stream "StackOverflowCall"
                 |   HeapOverflowCall => stream "HeapOverflow"
                 |   StackOverflowCallEx => stream "StackOverflowCallEx"
+                |   ArbPrecisionEmulate => stream "ArbPrecisionEmulate"
             )
 
         |   AllocStore { size, output, ... } =>

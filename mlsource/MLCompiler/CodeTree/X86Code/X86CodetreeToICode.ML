@@ -2971,11 +2971,51 @@ struct
                 (code, RegisterArgument target, false)
             end
 
+            (* Arbitrary precision emulation.  For the moment just generate register-register versions. *)
         |   codeToICodeBinaryRev({oper=BuiltIns.LongArbComparison test, arg1, arg2}, context, _, destination, tailCode) =
-                raise InternalError "codeToICodeBinaryRev:LongArbComparison"
+            let
+                val ccRef = newCCRef()
+                val memOrReg = { anyConstant=false, const32s=false, memAddr=true, existingPreg=true }
+                val (arg1Code, arg1Result, _) = codeToICodeRev(arg1, context, false, Allowed memOrReg, tailCode)
+                val (arg2Code, arg2Result, _) = codeToICodeRev(arg2, context, false, Allowed memOrReg, arg1Code)
+                val target = asTarget destination
+                val code =
+                    case (arg1Result, arg2Result) of
+                        (RegisterArgument arg1Reg, arg2Result) =>
+                            makeBoolResultRev(testAsBranch(test, true, true), ccRef, target,
+                                BlockSimple(LongArbComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef, saveRegs=[]}) ::
+                                    arg2Code)
+                    |   (arg1Result, RegisterArgument arg2Reg) =>
+                            (* The second argument is in a register - switch the sense of the test. *)
+                            makeBoolResultRev(testAsBranch(leftRightTest test, true, true), ccRef, target,
+                                BlockSimple(LongArbComparison{arg1=arg2Reg, arg2=arg1Result, ccRef=ccRef, saveRegs=[]}) ::
+                                    arg2Code)
+                    |   (arg1Result, arg2Result) =>
+                        let (* Have to load an argument - pick the first. *)
+                            val arg1Reg = newPReg()
+                        in
+                            makeBoolResultRev(testAsBranch(test, true, true), ccRef, target,
+                                BlockSimple(LongArbComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef, saveRegs=[]}) ::
+                                BlockSimple(LoadArgument{source=arg1Result, dest=arg1Reg, kind=movePolyWord})  :: arg2Code)
+                        end
+            in
+                (code, RegisterArgument target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.LongArbArith arithOp, arg1, arg2}, context, _, destination, tailCode) =
-                raise InternalError "codeToICodeBinaryRev:LongArbArith"
+            let
+                val target = asTarget destination
+                val aReg3 = newPReg()
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
+                val oper =
+                    case arithOp of BuiltIns.ArithAdd => ADD | BuiltIns.ArithSub => SUB | _ => raise InternalError "codeToICodeBinaryRev: unknown"
+                val code =
+                    arg1Code @ arg2Code @
+                    [BlockSimple(LongArbArithmetic{oper=oper, resultReg=aReg3, operand1=aReg1, operand2=RegisterArgument aReg2, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
+            end
 
         
         (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use

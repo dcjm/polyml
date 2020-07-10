@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-19
+    Copyright David C. J. Matthews 2016-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -330,6 +330,13 @@ struct
 
         (* Touch an entry.  Actually doesn't do anything except make sure it is referenced. *)
     |   TouchArgument of { source: preg }
+
+        (* Emulate a comparison of arbitrary precision values.  The first argument must be a register. *)
+    |   LongArbComparison of { arg1: preg, arg2: argument, ccRef: ccRef, saveRegs: preg list }
+    
+        (* Emulate arithmetic of arbitrary precision values*)
+    |   LongArbArithmetic of
+            { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, saveRegs: preg list }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -856,6 +863,29 @@ struct
  
         |   printICode(TouchArgument{source}, stream) =
             (stream "\tTouchArgument\t"; printReg(source, stream))
+
+        |   printICode(LongArbComparison{arg1, arg2, ccRef, saveRegs, ...}, stream) =
+            (
+                stream "\tLongArbComparison"; stream "\t";
+                printReg(arg1, stream); stream ","; printArg(arg2, stream);
+                stream " => "; printCC(ccRef, stream);
+                stream " save="; printSaves(saveRegs, stream)
+            )
+
+        |   printICode(LongArbArithmetic{oper, resultReg, operand1, operand2, saveRegs, ...}, stream) =
+            (
+                case oper of
+                    ADD => stream "\tAddLongArb"
+                |   SUB => stream "\tSubtractLongArb"
+                |   _ => stream "????LongArb";
+                stream "\t";
+                printReg(operand1, stream);
+                stream ",";
+                printArg(operand2, stream);
+                stream " => ";
+                printReg(resultReg, stream);
+                stream " save="; printSaves(saveRegs, stream)
+            )
 
         and printCondition(JO,  stream)  = stream "Overflow"
         |   printCondition(JNO, stream)  = stream "NoOverflow"

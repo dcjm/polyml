@@ -654,6 +654,8 @@ struct
             |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
             |   instructionUses(TouchArgument{source}) = used source
+            |   instructionUses(LongArbComparison{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(LongArbArithmetic{operand1, operand2, ...}) = (used operand1; argUses operand2)
 
             (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
@@ -1666,6 +1668,58 @@ struct
             end
         
         |   codeExtended _ ({instr=TouchArgument _, ...}, code) = code (* Don't need to do anything. *)
+
+        |   codeExtended _ ({instr=LongArbComparison{ arg1=PReg pr, arg2, saveRegs, ... }, ...}, code) =
+                ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=codeExtArgumentAsGenReg arg2, opSize=polyWordOpSize} ::
+                    CallRTS{rtsEntry=ArbPrecisionEmulate, saveRegs=getSaveRegs saveRegs } ::code
+
+        |   codeExtended _ ({instr=LongArbArithmetic{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
+                                            operand2, saveRegs, ...}, ...}, code) =
+            (* Subtraction - this is special because it can only be done one way round.  The first argument must
+               be in a register. *)
+            let
+                val realDestReg = getAllocatedReg resReg
+                val realOp1Reg = getAllocatedReg op1Reg
+            in
+                ArithToGenReg { opc=SUB, output=asGenReg realDestReg, source=codeExtArgumentAsGenReg operand2, opSize=polyWordOpSize } ::
+                    CallRTS{rtsEntry=ArbPrecisionEmulate, saveRegs=getSaveRegs saveRegs } ::
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToIMove polyWordOpSize}, code)
+            end
+
+        |   codeExtended _ ({instr=LongArbArithmetic{oper, resultReg=PReg resReg, operand1=PReg op1Reg, operand2, saveRegs, ...}, ...}, code) =
+            (
+                case decache operand2 of
+                    RegisterArgument(PReg op2Reg) =>
+                    (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
+                       we can try to put either argument into the result reg and then do the operation on the other arg. *)
+                    let
+                        val realDestReg = getAllocatedGenReg resReg
+                        val realOp1Reg = getAllocatedGenReg op1Reg
+                        and realOp2Reg = getAllocatedGenReg op2Reg
+                        val (operandReg, moveInstr) =
+                            if realOp1Reg = realDestReg
+                            then (realOp2Reg, code)
+                            else if realOp2Reg = realDestReg
+                            then (realOp1Reg, code)
+                            else (realOp2Reg, Move{source=RegisterArg realOp1Reg, destination=RegisterArg realDestReg, moveSize=opSizeToMove polyWordOpSize} :: code)
+                    in
+                        ArithToGenReg { opc=oper, output=realDestReg, source=RegisterArg operandReg, opSize=polyWordOpSize } ::
+                            CallRTS{rtsEntry=ArbPrecisionEmulate, saveRegs=getSaveRegs saveRegs } :: moveInstr
+                    end
+
+                |   operand2 =>
+                    (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
+                    let
+                        val realDestReg = getAllocatedReg resReg
+                        val realOp1Reg = getAllocatedReg op1Reg
+                        val op2Arg = codeExtArgumentAsGenReg operand2
+                        (* If we couldn't put it in the result register we have to copy it there. *)
+                    in
+                        ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg, opSize=polyWordOpSize } ::
+                            CallRTS{rtsEntry=ArbPrecisionEmulate, saveRegs=getSaveRegs saveRegs } ::
+                            moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToIMove polyWordOpSize}, code)
+                    end
+            )
 
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
         

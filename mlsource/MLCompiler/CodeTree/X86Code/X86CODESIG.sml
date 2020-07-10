@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016-19
+    Copyright David C. J. Matthews 2010, 2012, 2016-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -118,6 +118,7 @@ sig
         StackOverflowCall
     |   StackOverflowCallEx
     |   HeapOverflowCall
+    |   ArbPrecisionEmulate
 
     datatype operation =
         Move of { source: genReg regOrMemoryArg, destination: genReg regOrMemoryArg, moveSize: moveSize }
