@@ -553,12 +553,16 @@ struct
             val arithType =
                 mkProductType[intInfType, intInfType, intInfType ** intInfType ->> intInfType] ->> intInfType
 
-            val arbOperation =
-                if useEmulationForArbitrary then mkArbitraryFnWithEmulation else mkArbitraryFnWithCall
-
             fun enterArbitrary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, arbOperation oper, declInBasis)
+                (* For the moment we don't support emulation for multiplication. *)
+                val func =
+                    case (oper, useEmulationForArbitrary) of
+                        (ArbArith BuiltIns.ArithMult, _) => mkArbitraryFnWithCall oper
+                    |   (_, true) => mkArbitraryFnWithEmulation oper
+                    |   (_, false) => mkArbitraryFnWithCall oper
+
+                val value = mkGvar (name, typ, func, declInBasis)
             in
                 #enterVal largeIntEnv (name, value)
             end
