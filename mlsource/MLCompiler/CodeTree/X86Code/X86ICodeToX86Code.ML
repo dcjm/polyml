@@ -1863,7 +1863,14 @@ struct
                                                         Option.map(fn code => instr :: code) (addXOR tl)
                                                 |   addXOR ((instr as ArithToGenReg{output, source, ...}) :: tl) =
                                                         if output <> destReg andalso checkArg source
-                                                        then SOME(instr :: zeroReg :: tl)
+                                                        then
+                                                        (
+                                                            (* But if this is actually an emulation instruction we must
+                                                               move the zeroing back further. *)
+                                                            case tl of
+                                                                (crts as CallRTS _) :: tl1 => SOME(instr :: crts :: zeroReg :: tl1)
+                                                            |   _ => SOME(instr :: zeroReg :: tl)
+                                                        )
                                                         else NONE
                                                 |   addXOR ((instr as ArithMemConst{address, ...}) :: tl) =
                                                         if checkMem address
