@@ -68,6 +68,7 @@
 #include "scanaddrs.h"
 #include "memmgr.h"
 #include "rtsentry.h"
+#include "arb.h"
 
 #include "sys.h" // Temporary
 
@@ -255,6 +256,8 @@ public:
     int SwitchToPoly();
 
     void HeapOverflowTrap(byte *pcPtr);
+    void EmulateArbitrary();
+    PolyWord getArgumentFromModRM(byte*& pc, unsigned int rexPrefix);
 
     void SetMemRegisters();
     void SaveMemRegisters();
@@ -651,7 +654,8 @@ int X86TaskData::SwitchToPoly()
             exitThread(this);
 
         case RETURN_ARB_EMULATION:
-            ASSERT(0);
+            SetRegisterMask();
+            this->EmulateArbitrary();
             break;
 
         default:
@@ -1468,4 +1472,161 @@ void X86Module::GarbageCollect(ScanAddress *process)
     if (callbackReturn != 0)
         process->ScanRuntimeAddress((PolyObject**)&callbackReturn, ScanAddress::STRENGTH_STRONG);
 #endif
+}
+
+#define EFLAGS_CF               0x0001
+#define EFLAGS_PF               0x0004
+#define EFLAGS_AF               0x0010
+#define EFLAGS_ZF               0x0040
+#define EFLAGS_SF               0x0080
+#define EFLAGS_OF               0x0800
+
+void X86TaskData::EmulateArbitrary()
+{
+    byte* pc = assemblyInterface.stackPtr[0].codeAddr;
+    byte rexPrefix = 0;
+
+#ifdef HOSTARCHITECTURE_X86_64
+    if (*pc >= 0x40 && *pc <= 0x4f)
+        rexPrefix = *pc++; // Rex prefix.
+#endif
+
+    switch (*pc)
+    {
+    case 0x03: // Addition
+    {
+        *pc++;
+        int modRm = *pc;
+        int rrr = (modRm >> 3) & 7;
+        if (rexPrefix & 0x4) rrr += 8;
+        Handle arg1 = saveVec.push(*get_reg(rrr));
+        Handle arg2 = saveVec.push(getArgumentFromModRM(pc, rexPrefix));
+        Handle result = add_longc(this, arg2, arg1);
+        *(get_reg(rrr)) = result->Word();
+        break;
+    }
+
+    case 0x2b: // Subtraction
+    {
+        *pc++;
+        int modRm = *pc;
+        int rrr = (modRm >> 3) & 7;
+        if (rexPrefix & 0x4) rrr += 8;
+        Handle arg1 = saveVec.push(*get_reg(rrr));
+        Handle arg2 = saveVec.push(getArgumentFromModRM(pc, rexPrefix));
+        Handle result = sub_longc(this, arg2, arg1); // N.B.  Arguments are reversed.
+        *(get_reg(rrr)) = result->Word();
+        break;
+    }
+
+    case 0x3b: // Comparison
+    {
+        *pc++;
+        int modRm = *pc;
+        int rrr = (modRm >> 3) & 7;
+        if (rexPrefix & 0x4) rrr += 8;
+        // compareLong does not allocate so we don't need handles
+        PolyWord arg1 = *get_reg(rrr);
+        PolyWord arg2 = getArgumentFromModRM(pc, rexPrefix);
+        int r = compareLong(arg2, arg1);
+        if (r == 0) assemblyInterface.p_flags = EFLAGS_ZF;
+        else if (r < 0) assemblyInterface.p_flags = EFLAGS_SF;
+        else assemblyInterface.p_flags = 0;
+        break;
+    }
+
+    default: Crash("Unknown instruction in emulation");
+    }
+
+    assemblyInterface.stackPtr[0].codeAddr = pc;
+}
+
+PolyWord X86TaskData::getArgumentFromModRM(byte *&pc, unsigned int rexPrefix)
+{
+    unsigned int modRm = *pc++;
+    unsigned int md = modRm >> 6;
+    unsigned int rm = modRm & 7;
+    if (md == 3) // Register
+        return *(get_reg(rm + (rexPrefix & 0x1) * 8));
+
+    else if (rm == 4)
+    {
+        // s-i-b present.  Used for esp and r12 as well as indexing.
+        unsigned int sib = *pc++;
+        unsigned int index = (sib >> 3) & 7;
+        unsigned int ss = (sib >> 6) & 3;
+        unsigned int base = sib & 7;
+        if (md == 0 && base == 5)
+            // This should not occur in either 32 or 64-bit mode.
+            Crash("Immediate address in emulated instruction");
+        else
+        {
+            int offset = 0;
+            if (md == 1)
+            {
+                // One byte offset
+                offset = *pc++;
+                if (offset >= 128) offset -= 256;
+            }
+            else if (md == 2)
+            {
+                // Four byte offset
+                offset = pc[3];
+                if (offset >= 128) offset -= 256;
+                offset = offset * 256 + pc[2];
+                offset = offset * 256 + pc[1];
+                offset = offset * 256 + pc[0];
+                pc += 4;
+            }
+            if (ss != 0 || index != 4) Crash("Index register present");
+            if (rexPrefix & 0x1) base += 8;
+            if (base == 4) // esp
+                // We have pushed the return address on the stack so have to add 1 entry to it.
+                return (assemblyInterface.stackPtr[offset / sizeof(stackItem) + 1]);
+            else
+            {
+                ASSERT(0);
+                return ((PolyWord*)get_reg(base))[offset / sizeof(PolyWord)];
+            }
+        }
+    }
+    else if (md == 0 && rm == 5)
+    {
+#ifdef HOSTARCHITECTURE_X86_64
+        // In 64-bit mode this means PC-relative
+        int offset = pc[3];
+        if (offset >= 128) offset -= 256;
+        offset = offset * 256 + pc[2];
+        offset = offset * 256 + pc[1];
+        offset = offset * 256 + pc[0];
+        pc += 4;
+        ASSERT(0);
+        return *((PolyWord*)(pc + offset));
+#else
+        Crash("Immediate address in emulated instruction");
+#endif
+    }
+    else
+    {
+        int offset = 0;
+        if (md == 1)
+        {
+            // One byte offset
+            offset = *pc++;
+            if (offset >= 128) offset -= 256;
+        }
+        else if (md == 2)
+        {
+            // Four byte offset
+            offset = pc[3];
+            if (offset >= 128) offset -= 256;
+            offset = offset * 256 + pc[2];
+            offset = offset * 256 + pc[1];
+            offset = offset * 256 + pc[0];
+            pc += 4;
+        }
+        PolyWord base = *(get_reg(rm + (rexPrefix & 0x1) * 8));
+        byte* ea = base.AsCodePtr() + offset;
+        return *((PolyWord*)ea);
+    }
 }

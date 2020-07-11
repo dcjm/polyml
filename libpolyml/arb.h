@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further modification Copyright 2015-16, 2019 David C. J. Matthews
+    Further modification Copyright 2015-16, 2019-20 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -50,6 +50,12 @@ extern Handle Make_arb_from_Filetime(TaskData *taskData, const FILETIME &ft);
 // Currently used in basicio.cpp
 extern Handle div_longc(TaskData *taskData, Handle,Handle);
 extern Handle rem_longc(TaskData *taskData, Handle,Handle);
+
+// Used in emulator
+extern Handle add_longc(TaskData* taskData, Handle, Handle);
+extern Handle sub_longc(TaskData* taskData, Handle, Handle);
+extern int compareLong(PolyWord y, PolyWord x);
+
 
 // Return a uintptr_t/intptr_t value.
 extern POLYUNSIGNED     getPolyUnsigned(TaskData *taskData, PolyWord);

@@ -111,8 +111,6 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
 }
 
-static Handle add_longc(TaskData *taskData, Handle,Handle);
-static Handle sub_longc(TaskData *taskData, Handle,Handle);
 static Handle mult_longc(TaskData* taskData, Handle, Handle);
 static Handle or_longc(TaskData *taskData, Handle,Handle);
 static Handle and_longc(TaskData *taskData, Handle,Handle);
