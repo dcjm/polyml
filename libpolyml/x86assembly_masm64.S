@@ -99,9 +99,7 @@ RETURN_KILL_SELF            EQU 9
 ; Define standard call macro.
 
 CALL_EXTRA  MACRO   index
-    push    rcx
     mov     byte ptr [ArgVector.ReturnReason+rbp],index
-    pop     rcx
     jmp     SaveFullState
 ENDM
 

@@ -101,9 +101,7 @@ EXTNAME(id):
     .text
 
 #define CALL_EXTRA(index) \
-        pushl %ecx; \
         movb  $index,Arg_ReturnReason(%ebp); \
-        popl  %ecx; \
         jmp   SaveFullState;
 
 /* Load the registers from the ML stack and jump to the code.

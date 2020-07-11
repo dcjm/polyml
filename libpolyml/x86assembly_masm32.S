@@ -152,9 +152,7 @@ raisex:
 ; Defined as an Masm macro because there are multiple instructions.
 
 CALL_EXTRA  MACRO   index
-    push    ecx
     mov     byte ptr [ArgVector.ReturnReason+ebp],index
-    pop     ecx
     jmp     SaveFullState
 ENDM
 
