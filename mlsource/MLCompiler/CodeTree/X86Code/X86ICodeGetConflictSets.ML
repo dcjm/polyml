@@ -102,6 +102,7 @@ struct
                     |   ArithmeticFunction{oper=SUB, operand2, ...} =>
                             (* Special case for subtraction - we can't use the same register for the result and
                                the second operand. *) destRegNos @ map regNo (argRegs operand2)
+                    |   LongArbArithmetic{oper=SUB, operand2, ...} => destRegNos @ map regNo (argRegs operand2)
                     |   ArithmeticFunction{operand2 as MemoryLocation _, ...} =>
                         (* If operand1 is not in the destination register we will move it
                            there before the instruction.  That means that we must not have the

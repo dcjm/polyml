@@ -214,6 +214,10 @@ struct
         
             |   addHints{instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
+        
+            |   addHints{instr=LongArbArithmetic{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg, ...}, ...} =
+                    (* Can only be one way round. *)
+                    addSourceAndDestinationHint {dst=resReg, src=op1Reg}
 
             |   addHints _ = ()
         
