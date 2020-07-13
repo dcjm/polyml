@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-19
+    Further work copyright David C. J. Matthews 2011-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1502,7 +1502,7 @@ void X86TaskData::EmulateArbitrary()
     {
     case 0x03: // Addition
     {
-        *pc++;
+        pc++;
         int modRm = *pc;
         int rrr = (modRm >> 3) & 7;
         if (rexPrefix & 0x4) rrr += 8;
@@ -1515,7 +1515,7 @@ void X86TaskData::EmulateArbitrary()
 
     case 0x2b: // Subtraction
     {
-        *pc++;
+        pc++;
         int modRm = *pc;
         int rrr = (modRm >> 3) & 7;
         if (rexPrefix & 0x4) rrr += 8;
@@ -1528,7 +1528,7 @@ void X86TaskData::EmulateArbitrary()
 
     case 0x3b: // Comparison
     {
-        *pc++;
+        pc++;
         int modRm = *pc;
         int rrr = (modRm >> 3) & 7;
         if (rexPrefix & 0x4) rrr += 8;
@@ -1546,7 +1546,7 @@ void X86TaskData::EmulateArbitrary()
     case 0x83: // 1 byte immediate: add, subtract or compare
     {
         int instrByte = *pc;
-        *pc++;
+        pc++;
         int modRm = *pc;
         // For add and subtract this must be a register.
         PolyWord arg1 = getArgumentFromModRM(pc, rexPrefix);
