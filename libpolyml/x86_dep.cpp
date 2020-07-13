@@ -1586,7 +1586,8 @@ void X86TaskData::EmulateArbitrary()
         }
         case 7: // Compare
         {
-            ASSERT(0);
+            // This will not normally occur because any comparison with a
+            // short value will have turned into a test of the sign bit of a long value.
             int r = compareLong(PolyWord::FromSigned(cval), arg1);
             if (r == 0) assemblyInterface.p_flags = EFLAGS_ZF;
             else if (r < 0) assemblyInterface.p_flags = EFLAGS_SF;
