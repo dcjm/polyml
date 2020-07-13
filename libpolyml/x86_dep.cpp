@@ -1481,6 +1481,13 @@ void X86Module::GarbageCollect(ScanAddress *process)
 #define EFLAGS_SF               0x0080
 #define EFLAGS_OF               0x0800
 
+// Long-format arbitrary precision operations can be encoded either as normal function
+// calls or as "emulated" instructions.  These are actually encodings of the arguments
+// and operation.  They are only ever interpreted here so it is not essential that they
+// are encoded as X86 instructions; it's just that things are simpler that way.
+// The code for a comparison could actually use a single instruction that is executed
+// as normal if the arguments are short but emulated here if the arguments are long.
+// That's not possible for addition or subtraction.
 void X86TaskData::EmulateArbitrary()
 {
     byte* pc = assemblyInterface.stackPtr[0].codeAddr;
@@ -1535,6 +1542,62 @@ void X86TaskData::EmulateArbitrary()
         break;
     }
 
+    case 0x81: // 4 byte immediate: add, subtract or compare
+    case 0x83: // 1 byte immediate: add, subtract or compare
+    {
+        int instrByte = *pc;
+        *pc++;
+        int modRm = *pc;
+        // For add and subtract this must be a register.
+        PolyWord arg1 = getArgumentFromModRM(pc, rexPrefix);
+        POLYSIGNED cval;
+        if (instrByte == 0x83)
+        {
+            cval = *pc++;
+            if (cval >= 128) cval -= 256;
+        }
+        else
+        {
+            cval = pc[3];
+            if (cval >= 128) cval -= 256;
+            cval = cval * 256 + pc[2];
+            cval = cval * 256 + pc[1];
+            cval = cval * 256 + pc[0];
+            pc += 4;
+        }
+
+        switch ((modRm >> 3) & 7) // The operation is encoded in the modRm
+        {
+        case 0: // Add
+        {
+            Handle result = add_longc(this, saveVec.push(PolyWord::FromSigned(cval)), saveVec.push(arg1));
+            unsigned int rm = modRm & 7;
+            ASSERT((modRm >> 6) == 3);
+            *(get_reg(rm + (rexPrefix & 0x1) * 8)) = result->Word();
+            break;
+        }
+        case 5: // Subtract
+        {
+            Handle result = sub_longc(this, saveVec.push(PolyWord::FromSigned(cval)), saveVec.push(arg1));
+            unsigned int rm = modRm & 7;
+            ASSERT((modRm >> 6) == 3);
+            *(get_reg(rm + (rexPrefix & 0x1) * 8)) = result->Word();
+            break;
+        }
+        case 7: // Compare
+        {
+            ASSERT(0);
+            int r = compareLong(PolyWord::FromSigned(cval), arg1);
+            if (r == 0) assemblyInterface.p_flags = EFLAGS_ZF;
+            else if (r < 0) assemblyInterface.p_flags = EFLAGS_SF;
+            else assemblyInterface.p_flags = 0;
+            break;
+        }
+        default: Crash("Unknown instruction in emulation");
+        }
+        break;
+    }
+
     default: Crash("Unknown instruction in emulation");
     }
 
@@ -1561,7 +1624,7 @@ PolyWord X86TaskData::getArgumentFromModRM(byte *&pc, unsigned int rexPrefix)
             Crash("Immediate address in emulated instruction");
         else
         {
-            int offset = 0;
+            intptr_t offset = 0;
             if (md == 1)
             {
                 // One byte offset
@@ -1578,15 +1641,22 @@ PolyWord X86TaskData::getArgumentFromModRM(byte *&pc, unsigned int rexPrefix)
                 offset = offset * 256 + pc[0];
                 pc += 4;
             }
-            if (ss != 0 || index != 4) Crash("Index register present");
+            if (rexPrefix & 2) index += 8;
+            if (index != 4)
+            {
+                // This may well occur in 32-in-64.
+                uintptr_t indexValue = get_reg(index)->argValue;
+                unsigned multiplier = 1 << ss;
+                offset += indexValue * multiplier;
+            }
             if (rexPrefix & 0x1) base += 8;
             if (base == 4) // esp
                 // We have pushed the return address on the stack so have to add 1 entry to it.
                 return (assemblyInterface.stackPtr[offset / sizeof(stackItem) + 1]);
             else
             {
-                ASSERT(0);
-                return ((PolyWord*)get_reg(base))[offset / sizeof(PolyWord)];
+                POLYCODEPTR baseValue = get_reg(base)->codeAddr;
+                return ((PolyWord*)baseValue)[offset / sizeof(PolyWord)];
             }
         }
     }
@@ -1600,7 +1670,6 @@ PolyWord X86TaskData::getArgumentFromModRM(byte *&pc, unsigned int rexPrefix)
         offset = offset * 256 + pc[1];
         offset = offset * 256 + pc[0];
         pc += 4;
-        ASSERT(0);
         return *((PolyWord*)(pc + offset));
 #else
         Crash("Immediate address in emulated instruction");

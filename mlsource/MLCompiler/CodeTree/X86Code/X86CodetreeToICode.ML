@@ -3005,14 +3005,15 @@ struct
         |   codeToICodeBinaryRev({oper=BuiltIns.LongArbArith arithOp, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
-                val (arg2Code, aReg2) = codeToPReg(arg2, context)
+                val (arg1Code, aReg1) = codeToPRegRev(arg1, context, tailCode)
+                (* We can have a register, a constant or a memory location here. *)
+                val (arg2Code, argVal2, _) = codeToICodeRev(arg2, context, false, Allowed allowDefer, arg1Code)
                 val oper = case arithOp of BuiltIns.ArithAdd => ADD | BuiltIns.ArithSub => SUB | _ => raise InternalError "codeToICodeBinaryRev: unknown"
                 val code =
-                    arg1Code @ arg2Code @
-                    [BlockSimple(LongArbArithmetic{oper=oper, resultReg=target, operand1=aReg1, operand2=RegisterArgument aReg2, saveRegs=[]})]
+                    BlockSimple(LongArbArithmetic{oper=oper, resultReg=target, operand1=aReg1, operand2=argVal2, saveRegs=[]}) ::
+                        arg2Code
             in
-                (revApp(code, tailCode), RegisterArgument target, false)
+                (code, RegisterArgument target, false)
             end
 
         
