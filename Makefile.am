@@ -9,6 +9,10 @@ else
 POLYIMPORT_OPTIONS =
 endif
 
+if COMPACTINTINF
+POLYIMPORT_OPTIONS += --useCompactIntInf
+endif
+
 DIST_SUBDIRS = libpolyml libpolymain modules
 
 SUBDIRS = libpolyml libpolymain . modules

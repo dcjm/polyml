@@ -610,6 +610,18 @@ AC_ARG_ENABLE([intinf-as-int],
 
 AM_CONDITIONAL([INTINFISINT], [test "$intisintinf" = "yes"])
 
+# Control whether to use emulation rather than calls for long arbitrary precision operations
+AC_ARG_ENABLE([compact-intinf],
+    [AS_HELP_STRING([--enable-compact-intinf], [use a compact format for long arbitrary precision operations])],
+    [case "${enableval}" in
+       no) compactintinf=no ;;
+       yes) compactintinf=yes ;;
+       *) AC_MSG_ERROR([bad value ${enableval} for --enable-compact-intinf]) ;;
+        esac],
+        [compactintinf=no])
+
+AM_CONDITIONAL([COMPACTINTINF], [test "$compactintinf" = "yes"])
+
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.
 AC_CONFIG_COMMANDS([basis], [test -e basis || ln -sf ${ac_top_srcdir}/basis .])
