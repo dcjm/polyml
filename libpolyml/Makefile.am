@@ -8,7 +8,7 @@ AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -version-info 10:0:0
+libpolyml_la_LDFLAGS = -version-info 11:0:0
 
 DIST_SUBDIRS = libffi
 

@@ -22,6 +22,7 @@ sig
     val weakArray: int * 'a ref option -&gt; 'a ref option array
     val weakLock: Thread.Mutex.mutex
     and weakSignal: Thread.ConditionVar.conditionVar
+    val touch : 'a ref -&gt; unit
 end;
 
 structure Weak: WEAK;
@@ -44,6 +45,12 @@ val <a name="weakSignal" id="weakSignal"></a>weakSignal: Thread.ConditionVar.con
   <div class="entrytext">
     <p>A lock and a condition variable that is broadcast when the garbage collector 
       has recovered a <em>token</em>.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">val <a name="touch" id="touch"></a>touch: 'a ref -&gt; unit</pre>
+  <div class="entrytext">
+    <p>Uses the reference without changing it, ensuring that it is reachable at that point.</p>
   </div>
 </div>
 <p>The idea behind weak references is to allow user library code to recover resources 

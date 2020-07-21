@@ -1,11 +1,11 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <!-- 32/64-bit version -->
 <?if $(var.Platform) = x64 ?>
-<?define ProductName = "Poly/ML 5.8 (64 bit)" ?>
+<?define ProductName = "Poly/ML 5.8.1 (64 bit)" ?>
 <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
 <?define UpgradeCode = "7A6C52B0-B7C1-4879-8702-131A21F690FE" ?>
 <?else ?>
-<?define ProductName = "Poly/ML 5.8" ?>
+<?define ProductName = "Poly/ML 5.8.1" ?>
 <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
 <?define UpgradeCode = "D7A17500-0FF5-4FC3-BC36-DD799D57071A" ?>
 <?endif ?>
@@ -13,9 +13,9 @@
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
       xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <Product Name="$(var.ProductName)" Id='*' UpgradeCode='$(var.UpgradeCode)'
-        Language='2057' Codepage='1252' Version='5.8' Manufacturer='Poly/ML'>
+        Language='2057' Codepage='1252' Version='5.8.1' Manufacturer='Poly/ML'>
 
-    <Package Id='*' Keywords='Installer' Description="Poly/ML 5.8 Installer"
+    <Package Id='*' Keywords='Installer' Description="Poly/ML 5.8.1 Installer"
             InstallerVersion='200' Languages='2057' Compressed='yes' SummaryCodepage='1252' />
     <Condition Message="Poly/ML is only supported on Windows Vista or later.">
       <![CDATA[Installed OR (VersionNT >= 600)]]>
@@ -26,7 +26,7 @@
     <MajorUpgrade
       DowngradeErrorMessage="A later version of Poly/ML is already installed. Setup will now exit." />
 
-    <Property Id='DiskPrompt' Value="Poly/ML 5.8 Installation [1]" />
+    <Property Id='DiskPrompt' Value="Poly/ML 5.8.1 Installation [1]" />
 
     <Directory Id='TARGETDIR' Name='SourceDir'>
       <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>

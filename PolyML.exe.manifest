@@ -6,7 +6,7 @@
     name="PolyML"
     type="win32"
 />
-<description>PolyML 5.8</description>
+<description>PolyML 5.8.1</description>
 <dependency>
     <dependentAssembly>
         <assemblyIdentity

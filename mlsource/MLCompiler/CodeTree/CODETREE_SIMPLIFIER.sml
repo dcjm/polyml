@@ -1277,7 +1277,10 @@ struct
             val (newIndex, newOffset) =
                 case genIndex of
                     Constnt(indexOffset, _) =>
-                        if isShort indexOffset
+                        (* Convert small, positive offsets but leave large values as
+                           indexes.  We could have silly index values here which will
+                           never be executed because of a range check but should still compile. *)
+                        if isShort indexOffset andalso toShort indexOffset < 0w1000
                         then (NONE, offset + toShort indexOffset * multiplier)
                         else (SOME genIndex, offset)
                 |   _ => (SOME genIndex, offset)
