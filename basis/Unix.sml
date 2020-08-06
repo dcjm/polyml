@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Unix structure and signature.
     Author:     David Matthews
-    Copyright   David Matthews 2000,2008, 2019
+    Copyright   David Matthews 2000,2008, 2019, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -118,9 +118,9 @@ struct
             (* If we get here the exec must have failed -
                terminate this process.  We're supposed to
                set the error code to 126 in this case. *)
-            Process.exit 0w126
-            ) handle _ => Process.exit 0w126)
-
+            OS.Process.terminate(RunCall.unsafeCast 0w126)
+            ) handle _ => OS.Process.terminate(RunCall.unsafeCast 0w126)
+            )
         |   SOME pid => (* In the parent *)
             (
             IO.close(#infd toChild);

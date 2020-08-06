@@ -846,13 +846,9 @@ struct
         and execp(p, args) =
             osSpecificGeneral(19, (p, args))
 
-        (* The definition of "exit" is obviously designed to allow
-           OS.Process.exit to be defined in terms of it. In particular
-           it doesn't execute the functions registered with atExit.
-           This should use Terminate rather than Finish so that C atExit routines
-           aren't executed either. *)
+        (* This is supposed to call C "exit" function so we must use PolyFinish here. *)
         local
-            val doExit: Word8.word -> unit = RunCall.rtsCallFull1 "PolyTerminate"
+            val doExit: Word8.word -> unit = RunCall.rtsCallFull1 "PolyFinish"
         in
             fun exit w =
             (

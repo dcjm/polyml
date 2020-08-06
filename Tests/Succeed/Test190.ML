@@ -11,7 +11,7 @@ case fork() of
     NONE =>
         (
             PolyML.fullGC();
-            exit 0w0
+            OS.Process.terminate OS.Process.success (* terminate not exit *)
         )
     |   SOME pid => waitpid(W_CHILD pid, [])
 end;
