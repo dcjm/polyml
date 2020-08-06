@@ -1,7 +1,7 @@
 /*
     Title:  statics.h - Interface to profiling statistics
 
-    Copyright (c) 2011, 2015, 2019 David C.J. Matthews
+    Copyright (c) 2011, 2015, 2019, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -109,6 +109,7 @@ private:
 #ifdef HAVE_WINDOWS_H
     // File mapping handle
     HANDLE hFileMap;
+    bool createWindowsSharedStats();
 #else
     char *mapFileName;
     int mapFd;

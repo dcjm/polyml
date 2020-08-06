@@ -1,7 +1,7 @@
 /*
-    Title:  statics.cpp - Profiling statistics
+    Title:  statistics.cpp - Profiling statistics
 
-    Copyright (c) 2011, 2013, 2015, 2019 David C.J. Matthews
+    Copyright (c) 2011, 2013, 2015, 2019, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -65,7 +65,6 @@
 #include <string.h>
 #endif
 
-
 #ifdef HAVE_TIME_H
 #include <time.h>
 #endif
@@ -84,6 +83,10 @@
 
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
+#endif
+
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
 #endif
 
 #if defined(HAVE_MMAP)
@@ -127,6 +130,7 @@
 #include "../polystatistics.h"
 #include "rtsentry.h"
 #include "arb.h"
+#include "diagnostics.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetUserStatsCount();
@@ -176,15 +180,11 @@ Statistics::Statistics(): accessLock("Statistics")
     newPtr = 0;
 }
 
-void Statistics::Init()
+#ifdef _WIN32
+// In Windows we always create shared memory for the statistics.
+// If this fails just create local stats.
+bool Statistics::createWindowsSharedStats()
 {
-#if (defined(_WIN32))
-    // Record an initial time of day to use as the basis of real timing
-    GetSystemTimeAsFileTime(&startTime);
-#else
-    gettimeofday(&startTime, NULL);
-#endif
-#ifdef HAVE_WINDOWS_H
     // Get the process ID to use in the shared memory name
     DWORD pid = ::GetCurrentProcessId();
     TCHAR shmName[MAX_PATH];
@@ -193,14 +193,14 @@ void Statistics::Init()
     // Create a piece of shared memory
     hFileMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
                                  0, STATS_SPACE, shmName);
-    if (hFileMap == NULL) return;
+    if (hFileMap == NULL) return false;
 
     // If it already exists it's the wrong one.
     if (GetLastError() == ERROR_ALREADY_EXISTS) 
     { 
         CloseHandle(hFileMap);
         hFileMap = NULL;
-        return;
+        return false;
     }
 
     statMemory = (unsigned char*)MapViewOfFile(hFileMap, FILE_MAP_ALL_ACCESS, 0, 0, STATS_SPACE);
@@ -208,45 +208,60 @@ void Statistics::Init()
     {
         CloseHandle(hFileMap);
         hFileMap = NULL;
-        return;
+        return false;
     }
     memSize = STATS_SPACE;
+    return true;
+}
+#endif
+
+void Statistics::Init()
+{
+#ifdef _WIN32
+    // Record an initial time of day to use as the basis of real timing
+    GetSystemTimeAsFileTime(&startTime);
+    createWindowsSharedStats();
 #else
-#if HAVE_MMAP
+    // Record an initial time of day to use as the basis of real timing
+    gettimeofday(&startTime, NULL);
+
+    // On Unix we need to specify --exportstats but if we do and have a problem we exit.
     if (exportStats)
     {
         // Create the shared memory in the user's .polyml directory
         int pageSize = getpagesize();
         memSize = (STATS_SPACE + pageSize-1) & ~(pageSize-1);
         char *homeDir = getenv("HOME");
-        if (homeDir == NULL) return;
+        if (homeDir == NULL)
+            Exit("Unable to create shared statistics - HOME is not defined");
         mapFileName = (char*)malloc(strlen(homeDir) + 100);
         strcpy(mapFileName, homeDir);
         strcat(mapFileName, "/.polyml");
         mkdir(mapFileName, 0777); // Make the directory to ensure it exists
         sprintf(mapFileName + strlen(mapFileName), "/" POLY_STATS_NAME "%d", getpid());
+        // Remove any existing file.  We're creating with 0444 so if there's an old one
+        // left over from a previous crash we won't be able to reopen it.
+        unlink(mapFileName);
         // Open the file.  Truncates it if it already exists.  That should only happen
         // if a previous run with the same process id crashed.
         mapFd = open(mapFileName, O_RDWR|O_CREAT, 0444);
-        if (mapFd == -1) return;
-        // Write enough of the file to fill the space.
-        char ch = 0;
-        for (size_t i = 0; i < memSize; i++) write(mapFd, &ch, 1);
+        if (mapFd == -1)
+            ExitWithError("Unable to create shared statistics - open returned ", errno);
+        if (ftruncate(mapFd, memSize) == -1)
+            ExitWithError("Unable to create shared statistics - ftruncate returned ", errno);
         statMemory = (unsigned char*)mmap(0, memSize, PROT_READ|PROT_WRITE, MAP_SHARED, mapFd, 0);
         if (statMemory == MAP_FAILED)
-        {
-            statMemory = 0;
-            return;
-        }
+            ExitWithError("Unable to create shared statistics - mmap returned ", errno);
+        memset(statMemory, 0, memSize);
     }
-    else
 #endif
+    if (statMemory == 0)
     {
         // If we just want the statistics locally.
         statMemory = (unsigned char*)calloc(STATS_SPACE, sizeof(unsigned char));
         if (statMemory == 0) return;
+        memSize = STATS_SPACE;
     }
-#endif
     
     // Set up the ASN1 structure in the statistics area.
     newPtr = statMemory;
