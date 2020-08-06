@@ -70,8 +70,8 @@
 #include "rtsentry.h"
 #include "arb.h"
 
-//#include "sys.h" // Temporary
-#include "check_objects.h"
+#include "sys.h" // Temporary
+
 
 /**********************************************************************
  *
@@ -1508,11 +1508,8 @@ void X86TaskData::EmulateArbitrary()
         if (rexPrefix & 0x4) rrr += 8;
         Handle arg1 = saveVec.push(*get_reg(rrr));
         Handle arg2 = saveVec.push(getArgumentFromModRM(pc, rexPrefix));
-        DoCheck(arg1->Word());
-        DoCheck(arg2->Word());
         Handle result = add_longc(this, arg2, arg1);
         *(get_reg(rrr)) = result->Word();
-        saveRegisterMask |= (1 << rrr);
         break;
     }
 
@@ -1524,11 +1521,8 @@ void X86TaskData::EmulateArbitrary()
         if (rexPrefix & 0x4) rrr += 8;
         Handle arg1 = saveVec.push(*get_reg(rrr));
         Handle arg2 = saveVec.push(getArgumentFromModRM(pc, rexPrefix));
-        DoCheck(arg1->Word());
-        DoCheck(arg2->Word());
         Handle result = sub_longc(this, arg2, arg1); // N.B.  Arguments are reversed.
         *(get_reg(rrr)) = result->Word();
-        saveRegisterMask |= (1 << rrr);
         break;
     }
 
@@ -1540,9 +1534,7 @@ void X86TaskData::EmulateArbitrary()
         if (rexPrefix & 0x4) rrr += 8;
         // compareLong does not allocate so we don't need handles
         PolyWord arg1 = *get_reg(rrr);
-        DoCheck(arg1);
         PolyWord arg2 = getArgumentFromModRM(pc, rexPrefix);
-        DoCheck(arg2);
         int r = compareLong(arg2, arg1);
         if (r == 0) assemblyInterface.p_flags = EFLAGS_ZF;
         else if (r < 0) assemblyInterface.p_flags = EFLAGS_SF;
@@ -1558,7 +1550,6 @@ void X86TaskData::EmulateArbitrary()
         int modRm = *pc;
         // For add and subtract this must be a register.
         PolyWord arg1 = getArgumentFromModRM(pc, rexPrefix);
-        DoCheck(arg1);
         POLYSIGNED cval;
         if (instrByte == 0x83)
         {
@@ -1582,9 +1573,7 @@ void X86TaskData::EmulateArbitrary()
             Handle result = add_longc(this, saveVec.push(PolyWord::FromSigned(cval)), saveVec.push(arg1));
             unsigned int rm = modRm & 7;
             ASSERT((modRm >> 6) == 3);
-            unsigned int rr = rm + (rexPrefix & 0x1) * 8;
-            *(get_reg(rr)) = result->Word();
-            saveRegisterMask |= (1<<rr);
+            *(get_reg(rm + (rexPrefix & 0x1) * 8)) = result->Word();
             break;
         }
         case 5: // Subtract
@@ -1592,9 +1581,7 @@ void X86TaskData::EmulateArbitrary()
             Handle result = sub_longc(this, saveVec.push(PolyWord::FromSigned(cval)), saveVec.push(arg1));
             unsigned int rm = modRm & 7;
             ASSERT((modRm >> 6) == 3);
-            unsigned int rr = rm + (rexPrefix & 0x1) * 8;
-            *(get_reg(rr)) = result->Word();
-            saveRegisterMask |= (1<<rr);
+            *(get_reg(rm + (rexPrefix & 0x1) * 8)) = result->Word();
             break;
         }
         case 7: // Compare
@@ -1709,7 +1696,6 @@ PolyWord X86TaskData::getArgumentFromModRM(byte *&pc, unsigned int rexPrefix)
             pc += 4;
         }
         PolyWord base = *(get_reg(rm + (rexPrefix & 0x1) * 8));
-        DoCheck(base);
         byte* ea = base.AsCodePtr() + offset;
         return *((PolyWord*)ea);
     }
