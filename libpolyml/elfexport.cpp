@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-7, 2011, 2016-18, 2020 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,6 +55,9 @@
 #include <elf.h>
 #elif defined(HAVE_ELF_ABI_H)
 #include <elf_abi.h>
+#endif
+
+#ifdef HAVE_MACHINE_RELOC_H
 #include <machine/reloc.h>
 
 #ifndef EM_X86_64

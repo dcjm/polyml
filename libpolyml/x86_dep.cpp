@@ -810,18 +810,18 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 #ifndef HOSTARCHITECTURE_X86_64
 #if(defined(HAVE_STRUCT_MCONTEXT_SS)||defined(HAVE_STRUCT___DARWIN_MCONTEXT32_SS))
         pc = (byte*)context->uc_mcontext->ss.eip;
-        sp = (PolyWord*)context->uc_mcontext->ss.esp;
+        sp = (stackItem*)context->uc_mcontext->ss.esp;
 #elif(defined(HAVE_STRUCT___DARWIN_MCONTEXT32___SS))
         pc = (byte*)context->uc_mcontext->__ss.__eip;
-        sp = (PolyWord*)context->uc_mcontext->__ss.__esp;
+        sp = (stackItem*)context->uc_mcontext->__ss.__esp;
 #endif
 #else /* HOSTARCHITECTURE_X86_64 */
 #if(defined(HAVE_STRUCT_MCONTEXT_SS)||defined(HAVE_STRUCT___DARWIN_MCONTEXT64_SS))
         pc = (byte*)context->uc_mcontext->ss.rip;
-        sp = (PolyWord*)context->uc_mcontext->ss.rsp;
+        sp = (stackItem*)context->uc_mcontext->ss.rsp;
 #elif(defined(HAVE_STRUCT___DARWIN_MCONTEXT64___SS))
         pc = (byte*)context->uc_mcontext->__ss.__rip;
-        sp = (PolyWord*)context->uc_mcontext->__ss.__rsp;
+        sp = (stackItem*)context->uc_mcontext->__ss.__rsp;
 #endif
 #endif /* HOSTARCHITECTURE_X86_64 */
 #endif
@@ -829,10 +829,10 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 #if defined(HOSTARCHITECTURE_X86_64) && defined(__OpenBSD__)
         // CPP defines missing in amd64/signal.h in OpenBSD
         pc = (byte*)context->sc_rip;
-        sp = (PolyWord*)context->sc_rsp;
+        sp = (stackItem*)context->sc_rsp;
 #else // !HOSTARCHITEXTURE_X86_64 || !defined(__OpenBSD__)
         pc = (byte*)context->sc_pc;
-        sp = (PolyWord*)context->sc_sp;
+        sp = (stackItem*)context->sc_sp;
 #endif
 #endif
     }

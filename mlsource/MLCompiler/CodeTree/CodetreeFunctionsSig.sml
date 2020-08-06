@@ -64,6 +64,14 @@ sig
     val findInline: Universal.universal list -> envSpecial
     val setInline: envSpecial -> Universal.universal list -> Universal.universal list
 
+    datatype inlineTest =
+        TooBig
+    |   NonRecursive
+    |   TailRecursive of bool vector
+    |   NonTailRecursive of bool vector
+
+    val evaluateInlining: codetree * int * int -> inlineTest
+
     structure Sharing:
     sig
         type codetree = codetree

@@ -38,6 +38,8 @@ functor CODETREE_SIMPLIFIER(
         structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
     end
 
+    structure DEBUG: DEBUGSIG
+
     sharing
         BASECODETREE.Sharing
     =   CODETREE_FUNCTIONS.Sharing
@@ -47,7 +49,8 @@ functor CODETREE_SIMPLIFIER(
         type codetree and codeBinding and envSpecial
 
         val simplifier:
-            codetree * int -> (codetree * codeBinding list * envSpecial) * int * bool
+            { code: codetree, numLocals: int, maxInlineSize: int } ->
+                (codetree * codeBinding list * envSpecial) * int * bool
         val specialToGeneral:
             codetree * codeBinding list * envSpecial -> codetree
 
@@ -79,7 +82,8 @@ struct
         lookupAddr: loadForm -> envGeneral * envSpecial,
         enterAddr: int * (envGeneral * envSpecial) -> unit,
         nextAddress: unit -> int,
-        reprocess: bool ref
+        reprocess: bool ref,
+        maxInlineSize: int
     }
 
     fun envGeneralToCodetree(EnvGenLoad ext) = Extract ext
@@ -663,7 +667,7 @@ struct
         end
 
     and simpLambda({body, isInline, name, argTypes, resultType, closure, localCount, ...},
-                  { lookupAddr, reprocess, ... }, myOldAddrOpt, myNewAddrOpt) =
+                  { lookupAddr, reprocess, maxInlineSize, ... }, myOldAddrOpt, myNewAddrOpt) =
         let
             (* A new table for the new function. *)
             val oldAddrTab = Array.array (localCount, NONE)
@@ -728,7 +732,8 @@ struct
                     {
                         enterAddr = setTab, lookupAddr = localOldAddr,
                         nextAddress=mkAddr,
-                        reprocess = reprocess
+                        reprocess = reprocess,
+                        maxInlineSize = maxInlineSize
                     })
             end
 
@@ -766,10 +771,15 @@ struct
                     recUse        = []
                 }
 
+            (* The optimiser checks the size of a function and decides whether it can be inlined.
+               However if we have expanded some other inlines inside the body it may now be too
+               big.  In some cases we can get exponential blow-up.  We check here that the
+               body is still small enough before allowing it to be used inline. *)
             val inlineCode =
-                case isNowInline of
-                    NonInline => EnvSpecNone
-                |   _ => EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
+                if isNowInline = Inline andalso
+                    evaluateInlining(cleanBody, List.length argTypes, FixedInt.toInt maxInlineSize) <> TooBig
+                then EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
+                else EnvSpecNone
          in
             (
                 copiedLambda,
@@ -777,7 +787,7 @@ struct
             )
         end
 
-    and simpFunctionCall(function, argList, resultType, context as { reprocess, ...}, tailDecs) =
+    and simpFunctionCall(function, argList, resultType, context as { reprocess, maxInlineSize, ...}, tailDecs) =
     let
         (* Function call - This may involve inlining the function. *)
 
@@ -849,7 +859,8 @@ struct
                     val lambdaContext =
                     {
                         lookupAddr=localOldAddr, enterAddr=setTabForInline,
-                        nextAddress=nextAddress, reprocess = reprocess
+                        nextAddress=nextAddress, reprocess = reprocess,
+                        maxInlineSize = maxInlineSize
                     }
                 in
                     val (cGen, cDecs, cSpec) = simpSpecial(lambdaBody,lambdaContext, copiedArgs)
@@ -1699,7 +1710,7 @@ struct
     |   simpPostSetContainer(container, tupleGen, RevList tupleDecs, filter) =
             mkEnv(List.rev tupleDecs, mkSetContainer(container, tupleGen, filter))
 
-    fun simplifier(c, numLocals) =
+    fun simplifier{code, numLocals, maxInlineSize} =
     let
         val localAddressAllocator = ref 0
         val addrTab = Array.array(numLocals, NONE)
@@ -1715,8 +1726,9 @@ struct
             ! localAddressAllocator before localAddressAllocator := ! localAddressAllocator + 1
         val reprocess = ref false
         val (gen, RevList bindings, spec) =
-            simpSpecial(c,
-                {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr, reprocess = reprocess}, RevList[])
+            simpSpecial(code,
+                {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr,
+                 reprocess = reprocess, maxInlineSize = maxInlineSize}, RevList[])
     in
         ((gen, List.rev bindings, spec), ! localAddressAllocator, !reprocess)
     end

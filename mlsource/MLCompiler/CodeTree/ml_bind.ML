@@ -4,8 +4,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -61,8 +60,9 @@ local
     structure CodetreeSimplifier =
         CODETREE_SIMPLIFIER(
             structure BASECODETREE = BaseCodeTree
-            structure CODETREE_FUNCTIONS = CodetreeFunctions
-            structure REMOVE_REDUNDANT = CodetreeRemoveRedundant
+            and       CODETREE_FUNCTIONS = CodetreeFunctions
+            and       REMOVE_REDUNDANT   = CodetreeRemoveRedundant
+            and       DEBUG              = Debug
         )
 
     structure CodetreeOptimiser =
