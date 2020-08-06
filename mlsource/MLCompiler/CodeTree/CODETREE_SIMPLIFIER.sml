@@ -777,7 +777,7 @@ struct
                body is still small enough before allowing it to be used inline. *)
             val inlineCode =
                 if isNowInline = Inline andalso
-                    evaluateInlining(cleanBody, List.length argTypes, FixedInt.toInt maxInlineSize) <> TooBig
+                    evaluateInlining(cleanBody, List.length argTypes, maxInlineSize) <> TooBig
                 then EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
                 else EnvSpecNone
          in

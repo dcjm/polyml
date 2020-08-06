@@ -1354,7 +1354,7 @@ struct
                expansion and if it does any we at least need to run cleanProc
                on the code so it will have set simpAgain. *)
             val (simpCode, simpCount, simpAgain) =
-                SIMPLIFIER.simplifier{code=code, numLocals=nLocals, maxInlineSize=maxInlineSize}
+                SIMPLIFIER.simplifier{code=code, numLocals=nLocals, maxInlineSize=FixedInt.toInt maxInlineSize}
         in
             if optAgain orelse simpAgain
             then
