@@ -446,24 +446,25 @@ void Statistics::addUser(int n, unsigned statId, const char *name)
 
 Statistics::~Statistics()
 {
-#ifdef HAVE_WINDOWS_H
-    if (statMemory != NULL) ::UnmapViewOfFile(statMemory);
-    if (hFileMap != NULL) ::CloseHandle(hFileMap);
+#ifdef _WIN32
+    if (hFileMap != NULL)
+    {
+        if (statMemory != NULL) ::UnmapViewOfFile(statMemory);
+        ::CloseHandle(hFileMap);
+        statMemory = NULL;
+    }
 #else
-#if HAVE_MMAP
     if (mapFileName != 0)
     {
         if (statMemory != 0 && statMemory != MAP_FAILED) munmap(statMemory, memSize);
         if (mapFd != -1) close(mapFd);
         if (mapFileName != 0) unlink(mapFileName);
         free(mapFileName);
+        statMemory = NULL;
     }
-    else
 #endif
-    {
+    if (statMemory)
         free(statMemory);
-    }
-#endif
 }
 
 // Counters.  These are used for thread state so need interlocks
