@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-18, 2020 David C.J. Matthews
+    Copyright (c) 2015-18, 2020-21 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -60,11 +60,15 @@ struct
     and opcode_returnW           = 0wx0d
     and opcode_containerB        = 0wx0e
     and opcode_raiseEx           = 0wx10
-    and opcode_callConstAddr16   = 0wx11
-    and opcode_callConstAddr8    = 0wx12
+    (*and opcode_callConstAddr16   = 0wx11
+    and opcode_callConstAddr8    = 0wx12*)
     and opcode_localW            = 0wx13
+    and opcode_constAddr16_8     = 0wx14
+    and opcode_constAddr8_8      = 0wx15
     and opcode_callLocalB        = 0wx16
-    and opcode_constAddr16       = 0wx1a
+    and opcode_callConstAddr8_8  = 0wx17
+    and opcode_callConstAddr16_8 = 0wx18
+    (*and opcode_constAddr16       = 0wx1a *)
     and opcode_constIntW         = 0wx1b
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
@@ -112,7 +116,12 @@ struct
     and opcode_local_15          = 0wx4b
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
+    and opcode_noop              = 0wx52 (* Used for alignment in ARM64 enter-int. *)
     and opcode_indirectClosureBB = 0wx54
+    and opcode_constAddr8_0      = 0wx55
+    and opcode_constAddr8_1      = 0wx56
+    and opcode_callConstAddr8_0  = 0wx57
+    and opcode_callConstAddr8_1  = 0wx58
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
     and opcode_resetR_3          = 0wx66
@@ -157,11 +166,12 @@ struct
     and opcode_greaterUnsigned   = 0wxa7
     and opcode_greaterEqSigned   = 0wxa8
     and opcode_greaterEqUnsigned = 0wxa9
-    and opcode_fixedAdd          = 0wxaa
+    (*and opcode_enterIntARM64BE   = 0wxaa*) (* Reserved - the low order byte of a move in big-endian *)
     and opcode_fixedSub          = 0wxab
     and opcode_fixedMult         = 0wxac
     and opcode_fixedQuot         = 0wxad
     and opcode_fixedRem          = 0wxae
+    and opcode_fixedAdd          = 0wxaf
     and opcode_wordAdd           = 0wxb1
     and opcode_wordSub           = 0wxb2
     and opcode_wordMult          = 0wxb3
@@ -185,6 +195,7 @@ struct
     and opcode_allocWordMemory   = 0wxda
     and opcode_loadMLByte        = 0wxdc
     and opcode_storeMLByte       = 0wxe4
+    (*and opcode_enterIntARM64   = 0wxe9*) (* Reserved - the low order byte of a move *)
     and opcode_blockMoveByte     = 0wxec
     and opcode_blockEqualByte    = 0wxed
     and opcode_blockCompareByte  = 0wxee
@@ -192,7 +203,7 @@ struct
     and opcode_jump16            = 0wxf7
     and opcode_jump16False       = 0wxf8
     and opcode_setHandler16      = 0wxf9
-    and opcode_constAddr8        = 0wxfa
+    (*and opcode_constAddr8        = 0wxfa*)
     (*and opcode_stackSize8        = 0wxfb*)
     and opcode_stackSize16       = 0wxfc
     and opcode_escape            = 0wxfe (* For two-byte opcodes. *)
@@ -287,9 +298,10 @@ struct
     and ext_opcode_storeC64          = 0wxe8
     and ext_opcode_storeCFloat       = 0wxe9
     and ext_opcode_storeCDouble      = 0wxea
+    and ext_opcode_constAddr32_16    = 0wxf0 (* Followed by a 32-bit offset and a 16-bit constant number. *)
     and ext_opcode_jump32            = 0wxf2 (* 32-bit signed jump, forwards or backwards. *)
     and ext_opcode_jump32False       = 0wxf3 (* Test top item. Take 32-bit signed jump if false. *)
-    and ext_opcode_constAddr32       = 0wxf4 (* Followed by a 32-bit offset. Load a constant at that address. *)
+    (*and ext_opcode_constAddr32       = 0wxf4 *)
     and ext_opcode_setHandler32      = 0wxf5 (* Setup a handler whose address is given by the 32-bit signed offset. *)
     and ext_opcode_case32            = 0wxf6 (* Indexed case with 32-bit offsets *)
     and ext_opcode_allocCSpace       = 0wxfd
@@ -319,6 +331,7 @@ struct
     |   JumpOnIsTaggedLocalB of { label: labels, size: jumpSize ref, localAddr: Word8.word }
     |   JumpNotEqualLocalInd0BB of { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
     |   JumpNotEqualLocalConstBB of { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
+    |   EnterIntArm64 of Word8.word (* Special case because it has to be 32-bit aligned. *)
     
     and jumpSize = Size8 | Size16 | Size32
 
@@ -579,6 +592,7 @@ struct
                 |   0wxda => printStream "allocWordMemory"
                 |   0wxdc => printStream "loadMLByte"
                 |   0wxe4 => printStream "storeMLByte"
+                |   0wxe9 => (printStream "enterIntARM64"; ptr := !ptr + 0w12)
                 |   0wxec => printStream "blockMoveByte"
                 |   0wxed => printStream "blockEqualByte"
                 |   0wxee => printStream "blockCompareByte"
@@ -589,7 +603,7 @@ struct
                 |   0wxfa => printDisp (1, "constAddr8\t")
                 |   0wxfb => printOp(1, "stackSize8\t")
                 |   0wxfc => printOp(2, "stackSize16\t")
-                |   0wxff => printStream "enterIntX86"
+                |   0wxff => (printStream "enterIntX86"; ptr := !ptr + 0w3)
                 
                 |   0wxfe =>
                     (
@@ -716,10 +730,10 @@ struct
     |   codeSize (JumpInstruction{size=ref Size8, ...}) = 2
     |   codeSize (JumpInstruction{size=ref Size16, ...}) = 3
     |   codeSize (JumpInstruction{size=ref Size32, ...}) = 6
-    |   codeSize (PushConstant{size=ref Size8, ...}) = 2
-    |   codeSize (PushConstant{size=ref Size16, ...}) = 3
-    |   codeSize (PushConstant{size=ref Size32, isCall=false, ...}) = 6
-    |   codeSize (PushConstant{size=ref Size32, isCall=true, ...}) = 7
+    |   codeSize (PushConstant{size=ref Size8, constNum, ...}) = if constNum <= 1 then 2 else 3
+    |   codeSize (PushConstant{size=ref Size16, ...}) = 4
+    |   codeSize (PushConstant{size=ref Size32, isCall=false, ...}) = 8
+    |   codeSize (PushConstant{size=ref Size32, isCall=true, ...}) = 9
     |   codeSize (PushShort value) =
             if value <= 0w4 orelse value = 0w10 then 1
             else if value < 0w256 then 2 else 3
@@ -747,6 +761,8 @@ struct
     |   codeSize (JumpNotEqualLocalConstBB {label, size, localAddr, const}) =
             codeSize(LoadLocal localAddr) + codeSize(PushShort(word8ToWord const)) + 1 +
                 codeSize(JumpInstruction{jumpType=JumpFalse, label=label, size=size})
+    
+    |   codeSize (EnterIntArm64 _) = 16 (* For simplicity we add no-ops before and/or after *)
 
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode startIc foldFn ops =
@@ -768,18 +784,16 @@ struct
     (* Set the sizes of branches depending on the distance to the destination. *)
     fun setLabelsAndSizes ops =
     let
-        val wordLength = wordSize
-
         (* Set the labels and adjust the sizes, repeating until it never gets smaller*)
         fun setLabAndSize(ops, lastSize) =
         let
             (* Calculate offsets for constants. *)
-            val endIC = Word.andb(lastSize + wordLength - 0w1, ~ wordLength)
-            val firstConstant = endIC + wordLength * 0w3
-            (* Because the constant area is word aligned we have to allow for
+            val endIC = Word.andb(lastSize + 0w7, ~ 0w8)
+            val startOfConstants = endIC
+            (* Because the constant area is 8-byte aligned we have to allow for
                the possibility that the distance between a "load constant"
                instruction and the target could actually increase. *)
-            val alignment = wordLength - 0w1
+            val alignment = 0w7
         
             fun adjust(JumpInstruction{size as ref Size32, label=ref lab, ...}, ic) =
                 let
@@ -823,18 +837,18 @@ struct
 
             |   adjust(PushConstant{size as ref Size32, constNum, ...}, ic) =
                 let
-                    val constAddr = firstConstant + Word.fromInt constNum * wordLength
-                    val offset = constAddr - (ic + 0w6)
+                    val offset = startOfConstants - (ic + 0w8) (* 8 is ext+opcode+4+2 *)
                 in
-                    if offset < 0wx100-alignment then size := Size8
+                    if constNum >= 0x100 (* Constant numbers >= 256 require full opcode. *)
+                    then ()
+                    else if offset < 0wx100-alignment then size := Size8
                     else if offset < 0wx10000-alignment then size := Size16
                     else ()
                 end
 
-            |   adjust(PushConstant{size as ref Size16, constNum, ...}, ic) =
+            |   adjust(PushConstant{size as ref Size16, ...}, ic) =
                 let
-                    val constAddr = firstConstant + Word.fromInt constNum * wordLength
-                    val offset = constAddr - (ic + 0w3)
+                    val offset = startOfConstants - (ic + 0w4) (* 4 is opc+2+1 *)
                 in
                     if offset < 0wx100-alignment then size := Size8
                     else ()
@@ -915,11 +929,11 @@ struct
         (* First pass - set the labels. *)
         val codeSize = setLabelsAndSizes ops
         val wordSize = wordSize
-        (* Align to wordLength. *)
-        val endIC = Word.andb(codeSize + wordSize - 0w1, ~ wordSize)
+        (* Align to 8 bytes on both 32-bits and 64-bits. *)
+        val endIC = Word.andb(codeSize + 0w7, ~ 0w8)
         val paddingBytes = List.tabulate(Word.toInt(endIC - codeSize), fn _ => SimpleCode[opcode_const_0])
         val endOfCode = endIC div wordSize
-        val firstConstant = endIC + wordSize * 0w3 (* Add 3 for no of consts, fn name and profile count. *)
+        val startOfConstants = endIC
         val segSize   = endOfCode + Word.fromInt(List.length(! constVec)) + 0w4
         val codeVec = byteVecMake segSize
 
@@ -1022,16 +1036,18 @@ struct
 
         |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=false, ... }, ic) =
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 (* Offsets are calculated from the END of the instruction *)
-                val offset = constAddr - (ic + 0w6)
+                val offset = startOfConstants - (ic + 0w8)
+                val constNumW = Word.fromInt constNum
             in
                 genByte opcode_escape;
-                genByte ext_opcode_constAddr32;
+                genByte ext_opcode_constAddr32_16;
                 genByte(wordToWord8 offset);
                 genByte(wordToWord8(offset >> 0w8));
                 genByte(wordToWord8(offset >> 0w16));
-                genByte(wordToWord8(offset >> 0w24))
+                genByte(wordToWord8(offset >> 0w24));
+                genByte(wordToWord8 constNumW);
+                genByte(wordToWord8(constNumW >> 0w8))
             end
 
         |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=true, ... }, ic) =
@@ -1043,23 +1059,40 @@ struct
 
         |   genByteCode(PushConstant{ constNum, size=ref Size16, isCall, ... }, ic) =
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordSize
-                val offset = constAddr - (ic + 0w3)
+                val offset = startOfConstants - (ic + 0w4)
                 val _ = offset < 0wx10000 orelse raise InternalError "genByteCode - constant range"
             in
-                genByte(if isCall then opcode_callConstAddr16 else opcode_constAddr16);
+                genByte(if isCall then opcode_callConstAddr16_8  else opcode_constAddr16_8);
                 genByte(wordToWord8 offset);
-                genByte(wordToWord8(offset >> 0w8))
+                genByte(wordToWord8(offset >> 0w8));
+                genByte(Word8.fromInt constNum)
             end
 
         |   genByteCode(PushConstant{ constNum, size=ref Size8, isCall, ... }, ic) =
+            if constNum <= 1
+            then
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordSize
-                val offset = constAddr - (ic + 0w2)
+                val offset = startOfConstants - (ic + 0w2)
+                val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
+                val opCode =
+                    case (isCall, constNum) of
+                        (false, 0) => opcode_constAddr8_0
+                    |   (false, 1) => opcode_constAddr8_1
+                    |   (true,  0) => opcode_callConstAddr8_0
+                    |   (true,  1) => opcode_callConstAddr8_1
+                    |   _ => raise InternalError "genByteCode: constAddr"
+            in
+                genByte opCode;
+                genByte(wordToWord8 offset)
+            end
+            else
+            let
+                val offset = startOfConstants - (ic + 0w3)
                 val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
             in
-                genByte(if isCall then opcode_callConstAddr8 else opcode_constAddr8);
-                genByte(wordToWord8 offset)
+                genByte(if isCall then opcode_callConstAddr8_8 else opcode_constAddr8_8);
+                genByte(wordToWord8 offset);
+                genByte(Word8.fromInt constNum)
             end
 
         |   genByteCode(PushShort 0w0, _) = genByte opcode_const_0
@@ -1199,6 +1232,25 @@ struct
                     [LoadLocal localAddr, PushShort(word8ToWord const), 
                      SimpleCode[opcode_equalWord],
                      JumpInstruction{jumpType=JumpFalse, label=label, size=size}]; ())
+
+       |    genByteCode(EnterIntArm64 b, ic) =
+            let
+                (* The machine code is 12 bytes that must be 32-bit aligned.  There is then
+                   a single byte that indicates the type of enter-int instruction.
+                   We may need up to three bytes to get the alignment.  It is simpler to
+                   define this as a fixed-length (16-byte) instruction and add no-ops afterwards
+                   if necessary. *)
+                val bytesBefore = if Word.andb(ic, 0w3) = 0w0 then 0w0 else 0w4-Word.andb(ic, 0w3)
+                val isBigEndian = isBigEndian ()
+                val byteSequence =
+                    List.tabulate(Word.toInt bytesBefore, fn _ => opcode_noop) @
+                    (if isBigEndian
+                     then [0wxaa, 0wx1e, 0wx03, 0wxe9, 0wxf9, 0wx40, 0wx03, 0wx50, 0wxd6, 0wx3f, 0wx02, 0wx00]
+                     else [0wxe9, 0wx03, 0wx1e, 0wxaa, 0wx50, 0wx03, 0wx40, 0wxf9, 0wx00, 0wx02, 0wx3f, 0wxd6]) @
+                    [b] @ List.tabulate(3 - Word.toInt bytesBefore, fn _ => opcode_noop)
+            in
+                List.app genByte byteSequence
+            end
     in
         foldCode 0w0 genByteCode (ops @ paddingBytes);
         (codeVec (* Return the completed code. *), endIC (* And the size. *))
@@ -1289,6 +1341,7 @@ struct
     |   genEnterInt(b, Code { enterIntMode = 1 (* X86_32 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx24, b]]
     |   genEnterInt(b, Code { enterIntMode = 2 (* X86_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
     |   genEnterInt(b, Code { enterIntMode = 3 (* X86_32_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
+    |   genEnterInt(b, Code { enterIntMode = 4 (* ARM_64 *), ...}) = [EnterIntArm64 b]
     |   genEnterInt _ = raise InternalError "genEnterInt: unknown architecture value"
 
     (* Adds the constants onto the code, and copies the code into a new segment *)

@@ -37,7 +37,11 @@
 #define INSTR_callConstAddr16       0x11
 #define INSTR_callConstAddr8        0x12
 #define INSTR_local_w               0x13
+#define INSTR_constAddr16_8         0x14
+#define INSTR_constAddr8_8          0x15
 #define INSTR_callLocalB            0x16
+#define INSTR_callConstAddr8_8      0x17
+#define INSTR_callConstAddr16_8     0x18
 #define INSTR_constAddr16           0x1a
 #define INSTR_const_int_w           0x1b
 #define INSTR_jump_back8            0x1e
@@ -88,7 +92,10 @@
 #define INSTR_reset_1       0x50
 #define INSTR_reset_2       0x51
 #define INSTR_indirectClosureBB     0x54
-#define INSTR_tuple_containerLegacy 0x55
+#define INSTR_constAddr8_0          0x55
+#define INSTR_constAddr8_1          0x56
+#define INSTR_callConstAddr8_0      0x57
+#define INSTR_callConstAddr8_1      0x58
 #define INSTR_reset_r_1     0x64
 #define INSTR_reset_r_2     0x65
 #define INSTR_reset_r_3     0x66
@@ -139,11 +146,12 @@
 #define INSTR_greaterUnsigned   0xa7
 #define INSTR_greaterEqSigned   0xa8
 #define INSTR_greaterEqUnsigned 0xa9
-#define INSTR_fixedAdd          0xaa
+#define INSTR_fixedAdd_OLD      0xaa
 #define INSTR_fixedSub          0xab
 #define INSTR_fixedMult         0xac
 #define INSTR_fixedQuot         0xad
 #define INSTR_fixedRem          0xae
+#define INSTR_fixedAdd          0xaf
 #define INSTR_wordAdd           0xb1
 #define INSTR_wordSub           0xb2
 #define INSTR_wordMult          0xb3
@@ -169,6 +177,7 @@
 #define INSTR_loadMLByte        0xdc
 #define INSTR_storeMLWordLegacy     0xe3
 #define INSTR_storeMLByte       0xe4
+#define INSTR_enterIntArm64         0xe9
 #define INSTR_blockMoveWordLegacy   0xeb
 #define INSTR_blockMoveByte     0xec
 #define INSTR_blockEqualByte    0xed
@@ -274,6 +283,7 @@
 #define EXTINSTR_storeC64           0xe8
 #define EXTINSTR_storeCFloat        0xe9
 #define EXTINSTR_storeCDouble       0xea
+#define EXTINSTR_constAddr32_16     0xf0
 #define EXTINSTR_jump32            0xf2
 #define EXTINSTR_jump32False       0xf3
 #define EXTINSTR_constAddr32       0xf4
