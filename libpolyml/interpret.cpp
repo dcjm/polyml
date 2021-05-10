@@ -432,7 +432,6 @@ int IntTaskData::SwitchToPoly()
         POLYUNSIGNED    stackCheck;
         PolyObject      *closure;
         double          dv;
-        POLYCODEPTR     lastPc = pc;
 
 #ifdef PROFILEOPCODES
         frequency[*pc]++;
