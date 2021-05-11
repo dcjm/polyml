@@ -1128,7 +1128,6 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_fixedAdd_OLD:
         case INSTR_fixedAdd:
         {
             PolyWord x = *sp++;

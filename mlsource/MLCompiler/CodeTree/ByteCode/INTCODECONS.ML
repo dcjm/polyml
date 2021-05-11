@@ -166,12 +166,11 @@ struct
     and opcode_greaterUnsigned   = 0wxa7
     and opcode_greaterEqSigned   = 0wxa8
     and opcode_greaterEqUnsigned = 0wxa9
-    (*and opcode_enterIntARM64BE   = 0wxaa*) (* Reserved - the low order byte of a move in big-endian *)
+    and opcode_fixedAdd          = 0wxaa
     and opcode_fixedSub          = 0wxab
     and opcode_fixedMult         = 0wxac
     and opcode_fixedQuot         = 0wxad
     and opcode_fixedRem          = 0wxae
-    and opcode_fixedAdd          = 0wxaf
     and opcode_wordAdd           = 0wxb1
     and opcode_wordSub           = 0wxb2
     and opcode_wordMult          = 0wxb3
@@ -1241,13 +1240,11 @@ struct
                    define this as a fixed-length (16-byte) instruction and add no-ops afterwards
                    if necessary. *)
                 val bytesBefore = if Word.andb(ic, 0w3) = 0w0 then 0w0 else 0w4-Word.andb(ic, 0w3)
-                val isBigEndian = isBigEndian ()
                 val byteSequence =
                     List.tabulate(Word.toInt bytesBefore, fn _ => opcode_noop) @
-                    (if isBigEndian
-                     then [0wxaa, 0wx1e, 0wx03, 0wxe9, 0wxf9, 0wx40, 0wx03, 0wx50, 0wxd6, 0wx3f, 0wx02, 0wx00]
-                     else [0wxe9, 0wx03, 0wx1e, 0wxaa, 0wx50, 0wx03, 0wx40, 0wxf9, 0wx00, 0wx02, 0wx3f, 0wxd6]) @
-                    [b] @ List.tabulate(3 - Word.toInt bytesBefore, fn _ => opcode_noop)
+                    (* ARM instructions are little-endian even in big-endian mode. *)
+                    [0wxe9, 0wx03, 0wx1e, 0wxaa, 0wx50, 0wx03, 0wx40, 0wxf9, 0wx00, 0wx02, 0wx3f, 0wxd6, b] @
+                    List.tabulate(3 - Word.toInt bytesBefore, fn _ => opcode_noop)
             in
                 List.app genByte byteSequence
             end

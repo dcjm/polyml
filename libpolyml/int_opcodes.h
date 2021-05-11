@@ -146,12 +146,11 @@
 #define INSTR_greaterUnsigned   0xa7
 #define INSTR_greaterEqSigned   0xa8
 #define INSTR_greaterEqUnsigned 0xa9
-#define INSTR_fixedAdd_OLD      0xaa
+#define INSTR_fixedAdd          0xaa
 #define INSTR_fixedSub          0xab
 #define INSTR_fixedMult         0xac
 #define INSTR_fixedQuot         0xad
 #define INSTR_fixedRem          0xae
-#define INSTR_fixedAdd          0xaf
 #define INSTR_wordAdd           0xb1
 #define INSTR_wordSub           0xb2
 #define INSTR_wordMult          0xb3
