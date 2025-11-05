@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012-13, 2015-17, 2020-1 David C.J. Matthews
+    Copyright (c) 2012-13, 2015-17, 2020-1, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -182,6 +182,17 @@ struct
                     val exp = insert exp
                 in
                     BICHandle {exp = exp, handler = hand, exPacketAddr=exPacketAddr}
+                end
+
+            |   insert(SetContainer {container, tuple=Constnt(tuple, _) , filter}) =
+                let
+                    (* Extract the fields now.  SetContainer with a Tuple argument copies the individual
+                       fields whereas if the tuple is anything else the code will generate an indirection. *)
+                    val tupleAddr = Address.toAddress tuple
+                    fun getField i = BICConstnt(Address.loadWord(tupleAddr, Word.fromInt i), [])
+                    val fields = List.tabulate(BoolVector.length filter, getField)
+                in
+                    BICSetContainer{container = insert container, tuple=BICTuple fields, filter = filter}
                 end
 
             |   insert(SetContainer {container, tuple, filter}) =
