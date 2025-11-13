@@ -372,7 +372,7 @@ struct
                             |   filter [p] = [p]
                             |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
                                     if lab1 = lab2
-                                    then p :: filter tl
+                                    then filter(p :: tl) (* Filter any further duplicates *)
                                     else p :: filter (q :: tl)
                         in
                             val cases = filter sorted
@@ -395,7 +395,9 @@ struct
                            the largest value of Word.word.  In that case adding one to the range
                            will give us a value less than max. *)
                         fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
-                            if indexVal + min = caseValue
+                            if indexVal > max
+                            then raise InternalError "extendCase"
+                            else if indexVal + min = caseValue
                             then SOME c :: extendCase(indexVal+0w1, cps)
                             else NONE :: extendCase(indexVal+0w1, cl)
 
