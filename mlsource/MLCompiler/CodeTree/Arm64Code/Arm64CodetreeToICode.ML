@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021-3
+    Copyright David C. J. Matthews 2021-3, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -478,7 +478,8 @@ struct
         fun loadAndStoreWithAddress
                 ({base=bReg1, index, offset}, loadSize, loadShift, isCAddress, loadStoreOffset, loadStoreIndex, code) =
         let
-            val byteOffset = offset * loadSize
+            (* "offset" is a byte offset. *)
+            val wordOffset = offset div loadSize
             (* Get the base register value *)
             val bCode = code
             val sCode = bCode
@@ -487,13 +488,13 @@ struct
             val (iCode, iReg1Opt) =
                 case index of
                     NONE =>
-                        if offset < 4096 andalso byteOffset > ~256
+                        if wordOffset < 4096 andalso offset > ~256
                         then (sCode, NONE) (* We can use this offset. *)
                         else
                         let
                             val iReg = newUReg()
                         in
-                            (loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=iReg } :: sCode, SOME iReg)
+                            (loadNonAddressConstant{ source=LargeWord.fromInt wordOffset, dest=iReg } :: sCode, SOME iReg)
                         end
                 |   SOME iReg1 =>
                         let
