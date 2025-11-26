@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified David C. J. Matthews 2009-2015.
+    Modified David C. J. Matthews 2009-2015, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -42,15 +42,16 @@ sig
     type typeVarMap
     type level
     type machineWord
+    type valueType
 
     (* Construction functions. *)
-    val mkGvar:        string * types * codetree * locationProp list -> values
-    val mkValVar:      string * types * locationProp list -> values
-    val mkPattVar:     string * types * locationProp list -> values
+    val mkGvar:        string * valueType * codetree * locationProp list -> values
+    val mkValVar:      string * valueType * locationProp list -> values
+    val mkPattVar:     string * valueType * locationProp list -> values
     val mkSelectedVar: values * structVals * locationProp list -> values
-    val mkGconstr:     string * types * codetree * bool * int * locationProp list -> values
-    val mkGex:         string * types * codetree * locationProp list -> values
-    val mkEx:          string * types * locationProp list -> values
+    val mkGconstr:     string * valueType * codetree * bool * int * locationProp list -> values
+    val mkGex:         string * valueType * codetree * locationProp list -> values
+    val mkEx:          string * valueType * locationProp list -> values
 
 
     type printTypeEnv =
@@ -122,5 +123,6 @@ sig
         type typeVarMap     = typeVarMap
         type level          = level
         type machineWord    = machineWord
+        type valueType      = valueType
     end
 end;

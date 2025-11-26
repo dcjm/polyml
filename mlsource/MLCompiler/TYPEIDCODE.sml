@@ -783,7 +783,7 @@ struct
             fun processConstrs [] =
                 (* The last of the alternatives is false *) CodeZero
 
-            |   processConstrs (Value{class, access, typeOf, ...} :: rest) =
+            |   processConstrs (Value{class, access, typeOf=OldForm typeOf, ...} :: rest) =
                 let
                     fun addPolymorphism c =
                         if nTypeVars = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
@@ -995,7 +995,7 @@ struct
 
 
         fun printerForConstructors
-                (Value{name, typeOf, access, class = Constructor{nullary, ...}, locations, ...} :: rest) =
+                (Value{name, typeOf=OldForm typeOf, access, class = Constructor{nullary, ...}, locations, ...} :: rest) =
             let
                 (* The "value" for a value constructor is a tuple containing
                    the test code, the injection and the projection functions. *)

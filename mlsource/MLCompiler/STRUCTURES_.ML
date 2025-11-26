@@ -1187,7 +1187,7 @@ struct
                                 (* We don't actually check the value constructors here, just load them if they
                                    match.  Because of the no-redefinition rule value constructors in the signature
                                    must also be present in the value environment so we check them there. *)
-                                fun matchConstructor(source as Value{typeOf, ...}, Value{access=Formal addr, ...}, matches) =
+                                fun matchConstructor(source as Value{typeOf=OldForm typeOf, ...}, Value{access=Formal addr, ...}, matches) =
                                         (addr,
                                             ValueMatch { sourceValue = source, coercion = NoCoercion, targetType = typeOf }) :: matches
                                 |   matchConstructor(_, _, matches) = matches
@@ -1229,7 +1229,7 @@ struct
                 val structureMatches = univFold(sigTab target, matchStructures, [])
             end
 
-            fun displayValue(value as Value {name, locations, typeOf, ...}) =
+            fun displayValue(value as Value {name, locations, typeOf=OldForm typeOf, ...}) =
             let
                 val decLocation =
                     case List.find (fn DeclaredAt _ => true | _ => false) locations of
@@ -1274,11 +1274,11 @@ struct
                 if tagIs valueVar dVal
                 then
                 let
-                    val destVal as Value { typeOf=destTypeOf, class=destClass, access=destAccess, ...} = tagProject valueVar dVal
+                    val destVal as Value { typeOf=OldForm destTypeOf, class=destClass, access=destAccess, ...} = tagProject valueVar dVal
                 in
                     case univLookup (sigTab candidate, valueVar, dName) of
                         NONE => (sigStructMissingMsg(lex, near, lno, structPath) displayValue destVal; matches)
-                    |   SOME (candid as Value { typeOf=sourceTypeOf, class=sourceClass, ...}) =>
+                    |   SOME (candid as Value { typeOf=OldForm sourceTypeOf, class=sourceClass, ...}) =>
                         let
                             (* If the target is a constructor or exception the candidate must be
                                similar.  If the candidate is a constructor or exception this will
@@ -1369,7 +1369,7 @@ struct
                the most general type and discard any, possibly less general,
                references. *)
             case valu of
-                Value{ typeOf, instanceTypes=SOME instanceRef, ...} =>
+                Value{ typeOf=OldForm typeOf, instanceTypes=SOME instanceRef, ...} =>
                     instanceRef := [#1(generalise typeOf)]
             |   _ => ()
         end
@@ -1401,14 +1401,14 @@ struct
             val v = tagProject valueVar dVal
         in
             case v of
-                Value { access=Formal addr, typeOf, ...} =>
+                Value { access=Formal addr, typeOf=OldForm typeOf, ...} =>
                     (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = typeOf }) :: matches
             |   _ => matches
         end
         else if tagIs typeConstrVar dVal
         then
         let
-            fun matchConstructor(v as Value{access=Formal addr, typeOf, ...}, matches) =
+            fun matchConstructor(v as Value{access=Formal addr, typeOf=OldForm typeOf, ...}, matches) =
                     (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = typeOf }) :: matches
             |   matchConstructor(_, matches) = matches
         in
@@ -1636,11 +1636,11 @@ struct
                            hidden by later declarations.  We still need the whole value environment in
                            case of datatype replication. *)
                         fun convertConstructor(
-                                valVal as Value{class, typeOf, locations, references, name, instanceTypes, ...},
+                                valVal as Value{class, typeOf=OldForm typeOf, locations, references, name, instanceTypes, ...},
                                 (otherConstrs, (addrs, matches))) =
                         let
                             val formalValue =
-                                Value{class=class, name=name, typeOf=typeOf, access=Formal addrs,
+                                Value{class=class, name=name, typeOf=OldForm typeOf, access=Formal addrs,
                                       locations=locations, references=references, instanceTypes=instanceTypes}
                         in
                             (formalValue :: otherConstrs,
@@ -1694,7 +1694,7 @@ struct
                             #enterVal finalEnv (dName, value);
                             (addrs, matches)
                         )
-                    |   Value{class, typeOf, locations, references, instanceTypes, ...} =>
+                    |   Value{class, typeOf as OldForm oldTypeOf, locations, references, instanceTypes, ...} =>
                         let
                             val formalValue =
                                 Value{class=class, name=dName, typeOf=typeOf, access=Formal addrs,
@@ -1704,7 +1704,7 @@ struct
                             #enterVal finalEnv (dName, formalValue);
                             (addrs + 1,
                                 (addrs,
-                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=typeOf}) :: matches)
+                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=oldTypeOf}) :: matches)
                         end
                 end
                 else (addrs, matches)
@@ -2128,7 +2128,7 @@ struct
            structure declarations to freeze the types (there's an example on p90 of the
            Definition) but we can't functors to get access to unfrozen free variables because
            that can break the type system.  *)
-        fun checkValueForFreeTypeVariables(name: string, Value{typeOf, ...}) =
+        fun checkValueForFreeTypeVariables(name: string, Value{typeOf=OldForm typeOf, ...}) =
             checkForFreeTypeVariables(name, typeOf, lex, codeForUniqueId)
 
         (* Find all the values in the structure. *)
@@ -2466,7 +2466,7 @@ struct
                        We can discard any other instance type info since it cannot be
                        more general. *)
                     case valu of
-                        Value{ typeOf, instanceTypes=SOME instanceRef, ...} =>
+                        Value{ typeOf=OldForm typeOf, instanceTypes=SOME instanceRef, ...} =>
                             instanceRef := [#1(generalise typeOf)]
                     |   _ => ()
                 )
@@ -2591,7 +2591,7 @@ struct
                 end
 
             |   applyAction
-                ((destAddr, ValueMatch { sourceValue as Value{typeOf=sourceTypeOf, name, ...}, coercion, targetType }),
+                ((destAddr, ValueMatch { sourceValue as Value{typeOf=OldForm sourceTypeOf, name, ...}, coercion, targetType }),
                  (otherCode, allSame)) =
                 let
                     (* Set up a new type variable environment in case this needs to create type
@@ -3136,7 +3136,7 @@ struct
                 copyType(t, fn tv=>tv, replaceTypeConstrs)
             end
 
-            fun makeDecs (CoreValue(Value{class, name, typeOf, locations, access, ...}),
+            fun makeDecs (CoreValue(Value{class, name, typeOf=OldForm typeOf, locations, access, ...}),
                           (addr, { fixes, values, structures, signatures, functors, types } )) =
                 let
                     (* Extract the value from the result vector except if we have a type-dependent
@@ -3147,7 +3147,7 @@ struct
                         |   _ => Global(mkInd (addr, results))
                     (* Replace the typeIDs. *)
                     val newVal =
-                        Value{class=class, name=name, typeOf=replaceTypes typeOf, access=newAccess,
+                        Value{class=class, name=name, typeOf=OldForm(replaceTypes typeOf), access=newAccess,
                               locations=locations, references = NONE, instanceTypes=NONE}
                 in
                     (addr+1, { fixes=fixes, values=(name, newVal) :: values, structures=structures,

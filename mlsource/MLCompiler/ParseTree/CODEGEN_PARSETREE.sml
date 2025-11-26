@@ -278,9 +278,6 @@ struct
 (*    fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
         DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)*)
 
-    fun valName (Value{name, ...}) = name
-    fun valTypeOf (Value{typeOf, ...}) = typeOf
-
     fun isConstructor (Value{class=Constructor _, ...}) = true
     |   isConstructor (Value{class=Exception, ...})     = true
     |   isConstructor _                                  = false;
@@ -907,7 +904,7 @@ struct
             (* Check the types for escaped datatypes. *)
             local
                 fun checkVars(ValBind{variables=ref vars, line, ...}) =
-                    List.app(fn var => checkForEscapingDatatypes(valTypeOf var,
+                    List.app(fn (Value{typeOf=OldForm valTypeOf, ...}) => checkForEscapingDatatypes(valTypeOf,
                         fn message => errorNear (lex, true, firstEntry, line, message))) vars
             in
                 val () = List.app checkVars dec
@@ -966,7 +963,7 @@ struct
                   the previous exception. *)
                 val (lvAddr, lvLevel, exType) =
                     case ex of
-                        Value{access=Local{addr, level}, typeOf, ...} => (addr, level, typeOf)
+                        Value{access=Local{addr, level}, typeOf=OldForm typeOf, ...} => (addr, level, typeOf)
                     |   _ => raise InternalError "lvAddr"
             in
                 lvAddr  := mkAddr 1;
@@ -1018,7 +1015,8 @@ struct
                 fun getConstrCode(DatatypeBind {tcon = ref (tc as TypeConstrSet(_, constrs)), typeVars, ...}, eqStatus) =
                 let
                     (* Get the argument types or EmptyType if this is nullary. *)
-                    fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
+                    fun getConstrType(Value{typeOf=OldForm(FunctionType{arg, ...}), name, ...}) = (name, arg)
+                    |   getConstrType(Value{typeOf=NewForm _, ...}) = raise InternalError "getConstrType"
                     |   getConstrType(Value{name, ...}) = (name, EmptyType)
                     val constrTypesAndNames = List.map getConstrType constrs
                     val {constrs, boxed, size} = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
@@ -1136,8 +1134,8 @@ struct
 
             (* Check the types for escaped datatypes. *)
             local
-                fun checkVars(FValBind{functVar=ref var, location, ...}) =
-                    checkForEscapingDatatypes(valTypeOf var,
+                fun checkVars(FValBind{functVar=ref(Value{typeOf=OldForm typeOf, ...}), location, ...}) =
+                    checkForEscapingDatatypes(typeOf,
                         fn message => errorNear (lex, true, near, location, message))
             in
                 val () = List.app checkVars tlist
@@ -1169,7 +1167,7 @@ struct
 
             (* Get the polymorphic variables for each function. *)
             local
-                fun getPoly(FValBind{functVar = ref (Value{typeOf, ...}), ...}) =
+                fun getPoly(FValBind{functVar = ref (Value{typeOf=OldForm typeOf, ...}), ...}) =
                     filterTypeVars(getPolyTypeVars(typeOf, mapTypeVars typeVarMap))
             in
                 val polyVarList = List.map getPoly tlist
@@ -1556,7 +1554,7 @@ struct
                 
                 val clauses = List.map matchTreeToClause (getMatches exp)
  
-                fun mkFValBind(var as Value{typeOf, ...}) =
+                fun mkFValBind(var as Value{typeOf=OldForm typeOf, ...}) =
                 let
                     val argType = mkTypeVar(generalisable, false, false, false)
                     and resultType = mkTypeVar(generalisable, false, false, false)
@@ -1585,11 +1583,11 @@ struct
             let (* A binding. *)
                 (* Get a name for any functions. This is used for profiling and exception trace. *)
                 val fName =
-                    case vars of [] => "_" | _ => String.concatWith "|" (List.map valName vars)
+                    case vars of [] => "_" | _ => String.concatWith "|" (List.map (fn Value{name, ...} => name) vars)
 
                 (* Does this contain polymorphism? *)
                 val polyVarsForVals =
-                    List.map(fn Value{typeOf, ...} =>
+                    List.map(fn Value{typeOf=OldForm typeOf, ...} =>
                                 filterTypeVars (getPolyTypeVars(typeOf, mapTypeVars typeVarMap))) vars
                 val polyVars = List.foldl(op @) [] polyVarsForVals
                 val nPolyVars = List.length polyVars

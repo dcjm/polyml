@@ -211,12 +211,10 @@ struct
         
         
         (* Type-dependent functions. *)
-        fun mkSpecialFun (name:string, typeof:types, opn: typeDependent) : values =
-            makeOverloaded (name, typeof, opn);
+        fun mkSpecialFun (name:string, typeof, opn: typeDependent) = makeOverloaded (name, OldForm typeof, opn)
         
         (* Overloaded functions. *)
-        fun mkOverloaded (name:string) (typeof: types)
-            : values = mkSpecialFun(name, typeof, TypeDep)
+        fun mkOverloaded (name:string) typeof: values = mkSpecialFun(name, typeof, TypeDep)
 
         (* Make a structure.  Returns the table as an
            environment so that entries can be added to the structure. *)
@@ -233,14 +231,14 @@ struct
 
         local
             val falseCons =
-                mkGconstr ("false", Bool,
+                mkGconstr ("false", OldForm Bool,
                     createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, [], "false"), true, 2, declInBasis)
             val trueCons  =
-                mkGconstr ("true",  Bool,
+                mkGconstr ("true",  OldForm Bool,
                     createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, [], "true"), true, 2, declInBasis)
             val boolEnv = makeStructure(globalEnv, "Bool") (* Bool structure *)
             val notFn =
-                mkGvar("not", Bool ->> Bool, mkUnaryFn BuiltIns.NotBoolean, declInBasis)
+                mkGvar("not", OldForm (Bool ->> Bool), mkUnaryFn BuiltIns.NotBoolean, declInBasis)
         in
             val () = #enterType boolEnv ("bool",  TypeConstrSet(boolConstr, [trueCons, falseCons]))
             val () = #enterVal boolEnv ("true",  trueCons)
@@ -268,7 +266,7 @@ struct
                 let
                     val a = mkTypeVar(generalisable, false, false, false)
                 in
-                    mkGconstr ("ref", a ->> Ref a,
+                    mkGconstr ("ref", OldForm(a ->> Ref a),
                         createUnaryConstructor(RefForm, [a], "ref"), false, 1, declInBasis)
                 end
         in
@@ -311,7 +309,7 @@ struct
         
         fun enterRunCall (name : string, entry : codetree, typ : types) : unit =
         let
-            val value = mkGvar (name, typ, entry, declInBasis);
+            val value = mkGvar (name, OldForm typ, entry, declInBasis);
         in
             #enterVal runCallEnv (name, value)
         end
@@ -558,7 +556,7 @@ struct
             fun makeException0(name, id) =
             let
                 val exc =
-                    Value{ name = name, typeOf = TYPETREE.exnType,
+                    Value{ name = name, typeOf = OldForm TYPETREE.exnType,
                            access = Global(mkConst(toMachineWord id)),
                            class = Exception, locations = declInBasis,
                            references = NONE, instanceTypes=NONE }
@@ -569,7 +567,7 @@ struct
             and makeException1(name, id, exType) =
             let
                 val exc =
-                    Value{ name = name, typeOf = exType ->> TYPETREE.exnType,
+                    Value{ name = name, typeOf = OldForm(exType ->> TYPETREE.exnType),
                            access = Global(mkConst(toMachineWord id)),
                            class = Exception, locations = declInBasis,
                            references = NONE, instanceTypes=NONE }
@@ -625,7 +623,7 @@ struct
 
             fun enterArbitrary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkArbitraryFn oper, declInBasis)
+                val value = mkGvar (name, OldForm typ, mkArbitraryFn oper, declInBasis)
             in
                 #enterVal largeIntEnv (name, value)
             end
@@ -639,7 +637,7 @@ struct
             val () = enterArbitrary("add", ArbArith BuiltIns.ArithAdd, arithType)
             val () = enterArbitrary("subtract", ArbArith BuiltIns.ArithSub, arithType)
             val () = enterArbitrary("multiply", ArbArith BuiltIns.ArithMult, arithType)
-            val () = #enterVal largeIntEnv ("log2Word", mkGvar ("log2Word", Word ->> Word, mkUnaryFn BuiltIns.Log2Word, declInBasis))
+            val () = #enterVal largeIntEnv ("log2Word", mkGvar ("log2Word", OldForm(Word ->> Word), mkUnaryFn BuiltIns.Log2Word, declInBasis))
         end
 
         local
@@ -648,7 +646,7 @@ struct
 
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
+                val value = mkGvar (name, OldForm typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal fixedIntEnv (name, value)
             end
@@ -680,7 +678,7 @@ struct
 
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
+                val value = mkGvar (name, OldForm typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal largeWordEnv (name, value)
             end
@@ -723,7 +721,7 @@ struct
 
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
+                val value = mkGvar (name, OldForm typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal wordStructEnv (name, value)
             end
@@ -740,9 +738,9 @@ struct
             and enterBinaryShift(name, oper) =
                 enterBinary(name, WordShift oper, binaryType)
                 
-            val toLargeWordFn = mkGvar ("toLargeWord", Word ->> LargeWord, mkUnaryFn UnsignedToLongWord, declInBasis)
-            and toLargeWordXFn = mkGvar ("toLargeWordX", Word ->> LargeWord, mkUnaryFn SignedToLongWord, declInBasis)
-            and fromLargeWordFn = mkGvar ("fromLargeWord", LargeWord ->> Word, mkUnaryFn LongWordToTagged, declInBasis)
+            val toLargeWordFn = mkGvar ("toLargeWord", OldForm(Word ->> LargeWord), mkUnaryFn UnsignedToLongWord, declInBasis)
+            and toLargeWordXFn = mkGvar ("toLargeWordX", OldForm(Word ->> LargeWord), mkUnaryFn SignedToLongWord, declInBasis)
+            and fromLargeWordFn = mkGvar ("fromLargeWord", OldForm(LargeWord ->> Word), mkUnaryFn LongWordToTagged, declInBasis)
         in
             val () = #enterType wordStructEnv ("word", TypeConstrSet(wordConstr, []))
             val () = enterComparison("<",   TestLess)
@@ -773,7 +771,7 @@ struct
             let
                 val typ = Char ** Char ->> Bool
                 val entry = mkBinaryFn(WordComparison{test=test, isSigned=false})
-                val value = mkGvar (name, typ, entry, declInBasis)
+                val value = mkGvar (name, OldForm typ, entry, declInBasis)
             in
                 #enterVal charEnv (name, value)
             end
@@ -812,21 +810,21 @@ struct
 
             val rtsCallFastI_REntry = makeRunCallTupled([GeneralType], DoubleFloatType, toMachineWord makeFastIntInfRealCall)
 
-            val rtsCallFastF_F = mkGvar ("rtsCallFastR_R", String ->> Real ->> Real, rtsCallFastR_REntry, declInBasis)
-            val rtsCallFastFF_F = mkGvar ("rtsCallFastRR_R", String ->> Real ** Real ->> Real, rtsCallFastRR_REntry, declInBasis)
-            val rtsCallFastFG_F = mkGvar ("rtsCallFastRI_R", String ->> Real ** Int ->> Real, rtsCallFastRI_REntry, declInBasis)
-            val rtsCallFastG_F = mkGvar ("rtsCallFastI_R", String ->> intInfType ->> Real, rtsCallFastI_REntry, declInBasis)
+            val rtsCallFastF_F = mkGvar ("rtsCallFastR_R", OldForm(String ->> Real ->> Real), rtsCallFastR_REntry, declInBasis)
+            val rtsCallFastFF_F = mkGvar ("rtsCallFastRR_R", OldForm(String ->> Real ** Real ->> Real), rtsCallFastRR_REntry, declInBasis)
+            val rtsCallFastFG_F = mkGvar ("rtsCallFastRI_R", OldForm(String ->> Real ** Int ->> Real), rtsCallFastRI_REntry, declInBasis)
+            val rtsCallFastG_F = mkGvar ("rtsCallFastI_R", OldForm(String ->> intInfType ->> Real), rtsCallFastI_REntry, declInBasis)
 
             fun enterUnary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkUnaryFn oper, declInBasis)
+                val value = mkGvar (name, OldForm typ, mkUnaryFn oper, declInBasis)
             in
                 #enterVal realEnv (name, value)
             end
 
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
+                val value = mkGvar (name, OldForm typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal realEnv (name, value)
             end
@@ -887,21 +885,21 @@ struct
 
             val rtsCallFastI_REntry = makeRunCallTupled([GeneralType], SingleFloatType, toMachineWord makeFastIntInfFloatCall)
 
-            val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", String ->> Float ->> Float, rtsCallFastR_REntry, declInBasis)
-            val rtsCallFastFF_F = mkGvar ("rtsCallFastFF_F", String ->> Float ** Float ->> Float, rtsCallFastRR_REntry, declInBasis)
-            val rtsCallFastFG_F = mkGvar ("rtsCallFastFI_F", String ->> Float ** Int ->> Float, rtsCallFastRI_REntry, declInBasis)
-            val rtsCallFastG_F = mkGvar ("rtsCallFastI_F", String ->> intInfType ->> Float, rtsCallFastI_REntry, declInBasis)
+            val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", OldForm(String ->> Float ->> Float), rtsCallFastR_REntry, declInBasis)
+            val rtsCallFastFF_F = mkGvar ("rtsCallFastFF_F", OldForm(String ->> Float ** Float ->> Float), rtsCallFastRR_REntry, declInBasis)
+            val rtsCallFastFG_F = mkGvar ("rtsCallFastFI_F", OldForm(String ->> Float ** Int ->> Float), rtsCallFastRI_REntry, declInBasis)
+            val rtsCallFastG_F = mkGvar ("rtsCallFastI_F", OldForm(String ->> intInfType ->> Float), rtsCallFastI_REntry, declInBasis)
 
             fun enterUnary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkUnaryFn oper, declInBasis)
+                val value = mkGvar (name, OldForm typ, mkUnaryFn oper, declInBasis)
             in
                 #enterVal real32Env (name, value)
             end
             
             fun enterBinary(name, oper, typ) =
             let
-                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
+                val value = mkGvar (name, OldForm typ, mkBinaryFn oper, declInBasis)
             in
                 #enterVal real32Env (name, value)
             end
@@ -949,7 +947,7 @@ struct
         
         fun enterBootstrap (name : string, entry : codetree, typ : types) : unit =
         let
-            val value = mkGvar (name, typ, entry, declInBasis)
+            val value = mkGvar (name, OldForm typ, entry, declInBasis)
         in
             #enterVal bootstrapEnv (name, value)
         end
@@ -972,12 +970,12 @@ struct
                     "thread", [], makeFreeId(0, Global (genCode(code, [], 0) ()), true, basisDescription "thread"),
                     [DeclaredAt inBasis])
             val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
-            val selfFunction = mkGvar ("self", Unit ->> threadType, getCurrentThreadIdFn, declInBasis)
-            val createMutexFunction = mkGvar("createMutex", Unit ->> Ref Word, createMutexFn, declInBasis)
-            and lockMutexFunction = mkGvar("lockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.LockMutex, declInBasis)
-            and tryLockMutexFunction = mkGvar("tryLockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.TryLockMutex, declInBasis)
-            and unlockMutexFunction = mkGvar("unlockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.UnlockMutex, declInBasis)
-            and cpuPauseFunction = mkGvar("cpuPause", Unit ->> Unit, cpuPauseFn, declInBasis)
+            val selfFunction = mkGvar ("self", OldForm(Unit ->> threadType), getCurrentThreadIdFn, declInBasis)
+            val createMutexFunction = mkGvar("createMutex", OldForm(Unit ->> Ref Word), createMutexFn, declInBasis)
+            and lockMutexFunction = mkGvar("lockMutex", OldForm(Ref Word ->> Bool), mkUnaryFn BuiltIns.LockMutex, declInBasis)
+            and tryLockMutexFunction = mkGvar("tryLockMutex", OldForm(Ref Word ->> Bool), mkUnaryFn BuiltIns.TryLockMutex, declInBasis)
+            and unlockMutexFunction = mkGvar("unlockMutex", OldForm(Ref Word ->> Bool), mkUnaryFn BuiltIns.UnlockMutex, declInBasis)
+            and cpuPauseFunction = mkGvar("cpuPause", OldForm(Unit ->> Unit), cpuPauseFn, declInBasis)
         in
             val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
             val () = #enterVal threadEnv ("self", selfFunction)
@@ -994,41 +992,41 @@ struct
             (* We don't have Word8.word or Word32.word at this point so the easiest way to
                deal with this is to make them polymorphic. *)
             val get8Function =
-                mkGvar("get8", LargeWord ** Word ->> a, makePolymorphic([a], mkLoadOperationFn LoadStoreC8), declInBasis)
+                mkGvar("get8", OldForm(LargeWord ** Word ->> a), makePolymorphic([a], mkLoadOperationFn LoadStoreC8), declInBasis)
             val get16Function =
-                mkGvar("get16", LargeWord ** Word ->> Word, mkLoadOperationFn LoadStoreC16, declInBasis)
+                mkGvar("get16", OldForm(LargeWord ** Word ->> Word), mkLoadOperationFn LoadStoreC16, declInBasis)
             val get32Function =
-                mkGvar("get32", LargeWord ** Word ->> a, makePolymorphic([a], mkLoadOperationFn LoadStoreC32), declInBasis)
+                mkGvar("get32", OldForm(LargeWord ** Word ->> a), makePolymorphic([a], mkLoadOperationFn LoadStoreC32), declInBasis)
             val get64Function =
-                mkGvar("get64", LargeWord ** Word ->> LargeWord, mkLoadOperationFn LoadStoreC64, declInBasis)
+                mkGvar("get64", OldForm(LargeWord ** Word ->> LargeWord), mkLoadOperationFn LoadStoreC64, declInBasis)
             val getFloatFunction =
-                mkGvar("getFloat", LargeWord ** Word ->> Real, mkLoadOperationFn LoadStoreCFloat, declInBasis)
+                mkGvar("getFloat", OldForm(LargeWord ** Word ->> Real), mkLoadOperationFn LoadStoreCFloat, declInBasis)
             val getDoubleFunction =
-                mkGvar("getDouble", LargeWord ** Word ->> Real, mkLoadOperationFn LoadStoreCDouble, declInBasis)
+                mkGvar("getDouble", OldForm(LargeWord ** Word ->> Real), mkLoadOperationFn LoadStoreCDouble, declInBasis)
             val set8Function =
                 mkGvar("set8",
-                    mkProductType[LargeWord, Word, a] ->> Unit, makePolymorphic([a], mkStoreOperationFn LoadStoreC8),
+                    OldForm(mkProductType[LargeWord, Word, a] ->> Unit), makePolymorphic([a], mkStoreOperationFn LoadStoreC8),
                     declInBasis)
             val set16Function =
                 mkGvar("set16",
-                    mkProductType[LargeWord, Word, Word] ->> Unit, mkStoreOperationFn LoadStoreC16, declInBasis)
+                    OldForm(mkProductType[LargeWord, Word, Word] ->> Unit), mkStoreOperationFn LoadStoreC16, declInBasis)
             val set32Function =
                 mkGvar("set32",
-                    mkProductType[LargeWord, Word, a] ->> Unit, makePolymorphic([a], mkStoreOperationFn LoadStoreC32),
+                    OldForm(mkProductType[LargeWord, Word, a] ->> Unit), makePolymorphic([a], mkStoreOperationFn LoadStoreC32),
                     declInBasis)
             val set64Function =
                 mkGvar("set64",
-                    mkProductType[LargeWord, Word, LargeWord] ->> Unit, mkStoreOperationFn LoadStoreC64, declInBasis)
+                    OldForm(mkProductType[LargeWord, Word, LargeWord] ->> Unit), mkStoreOperationFn LoadStoreC64, declInBasis)
             val setFloatFunction =
                 mkGvar("setFloat",
-                    mkProductType[LargeWord, Word, Real] ->> Unit, mkStoreOperationFn LoadStoreCFloat, declInBasis)
+                    OldForm(mkProductType[LargeWord, Word, Real] ->> Unit), mkStoreOperationFn LoadStoreCFloat, declInBasis)
             val setDoubleFunction =
                 mkGvar("setDouble",
-                    mkProductType[LargeWord, Word, Real] ->> Unit, mkStoreOperationFn LoadStoreCDouble, declInBasis)
+                    OldForm(mkProductType[LargeWord, Word, Real] ->> Unit), mkStoreOperationFn LoadStoreCDouble, declInBasis)
             val allocCStackFn =
-                mkGvar("allocCStack", Word ->> LargeWord, mkUnaryFn BuiltIns.AllocCStack, declInBasis)
+                mkGvar("allocCStack", OldForm(Word ->> LargeWord), mkUnaryFn BuiltIns.AllocCStack, declInBasis)
             val freeCStackFn =
-                mkGvar("freeCStack", LargeWord ** Word ->> Unit, mkBinaryFn BuiltIns.FreeCStack, declInBasis)
+                mkGvar("freeCStack", OldForm(LargeWord ** Word ->> Unit), mkBinaryFn BuiltIns.FreeCStack, declInBasis)
         in
             val () = #enterVal fmemEnv ("get8", get8Function)
             val () = #enterVal fmemEnv ("get16", get16Function)
@@ -1056,7 +1054,7 @@ struct
             local
                 val EXC_foreign     = 23
                 val foreignException =
-                    Value{ name = "Foreign", typeOf = String ->> TYPETREE.exnType,
+                    Value{ name = "Foreign", typeOf = OldForm(String ->> TYPETREE.exnType),
                            access = Global(mkConst(toMachineWord EXC_foreign)),
                            class = Exception, locations = declInBasis,
                         references = NONE, instanceTypes=NONE }
@@ -1124,10 +1122,10 @@ struct
             fun enterForeign (name, entry, typ) =
                 #enterVal foreignEnv (name, mkGvar (name, typ, entry, declInBasis))
         in
-            val () = enterForeign("foreignCall", foreignCallEntry, foreignCallType)
-            val () = enterForeign("buildCallBack", buildCallBackEntry, buildCallBackType)
+            val () = enterForeign("foreignCall", foreignCallEntry, OldForm foreignCallType)
+            val () = enterForeign("buildCallBack", buildCallBackEntry, OldForm buildCallBackType)
             (* Apply the abiList function here.  The ABIs depend on the platform in the interpreted version. *)
-            val () = enterForeign("abiList", mkConst(toMachineWord(CODETREE.Foreign.abiList())), List (String ** abiType))
+            val () = enterForeign("abiList", mkConst(toMachineWord(CODETREE.Foreign.abiList())), OldForm(List (String ** abiType)))
         end
 
         local
@@ -1478,7 +1476,7 @@ struct
             val {constrs=constrReps, ...} = chooseConstrRepr(constrs, [])
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, t ->> environEntryType, code, false, numConstrs, declInBasis))
+                    mkGconstr(s, OldForm(t ->> environEntryType), code, false, numConstrs, declInBasis))
                         (constrs, constrReps)
             fun valName (Value{name, ...}) = name
             val () = List.app (fn c => #enterVal debuggerEnv(valName c, c)) constructors
@@ -1492,19 +1490,19 @@ struct
             val debugStateType = mkTypeConstruction ("debugState", debugStateConstr, [], declInBasis)
         in
             val () = applyList (fn (name, v, t) =>
-                                #enterVal debuggerEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                                #enterVal debuggerEnv (name, mkGvar (name, OldForm t, mkConst v, declInBasis)))
                 [
                     ("makeValue",
-                        toMachineWord(makeValue: debugState -> string * types * locationProp list * machineWord -> values),
+                        toMachineWord(makeValue: debugState -> string * valueType * locationProp list * machineWord -> values),
                         debugStateType ->> mkProductType[String, localType, locationPropList, machineWordType] ->> valueVal),
                     ("makeException",
-                        toMachineWord(makeException: debugState -> string * types * locationProp list * machineWord -> values),
+                        toMachineWord(makeException: debugState -> string * valueType * locationProp list * machineWord -> values),
                         debugStateType ->> mkProductType[String, localType, locationPropList, machineWordType] ->> valueVal),
                     ("makeConstructor",
-                        toMachineWord(makeConstructor: debugState -> string * types * bool * int * locationProp list * machineWord -> values),
+                        toMachineWord(makeConstructor: debugState -> string * valueType * bool * int * locationProp list * machineWord -> values),
                         debugStateType ->> mkProductType[String, localType, Bool, Int, locationPropList, machineWordType] ->> valueVal),
                     ("makeAnonymousValue",
-                        toMachineWord(makeAnonymousValue: debugState -> types * machineWord -> values),
+                        toMachineWord(makeAnonymousValue: debugState -> valueType * machineWord -> values),
                         debugStateType ->> mkProductType[localType, machineWordType] ->> valueVal),
                     ("makeStructure",
                         toMachineWord(makeStructure: debugState -> string * signatures * locationProp list * machineWord -> structVals),
@@ -1512,7 +1510,7 @@ struct
                     ("makeTypeConstr",
                         toMachineWord(makeTypeConstr: debugState -> typeConstrSet -> typeConstrSet),
                         debugStateType ->> localTypeConstr ->> typeVal),
-                    ("unitValue", toMachineWord(mkGvar("", unitType, CodeZero, []): values), valueVal), (* Used as a default *)
+                    ("unitValue", toMachineWord(mkGvar("", OldForm unitType, CodeZero, []): values), valueVal), (* Used as a default *)
 
                     
                     ("setOnEntry", toMachineWord(setOnEntry: (string * PolyML.location -> unit) option -> unit),
@@ -1591,7 +1589,7 @@ struct
         in
             val () = #enterVal runCallEnv
                         ("setDefaultIntTypeArbitrary",
-                            mkGvar ("setDefaultIntTypeArbitrary", Bool ->> Unit, mkConst (toMachineWord setType), declInBasis))
+                            mkGvar ("setDefaultIntTypeArbitrary", OldForm(Bool ->> Unit), mkConst (toMachineWord setType), declInBasis))
         end
 
         local
@@ -1605,9 +1603,9 @@ struct
             open TYPETREE
             val uniStructEnv = makeStructure(bootstrapEnv, "Universal")
 
-            fun enterUniversal (name : string, entry : codetree, typ : types) : unit =
+            fun enterUniversal (name : string, entry : codetree, typ) : unit =
             let
-                val value = mkGvar (name, typ, entry, declInBasis);
+                val value = mkGvar (name, OldForm typ, entry, declInBasis);
             in
                 #enterVal uniStructEnv (name, value)
             end;
@@ -1702,7 +1700,7 @@ struct
             fun valName (Value{name, ...}) = name
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, t ->> PtProperties, code, false, numConstrs, declInBasis))
+                    mkGconstr(s, OldForm(t ->> PtProperties), code, false, numConstrs, declInBasis))
                         (constrs, constrReps)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
@@ -1727,7 +1725,7 @@ struct
                 enterBootstrap ("useWithParms",
                     mkConst (toMachineWord ((useIntoEnv globalTable): Universal.universal list -> string -> unit)),
                     List Universal ->> String ->> Unit)            
-            val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord (compiler: compilerType)), declInBasis));
+            val () = enterPolyMLVal("compiler", mkGvar ("compiler", OldForm compilerType, mkConst (toMachineWord (compiler: compilerType)), declInBasis));
             val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable: nameSpace)), nameSpaceType)
             (* Add a print function so we can print a message at the start of a bootstrap phase. *)
             val () = enterBootstrap("print", mkConst (toMachineWord TextIO.print), String ->> Unit)
@@ -1847,7 +1845,7 @@ struct
             val CodeTree = CodeTree
 
             val () = applyList (fn (name, v, t) =>
-                                #enterVal codetreeEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                                #enterVal codetreeEnv (name, mkGvar (name, OldForm t, mkConst v, declInBasis)))
                 [
                 ("pretty", toMachineWord (CODETREE.pretty: codetree -> pretty), CodeTree ->> PrettyType),
                 ("mkConstant", toMachineWord(mkConst: machineWord -> codetree), MachineWord ->> CodeTree),
@@ -1903,13 +1901,13 @@ struct
                     TYPETREE.display(ty, depth, makeTypeEnv nameSpace)
                 and exportedDisplayValues(valu, depth, nameSpace: nameSpace option) =
                         displayValues(valu, depth, makeTypeEnv nameSpace)
-                and propsForValue (Value {locations, typeOf, ...}) = PTtype typeOf :: mapLocationProps locations
+                and propsForValue (Value {locations, typeOf=OldForm typeOf, ...}) = PTtype typeOf :: mapLocationProps locations
 
                 fun isException (Value{class = Exception, ...}) = true
                 |   isException _ = false
 
                 fun valName (Value{name, ...}) = name
-                fun valTypeOf (Value{typeOf, ...}) = typeOf
+                fun valTypeOf (Value{typeOf=OldForm typeOf, ...}) = typeOf
 
                 fun isConstructor (Value{class=Constructor _, ...}) = true
                 |   isConstructor (Value{class=Exception, ...})     = true
@@ -1917,7 +1915,7 @@ struct
     
             in
                 val () = applyList (fn (name, v, t) =>
-                                    #enterVal valuesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                                    #enterVal valuesEnv (name, mkGvar (name, OldForm t, mkConst v, declInBasis)))
                     [
                         ("name",    toMachineWord (valName: values -> string), valueVal ->> String),
                         ("print",   toMachineWord (printValues: values * FixedInt.int -> pretty),
@@ -1943,7 +1941,7 @@ struct
                 and nameForType (TypeConstrSet(TypeConstrs{name, ...}, _)) = name
             in
                 val () = applyList (fn (name, v, t) =>
-                                    #enterVal typesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                                    #enterVal typesEnv (name, mkGvar (name, OldForm t, mkConst v, declInBasis)))
                     [
                     ("name", toMachineWord(nameForType: typeConstrSet -> string), typeVal ->> String),
                     ("print",
@@ -2029,7 +2027,7 @@ struct
                 end
             in
                 val () = applyList (fn (name, v, t) =>
-                                #enterVal structsEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                                #enterVal structsEnv (name, mkGvar (name, OldForm t, mkConst v, declInBasis)))
                     [
                     ("name", toMachineWord(nameForStruct: structVals -> string), structureVal ->> String),
                     ("print",
@@ -2051,7 +2049,7 @@ struct
                 and nameForSig (Signatures{name, ...}) = name
             in
                 val () = applyList (fn (name, v, t) =>
-                                    #enterVal sigsEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                                    #enterVal sigsEnv (name, mkGvar (name, OldForm t, mkConst v, declInBasis)))
                     [
                     ("name", toMachineWord(nameForSig: signatures -> string), signatureVal ->> String),
                     ("print",
@@ -2074,7 +2072,7 @@ struct
                 and nameForFunctor (Functor{name, ...}) = name
             in
                 val () = applyList (fn (name, v, t) =>
-                                    #enterVal functsEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                                    #enterVal functsEnv (name, mkGvar (name, OldForm t, mkConst v, declInBasis)))
                     [
                     ("name", toMachineWord(nameForFunctor: functors -> string), functorVal ->> String),
                     ("print",
@@ -2090,7 +2088,7 @@ struct
                 fun nameForFix(FixStatus(s, _)) = s
             in
                 val () = applyList (fn (name, v, t) =>
-                                    #enterVal fixesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                                    #enterVal fixesEnv (name, mkGvar (name, OldForm t, mkConst v, declInBasis)))
                     [
                     ("name", toMachineWord(nameForFix: fixStatus -> string), fixityVal ->> String),
                     ("print",

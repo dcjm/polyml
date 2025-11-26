@@ -98,6 +98,16 @@ struct
     datatype typeId =
         TypeId of { access: valAccess, description: typeIdDescription, idKind: typeIdKind }
 
+    (* A type constructor can be one of these kinds.
+       Free ids are used for datatypes in the core language,
+       Bound ids are used in signatures,
+       Type functions (type abbreviations) refer to other types.
+       To allow type functions to be unified without unrolling first we need to record which
+       type variables are actually used and how they are used for equality.  It is possible
+       that a type variable is never used (e.g. type 'a t = int) in which case "bool t" and
+       "string t" both unify and "(int->int) t" admits equality.  The typeFunCount records
+       the depth of the sequence of type functions e.g. type s(*1*) = int*int type t(*2*) = s
+       so when unifying "x:s" and "y:t" we unwrap "t" rather than "s". *)
     and typeIdKind =
         Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
     |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
@@ -113,6 +123,84 @@ struct
 
     and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
+    (* Core types.  *)
+    and coreType =
+        (* A type variable is an index.  For each instance the index maps onto a type variable.  *)
+        CTTypeVar of int
+        
+        (* The use of a type constructor, possibly applied to type arguments. *)
+    |   CTTypeConstruction of
+        {
+            name:  string,
+            constr: typeConstrs,
+            args:  coreType list,
+            locations: locationProp list
+        }
+
+        (* Function type. *)
+    |   CTFunctionType of
+        { 
+            arg:    coreType,
+            result: coreType
+        }
+
+        (* Tuples and fixed labelled records. *)
+    |   CTLabelledRecord of { name: string, typeof: coreType } list
+
+        (* Flexible records.  Flexible records can only appear in the types of local functions;
+           they must be frozen at the outer level.  Instances of flexible records can be created and
+           have different instance types for type variables in the fields (#typeof fields) but every
+           instance has the same list of field names.  This list starts with the fields that are
+           actually used (#name fields) but can grow if this is unified with other records.
+           Unifying with a fixed record freezes the list.  Generally we don't care about unused fields
+           except if the original function compared the record for equality in which case only equality
+           types can be used for any field. *)
+    |   CTFlexibleRecord of
+        {
+            fields: { name: string, typeof: coreType } list,
+            frozen: bool ref,
+            equality: bool,
+            fieldNames: string list ref
+        }
+
+        (* Error cases. *)
+    |   CTBadType
+
+    (* Templates for type variables.  Normal type variables are TemplPlain; the others are special
+       cases.  equality means this is an equality type; printity is a Poly/ML extension and indicates
+       a polymorphic function that contains a call to PolyML.print.  The compiler adds equality
+       functions to functions that contain an equality test and print functions to those that
+       use PolyML.print.  TemplFree is used for a type variable that is free in the current context.
+       It can only be used for local functions.  TemplOverload indicates that the function is
+       one of the small number of overloaded functions.  The type variable can unify with other
+       overloaded variables or with one of the constructors (int, real etc). *)
+    and typeVarTemplate =
+        TemplPlain of { equality: bool, printity: bool }
+    |   TemplFree of typeVar
+    |   TemplOverload of typeConstrs list
+
+    (* Variables used in unification.  These are instantiated from generic type variables. *)
+    and typeVar =
+        TypeVariable of
+        {
+            link: typeVarLink ref,
+            equality: bool,
+            printity: bool,
+            nonunifiable: bool,
+            level: int
+        }
+
+    (* A type variable can be set to one of these. TVLUnset is the initial state.  TVLCoreType is used
+       when the type variable has been unified with a core type and includes the map for the bound type
+       variables. TVLLink is used when the type variable has been unified with another type variable.
+       TVLOverload is used when the type variable is set to an overload set. *)
+    and typeVarLink =
+        TVLUnset
+    |   TVLCoreType of { types: coreType, map: int -> typeVar }
+    |   TVLLink of typeVar
+    |   TVLOverload of typeConstrs list
+
+    (* Old type structure. *)
     (* A type is the union of these different cases. *)
     and types = 
         TypeVar          of typeVarForm
@@ -240,13 +328,20 @@ struct
         Value of
         {
             name: string,
-            typeOf: types,
+            typeOf: valueType,
             access: valAccess,
             class: valueClass,
             locations: locationProp list, (* Location of declaration *)
             references: references,
             instanceTypes: types list ref option (* Instance types for local variables. *)
         }
+
+    (* The "type" of a value.  In general this is polymorphic and when an instance is created assignable type
+       variables are made for each of the templates.  Bound variables in #typeof are mapped onto these. *)
+    and valueType =
+        OldForm of types
+    |   NewForm of { typeof: coreType, templates: typeVarTemplate list }
+
 
     (* Classes of values. *)
     and valueClass =
@@ -266,11 +361,11 @@ struct
     |   SequenceNo of FixedInt.int
 
     and tvLevel = Generalisable | NotGeneralisable of int
-  
+
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
            need but also because it allows us to create a unique Id. *)
-      
+
     and typeVarForm = 
     {
         value:    types ref,
@@ -508,7 +603,7 @@ struct
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE};
 
     val undefinedValue    =
-    Value{ name = "<undefined>", typeOf = BadType, access = Global CodeZero, class = ValBound,
+    Value{ name = "<undefined>", typeOf = OldForm BadType, access = Global CodeZero, class = ValBound,
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE };
 
     fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
@@ -595,5 +690,10 @@ struct
         and  level      = level
         and  tvLevel    = tvLevel
         and  typeFnEq   = typeFnEq
+        and  coreType   = coreType
+        and  typeVarTemplate = typeVarTemplate
+        and  typeVar    = typeVar
+        and  typeVarLink = typeVarLink
+        and  valueType  = valueType
     end
 end;

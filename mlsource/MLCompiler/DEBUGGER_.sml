@@ -44,9 +44,9 @@ struct
 
     (* The static environment contains these kinds of entries. *)
     datatype environEntry =
-        EnvValue of string * types * locationProp list
-    |   EnvException of string * types * locationProp list
-    |   EnvVConstr of string * types * bool * int * locationProp list
+        EnvValue of string * valueType * locationProp list
+    |   EnvException of string * valueType * locationProp list
+    |   EnvVConstr of string * valueType * bool * int * locationProp list
     |   EnvTypeid of { original: typeId, freeId: typeId }
     |   EnvStructure of string * signatures * locationProp list
     |   EnvTConstr of string * typeConstrSet
@@ -216,9 +216,10 @@ struct
         let
             fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
             |   copyId id = SOME(searchType state id)
+            val OldForm ty = ty
         in
-                copyType (ty, fn x => x,
-                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
+            OldForm(copyType (ty, fn x => x,
+                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s)))
         end
     
         (* Return the value as a constant.  In almost all cases we just return the value.
@@ -229,6 +230,7 @@ struct
            the type variables resulting in local type variables becoming generic. *)
         fun getValue(valu, ty) =
         let
+            val OldForm ty = ty
             val filterTypeVars = List.filter (fn tv => not TYPEIDCODE.justForEqualityTypes orelse tvEquality tv)
             val polyVars = filterTypeVars (getPolyTypeVars(ty, fn _ => NONE))
             val nPolyVars = List.length polyVars
@@ -595,5 +597,6 @@ struct
         type codetree       = codetree
         type typeVarMap     = typeVarMap
         type debuggerStatus = debuggerStatus
+        type valueType      = valueType
     end
 end;

@@ -358,9 +358,6 @@ struct
         val tcEquality = isEquality o tcIdentifier;
         fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
 
-        fun valName (Value{name, ...}) = name
-        fun valTypeOf (Value{typeOf, ...}) = typeOf
-
         fun tsConstr(TypeConstrSet(ts, _)) = ts
 
         fun isConstructor (Value{class=Constructor _, ...}) = true
@@ -394,7 +391,7 @@ struct
 
         (* An application is non-expansive only if it is a, possibly
            constrained, constructor which is not ref. *)
-        and isNonRefConstructor (Ident {value=ref v, ...}) =
+        and isNonRefConstructor (Ident {value=ref(v as Value{typeOf=OldForm typeOf, ...}), ...}) =
             (* It is possible to rebind ref by way of datatype replication so we have
                to check the type here. *)
             let
@@ -407,7 +404,7 @@ struct
                             |   _ => false)
                     |   _ => false
             in
-                isConstructor v andalso not (isRefConstructor(valTypeOf v))
+                isConstructor v andalso not (isRefConstructor typeOf)
             end
         | isNonRefConstructor (Constraint {value, ...}) =
                 isNonRefConstructor value
@@ -501,15 +498,15 @@ struct
 
         (* Get the current overload set for the function and return a new
            instance of the type containing the overload set. *)
-        fun overloadType(Value{typeOf, access = Overloaded TypeDep, name, ...}, isConv) =
+        fun overloadType(Value{typeOf=OldForm typeOf, access = Overloaded TypeDep, name, ...}, isConv) =
                 #1 (generaliseOverload(typeOf, List.map #1 (getOverloads name), isConv))
-        |   overloadType(Value{typeOf, ...}, _) =  #1 (generalise typeOf)
+        |   overloadType(Value{typeOf=OldForm typeOf, ...}, _) =  #1 (generalise typeOf)
 
         fun instanceType (v as Value{access=Overloaded TypeDep, ...}) =
           (* Look up the current overloading for this function. *)
                 overloadType(v, false)
 
-        |   instanceType(Value{typeOf, ...}) = #1 (generalise typeOf)
+        |   instanceType(Value{typeOf=OldForm typeOf, ...}) = #1 (generalise typeOf)
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
@@ -574,7 +571,7 @@ struct
                             val isNullary =
                                 case nameVal of
                                     Value{class=Constructor{nullary, ...}, ...} => nullary
-                                |   Value{typeOf, ...} => (* exception *) not (isSome(getFnArgType typeOf))
+                                |   Value{typeOf=OldForm typeOf, ...} => (* exception *) not (isSome(getFnArgType typeOf))
                         in
                             if isNullary then instanceType nameVal
                             else
@@ -589,14 +586,14 @@ struct
                         else
                         let
                             val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
-                            val var =  mkVar(name, mkTypeVar (NotGeneralisable level, false, false, false), props)
+                            val var as Value{typeOf=OldForm valTypeOf, ...} =  mkVar(name, OldForm(mkTypeVar (NotGeneralisable level, false, false, false)), props)
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
                             checkForBuiltIn (name, v, lex, location, false);
                             enterResult (name, var);
                             value := var;
-                            valTypeOf var (* and return its type *)
+                            valTypeOf (* and return its type *)
                         end;
                 in
                     expType := instanceType; (* Record the instance type.*)
@@ -1114,7 +1111,7 @@ struct
                     val newTypeCons = makeTypeConstructor(newName, tcTypeVars tcons, typeID, locations)
     
                     (* Copy the value constructors. *)
-                    fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =
+                    fun copyAConstructor(Value{name=cName, typeOf=OldForm typeOf, class, access, ...}) =
                         let
                             (* Copy the types of value constructors replacing
                                occurrences of the old type with the new one.
@@ -1128,7 +1125,7 @@ struct
                             fun copyTyp (t : types) : types =
                                copyType (t, fn x => x, (* Don't bother with type variables. *)
                                    copyTypeCons);
-                            val newType = copyTyp typeOf;
+                            val newType = copyTyp typeOf
                             val newAccess =
                                 case (access, baseStruct) of
                                     (* If we are opening a structure we must have a base structure
@@ -1139,7 +1136,7 @@ struct
                                 |    (Formal _, NONE) => access
                                 |    _ => access; (* Probably already a global. *)
                         in
-                            Value{name=cName, typeOf=newType, class=class, access=newAccess, locations=locations,
+                            Value{name=cName, typeOf=OldForm newType, class=class, access=newAccess, locations=locations,
                                   references = NONE, instanceTypes=NONE}
                         end
 
@@ -1151,7 +1148,7 @@ struct
                 (* This previously checked that it was a datatype but that's
                    not actually correct. *)
                 (* Enter the value constrs in the environment. *)
-                List.app (fn c => (#enterVal env) (valName c, c)) newValConstrs;
+                List.app (fn (c as Value{name, ...}) => (#enterVal env) (name, c)) newValConstrs;
                 (* Add this type constructor to the environment. *)
                 (#enterType env) (newType, newTypeCons);
                 badType (* Does not return a type *)
@@ -1306,27 +1303,26 @@ struct
     
                     val exValue = 
                         case previous of 
-                            EmptyTree => mkEx (name, oldType, locations) (* Generative binding. *)
+                            EmptyTree => mkEx (name, OldForm oldType, locations) (* Generative binding. *)
                                 
                         |   Ident {name = prevName, value = prevValue, location, expType, possible, ...} =>
                             let 
                                 (* ex = ex' i.e. a non-generative binding? *)
                                 (* Match up the previous exception. *)
-                                val prev = 
+                                val prev as Value{typeOf = excType as OldForm oldExcType, ...} = 
                                     lookupValue 
                                         ("Exception",
                                             {lookupVal= #lookupVal env,
                                             lookupStruct= #lookupStruct env},
                                             prevName,
                                             giveError (v, lex, location))
-                                val excType = valTypeOf prev
                             in
                                 (* Check that it is an exception *)
                                 case prev of
                                     Value{class=Exception, ...} => ()
                                 |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
-                                expType := excType; (* And remember the type. *)
+                                expType := oldExcType; (* And remember the type. *)
                                 possible := (fn () => allValLongNamesWithPrefix prevName env);
                                 (* The result is an exception with the same type. *)
                                 mkEx (name, excType, locations)
@@ -1712,7 +1708,7 @@ struct
                     (* Declare a new identifier with this name. *)
                     val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
                     val funVar =
-                        mkValVar (name, mkTypeVar (NotGeneralisable funLevel, false, false, false), locations)
+                        mkValVar (name, OldForm(mkTypeVar (NotGeneralisable funLevel, false, false, false)), locations)
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -1742,7 +1738,7 @@ struct
                    of the function names and using the information about
                    function name and number of patterns we have saved. *)
                 fun processBinding
-                    (fvalBind as FValBind {clauses, functVar=ref functVar, argType, resultType, location, ...}) =
+                    (fvalBind as FValBind {clauses, functVar=ref(Value{typeOf=funcVarType as OldForm oldfuncVarType, name=functVarName, ...}), argType, resultType, location, ...}) =
                 let
                     (* Each fun binding in the declaration may consist of several
                        clauses. Each must have the same function name, the same
@@ -1782,7 +1778,7 @@ struct
                             mkFunDeclaration([mkClausal([clause], line)], explicit, implicit, line)
                         
                         val () = (* Set the type.  Only in case we look at the export tree. *)
-                            #expType ident := valTypeOf functVar
+                            #expType ident := oldfuncVarType
 
                         fun messFn (name, _, Value{locations, ...}) =
                             errorNear (lex, true, clauseAsTree, declaredAt locations,
@@ -1895,7 +1891,7 @@ struct
                         fun moveRefs(FValBind{functVar=ref(Value{references,...}), ...}) =
                         let
                             val {localRef as ref locals, recursiveRef, ...} = valOf references
-                            val callerName = valName functVar (* Name of referring function. *)
+                            val callerName = functVarName (* Name of referring function. *)
                         in
                             recursiveRef := List.map (fn r => (r, callerName)) locals @ !recursiveRef;
                             localRef := []
@@ -1906,7 +1902,7 @@ struct
                     (* Finally unify the function type with the type of the function variable.  If the
                        variable has not yet been used that will simply set its type but if it has been
                        used recursively it may have been given an incompatible type. *)
-                    case unifyTypes(funType, valTypeOf functVar) of
+                    case unifyTypes(funType, oldfuncVarType) of
                         NONE => () (* OK. *)
                     |   SOME report =>
                         let
@@ -1934,7 +1930,7 @@ struct
                             typeMismatch("Type of function does not match type of recursive application.",
                                 valTypeMessage (lex, typeEnv) ("Function:", fvalAsTree, funType),
                                 valTypeMessage (lex, typeEnv)
-                                    ("Variable:", mkIdent(valName functVar, location), valTypeOf functVar),
+                                    ("Variable:", mkIdent(functVarName, location), oldfuncVarType),
                                 unifyErrorReport (lex, typeEnv) report,
                                 lex, location, foundNear fvalAsTree)
                         end
@@ -1949,7 +1945,7 @@ struct
                bindings are non-expansive. *)
             List.app
                 (fn(FValBind{
-                    functVar as ref(var as Value{typeOf, locations, name, instanceTypes, ...}), ...}) =>
+                    functVar as ref(var as Value{typeOf=OldForm typeOf, locations, name, instanceTypes, ...}), ...}) =>
                 (
                     (* Generalise the types.  allowGeneralisation side-effects the type variables,
                        replaces any that can be generalised by general variables. *)
@@ -2073,7 +2069,7 @@ struct
                                 (mkFunctionType (localAssignTypes argtype, resultType), false)
                     val locations = [DeclaredAt idLocn, SequenceNo (newBindingId lex)]
                     val cons =
-                        makeValueConstr (name, constrType, isNullary, numOfConstrs, Local{addr = ref ~1, level = ref baseLevel},
+                        makeValueConstr (name, OldForm constrType, isNullary, numOfConstrs, Local{addr = ref ~1, level = ref baseLevel},
                                          locations)
         
                     (* Name must not be qualified *)
@@ -2224,7 +2220,7 @@ struct
                those variables. Unfortunately, because of flexible records we need
                to repeat the unification we did in the previous pass. *)
             local
-                fun getTypeVarsAndInstance (Value{typeOf, instanceTypes, ...}, vars) =
+                fun getTypeVarsAndInstance (Value{typeOf=OldForm typeOf, instanceTypes, ...}, vars) =
                 let
                     val instances = ! (valOf instanceTypes)
                     fun getPolyVars typ =

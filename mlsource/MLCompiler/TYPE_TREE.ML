@@ -937,7 +937,7 @@ struct
         (* Look at each of the constructors in the list. Equality testing is
            only allowed if it is allowed for each of the alternatives. *)
         fun constrEq _           []       soFar = soFar (* end of list - all o.k. *)
-        |   constrEq constructor ((Value{typeOf=valTypeOf, ...}) :: t) soFar =
+        |   constrEq constructor ((Value{typeOf=OldForm valTypeOf, ...}) :: t) soFar =
             (* The constructor may be a constant e.g.
                datatype 'a list = nil | ... or  a function e.g.
                datatype 'a list = ... cons of 'a * 'a list. *)
@@ -2869,20 +2869,17 @@ struct
                     ]
             end
 
-            fun valName (Value{name, ...}) = name
-            fun valTypeOf (Value{typeOf, ...}) = typeOf
-
             (* Print a sequence of constructors (unblocked) *)
             fun pValConstrRest ([],     _    ): pretty list = []
-            |   pValConstrRest (H :: T, depth): pretty list =
+            |   pValConstrRest ((Value{typeOf=OldForm typeOf, name, ...}):: T, depth): pretty list =
                 if depth < 0 then []           
-                else pValConstr (false, valName H, valTypeOf H, depth) @
+                else pValConstr (false, name, typeOf, depth) @
                         pValConstrRest (T, depth - 1)
            
             fun pValConstrList ([],     _    ) = PrettyString "" (* shouldn't occur *)    
-            |   pValConstrList (H :: T, depth) =
+            |   pValConstrList ((Value{typeOf=OldForm typeOf, name, ...}) :: T, depth) =
                     PrettyBlock (2, true, [],
-                        pValConstr (true, valName H, valTypeOf H, depth) @
+                        pValConstr (true, name, typeOf, depth) @
                         pValConstrRest (T, depth - 1)
                     )
 
