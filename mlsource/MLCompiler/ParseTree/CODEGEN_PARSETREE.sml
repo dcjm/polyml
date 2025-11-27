@@ -1014,12 +1014,13 @@ struct
             local
                 fun getConstrCode(DatatypeBind {tcon = ref (tc as TypeConstrSet(_, constrs)), typeVars, ...}, eqStatus) =
                 let
+                    val arity = List.length typeVars
                     (* Get the argument types or EmptyType if this is nullary. *)
                     fun getConstrType(Value{typeOf=OldForm(FunctionType{arg, ...}), name, ...}) = (name, arg)
-                    |   getConstrType(Value{typeOf=NewForm _, ...}) = raise InternalError "getConstrType"
+                    |   getConstrType(Value{typeOf=ValueType _, ...}) = raise InternalError "getConstrType"
                     |   getConstrType(Value{name, ...}) = (name, EmptyType)
                     val constrTypesAndNames = List.map getConstrType constrs
-                    val {constrs, boxed, size} = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
+                    val {constrs, boxed, size} = chooseConstrRepr(constrTypesAndNames, arity)
                 in
                     ({typeConstr=tc, eqStatus=eqStatus, boxedCode=boxed, sizeCode=size}, constrs)
                 end

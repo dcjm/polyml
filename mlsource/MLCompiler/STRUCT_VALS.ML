@@ -340,7 +340,7 @@ struct
        variables are made for each of the templates.  Bound variables in #typeof are mapped onto these. *)
     and valueType =
         OldForm of types
-    |   NewForm of { typeof: coreType, templates: typeVarTemplate list }
+    |   ValueType of { typeof: coreType, templates: typeVarTemplate list }
 
 
     (* Classes of values. *)

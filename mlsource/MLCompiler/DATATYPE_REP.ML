@@ -187,10 +187,10 @@ struct
         The above applies to monotypes.  If this is a polytype each of these is
         actually a function from the base type values to the functions. *)
 
-        fun createNullaryConstructor (test, tvs, name): codetree =
+        fun createNullaryConstructor (test, numArgs, name): codetree =
         let
             val numTypes =
-                if justForEqualityTypes then 0 else List.length tvs
+                if justForEqualityTypes then 0 else numArgs
             val testFn = mkInlproc(constrMatch(test, arg1), 1, name, [], 0) (* Test function. *)
             and constrVal = constrApply(test, CodeZero) (* Value. *)
         in
@@ -201,10 +201,10 @@ struct
                     constrValue = mkInlproc(constrVal, numTypes, name, [], 0)}
         end
     
-        fun createUnaryConstructor(test: representations, tvs, name: string): codetree =
+        fun createUnaryConstructor(test: representations, numArgs, name: string): codetree =
         let
             val numTypes =
-                if justForEqualityTypes then 0 else List.length tvs
+                if justForEqualityTypes then 0 else numArgs
             val testMatch = mkInlproc(constrMatch(test, arg1), 1, name, [], 0) (* Test function. *)
             and injectValue = mkInlproc(constrApply(test, arg1), 1, name, [], 0) (* Injection function. *)
             and projectValue = mkInlproc(constrDestruct(test, arg1), 1, name, [], 0) (* Projection function. *)
@@ -306,16 +306,16 @@ struct
     (* N.B. The representation for the "context" and "pretty" datatypes is defined in Pretty.sml.
        Any changes here that may affect the representation of a datatype may require
        changes there as well. *)
-    fun chooseConstrRepr(cs, tvs: types list) =
+    fun chooseConstrRepr(cs, arity) =
     let
         fun checkArgKind (name, EmptyType) = (Nullary, name)
         |   checkArgKind (name, argType) = (getTupleKind argType, name)
         val kinds = map checkArgKind cs;
 
-        fun chooseRepr [(Nullary, name)]       = [createNullaryConstructor(UnitForm, tvs, name)]
-        |  chooseRepr [(UnaryGeneric, name)]  = [createUnaryConstructor(OnlyOne, tvs, name)]
-        |  chooseRepr [(UnaryFunction, name)] = [createUnaryConstructor(OnlyOne, tvs, name)]
-        |  chooseRepr [(UnaryTupled _, name)] = [createUnaryConstructor(OnlyOne, tvs, name)]
+        fun chooseRepr [(Nullary, name)]       = [createNullaryConstructor(UnitForm, arity, name)]
+        |  chooseRepr [(UnaryGeneric, name)]  = [createUnaryConstructor(OnlyOne, arity, name)]
+        |  chooseRepr [(UnaryFunction, name)] = [createUnaryConstructor(OnlyOne, arity, name)]
+        |  chooseRepr [(UnaryTupled _, name)] = [createUnaryConstructor(OnlyOne, arity, name)]
         |  chooseRepr l =
             let
                 val unaryCount = List.foldl(fn((Nullary, _), n) => n | (_,n) => n+1) 0 l
@@ -326,7 +326,7 @@ struct
                         val maxTag = Word.fromInt(List.length l)-0w1 (* Largest no is length-1 *)
                         fun createRepr(_, []) = []
                         |   createRepr(n, (_, name) :: t) =
-                                createNullaryConstructor(EnumForm{tag=n, maxTag=maxTag}, tvs, name) :: createRepr (n + 0w1, t)
+                                createNullaryConstructor(EnumForm{tag=n, maxTag=maxTag}, arity, name) :: createRepr (n + 0w1, t)
                     in
                         createRepr(0w0, l)
                     end
@@ -357,7 +357,7 @@ struct
                                    createUnaryConstructor(UnboxedForm s, tvs, name)  :: chooseOptimisedRepr1(n, tvs, t)
 
                     in
-                        chooseOptimisedRepr1(0w0, tvs, l) (* can save the box *)
+                        chooseOptimisedRepr1(0w0, arity, l) (* can save the box *)
                     end
 
                 |   _ =>
@@ -401,14 +401,14 @@ struct
                                 repr :: chooseOptimisedRepr2(n + 0w1, tvs, t)
                             end;
                     in
-                        chooseOptimisedRepr2(0w0, tvs, l) (* can use tagged tuples *)
+                        chooseOptimisedRepr2(0w0, arity, l) (* can use tagged tuples *)
                     end
             end;
-        fun makeFun c = mkInlproc(c, List.length tvs, "boxed/size", [], 0)
+        fun makeFun c = mkInlproc(c, arity, "boxed/size", [], 0)
         val (boxed, size) =
-            case tvs of
-                [] => (* Monotype *) (TypeValue.boxedEither, TypeValue.singleWord)
-            |   _ => (* Polytype *) (makeFun TypeValue.boxedEither, makeFun TypeValue.singleWord)
+            if arity = 0
+            then (* Monotype *) (TypeValue.boxedEither, TypeValue.singleWord)
+            else (* Polytype *) (makeFun TypeValue.boxedEither, makeFun TypeValue.singleWord)
     in
         { constrs = chooseRepr kinds, boxed = boxed, size = size } 
     end;
@@ -493,6 +493,7 @@ struct
     local
         fun makeConsAndNil listType =
         let
+            val arity = 1
             val listTypeVars  = tcTypeVars listType;
             val alpha         = TypeVar(hd listTypeVars);
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
@@ -501,8 +502,8 @@ struct
                 makeValueConstr ("nil", OldForm alphaList, true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
             val consConstructor =
                 makeValueConstr ("::",  OldForm consType,  false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
-            val nilRepresentation = createNullaryConstructor(ShortForm 0w0, [alpha], "nil")
-            val consRepresentation = createUnaryConstructor(UnboxedForm 2, [alpha], "::")
+            val nilRepresentation = createNullaryConstructor(ShortForm 0w0, arity, "nil")
+            val consRepresentation = createUnaryConstructor(UnboxedForm 2, arity, "::")
         in
             ([(nilConstructor, nilRepresentation), (consConstructor, consRepresentation)],
             mkInlproc(TypeValue.boxedEither, 1, "boxed-list", [], 0),
@@ -524,6 +525,7 @@ struct
     local
         fun makeNoneAndSome optionType =
         let
+            val arity = 1
             val optionTypeVars  = tcTypeVars optionType;
             val alpha         = TypeVar(hd optionTypeVars);
             val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
@@ -532,8 +534,8 @@ struct
                 makeValueConstr ("NONE", OldForm alphaOption, true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
             val someConstructor =
                 makeValueConstr ("SOME", OldForm someType, false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
-            val noneRepresentation = createNullaryConstructor(ShortForm 0w0, [alpha], "NONE")
-            and someRepresentation = createUnaryConstructor(BoxedForm, [alpha], "SOME")
+            val noneRepresentation = createNullaryConstructor(ShortForm 0w0, arity, "NONE")
+            and someRepresentation = createUnaryConstructor(BoxedForm, arity, "SOME")
         in
             ([(noneConstructor, noneRepresentation), (someConstructor, someRepresentation)],
              mkInlproc(TypeValue.boxedEither, 1, "boxed-option", [], 0),
@@ -592,7 +594,7 @@ struct
                 fun makeCons(s,t) =
                     makeValueConstr(s, OldForm(mkFunctionType(t, contextType)), false, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
-                val {constrs=constrCode, boxed, size} = chooseConstrRepr(constrs, [])
+                val {constrs=constrCode, boxed, size} = chooseConstrRepr(constrs, 0)
             in
                 (ListPair.zipEq(List.map makeCons constrs, constrCode), boxed, size)
             end
@@ -628,7 +630,7 @@ struct
                     makeValueConstr(s, OldForm ctype, nullary, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
                 end
-                val {constrs=constrCode, ...} = chooseConstrRepr(constrs, [])
+                val {constrs=constrCode, ...} = chooseConstrRepr(constrs, 0)
             in
                 (ListPair.zipEq(List.map makeCons constrs, constrCode), TypeValue.boxedEither, TypeValue.singleWord)
             end
@@ -687,7 +689,6 @@ struct
         type values         = values
         type typeConstrSet  = typeConstrSet
         type typeId         = typeId
-        type typeVarForm    = typeVarForm
         type typeVarMap     = typeVarMap
         type level          = level
     end

@@ -232,10 +232,10 @@ struct
         local
             val falseCons =
                 mkGconstr ("false", OldForm Bool,
-                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, [], "false"), true, 2, declInBasis)
+                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, 0(*monotype*), "false"), true, 2, declInBasis)
             val trueCons  =
                 mkGconstr ("true",  OldForm Bool,
-                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, [], "true"), true, 2, declInBasis)
+                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, 0(*monotype*), "true"), true, 2, declInBasis)
             val boolEnv = makeStructure(globalEnv, "Bool") (* Bool structure *)
             val notFn =
                 mkGvar("not", OldForm (Bool ->> Bool), mkUnaryFn BuiltIns.NotBoolean, declInBasis)
@@ -265,9 +265,10 @@ struct
             val refCons =
                 let
                     val a = mkTypeVar(generalisable, false, false, false)
+                    val arity = 1
                 in
                     mkGconstr ("ref", OldForm(a ->> Ref a),
-                        createUnaryConstructor(RefForm, [a], "ref"), false, 1, declInBasis)
+                        createUnaryConstructor(RefForm, arity, "ref"), false, 1, declInBasis)
                 end
         in
             val () = enterGlobalType  ("ref", TypeConstrSet(refConstr, [refCons]));
@@ -1473,7 +1474,7 @@ struct
                  ]
             (* This representation must match the representation defined in DEBUGGER_.sml. *)
             val numConstrs = List.length constrs
-            val {constrs=constrReps, ...} = chooseConstrRepr(constrs, [])
+            val {constrs=constrReps, ...} = chooseConstrRepr(constrs, 0)
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, OldForm(t ->> environEntryType), code, false, numConstrs, declInBasis))
@@ -1696,7 +1697,7 @@ struct
                  ];
             (* This representation must match the representation defined in ExportTree.sml. *)
             val numConstrs = List.length constrs
-            val {constrs=constrReps, ...} = chooseConstrRepr(constrs, [])
+            val {constrs=constrReps, ...} = chooseConstrRepr(constrs, 0)
             fun valName (Value{name, ...}) = name
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
