@@ -75,11 +75,10 @@ sig
 
     and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
-
     (* Core types.  *)
     and coreType =
         (* A type variable is an index.  For each instance the index maps onto a type variable.  *)
-        CTTypeVar of int
+        CTTypeVar of tvIndex
         
         (* The use of a type constructor, possibly applied to type arguments. *)
     |   CTTypeConstruction of
@@ -149,9 +148,12 @@ sig
        TVLOverload is used when the type variable is set to an overload set. *)
     and typeVarLink =
         TVLUnset
-    |   TVLCoreType of { types: coreType, map: int -> typeVar }
+    |   TVLCoreType of { types: coreType, map: tvIndex -> typeVar }
     |   TVLLink of typeVar
     |   TVLOverload of typeConstrs list
+
+    (* Index for type variables.  This is simply to make the use clearer. *)
+    and tvIndex = TVIndex of int
 
         (* A type is the union of these different cases. *)
     and types = 
@@ -416,6 +418,7 @@ sig
         and  typeVarTemplate = typeVarTemplate
         and  typeVar    = typeVar
         and  typeVarLink = typeVarLink
+        and  tvIndex    = tvIndex
         and  valueType  = valueType
     end
 end;
