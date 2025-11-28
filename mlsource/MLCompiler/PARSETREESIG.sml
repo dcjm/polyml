@@ -3,7 +3,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2016 David C.J. Matthews
+    Copyright (c) 2000-9, 2016, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -29,8 +29,7 @@ sig
     type typeVarMap
     type codetree;
     type env;
-    type typeConstrs;
-    type typeVarForm
+    type typeConstrs
     type values;
     type structVals;
     type environEntry;
@@ -40,6 +39,7 @@ sig
     type codeBinding
     type level
     type valueConstr
+    type parseTypeVar
   
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
@@ -79,23 +79,23 @@ sig
   val mkValDeclaration : 
        valbind list * 
        {
-         lookup: string -> typeVarForm option,
-         apply: (string * typeVarForm -> unit) -> unit
+         lookup: string -> parseTypeVar option,
+         apply: (string * parseTypeVar -> unit) -> unit
        } *
        {
-         lookup: string -> typeVarForm option,
-         apply: (string * typeVarForm -> unit) -> unit
+         lookup: string -> parseTypeVar option,
+         apply: (string * parseTypeVar -> unit) -> unit
        } * location ->  parsetree;
   
   val mkFunDeclaration : 
        fvalbind list *
        {
-         lookup: string -> typeVarForm option,
-         apply: (string * typeVarForm -> unit) -> unit
+         lookup: string -> parseTypeVar option,
+         apply: (string * parseTypeVar -> unit) -> unit
        } *
        {
-         lookup: string -> typeVarForm option,
-         apply: (string * typeVarForm -> unit) -> unit
+         lookup: string -> parseTypeVar option,
+         apply: (string * parseTypeVar -> unit) -> unit
        } * location ->  parsetree;
     
   val mkOpenTree : structureIdentForm list * location -> parsetree;
@@ -117,8 +117,8 @@ sig
           newLoc: location, oldLoc: location, location: location } -> parsetree;
   val mkAbstypeDeclaration :
       datatypebind list * typebind list * parsetree list * location -> parsetree;
-  val mkTypeBinding : string * typeVarForm list * typeParsetree option * bool * location * location -> typebind;
-  val mkDatatypeBinding : string * typeVarForm list * valueConstr list * location * location -> datatypebind
+  val mkTypeBinding : string * parseTypeVar list * typeParsetree option * bool * location * location -> typebind;
+  val mkDatatypeBinding : string * parseTypeVar list * valueConstr list * location * location -> datatypebind
   val mkValueConstr : string * typeParsetree option * location -> valueConstr
   val mkExBinding : string * parsetree * typeParsetree option * location * location -> exbind;
   val mkLabelledTree : labelRecEntry list * bool * location -> parsetree;
@@ -139,7 +139,7 @@ sig
   val emptyTree : parsetree;
 
     val pass2:
-        parsetree * (bool * bool * (typeVarForm list * types) * typeIdDescription -> typeId) *
+        parsetree * (bool * bool * (parseTypeVar list * types) * typeIdDescription -> typeId) *
         env * lexan * (int -> bool) -> types
 
     val setLeastGeneralTypes: parsetree * lexan -> unit
@@ -168,7 +168,7 @@ sig
         and  typeId     = typeId
         and  structVals = structVals
         and  typeConstrs= typeConstrs
-        and  typeVarForm=typeVarForm
+        and  parseTypeVar=parseTypeVar
         and  env        = env
         and  infixity   = infixity
         and  structureIdentForm = structureIdentForm

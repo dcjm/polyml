@@ -1041,8 +1041,9 @@ struct
                 val resTypes = List.map processTypeBody tlist;
               
                 (* Can now declare the new types. *)
-                fun processType (TypeBind {name, typeVars, isEqtype, nameLoc, tcon=tcRef, ...}, decType) =
+                fun processType (TypeBind {name, typeVars=tvcVars, isEqtype, nameLoc, tcon=tcRef, ...}, decType) =
                 let
+                    val typeVars = map getTypeVar tvcVars
                     (* Construct a type constructor which is an alias of the
                        right-hand side of the declaration.  If we are effectively
                        giving a new name to a type constructor we use the same type
@@ -1056,7 +1057,7 @@ struct
                             val description = { location = nameLoc, name = name, description = "" }
                         in
                             makeTypeConstructor (name, typeVars,
-                                makeTypeId(isEqtype, false, (typeVars, EmptyType), description), props)
+                                makeTypeId(isEqtype, false, (tvcVars, EmptyType), description), props)
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
@@ -1066,7 +1067,7 @@ struct
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
                                 makeTypeConstructor (name, typeVars,
-                                    makeTypeId(isEqtype, false, (typeVars, decType), description), props)
+                                    makeTypeId(isEqtype, false, (tvcVars, decType), description), props)
                             end
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
@@ -1522,15 +1523,15 @@ struct
             val newLevel = level + 1
       
             (* Set the scope of explicit type variables. *)
-            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable newLevel));
+            val () = #apply explicit(fn (_, tv) => setTvarLevel (getTypeVar tv, NotGeneralisable newLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
                scope. *)
             val () = 
                 #apply implicit
-                    (fn (name, tv) =>
-                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable newLevel));
+                    (fn (name, tv: parseTypeVar) =>
+                        case #lookupTvars env name of SOME v => linkTypeVars(getTypeVar v, getTypeVar tv) | NONE => setTvarLevel (getTypeVar tv, NotGeneralisable newLevel));
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1673,7 +1674,7 @@ struct
       
             (* Set the scope of explicit type variables. *)
             val () =
-                #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable funLevel));
+                #apply explicit(fn (_, tv) => setTvarLevel (getTypeVar tv, NotGeneralisable funLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
@@ -1681,7 +1682,7 @@ struct
             val () = 
                 #apply implicit
                   (fn (name, tv) =>
-                      case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable funLevel));
+                      case #lookupTvars env name of SOME v => linkTypeVars(getTypeVar v, getTypeVar tv) | NONE => setTvarLevel (getTypeVar tv, NotGeneralisable funLevel));
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1738,7 +1739,7 @@ struct
                    of the function names and using the information about
                    function name and number of patterns we have saved. *)
                 fun processBinding
-                    (fvalBind as FValBind {clauses, functVar=ref(Value{typeOf=funcVarType as OldForm oldfuncVarType, name=functVarName, ...}), argType, resultType, location, ...}) =
+                    (fvalBind as FValBind {clauses, functVar=ref(Value{typeOf=OldForm oldfuncVarType, name=functVarName, ...}), argType, resultType, location, ...}) =
                 let
                     (* Each fun binding in the declaration may consist of several
                        clauses. Each must have the same function name, the same
@@ -1977,16 +1978,17 @@ struct
             );
        
             (* Make the type constructors and put them in a list. *)
-            fun enterTcon (DatatypeBind {name, tcon, typeVars, nameLoc, ...}) =
+            fun enterTcon (DatatypeBind {name, tcon, typeVars=tcvVars, nameLoc, ...}) =
             let
                 (* Make a new ID.  If this is within a let declaration we always make
                    a free ID because it is purely local and can't be exported. *)
                 val description = { location = nameLoc, name = name, description = "" }
+                val typeVars = map getTypeVar tcvVars
                 val arity = length typeVars
             
                 val newId =
                     if letDepth = 0
-                    then makeTypeId(false, true, (typeVars, EmptyType), description)
+                    then makeTypeId(false, true, (tcvVars, EmptyType), description)
                     else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val tc = makeTypeConstructor(name, typeVars, newId, locations)
@@ -2018,15 +2020,16 @@ struct
             end;
 
             (* Can now enter the `withtypes'. *)
-            fun enterWithType (TypeBind {name, typeVars, nameLoc, tcon=tcRef, ...}, decType) =
+            fun enterWithType (TypeBind {name, typeVars=tcvVars, nameLoc, tcon=tcRef, ...}, decType) =
             let
+                val typeVars = map getTypeVar tcvVars
                 val description = { location = nameLoc, name = name, description = "" }
                 (* Construct a type constructor which is an alias of the
                    right-hand side of the declaration. *)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val tcon =
                     makeTypeConstructor (name, typeVars,
-                        makeTypeId(false, false, (typeVars, decType), description), locations)
+                        makeTypeId(false, false, (tcvVars, decType), description), locations)
                 val tset = TypeConstrSet(tcon, [])
             in
                 tcRef := tset;
@@ -2049,7 +2052,7 @@ struct
             fun genValueConstrs (DatatypeBind {name, typeVars, constrs, nameLoc, tcon, ...}, typ) =
             let
                 val numOfConstrs = length constrs;
-                val typeVarsAsTypes = List.map TypeVar typeVars
+                val typeVarsAsTypes = List.map (TypeVar o getTypeVar) typeVars
         
                 (* The new constructor applied to the type variables (if any) *)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
@@ -2369,7 +2372,7 @@ struct
         and  values     = values
         and  typeId     = typeId
         and  structVals = structVals
-        and  typeConstrs= typeConstrs
+        and  parseTypeVar= parseTypeVar
         and  typeVarForm=typeVarForm
         and  env        = env
         and  fixStatus  = fixStatus

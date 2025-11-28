@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2010, 2015-17, 2020-1 David C. J. Matthews
+    Copyright (c) 2009, 2010, 2015-17, 2020-1, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -138,6 +138,8 @@ use "mlsource/MLCompiler/ParseTree/ml_bind.ML";
 use "mlsource/MLCompiler/SIGNATURES.sml";
 use "mlsource/MLCompiler/SignaturesStruct.sml";
 use "mlsource/MLCompiler/Structures.ML";
+use "mlsource/MLCompiler/PARSETYPESIG.sig";
+use "mlsource/MLCompiler/SKIPS.sig";
 use "mlsource/MLCompiler/PARSE_DEC.ML";
 use "mlsource/MLCompiler/SKIPS_.ML";
 use "mlsource/MLCompiler/Skips.ML";

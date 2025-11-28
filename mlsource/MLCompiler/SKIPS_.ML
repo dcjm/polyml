@@ -28,41 +28,18 @@ structure SYMBOLS : SymbolsSig
 structure LEX : LEXSIG
 structure SYMSET : SymsetSig
 
-sharing type
-  SYMBOLS.sys
-= LEX.sys
-= SYMSET.sys
+sharing SYMBOLS.Sharing = LEX.Sharing
+sharing type SYMSET.sys = SYMBOLS.sys
 
-) : 
+) : SKIPS
 
-(*****************************************************************************)
-(*                  SKIPS export signature                                   *)
-(*****************************************************************************)
-sig
-  type sys;
-  type lexan;
-  type symset;
-  type location =
-        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
-          endLine: FixedInt.int, endPosition: FixedInt.int }
-    
-  val notfound: string * lexan -> unit;
-  val badsyms:  sys * lexan -> unit;
-  val getsym:   sys * lexan -> unit;
-  val skipon:   symset * symset * string * lexan -> unit;
-  val getid:    symset * symset * lexan -> string * location;
-  val getLabel: symset * lexan -> string * location;
-  val getList:  sys * symset * lexan * (unit -> 'a * location) -> 'a list * location;
-end =
+=
 
-(*****************************************************************************)
-(*                  SKIPS functor body                                       *)
-(*****************************************************************************)
 struct
   infix 5 inside;
   infix 6 ++;
 
-  open SYMBOLS LEX SYMSET;
+  open SYMBOLS LEX SYMSET
         
   local
     (* Result is in ``id'' *)    
@@ -150,21 +127,29 @@ struct
       else false;
 
 
-    fun getList (separator, startsys, lex, each) =
+    fun getList (separator, startsys, lex) foreach n =
     let
         val startLoc = location lex
-        fun forList list =
+        fun forList list n =
         let
-            val (item, itemLoc) = each()
+            val (item, itemLoc, next) = foreach n
         in
             (* Add each item to the list.  The final span is from
                the start to the final location.  Make the list and then
                reverse it.  That's avoids quadratic performance on long lists. *)
             if testfor (separator, startsys, lex)
-            then forList(item :: list)
-            else (List.rev(item :: list), locSpan(startLoc, itemLoc))
+            then forList(item :: list) next
+            else (List.rev(item :: list), locSpan(startLoc, itemLoc), n)
         end
     in
-        forList []
+        forList [] n
     end;
+    
+    structure Sharing =
+    struct
+        type sys        = sys
+        and lexan       = lexan
+        and symset      = symset
+    end
+
 end (* SKIPS *);

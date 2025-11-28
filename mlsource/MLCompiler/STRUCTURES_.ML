@@ -2015,11 +2015,11 @@ struct
                     makeLocalTypeId(List.length args, true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
             |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                    makeTypeFunction(typeVars, decType,
+                    makeTypeFunction(map getTypeVar typeVars, decType,
                         { location = location, name = structPath ^ name, description = description })
 
             (* Process the body and discard the type. *)
-            val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
+            val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false)
        in
          ()
        end (* pass2Singleton *)

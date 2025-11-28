@@ -116,7 +116,7 @@ struct
   and whereTypeStruct =
       {
         sigExp: sigs,
-        typeVars: typeVarForm list,
+        typeVars: parseTypeVar list,
         typeName: string,
         realisation: typeParsetree,
         line: location
@@ -804,8 +804,9 @@ struct
             makeSignature(name, tab, !idCount, locations, mapIds, [])
         end
 
-        and signatureWhereType(sigExp, typeVars, typeName, realisationType, line, Env globalEnv, structPath) =
+        and signatureWhereType(sigExp, parseTypeVars, typeName, realisationType, line, Env globalEnv, structPath) =
         let
+            val typeVars = map getTypeVar parseTypeVars
             (* We construct the signature into the result signature.  When we apply the
                "where" we need to look up the types (and structures) only within the
                signature constrained by the "where" and not in the surrounding signature.
@@ -1265,7 +1266,7 @@ struct
                     makeVariableId(length args, eq, isdt, true, loc, structPath)
 
                 |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                        makeTypeFunction(typeVars, decType, { location = location, name = structPath ^ name, description = description })
+                        makeTypeFunction(map getTypeVar typeVars, decType, { location = location, name = structPath ^ name, description = description })
 
                 (* We need a map to look up types.  This is only used in one place:
                    if the item we're processing is a datatype then we need to look
@@ -1432,7 +1433,7 @@ struct
         type structSigBind  = structSigBind
         type parsetree      = parsetree
         type typeParsetree  = typeParsetree
-        type typeVarForm    = typeVarForm
+        type parseTypeVar   = parseTypeVar
         type pretty         = pretty
         type ptProperties   = ptProperties
         type env            = env

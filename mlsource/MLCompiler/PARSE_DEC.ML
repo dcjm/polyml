@@ -28,51 +28,15 @@
 functor PARSE_DEC (
 
 structure SYMBOLS : SymbolsSig
-
 structure SYMSET : SymsetSig
-
 structure LEX : LEXSIG
-
-structure SKIPS :
-sig
-  type sys
-  type lexan
-  type symset
-  type location =
-        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
-          endLine: FixedInt.int, endPosition: FixedInt.int }
-    
-  val getsym:   sys * lexan -> unit
-  val badsyms:  sys * lexan -> unit
-  val notfound: string * lexan -> unit
-  val skipon:   symset * symset * string * lexan -> unit
-  val getid:    symset * symset * lexan -> string * location
-  val getLabel: symset * lexan -> string * location
-  val getList:  sys * symset * lexan * (unit -> 'a * location) -> 'a list * location;
-end;
-
-structure STRUCTVALS : STRUCTVALSIG;
-
-structure TYPETREE : TYPETREESIG;
-
+structure SKIPS : SKIPS
+structure STRUCTVALS : STRUCTVALSIG
+structure TYPETREE : TYPETREESIG
 structure PARSETREE : PARSETREESIG
-   
 structure STRUCTURES : STRUCTURESSIG
 structure SIGNATURES: SIGNATURESSIG
-
-structure PARSETYPE :
-sig
-    type symset;
-    type lexan;
-    type types;
-    type typeParsetree;
-    type typeVarForm
-    type location =
-        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
-          endLine: FixedInt.int, endPosition: FixedInt.int }
-     
-    val parseType: symset * lexan * {lookupTvar:string -> typeVarForm} -> typeParsetree * location;
-end;
+structure PARSETYPE : PARSETYPESIG
 
 structure UTILITIES :
 sig
@@ -101,30 +65,12 @@ end;
 
 sharing STRUCTVALS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing = STRUCTURES.Sharing
       = LEX.Sharing = SIGNATURES.Sharing
-      = UTILITIES
+      = UTILITIES = PARSETYPE.Sharing
+      = SYMBOLS.Sharing = SKIPS.Sharing
 
-sharing SYMBOLS = SYMSET = SKIPS = LEX.Sharing
+sharing type SYMBOLS.sys = SYMSET.sys
+sharing type SYMSET.symset = SKIPS.symset
 
-
-sharing type
-  PARSETYPE.types =
-  STRUCTVALS.Sharing.types
-
-sharing type
-  PARSETYPE.typeVarForm =
-  STRUCTVALS.Sharing.typeVarForm
-
-sharing type
-  PARSETYPE.typeParsetree =
-  TYPETREE.typeParsetree
-
-sharing type
-  SYMSET.symset
-= PARSETYPE.symset
-
-sharing type
-  LEX.lexan
-= PARSETYPE.lexan
 ) : PARSEDECSIG =
 
 (*****************************************************************************)
@@ -237,20 +183,20 @@ struct
    (* These procedures to parse type declarations are used in both
       signature and expression parsing. *)
 
-   fun getTypeVars (isDatatype, {apply,enter,...}) =
-   let
+    fun getTypeVars{apply,enter,...} =
+    let
         (* Optional type identifier or sequence of type identifiers.  Used
            in type and datatype declarations and also in val and fun
            declarations. *)
         (* The type identifiers must be remembered since they will occur
            subsequently in the components. This is the only case where type
            variables are actually bound. *)
-        fun getTypeVar (): typeVarForm * location =
+        fun getTypeVar seq =
         (* Read a type variable and return it. *)
         case sy lex of
             TypeIdent =>
             let
-                val iden = id lex;
+                val iden = id lex
                 val locn = location lex
        
                 (* Each type variable must be distinct. *)
@@ -261,31 +207,22 @@ struct
                         then errorMessage (lex, location lex, 
                             nm ^ " has already been used.")
                         else ()
-                    );
-                (* Construct a type variable and enter it.  Equality is
-                   only set if this is a datatype (or abstype). The type variable
-                   should be non-unifiable to get value-constructor signature
-                   checking right.*)
-                (* DCJM 11/2/00.  isDatatype is now true for tyvarseqs in fun and val.
-                   I don't think it matters what it is set to in datatypes. *)
-                val isEqtype = isDatatype andalso isEqtype iden;
-                val tyVar =
-                    makeTv {value=emptyType, level=generalisable, equality=isEqtype, nonunifiable=true, printable=false}
+                    )
+                val tyVar = makeParseTypeBoundVar(iden, TVIndex seq)
             in
                 enter (iden, tyVar);
                 insymbol lex;
-                (tyVar, locn)
+                (tyVar, locn, seq+1)
             end
         |   _ =>
         (
             badsyms (SYMBOLS.TypeIdent, lex);
-            (makeTv {value=emptyType, level=generalisable, equality=true, nonunifiable=true, printable=false},
-             location lex)
+            (parseTypeVarError, location lex, seq+1)
         )
    in
         (* May be one type variable or a bracketed sequence. *)
         case sy lex of
-            TypeIdent => [#1(getTypeVar())] (* One type var. *)
+            TypeIdent => [#1(getTypeVar 0)] (* One type var. *)
         |   LeftParen => (* Sequence. *)
             (
                 insymbol lex;
@@ -297,7 +234,7 @@ struct
                 case sy lex of
                     TypeIdent =>
                     let
-                        val (t, _) = getList (SYMBOLS.Comma, typeIdent, lex, getTypeVar);
+                        val (t, _, _) = getList (SYMBOLS.Comma, typeIdent, lex) getTypeVar 0
                     in
                         getsym (SYMBOLS.RightParen, lex);
                         t
@@ -341,8 +278,8 @@ struct
         |   _ => ([item], itemLocn)
     end
 
-   fun genTypeVarEnv {lookup,...} =
-   {
+    fun genTypeVarEnv {lookup,...} =
+    {
       (* All type variables used on the right-hand side of the type
          binding must have been declared before the new type constructor *)
       lookupTvar = 
@@ -353,23 +290,18 @@ struct
                  (
                    errorMessage (lex, location lex, 
                         name ^  " has not been declared in type declaration");
-                   makeTv {value=emptyType, level=generalisable, equality=false,
-                           nonunifiable=true, printable=false}
+                   parseTypeVarError
                  )
              )
-   } (* genTypeVarEnv *);
+    }
 
     fun typeBinding (isSpec, isEqtype, _) fsys =
     let
         val newTVenv  = searchList ();
-        val typeVars = getTypeVars (false, newTVenv);
+        val typeVars = getTypeVars newTVenv
         (* The name of the type *)
         val (typeName, idLocn)   = getShortId (ident, fsys ++ equalsSign, lex);
-        (*
-        val typeVarEnv =
-            { lookupTvar = lookupDefault (#lookup newTVenv) lookupTvar }
-        *)
-        val typeVarEnv = genTypeVarEnv newTVenv;
+        val typeVarEnv = genTypeVarEnv newTVenv
         val (matchedType, endLocn) =
           (* If this is part of a signature we do not need to have an
            "= ty" after it. If it is an eqtype we must not have one. *)
@@ -400,7 +332,7 @@ struct
         val () = insymbol lex;
         val newTVenv = searchList ();
         (* The type variables will be empty if this is a replication. *)
-        val typeVars = getTypeVars (true, newTVenv);
+        val typeVars = getTypeVars newTVenv
         (* The name of the type *)
         val (typeName, idLocn) = getShortId (ident, fsys ++ equalsSign, lex);
         
@@ -465,11 +397,7 @@ struct
            appears to have been removed for declarations, but not specifications,
            in ML97. This appears, though, to have been a mistake so I'm
            reinstating the old behaviour. *)
-        (*
-        val typeVarEnv =
-        { lookupTvar = lookupDefault (#lookup newTVenv) (#lookupTvar env) }
-        *)
-        val typeVarEnv = genTypeVarEnv newTVenv;
+        val typeVarEnv = genTypeVarEnv newTVenv
 
         fun constrs fsys =
         let
@@ -523,7 +451,7 @@ struct
     (* Datatype and abstype declarations and datatype specifications. *)
     let
         val newTVenv = searchList ();
-        val typeVars = getTypeVars (true, newTVenv);
+        val typeVars = getTypeVars newTVenv
         (* The name of the type *)
         val (typeName, idLocn) = getShortId (ident, fsys ++ equalsSign, lex);
 
@@ -598,9 +526,7 @@ struct
        fun lookupT name =
        let
          (* These type variables are not unifiable until they are generalised. *)
-         val newTypeVar =
-            makeTv {value=emptyType, level=generalisable, equality=isEqtype name,
-                    nonunifiable=true, printable=false}
+         val newTypeVar = makeParseTypeFreeVar(name, isEqtype name)
            
          val () = enter (name, newTypeVar);
        in
@@ -983,7 +909,7 @@ struct
             fun expressionList(fsys, separator, env): parsetree list =
             (* Sequence of expressions separated by semicolons or commas. Returns the list and strips
                the locations. *)
-                #1 (getList (separator, empty, lex, fn () => expression fsys env));
+                #1 (getList (separator, empty, lex) (fn () => let val (v, l) = expression fsys env in (v, l, ()) end) ())
 
             fun match fsys: matchtree list * location =
             (* vs1.exp1 | .. | vsn.expn *)
@@ -1132,7 +1058,7 @@ struct
                                 in
                                     (mkLabelRecEntry(ident, idLoc, labExp, locs), locs)
                                 end
-                                val (labs, _) = getList (SYMBOLS.Comma, empty, lex, getEntry)
+                                val (labs, _, _) = getList (SYMBOLS.Comma, empty, lex) (fn () => let val (v, l) = getEntry() in (v, l, ()) end) ()
                                 val locs = locSpan(startLocn, location lex) (* Include brackets. *)
                                 val labelled = mkLabelledTree (labs, true (* always frozen *), locs)
                                 val () = getsym (SYMBOLS.RightCurly, lex);
@@ -1357,7 +1283,7 @@ struct
                     (* Create two different scopes, for explicitly declared
                        type variables and those implicitly declared. *)
                     val implicitTvars = makeTypeVarEnv()
-                    and explicitTvars = makeTypeVarEnv();
+                    and explicitTvars = makeTypeVarEnv()
                     val newEnv   = {enterFix   = #enterFix  env,
                                     lookupFix  = #lookupFix env,
                                     lookupTvar =
@@ -1368,10 +1294,10 @@ struct
                                             SOME t => t | NONE => #lookupTvar implicitTvars s};
                             
                     (* Tyvarseq *)
-                    val _ = getTypeVars(true,
+                    val _ = getTypeVars
                                 { enter = #enter explicitTvars,
                                   lookup = #lookup explicitTvars,
-                                  apply = #apply explicitTvars});
+                                  apply = #apply explicitTvars}
 
                     (* Processes a value binding. *)
                     (* We check for qualified names in the second pass *)
@@ -1381,7 +1307,7 @@ struct
                     |   _ =>
                         let
                             (* Pattern *)
-                            val (vars, varLoc) = pattern (fsys ++ equalsSign) lex newEnv;
+                            val (vars, varLoc) = pattern (fsys ++ equalsSign) lex newEnv
                             (* = *)
                             val () = getsym (SYMBOLS.EqualsSign, lex);
                             (* expression *)
@@ -1419,10 +1345,10 @@ struct
                                           SOME t => t | NONE => #lookupTvar implicitTvars s};
                             
                     (* Tyvarseq *)
-                    val _ = getTypeVars(true,
+                    val _ = getTypeVars
                                 { enter = #enter explicitTvars,
                                   lookup = #lookup explicitTvars,
-                                  apply = #apply explicitTvars});
+                                  apply = #apply explicitTvars}
 
                     fun funB fsys =
                     (* Processes a fun binding. *)
@@ -1676,9 +1602,9 @@ struct
                that the type is a longtycon. *)
             val () = getsym(SYMBOLS.TypeSy, lex);
             val newTVenv  = searchList ();
-            val typeVars = getTypeVars (false, newTVenv);
+            val typeVars = getTypeVars newTVenv
             val (typeName, nameLoc)  = getLongId (ident, fsys ++ equalsSign, lex);
-            val typeVarEnv = genTypeVarEnv newTVenv;
+            val typeVarEnv = genTypeVarEnv newTVenv
             val () = getsym (SYMBOLS.EqualsSign, lex);
             (* Followed by a type or a sequence of constructors *)
             val () = skipon (startTypeSys, fsys, "type", lex);
@@ -1778,10 +1704,10 @@ struct
                             {lookupTvar = #lookupTvar signatureTvars});
                     val locs = locSpan(idLoc, tyLoc)
                in
-                    (mkValSig (idAndLoc, ty, locs), locs)
+                    (mkValSig (idAndLoc, ty, locs), locs, ())
                end
            in
-             #1 (getList (SYMBOLS.AndSy, empty, lex, doVal))
+             #1 (getList (SYMBOLS.AndSy, empty, lex) doVal ())
            end (* val *)
 
         |   ExceptionSy =>
@@ -1803,10 +1729,10 @@ struct
                             end
                         |   _ => (* Nullary *) (NONE, idLoc);
                in
-                    (mkExSig (idAndLoc, ty, locs), locs)
+                    (mkExSig (idAndLoc, ty, locs), locs, ())
                end
             in
-                #1 (getList (SYMBOLS.AndSy, empty, lex, doEx))
+                #1 (getList (SYMBOLS.AndSy, empty, lex) doEx ())
             end (* exception *)
            
          |  StructureSy =>
@@ -1820,10 +1746,11 @@ struct
                     val (sgn, sgnLoc) = parseSignature (fsys ++ startSigEndAndSy) lex env
                     val locs = locSpan(idLoc, sgnLoc)
                 in
-                    (mkStructureSigBinding (idAndLoc, (sgn, false, sgnLoc), locs), locs)
+                    (mkStructureSigBinding (idAndLoc, (sgn, false, sgnLoc), locs), locs, ())
                 end
+                val (a, b, _) = getList(SYMBOLS.AndSy, empty, lex) doStructure ()
             in
-                [mkStructureSig(getList(SYMBOLS.AndSy, empty, lex, doStructure))]
+                [mkStructureSig(a, b)]
             end
 
          |  IncludeSy =>
@@ -1872,11 +1799,11 @@ struct
                     val (id, loc) =  getLongId (declarableVarSys, fsys ++ rightParenEqualsSignSy, lex)
                 in
                     (* We want to include the location in the list as well as in the result here. *)
-                    ((id, loc), loc)
+                    ((id, loc), loc, ())
                 end
-                val (shares, _) = getShare ()
+                val (shares, _, _) = getShare ()
                 val () = getsym (SYMBOLS.EqualsSign, lex)
-                val (shareRest, shareLocn) = getList (SYMBOLS.EqualsSign, ident, lex, getShare)
+                val (shareRest, shareLocn, _) = getList (SYMBOLS.EqualsSign, ident, lex) getShare ()
                 val fullLoc = locSpan(startLocn, shareLocn)
                 val share = mkSharing (isType, shares :: shareRest, fullLoc)
             in
@@ -1909,10 +1836,10 @@ struct
             val (sgn, sigLoc) = parseSignature (fsys ++ endAndSy) lex env
             val locs = locSpan(idLoc, sigLoc)
         in
-            (mkSignatureBinding (idAndLoc, sgn, locs), locs)
+            (mkSignatureBinding (idAndLoc, sgn, locs), locs, ())
         end
         
-        val (sigs, sigLoc) = getList (SYMBOLS.AndSy, empty, lex, doSigDec)
+        val (sigs, sigLoc, _) = getList (SYMBOLS.AndSy, empty, lex) doSigDec ()
     in
         mkSignatureDec (sigs, locSpan(startLocn, sigLoc))
     end
@@ -2062,9 +1989,9 @@ struct
                     val locs = locSpan(idLoc, strLoc)
                 in
                     (* And finally the structure value. *)
-                    (mkStructureBinding (idAndLoc, sgn, strVal, locs), locs)
+                    (mkStructureBinding (idAndLoc, sgn, strVal, locs), locs, ())
                 end
-                val (strs, strLocs) = getList (SYMBOLS.AndSy, structSy, lex, doStrDec)
+                val (strs, strLocs, _) = getList (SYMBOLS.AndSy, structSy, lex) doStrDec ()
             in  
                 mkStructureDec (strs, locSpan(startLocn, strLocs))
             end
@@ -2094,7 +2021,7 @@ struct
         val startLocn = location lex
         val () = insymbol lex; (* remove ``functor'' *)
 
-        fun doFunctDec () : functorBind * location =
+        fun doFunctDec () : functorBind * location * unit =
         let (* Read fncId (<<paramSpec>> ) <<: sig>> = str *)
             (* First the identifier *)
             val (strId, idLocn) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
@@ -2156,10 +2083,10 @@ struct
             val (strVal, strLoc) = structVal fsys lex env
             val locs = locSpan(idLocn, strLoc)
         in
-            (mkFunctorBinding (strId, idLocn, sigOpt, strVal, parameter, locs), locs)
+            (mkFunctorBinding (strId, idLocn, sigOpt, strVal, parameter, locs), locs, ())
         end (* doFunctDec *)
         
-        val (functs, functLoc) = getList (SYMBOLS.AndSy, structSy, lex, doFunctDec)
+        val (functs, functLoc, _) = getList (SYMBOLS.AndSy, structSy, lex) doFunctDec ()
     in
         mkFunctorDec (functs, locSpan(startLocn, functLoc))
     end (* functorDec *)
@@ -2197,12 +2124,11 @@ struct
     { enterFix   = enterFix,
       lookupFix  = lookupFix,
       lookupTvar =
-        fn _ => 
+        fn name => 
         let
-          val () =
-            errorMessage (lex, location lex, "Free type variables not allowed");
+            val () = errorMessage (lex, location lex, "Free type variables not allowed");
         in
-          makeTv {value=emptyType, level=generalisable, equality=false, nonunifiable=true, printable=false}
+            makeParseTypeFreeVar(name, false)
         end}
 
     (* May be structure/functor dec, signature dec or top-level dec. Treat

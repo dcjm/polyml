@@ -87,20 +87,20 @@ struct
     |   ValDeclaration      of
         {
             dec:    valbind list,
-            explicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
-            implicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
+            explicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
+            implicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
             location: location
         }
 
     |   FunDeclaration      of
         {
             dec:    fvalbind list,
-            explicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
-            implicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
+            explicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
+            implicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
             location: location
         } 
 
@@ -242,7 +242,7 @@ struct
         TypeBind of
          {
            name: string,
-           typeVars: typeVarForm list,
+           typeVars: parseTypeVar list,
            decType: typeParsetree option,
            isEqtype: bool, (* True if this was an eqtype in a signature. *)
            tcon:     typeConstrSet ref,
@@ -254,7 +254,7 @@ struct
         DatatypeBind of
          {
            name:          string,
-           typeVars:      typeVarForm list,
+           typeVars:      parseTypeVar list,
            constrs:       valueConstr list,
            tcon:          typeConstrSet ref,
            nameLoc:       location,
@@ -314,7 +314,7 @@ struct
     structure Sharing =
     struct
         type types = types
-        and  typeVarForm = typeVarForm
+        and  parseTypeVar = parseTypeVar
         and  typeConstrSet = typeConstrSet
         and  values = values
         and  infixity = infixity

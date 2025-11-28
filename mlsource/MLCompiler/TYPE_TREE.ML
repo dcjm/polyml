@@ -1681,15 +1681,15 @@ struct
         tDisp (t, depth, varNameSequence (), env, NONE)
 
     (* Print out zero, one or more type variables (unblocked) *)
-    fun printTypeVars([], _, _) = [] (* No type vars i.e. monotype *)
+    fun printTypeVariables _ ([], _, _) = [] (* No type vars i.e. monotype *)
  
-    |   printTypeVars([oneVar], depth, typeV) = (* Single type var. *)
+    |   printTypeVariables pt ([oneVar], depth, typeV) = (* Single type var. *)
         [
-            tDisp (TypeVar oneVar, depth, typeV, emptyTypeEnv, NONE), 
+            pt (oneVar, depth, typeV), 
             PrettyBreak (1, 0)
         ]
 
-    |   printTypeVars(vars, depth, typeV) =
+    |   printTypeVariables pt (vars, depth, typeV) =
         (* Must parenthesise them. *)
         if depth <= 1 then [PrettyString "..."]
         else
@@ -1703,7 +1703,7 @@ struct
                         else if null vars then []
                         else
                         [
-                            tDisp (TypeVar(hd vars), depth, typeV, emptyTypeEnv, NONE),
+                            pt (hd vars, depth, typeV),
                             PrettyBreak (0, 0)
                         ] @
                         (if null (tl vars) then []
@@ -1715,13 +1715,10 @@ struct
             ),
             PrettyBreak (1, 0)
         ]
-  
-  
-    (* Version used in parsetree. *)
-    fun displayTypeVariables (vars : typeVarForm list, depth : FixedInt.int) =
-      printTypeVars (vars, depth, varNameSequence ())
-    
- 
+
+    val printTypeVars =
+        printTypeVariables (fn (var, depth, typeV) => tDisp (TypeVar var, depth, typeV, emptyTypeEnv, NONE))
+
     (* Parse tree for types.  This is used to represent types in the source. *)
     datatype typeParsetree =
         ParseTypeConstruction of
@@ -1738,8 +1735,13 @@ struct
     |   ParseTypeLabelled of
             { fields: ((string * location) * typeParsetree * location) list,
               frozen: bool, location: location }
-    |   ParseTypeId of { types: typeVarForm, location: location }
+    |   ParseTypeId of { types: parseTypeVar, location: location }
     |   ParseTypeBad (* Place holder for errors. *)
+
+    and parseTypeVar =
+        ParseTypeFreeVar of { name: string, typeVar: typeVarForm }
+    |   ParseTypeBoundVar of { name: string, index: tvIndex, typeVar: typeVarForm }
+    |   ParseTypeError (* Error case *)
 
     fun typeFromTypeParse(
             ParseTypeConstruction{ args, name, location, foundConstructor = ref constr, ...}) =
@@ -1762,9 +1764,14 @@ struct
         in
             mkLabelled(sortLabels(List.map makeField fields), frozen)
         end
-    
-    |   typeFromTypeParse(ParseTypeId{ types, ...}) = TypeVar types
-    
+
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar, ...}, ...}) = TypeVar typeVar
+
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{typeVar, ...}, ...}) = TypeVar typeVar
+
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
+            TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true, printable=false})
+   
     |   typeFromTypeParse(ParseTypeBad) = BadType
     
     fun makeParseTypeConstruction((constrName, nameLoc), (args, argLoc), location) =
@@ -1783,6 +1790,22 @@ struct
 
     fun makeParseTypeId(types, location) =
         ParseTypeId{ types = types, location = location }
+
+    (* Free type variables can appear at various places in an ML program and denote the same type
+       variable at each occurrence.  *)
+    fun makeParseTypeFreeVar(name, isEq) =
+        ParseTypeFreeVar{ name=name, typeVar = makeTv{value=emptyType, level=generalisable, equality=isEq, nonunifiable=true, printable=false} }
+
+    (* Bound type variables appear in type and datatype definitions. *)
+    fun makeParseTypeBoundVar(name, index) =
+        ParseTypeBoundVar{ name=name, index=index,
+            typeVar = makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=false, printable=false} }
+    
+    val parseTypeVarError = ParseTypeError
+    
+    fun getTypeVar(ParseTypeBoundVar{typeVar, ...}) = typeVar
+    |   getTypeVar(ParseTypeFreeVar{typeVar, ...}) = typeVar
+    |   getTypeVar ParseTypeError = makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}
 
     fun unitTree location = ParseTypeLabelled{ fields = [], frozen = true, location = location }
 
@@ -1879,6 +1902,15 @@ struct
 
     fun displayTypeParse(types, depth, env) = display(typeFromTypeParse types, depth, env)
 
+    local
+        fun printTypeVar(ParseTypeBoundVar{name, ...}, _, _) = PrettyString name
+        |   printTypeVar(ParseTypeFreeVar{name, ...}, _, _) = PrettyString name
+        |   printTypeVar(ParseTypeError, _, _) = PrettyString "'error"
+    in
+        fun displayTypeVariables (vars : parseTypeVar list, depth : FixedInt.int) =
+          printTypeVariables printTypeVar (vars, depth, varNameSequence ())
+    end
+
     (* Associates type constructors from the environment with type identifiers
        (NOT type variables) *)
     fun assignTypes (tp : typeParsetree,  lookupType : string * location -> typeConstrSet, lex : lexan) =
@@ -1922,9 +1954,12 @@ struct
             in
                 mkLabelled(sortLabels(List.map makeField fields), frozen)
             end
-    
-        |   typeFromTypeParse(ParseTypeId{ types, ...}) = TypeVar types
-    
+
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar, ...}, ...}) = TypeVar typeVar
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{typeVar, ...}, ...}) = TypeVar typeVar
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
+                TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true, printable=false})
+
         |   typeFromTypeParse(ParseTypeBad) = BadType
     in
         typeFromTypeParse tp
@@ -3423,6 +3458,7 @@ struct
         and  typeConstrs= typeConstrs
         and  typeConstrSet=typeConstrSet
         and  typeParsetree = typeParsetree
+        and  parseTypeVar   = parseTypeVar
         and  locationProp = locationProp
         and  pretty     = pretty
         and  lexan      = lexan
@@ -3433,5 +3469,6 @@ struct
         and  generalMatch = generalMatch
         and  tvLevel = tvLevel
         and  valAccess  = valAccess
+        and  tvIndex = tvIndex
     end
 end (* TYPETREE *);

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013. 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -91,4 +91,8 @@ sig
   val repr: sys -> string
   val lookup: string -> sys
 
+    structure Sharing:
+    sig
+        type sys = sys
+    end
 end;

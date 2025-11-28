@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2016 David C.J. Matthews
+    Copyright (c) 2013-2016, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -22,7 +22,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-13 David C.J. Matthews
+    Copyright (c) 2000-13, 2025 David C.J. Matthews
 
     Title:      Parse Tree Structure and Operations.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
@@ -33,7 +33,7 @@
 signature BaseParseTreeSig =
 sig
     type types
-    and  typeVarForm
+    and  parseTypeVar
     and  typeConstrSet
     and  values
     and  infixity
@@ -90,20 +90,20 @@ sig
     |   ValDeclaration      of
         {
             dec:    valbind list,
-            explicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
-            implicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
+            explicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
+            implicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
             location: location
         }
 
     |   FunDeclaration      of
         {
             dec:    fvalbind list,
-            explicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
-            implicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
+            explicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
+            implicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
             location: location
         } 
 
@@ -245,7 +245,7 @@ sig
         TypeBind of
          {
            name: string,
-           typeVars: typeVarForm list,
+           typeVars: parseTypeVar list,
            decType: typeParsetree option,
            isEqtype: bool, (* True if this was an eqtype in a signature. *)
            tcon:     typeConstrSet ref,
@@ -257,7 +257,7 @@ sig
         DatatypeBind of
          {
            name:          string,
-           typeVars:      typeVarForm list,
+           typeVars:      parseTypeVar list,
            constrs:       valueConstr list,
            tcon:          typeConstrSet ref,
            nameLoc:       location,
@@ -317,7 +317,7 @@ sig
     structure Sharing:
     sig
         type types = types
-        and  typeVarForm = typeVarForm
+        and  parseTypeVar = parseTypeVar
         and  typeConstrSet = typeConstrSet
         and  values = values
         and  infixity = infixity

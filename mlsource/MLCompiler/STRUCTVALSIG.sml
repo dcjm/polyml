@@ -131,7 +131,11 @@ sig
     |   TemplFree of typeVar
     |   TemplOverload of typeConstrs list
 
-    (* Variables used in unification.  These are instantiated from generic type variables. *)
+    (* Variables used in unification.  These are instantiated from generic type variables.
+       In addition to equality and printity described above there is also the nonunifiable
+       property.  This is set when type variables are entered explicitly and indicates that
+       the type variable cannot be made less general.  e.g. (fn x => x+1): 'a->'a 
+       is an error. *)
     and typeVar =
         TypeVariable of
         {

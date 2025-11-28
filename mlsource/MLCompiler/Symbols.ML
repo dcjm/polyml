@@ -238,4 +238,8 @@ struct
         fun lookup str = getOpt(hashSub (table, str), Ident);
     end;
 
+    structure Sharing =
+    struct
+        type sys = sys
+    end
 end (* Symbols *);

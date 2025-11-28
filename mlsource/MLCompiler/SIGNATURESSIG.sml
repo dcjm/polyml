@@ -22,7 +22,7 @@ sig
     type structSigBind
     type parsetree
     type typeParsetree
-    type typeVarForm
+    type parseTypeVar
     type pretty
     type ptProperties
     type env
@@ -45,7 +45,7 @@ sig
     val mkExSig:            (string * location) * typeParsetree option * location -> specs
     val mkCoreType:         parsetree * location -> specs
     val mkSharing:          bool * (string * location) list * location -> specs
-    val mkWhereType:        sigs * typeVarForm list * string * typeParsetree * location -> sigs
+    val mkWhereType:        sigs * parseTypeVar list * string * typeParsetree * location -> sigs
     val mkInclude:          sigs list * location -> specs
     val mkSigIdent:         string * location -> sigs;
     val mkSig:              specs list * location -> sigs;
@@ -63,7 +63,7 @@ sig
         type signatures     = signatures
         type parsetree      = parsetree
         type typeParsetree  = typeParsetree
-        type typeVarForm    = typeVarForm
+        type parseTypeVar    = parseTypeVar
         type pretty         = pretty
         type ptProperties   = ptProperties
         type env            = env

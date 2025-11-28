@@ -25,77 +25,31 @@
 
 functor PARSE_TYPE (
 
-structure SYMBOLS : SymbolsSig
-structure SYMSET : SymsetSig
-structure LEX : LEXSIG
+    structure SYMBOLS : SymbolsSig
+    structure SYMSET : SymsetSig
+    structure LEX : LEXSIG
+    structure SKIPS : SKIPS
 
-structure SKIPS :
-sig
-  type sys;
-  type lexan;
-  type symset;
-  type location =
-        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
-          endLine: FixedInt.int, endPosition: FixedInt.int }
-  
-  val badsyms:  sys * lexan -> unit;
-  val getsym:   sys * lexan -> unit;
-  val skipon:   symset * symset * string * lexan -> unit;
-  val getid:    symset * symset * lexan -> string * location;
-  val getLabel: symset * lexan -> string * location;
-  val getList:  sys * symset * lexan * (unit -> 'a * location) -> 'a list * location;
-end;
+    structure UTILITIES :
+    sig
+        val noDuplicates: (string * 'a * 'a -> unit) -> 
+                           { apply: (string * 'a -> unit) -> unit,
+                             enter:  string * 'a -> unit,
+                             lookup: string -> 'a option };
+    end
 
-structure UTILITIES :
-sig
-    val noDuplicates: (string * 'a * 'a -> unit) -> 
-                       { apply: (string * 'a -> unit) -> unit,
-                         enter:  string * 'a -> unit,
-                         lookup: string -> 'a option };
-end
+    structure TYPETREE : TYPETREESIG
 
-structure TYPETREE : TYPETREESIG
+    sharing LEX.Sharing
+    =   SKIPS.Sharing
+    =   SYMBOLS.Sharing
+    =   SKIPS.Sharing
+ 
+    sharing type SYMBOLS.sys = SYMSET.sys
+    sharing type SYMSET.symset = SKIPS.symset
+                 
+) :  PARSETYPESIG =
 
-(*****************************************************************************)
-(*                  PARSETYPE sharing constraints                            *)
-(*****************************************************************************)
-
-sharing type
-  SYMBOLS.sys
-= SYMSET.sys
-= SKIPS.sys
-= LEX.sys
-
-sharing type
-  SYMSET.symset
-= SKIPS.symset
-
-sharing type
-  LEX.lexan
-= SKIPS.lexan
-                  
-) : 
-                  
-(*****************************************************************************)
-(*                  PARSETYPE export signature                               *)
-(*****************************************************************************)
-sig
-    type symset;
-    type lexan;
-    type types;
-    type typeParsetree;
-    type typeVarForm
-    type location =
-        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
-          endLine: FixedInt.int, endPosition: FixedInt.int }
-     
-    val parseType: symset * lexan * {lookupTvar:string -> typeVarForm} -> typeParsetree * location;
-end =
-     
-
-(*****************************************************************************)
-(*                  PARSETYPE functor body                                   *)
-(*****************************************************************************)
 struct
     open TYPETREE
     open LEX
@@ -174,19 +128,19 @@ struct
                                         errorMessage (lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
                                     val dupCheck = noDuplicates reportDup
                                     (* All the labels should be the same sort. *)
-                                    val (l, _) = 
-                                        getList (SYMBOLS.Comma, empty, lex,
-                                            fn () =>
-                                            let
-                                                val nameAndLoc as (_, nameLoc) =
-                                                    getLabel (fsys ++ SYMSET.colon, lex);
-                                                val () = #enter dupCheck nameAndLoc;
-                                                val () = getsym (SYMBOLS.Colon, lex);
-                                                val (types, typeLoc) = parseType (fsys ++ lrSyntax, lex, env)
-                                                val fullLoc = locSpan(nameLoc, typeLoc)
-                                            in
-                                                ((nameAndLoc, types, fullLoc), fullLoc)
-                                            end);
+                                    fun getNameAndType () =
+                                        let
+                                            val nameAndLoc as (_, nameLoc) =
+                                                getLabel (fsys ++ SYMSET.colon, lex);
+                                            val () = #enter dupCheck nameAndLoc;
+                                            val () = getsym (SYMBOLS.Colon, lex);
+                                            val (types, typeLoc) = parseType (fsys ++ lrSyntax, lex, env)
+                                            val fullLoc = locSpan(nameLoc, typeLoc)
+                                        in
+                                            ((nameAndLoc, types, fullLoc), fullLoc, ())
+                                        end
+                                    val (l, _, _) = 
+                                        getList (SYMBOLS.Comma, empty, lex) getNameAndType ()
                                     val locs = locSpan(startLocn, location lex) (* Include '}' *)
                                 in
                                     getsym (SYMBOLS.RightCurly, lex);
@@ -281,4 +235,13 @@ struct
                 (firstType, firstLoc)
             )
     end
+
+    structure Sharing =
+    struct
+        type symset         = symset
+        type lexan          = lexan
+        type typeParsetree  = typeParsetree
+        type parseTypeVar   = parseTypeVar
+    end
+
 end;

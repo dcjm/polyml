@@ -493,6 +493,7 @@ struct
         and  structVals = structVals
         and  typeConstrs= typeConstrs
         and  typeVarForm=typeVarForm
+        and  parseTypeVar=parseTypeVar
         and  env        = env
         and  infixity   = infixity
         and  structureIdentForm = structureIdentForm

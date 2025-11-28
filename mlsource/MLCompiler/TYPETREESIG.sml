@@ -44,6 +44,7 @@ sig
     type codetree
     type tvLevel
     type valAccess
+    type tvIndex
 
     type printTypeEnv =
         { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
@@ -98,9 +99,6 @@ sig
     (* Print out a type constructor. *)
     val displayTypeConstrs: typeConstrSet * FixedInt.int * printTypeEnv -> pretty;
     val displayTypeConstrsWithMap: typeConstrSet * FixedInt.int * printTypeEnv * (int->typeId) option -> pretty;
-
-    (* A list of type variables. *)
-    val displayTypeVariables: typeVarForm list * FixedInt.int -> pretty list;
 
     (* Returns the preferred type constructor from an overload. *)
     val typeConstrFromOverload: types * bool -> typeConstrs;
@@ -186,7 +184,7 @@ sig
     val leastGeneral: types list -> types
 
     (* Parse tree operations. *)
-    type typeParsetree
+    type typeParsetree and parseTypeVar
     val ParseTypeBad: typeParsetree
     val makeParseTypeConstruction:
         (string * location) * (typeParsetree list * location) * location -> typeParsetree
@@ -194,9 +192,15 @@ sig
     val makeParseTypeFunction: typeParsetree * typeParsetree * location -> typeParsetree
     val makeParseTypeLabelled:
         ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
-    val makeParseTypeId: typeVarForm * location -> typeParsetree
+    val makeParseTypeId: parseTypeVar * location -> typeParsetree
+    val makeParseTypeFreeVar: string * bool -> parseTypeVar
+    val makeParseTypeBoundVar: string * tvIndex -> parseTypeVar
+    val parseTypeVarError: parseTypeVar
+    val getTypeVar: parseTypeVar -> typeVarForm
     val unitTree: location -> typeParsetree
     val displayTypeParse: typeParsetree * FixedInt.int * printTypeEnv -> pretty;
+    (* A list of type variables. *)
+    val displayTypeVariables: parseTypeVar list * FixedInt.int -> pretty list;
 
     (* Fill in the values of type variables and make checks. *)
     val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;
@@ -251,6 +255,7 @@ sig
         and  typeConstrs= typeConstrs
         and  typeConstrSet=typeConstrSet
         and  typeParsetree = typeParsetree
+        and  parseTypeVar   = parseTypeVar
         and  locationProp = locationProp
         and  pretty     = pretty
         and  lexan      = lexan
@@ -260,6 +265,7 @@ sig
         and  matchResult = matchResult
         and  tvLevel = tvLevel
         and  valAccess  = valAccess
+        and  tvIndex = tvIndex
     end
 
 end;
