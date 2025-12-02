@@ -30,7 +30,6 @@ structure LEX : LEXSIG;
 structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG;
 structure TYPESTRUCT : TYPETREESIG
-structure PRINTTABLE : PRINTTABLESIG
 
 structure UNIVERSALTABLE:
 sig
@@ -64,7 +63,7 @@ structure TYPEIDCODE: TYPEIDCODESIG
 structure DATATYPEREP: DATATYPEREPSIG
 
 sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing = LEX.Sharing = PRETTY.Sharing
-      = COPIER.Sharing = CODETREE.Sharing = PRINTTABLE = ADDRESS = UNIVERSALTABLE = MISC
+      = COPIER.Sharing = CODETREE.Sharing = ADDRESS = UNIVERSALTABLE = MISC
       = TYPEIDCODE.Sharing = DATATYPEREP.Sharing
 
 ) : VALUEOPSSIG =
@@ -81,7 +80,6 @@ struct
   open TYPESTRUCT; (* Open this first because unitType is in STRUCTVALS as well. *)
   open Universal; (* for tag etc. *)
   open STRUCTVALS;
-  open PRINTTABLE;
   open DEBUG;
   open ADDRESS;
   open UTILITIES;
@@ -675,11 +673,12 @@ struct
        overloading has not resolved to a single type it finds the preferred
        type if possible (i.e. int for most overloadings, but possibly real,
        word, string or char for conversion functions.) *)
-    fun getOverloadInstance(name, instance, isConv): codetree*string =
+    fun getOverloadInstance(name, instance, isConv): codetree * string =
     let
         val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload(instance, isConv)
+        open Overloads
     in
-        (getOverload(name, constr, fn _ => raise InternalError "getOverloadInstance: Missing"), tcName)
+        (getOverloadCode(name, constr), tcName)
     end
 
     (* This is only used in addPrettyPrint.  There's no point in
@@ -1140,7 +1139,7 @@ struct
                             
                     val tcons = followTypes typeToUse
                 in
-                    addOverload(name, tcons, argCode)
+                    Overloads.addOverload(name, tcons, argCode)
                 end
 
             (* This function is used if we can't get the codetree at
@@ -1259,7 +1258,7 @@ struct
                 Overloaded TypeDep =>
                 let
                     val (t, polyVars) =
-                        generaliseOverload(typeOf, List.map #1 (getOverloads name), false)
+                        generaliseOverload(typeOf, Overloads.getOverloadTypes name, false)
                 in
                     (t, List.map (fn t => {value=t, equality=false, printity=false}) polyVars)
                 end

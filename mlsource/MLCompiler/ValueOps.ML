@@ -23,7 +23,6 @@ structure ValueOps =
     structure CODETREE   = CodeTree
     structure STRUCTVALS = StructVals
     structure TYPESTRUCT = TypeTree
-    structure PRINTTABLE = PrintTable
     structure UNIVERSALTABLE = UniversalTable
     structure DEBUG      = Debug
     structure ADDRESS    = Address

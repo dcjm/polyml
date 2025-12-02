@@ -39,7 +39,6 @@ functor INITIALISE_ (
     structure DEBUG: DEBUG
     structure DEBUGGER : DEBUGGER
     structure PRETTY : PRETTY
-    structure PRINTTABLE: PRINTTABLESIG
 
     structure MISC :
     sig
@@ -66,12 +65,7 @@ functor INITIALISE_ (
 
     sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
             = PRETTY.Sharing = CODETREE.Sharing = MAKE.Sharing = ADDRESS = DATATYPEREP.Sharing
-            = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = PRINTTABLE.Sharing
-
-    sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
-            = PRETTY.Sharing = CODETREE.Sharing = MAKE.Sharing = ADDRESS = DATATYPEREP.Sharing
-            = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = PRINTTABLE.Sharing
-            = UNIVERSALTABLE
+            = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = UNIVERSALTABLE
 ) : 
 
 sig
@@ -1172,13 +1166,13 @@ struct
                         raise Conversion "Invalid string constant"
                 |   SOME(res, _) => res
             end
-            
-            open PRINTTABLE
-            
+
             val convstringCode = genCode(mkConst(toMachineWord unescapeString), [], 0) ()
             val convintCode = genCode(mkConst(toMachineWord intOfString), [], 0) ()
             val convwordCode = genCode(mkConst(toMachineWord wordOfString), [], 0) ()
             val convcharCode = genCode(mkConst(toMachineWord unescapeChar), [], 0) ()
+            
+            open Overloads
         in
             (* Flag to indicate which version of Int to compile *)
             val () = addVal ("intIsArbitraryPrecision", intIsArbitraryPrecision, Bool)

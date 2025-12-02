@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2025 David C.J. Matthews
     
     Derived from previous work
     Copyright (c) 2000
@@ -62,7 +62,6 @@ local
             structure MISC          = Misc
             structure PRETTY     = Pretty
             structure COPIER     = CopierStruct
-            structure PRINTTABLE = PrintTable
             structure DATATYPEREP = DatatypeRep
         )
 

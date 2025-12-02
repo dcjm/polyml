@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
     
-    Modified David C. J. Matthews 2016.
+    Modified David C. J. Matthews 2016, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -35,6 +35,5 @@ structure Initialise =
         structure EXPORTTREE = ExportTreeStruct
         structure DATATYPEREP = DatatypeRep
         structure TYPEIDCODE = TypeIDCodeStruct
-        structure PRINTTABLE = PrintTable
         structure UNIVERSALTABLE = UniversalTable
 );

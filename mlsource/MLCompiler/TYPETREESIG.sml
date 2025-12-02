@@ -245,6 +245,13 @@ sig
             { testMatch: codetree, constrValue: codetree } -> codetree
     end
 
+    structure Overloads:
+    sig
+        val addOverload: string * typeConstrs * codetree -> unit
+        val getOverloadTypes: string -> typeConstrs list
+        val getOverloadCode: string * typeConstrs -> codetree
+    end
+
     (* Types that can be shared. *)
     structure Sharing:
     sig

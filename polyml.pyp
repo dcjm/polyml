@@ -200,9 +200,6 @@
 	<source name="mlsource\MLCompiler\PARSETYPESIG.sig" />
 	<source name="mlsource\MLCompiler\PRETTY.sig" />
 	<source name="mlsource\MLCompiler\Pretty.sml" />
-	<source name="mlsource\MLCompiler\PRINT_TABLE.ML" />
-	<source name="mlsource\MLCompiler\PrintTable.ML" />
-	<source name="mlsource\MLCompiler\PRINTTABLESIG.sml" />
 	<source name="mlsource\MLCompiler\SIGNATURES.sml" />
 	<source name="mlsource\MLCompiler\SIGNATURESSIG.sml" />
 	<source name="mlsource\MLCompiler\SignaturesStruct.sml" />

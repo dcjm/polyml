@@ -3449,6 +3449,44 @@ struct
         |   _ => NONE
     end
 
+    (* Table of overloads.  Entries are added to this during the bootstrap process using addOverload.
+       Overloaded functions are the standard overloads: +, -, *, div, mod together with literal constant
+       conversion functions convString etc. *)
+    structure Overloads =
+    struct
+        open HashTable
+        val nOverloads = 16
+            (* +, -, *, div, mod, <, >, <=, >=, ~, abs, convInt, convWord, convReal, convChar, convString, *)
+        val overloadTable: (typeConstrs * codetree) list hash =
+            hashMake(nOverloads*3 div 2) (* Add some extra to avoid having to extend the table. *)
+
+        (* Add to the overload list.  Since this is intended only for the bootstrap there's
+           no need to remove duplicates. *)
+        fun addOverload (n, cons, code) =
+        let
+            val existing = getOpt(hashSub(overloadTable, n), [])
+        in
+            hashSet(overloadTable, n, (cons, code) :: existing)
+        end
+
+        (* Return all the overloads for a particular identifier.  This is used to populate
+           the overload list when an overloaded function is used. *)
+        fun getOverloadTypes n = List.map #1 (getOpt(hashSub(overloadTable, n), []))
+
+        (* Return the for a particular type.  It should only ever be called for a name and type
+           that was previously returned by getOverloadTypes. *)
+        fun getOverloadCode(n, TypeConstrs {identifier=consId,...}) =
+            case hashSub(overloadTable, n) of
+                SOME constrAndCode =>
+                (
+                    case List.find (fn (TypeConstrs {identifier=tId,...}, _) => sameTypeId (consId, tId)) constrAndCode of
+                        SOME(_, v) => v
+                    |   NONE => raise InternalError "getOverload: not overloaded on this type"
+                )
+            |   NONE => raise InternalError "getOverload: unknown overload"
+
+      end
+
     structure Sharing =
     struct
         type types      = types

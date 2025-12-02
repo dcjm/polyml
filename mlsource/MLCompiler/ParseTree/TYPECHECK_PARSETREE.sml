@@ -71,20 +71,6 @@ sig
     end
 end
 
-structure PRINTTABLE :
-sig
-    type typeConstrs
-    type codetree
-
-    val getOverloads: string -> (typeConstrs * codetree) list
-
-    structure Sharing:
-    sig
-        type codetree = codetree
-        and  typeConstrs = typeConstrs
-    end
-end;
-
 structure MISC :
 sig  
     exception InternalError of string; (* compiler error *)
@@ -96,7 +82,7 @@ end
 
 sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
        = VALUEOPS.Sharing = UTILITIES.Sharing = PRETTY.Sharing
-       = CODETREE.Sharing = PRINTTABLE.Sharing = DATATYPEREP.Sharing
+       = CODETREE.Sharing = DATATYPEREP.Sharing
        = BASEPARSETREE.Sharing = PRINTTREE.Sharing = EXPORTTREE.Sharing
 
 ): TypeCheckParsetreeSig =
@@ -139,7 +125,6 @@ struct
     open VALUEOPS
     open UTILITIES
     open PRETTY
-    open PRINTTABLE
     open DATATYPEREP
   
     open BASEPARSETREE
@@ -499,7 +484,7 @@ struct
         (* Get the current overload set for the function and return a new
            instance of the type containing the overload set. *)
         fun overloadType(Value{typeOf=ValueType(typeOf, _), access = Overloaded TypeDep, name, ...}, isConv) =
-                #1 (generaliseOverload(typeOf, List.map #1 (getOverloads name), isConv))
+                #1 (generaliseOverload(typeOf, Overloads.getOverloadTypes name, isConv))
         |   overloadType(Value{typeOf=ValueType(typeOf, _), ...}, _) =  #1 (generalise typeOf)
 
         fun instanceType (v as Value{access=Overloaded TypeDep, ...}) =
