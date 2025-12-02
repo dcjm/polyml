@@ -1180,8 +1180,6 @@ struct
             val convwordCode = genCode(mkConst(toMachineWord wordOfString), [], 0) ()
             val convcharCode = genCode(mkConst(toMachineWord unescapeChar), [], 0) ()
         in
-            (* We need this for compatibility with the 5.8.2 bootstrap. *)
-            val () = addVal ("convString", unescapeString: string -> string, String ->> String)
             (* Flag to indicate which version of Int to compile *)
             val () = addVal ("intIsArbitraryPrecision", intIsArbitraryPrecision, Bool)
             (* Install the overloads now. *)

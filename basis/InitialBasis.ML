@@ -391,23 +391,6 @@ fun length l =
     len l 0
     end
 
-(* This is needed for the 5.8.2 bootstrap only because a
-   conversion function for char is not installed in Initialise. *)
-local
-    (* Temporary conversion function for characters. This is replaced in
-       the Char structure. *)
-    fun convChar (s: string) : char =
-    let
-        val convS = Bootstrap.convString s
-    in
-        if true (*String.lengthWordAsWord convS = 0w1*)
-        then RunCall.loadByte(convS, RunCall.bytesPerWord)
-        else raise RunCall.Conversion "Bad character"
-    end
-in
-    val it = RunCall.addOverload convChar "convChar";
-end;
-
 (* Print functions.  Some of these are replaced by functions in the Basis library and
    are installed here merely so that we can get useful output if we get a failure while
    compiling it. *)
