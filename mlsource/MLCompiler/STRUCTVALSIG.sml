@@ -75,61 +75,28 @@ sig
 
     and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
-    (* Core types.  *)
-    and coreType =
-        (* A type variable is an index.  For each instance the index maps onto a type variable.  *)
-        CTTypeVar of tvIndex
-        
-        (* The use of a type constructor, possibly applied to type arguments. *)
-    |   CTTypeConstruction of
-        {
-            name:  string,
-            constr: typeConstrs,
-            args:  coreType list,
-            locations: locationProp list
-        }
-
-        (* Function type. *)
-    |   CTFunctionType of
-        { 
-            arg:    coreType,
-            result: coreType
-        }
-
-        (* Tuples and fixed labelled records. *)
-    |   CTLabelledRecord of { name: string, typeof: coreType } list
-
-        (* Flexible records.  Flexible records can only appear in the types of local functions;
-           they must be frozen at the outer level.  Instances of flexible records can be created and
-           have different instance types for type variables in the fields (#typeof fields) but every
-           instance has the same list of field names.  This list starts with the fields that are
-           actually used (#name fields) but can grow if this is unified with other records.
-           Unifying with a fixed record freezes the list.  Generally we don't care about unused fields
-           except if the original function compared the record for equality in which case only equality
-           types can be used for any field. *)
-    |   CTFlexibleRecord of
-        {
-            fields: { name: string, typeof: coreType } list,
-            frozen: bool ref,
-            equality: bool,
-            fieldNames: string list ref
-        }
-
-        (* Error cases. *)
-    |   CTBadType
-
     (* Templates for type variables.  Normal type variables are TemplPlain; the others are special
        cases.  equality means this is an equality type; printity is a Poly/ML extension and indicates
        a polymorphic function that contains a call to PolyML.print.  The compiler adds equality
        functions to functions that contain an equality test and print functions to those that
        use PolyML.print.  TemplFree is used for a type variable that is free in the current context.
-       It can only be used for local functions.  TemplOverload indicates that the function is
-       one of the small number of overloaded functions.  The type variable can unify with other
-       overloaded variables or with one of the constructors (int, real etc). *)
+       It can only be used for local functions.  TemplFlexRecord is the most complex and is used
+       for local functions that contain a flexible record which has not been constrained to a
+       specific record type with the function itself.  It contains the actual fields used within
+       the function and also whether the function used equality and/or PolyML.print on the
+       record as a whole.  generic is a reference that is shared between all instances.  Whenever
+       the function is used the names, but not the types, of the fields used are added to the
+       list.  If the actual argument is a fixed record the record is frozen and no new fields
+       can be added. *)
     and typeVarTemplate =
         TemplPlain of { equality: bool, printity: bool }
     |   TemplFree of typeVar
-    |   TemplOverload of typeConstrs list
+    |   TemplFlexRecord of
+        { 
+            fields: { name: string, typeof: types } list,
+            generic: { frozen: bool, fields: string list} ref,
+            equality: bool, printity: bool
+        }
 
     (* Variables used in unification.  These are instantiated from generic type variables.
        In addition to equality and printity described above there is also the nonunifiable
@@ -152,7 +119,7 @@ sig
        TVLOverload is used when the type variable is set to an overload set. *)
     and typeVarLink =
         TVLUnset
-    |   TVLCoreType of { types: coreType, map: tvIndex -> typeVar }
+    |   TVLCoreType of { types: types, map: tvIndex -> typeVar }
     |   TVLLink of typeVar
     |   TVLOverload of typeConstrs list
 
@@ -265,9 +232,7 @@ sig
 
     (* The "type" of a value.  In general this is polymorphic and when an instance is created assignable type
        variables are made for each of the templates.  Bound variables in #typeof are mapped onto these. *)
-    and valueType =
-        OldForm of types
-    |   ValueType of { typeof: coreType, templates: typeVarTemplate list }
+    and valueType = ValueType of types * typeVarTemplate list
 
     (* Classes of values. *)
     and valueClass =
@@ -418,7 +383,6 @@ sig
         and  level      = level
         and  tvLevel    = tvLevel
         and  typeFnEq   = typeFnEq
-        and  coreType   = coreType
         and  typeVarTemplate = typeVarTemplate
         and  typeVar    = typeVar
         and  typeVarLink = typeVarLink

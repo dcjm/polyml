@@ -497,11 +497,12 @@ struct
             val listTypeVars  = tcTypeVars listType;
             val alpha         = TypeVar(hd listTypeVars);
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
-            val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
+            val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList)
+            val listTemplate  = [TemplPlain{equality=false, printity=false }]
             val nilConstructor  =
-                makeValueConstr ("nil", OldForm alphaList, true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
+                makeValueConstr ("nil", ValueType(alphaList, listTemplate), true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
             val consConstructor =
-                makeValueConstr ("::",  OldForm consType,  false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
+                makeValueConstr ("::",  ValueType(consType, listTemplate),  false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
             val nilRepresentation = createNullaryConstructor(ShortForm 0w0, arity, "nil")
             val consRepresentation = createUnaryConstructor(UnboxedForm 2, arity, "::")
         in
@@ -529,11 +530,12 @@ struct
             val optionTypeVars  = tcTypeVars optionType;
             val alpha         = TypeVar(hd optionTypeVars);
             val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
-            val someType      = mkFunctionType (alpha, alphaOption);
+            val someType      = mkFunctionType (alpha, alphaOption)
+            val optionTemplate = [TemplPlain{equality=false, printity=false }]
             val noneConstructor  =
-                makeValueConstr ("NONE", OldForm alphaOption, true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
+                makeValueConstr ("NONE", ValueType(alphaOption, optionTemplate), true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
             val someConstructor =
-                makeValueConstr ("SOME", OldForm someType, false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
+                makeValueConstr ("SOME", ValueType(someType, optionTemplate), false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
             val noneRepresentation = createNullaryConstructor(ShortForm 0w0, arity, "NONE")
             and someRepresentation = createUnaryConstructor(BoxedForm, arity, "SOME")
         in
@@ -592,7 +594,7 @@ struct
                    as the representation that chooseConstrRepr will use. *)
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
-                    makeValueConstr(s, OldForm(mkFunctionType(t, contextType)), false, numConstrs,
+                    makeValueConstr(s, ValueType(mkFunctionType(t, contextType), []), false, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
                 val {constrs=constrCode, boxed, size} = chooseConstrRepr(constrs, 0)
             in
@@ -627,7 +629,7 @@ struct
                     val (ctype, nullary) =
                         case t of EmptyType => (prettyType, true) | t => (mkFunctionType(t, prettyType), false)
                 in
-                    makeValueConstr(s, OldForm ctype, nullary, numConstrs,
+                    makeValueConstr(s, ValueType(ctype, []), nullary, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
                 end
                 val {constrs=constrCode, ...} = chooseConstrRepr(constrs, 0)

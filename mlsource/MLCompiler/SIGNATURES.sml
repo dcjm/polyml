@@ -1084,7 +1084,7 @@ struct
                      ref we put in for type constructions. *)
                   #enterVal structEnv (name,
                     mkFormal (name, ValBound,
-                        OldForm(copyType (typeof, fn x => x, fn x => x)), offset, locations));
+                        ValueType(copyType (typeof, fn x => x, fn x => x), []), offset, locations));
                   (offset + 1)
                 end
                
@@ -1114,7 +1114,7 @@ struct
                   orelse name = "::" orelse name = "ref" orelse name = "it"
                   then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
                   else ();
-                  #enterVal structEnv (name, mkFormal (name, Exception, OldForm exType, offset, locations));
+                  #enterVal structEnv (name, mkFormal (name, Exception, ValueType(exType, []), offset, locations));
                   (offset + 1)
                 end
                

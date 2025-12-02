@@ -218,13 +218,13 @@ struct
                 (* Copy the value constructors for a datatype. *)
        
                 fun copyValueConstr(
-                        v as Value{name, typeOf=OldForm typeOf, class, access, locations, references, instanceTypes, ...}) =
+                        v as Value{name, typeOf=ValueType(typeOf, templates), class, access, locations, references, instanceTypes, ...}) =
                 let
                     (* Copy its type and make a new constructor if the type has changed. *)
                     val newType = copyTyp typeOf
                 in
                     if not (identical (newType, typeOf))
-                    then Value{name=name, typeOf=OldForm newType, class=class,
+                    then Value{name=name, typeOf=ValueType(newType, templates), class=class,
                                access=access, locations = locations, references = references,
                                instanceTypes=instanceTypes}
                     else v
@@ -239,14 +239,14 @@ struct
             else if tagIs valueVar dVal
             then
             let
-                val v as Value {typeOf=OldForm typeOf, class, name, access, locations, references, instanceTypes, ...} =
+                val v as Value {typeOf=ValueType(typeOf, templates), class, name, access, locations, references, instanceTypes, ...} =
                     tagProject valueVar dVal;
                 val newType = copyTyp typeOf
                 (* Can save creating a new object if the address and type
                    are the same as they were. *)
                 val res =
                     if not (identical (newType, typeOf))
-                    then Value {typeOf=OldForm newType, class=class, name=name, instanceTypes=instanceTypes,
+                    then Value {typeOf=ValueType(newType, templates), class=class, name=name, instanceTypes=instanceTypes,
                                     access=access,locations=locations, references = references}
                     else v
             in

@@ -81,7 +81,7 @@ struct
           if the constant cannot be converted. *)
        val ty      = mkOverloadSet[]
        val funType = mkFunctionType (stringType, ty);
-       fun mkOverloaded name : values = makeOverloaded (name, OldForm funType, TypeDep)
+       fun mkOverloaded name : values = makeOverloaded (name, ValueType(funType, []), TypeDep)
     in
         val convString = mkOverloaded "convString"
         and convInt = mkOverloaded "convInt"

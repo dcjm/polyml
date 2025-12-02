@@ -904,7 +904,7 @@ struct
             (* Check the types for escaped datatypes. *)
             local
                 fun checkVars(ValBind{variables=ref vars, line, ...}) =
-                    List.app(fn (Value{typeOf=OldForm valTypeOf, ...}) => checkForEscapingDatatypes(valTypeOf,
+                    List.app(fn (Value{typeOf=ValueType(valTypeOf, _), ...}) => checkForEscapingDatatypes(valTypeOf,
                         fn message => errorNear (lex, true, firstEntry, line, message))) vars
             in
                 val () = List.app checkVars dec
@@ -963,7 +963,7 @@ struct
                   the previous exception. *)
                 val (lvAddr, lvLevel, exType) =
                     case ex of
-                        Value{access=Local{addr, level}, typeOf=OldForm typeOf, ...} => (addr, level, typeOf)
+                        Value{access=Local{addr, level}, typeOf=ValueType(typeOf, _), ...} => (addr, level, typeOf)
                     |   _ => raise InternalError "lvAddr"
             in
                 lvAddr  := mkAddr 1;
@@ -1016,8 +1016,7 @@ struct
                 let
                     val arity = List.length typeVars
                     (* Get the argument types or EmptyType if this is nullary. *)
-                    fun getConstrType(Value{typeOf=OldForm(FunctionType{arg, ...}), name, ...}) = (name, arg)
-                    |   getConstrType(Value{typeOf=ValueType _, ...}) = raise InternalError "getConstrType"
+                    fun getConstrType(Value{typeOf=ValueType(FunctionType{arg, ...}, _), name, ...}) = (name, arg)
                     |   getConstrType(Value{name, ...}) = (name, EmptyType)
                     val constrTypesAndNames = List.map getConstrType constrs
                     val {constrs, boxed, size} = chooseConstrRepr(constrTypesAndNames, arity)
@@ -1135,7 +1134,7 @@ struct
 
             (* Check the types for escaped datatypes. *)
             local
-                fun checkVars(FValBind{functVar=ref(Value{typeOf=OldForm typeOf, ...}), location, ...}) =
+                fun checkVars(FValBind{functVar=ref(Value{typeOf=ValueType(typeOf, _), ...}), location, ...}) =
                     checkForEscapingDatatypes(typeOf,
                         fn message => errorNear (lex, true, near, location, message))
             in
@@ -1168,7 +1167,7 @@ struct
 
             (* Get the polymorphic variables for each function. *)
             local
-                fun getPoly(FValBind{functVar = ref (Value{typeOf=OldForm typeOf, ...}), ...}) =
+                fun getPoly(FValBind{functVar = ref (Value{typeOf=ValueType(typeOf, _), ...}), ...}) =
                     filterTypeVars(getPolyTypeVars(typeOf, mapTypeVars typeVarMap))
             in
                 val polyVarList = List.map getPoly tlist
@@ -1555,7 +1554,7 @@ struct
                 
                 val clauses = List.map matchTreeToClause (getMatches exp)
  
-                fun mkFValBind(var as Value{typeOf=OldForm typeOf, ...}) =
+                fun mkFValBind(var as Value{typeOf=ValueType(typeOf, _), ...}) =
                 let
                     val argType = mkTypeVar(generalisable, false, false, false)
                     and resultType = mkTypeVar(generalisable, false, false, false)
@@ -1588,7 +1587,7 @@ struct
 
                 (* Does this contain polymorphism? *)
                 val polyVarsForVals =
-                    List.map(fn Value{typeOf=OldForm typeOf, ...} =>
+                    List.map(fn Value{typeOf=ValueType(typeOf, _), ...} =>
                                 filterTypeVars (getPolyTypeVars(typeOf, mapTypeVars typeVarMap))) vars
                 val polyVars = List.foldl(op @) [] polyVarsForVals
                 val nPolyVars = List.length polyVars

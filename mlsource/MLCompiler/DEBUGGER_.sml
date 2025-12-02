@@ -212,14 +212,13 @@ struct
     end
 
     local
-        fun runTimeType (state: debugState) ty =
+        fun runTimeType (state: debugState) (ValueType(ty, templates)) =
         let
             fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
             |   copyId id = SOME(searchType state id)
-            val OldForm ty = ty
         in
-            OldForm(copyType (ty, fn x => x,
-                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s)))
+            ValueType(copyType (ty, fn x => x,
+                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s)), templates)
         end
     
         (* Return the value as a constant.  In almost all cases we just return the value.
@@ -228,9 +227,8 @@ struct
            instance type(s).
            N.B.  This is probably because of the way that allowGeneralisation side-effects
            the type variables resulting in local type variables becoming generic. *)
-        fun getValue(valu, ty) =
+        fun getValue(valu, ValueType(ty, templates)) =
         let
-            val OldForm ty = ty
             val filterTypeVars = List.filter (fn tv => not TYPEIDCODE.justForEqualityTypes orelse tvEquality tv)
             val polyVars = filterTypeVars (getPolyTypeVars(ty, fn _ => NONE))
             val nPolyVars = List.length polyVars

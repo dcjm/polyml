@@ -171,13 +171,23 @@ struct
        a polymorphic function that contains a call to PolyML.print.  The compiler adds equality
        functions to functions that contain an equality test and print functions to those that
        use PolyML.print.  TemplFree is used for a type variable that is free in the current context.
-       It can only be used for local functions.  TemplOverload indicates that the function is
-       one of the small number of overloaded functions.  The type variable can unify with other
-       overloaded variables or with one of the constructors (int, real etc). *)
+       It can only be used for local functions.  TemplFlexRecord is the most complex and is used
+       for local functions that contain a flexible record which has not been constrained to a
+       specific record type with the function itself.  It contains the actual fields used within
+       the function and also whether the function used equality and/or PolyML.print on the
+       record as a whole.  generic is a reference that is shared between all instances.  Whenever
+       the function is used the names, but not the types, of the fields used are added to the
+       list.  If the actual argument is a fixed record the record is frozen and no new fields
+       can be added. *)
     and typeVarTemplate =
         TemplPlain of { equality: bool, printity: bool }
     |   TemplFree of typeVar
-    |   TemplOverload of typeConstrs list
+    |   TemplFlexRecord of
+        { 
+            fields: { name: string, typeof: types } list,
+            generic: { frozen: bool, fields: string list} ref,
+            equality: bool, printity: bool
+        }
 
     (* Variables used in unification.  These are instantiated from generic type variables. *)
     and typeVar =
@@ -196,7 +206,7 @@ struct
        TVLOverload is used when the type variable is set to an overload set. *)
     and typeVarLink =
         TVLUnset
-    |   TVLCoreType of { types: coreType, map: tvIndex -> typeVar }
+    |   TVLCoreType of { types: types, map: tvIndex -> typeVar }
     |   TVLLink of typeVar
     |   TVLOverload of typeConstrs list
 
@@ -341,9 +351,7 @@ struct
 
     (* The "type" of a value.  In general this is polymorphic and when an instance is created assignable type
        variables are made for each of the templates.  Bound variables in #typeof are mapped onto these. *)
-    and valueType =
-        OldForm of types
-    |   ValueType of { typeof: coreType, templates: typeVarTemplate list }
+    and valueType = ValueType of types * typeVarTemplate list
 
 
     (* Classes of values. *)
@@ -606,7 +614,7 @@ struct
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE};
 
     val undefinedValue    =
-    Value{ name = "<undefined>", typeOf = OldForm BadType, access = Global CodeZero, class = ValBound,
+    Value{ name = "<undefined>", typeOf = ValueType(BadType, []), access = Global CodeZero, class = ValBound,
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE };
 
     fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false

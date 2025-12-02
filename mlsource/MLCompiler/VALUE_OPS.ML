@@ -165,7 +165,7 @@ struct
 
     (* These are used locally and also exported to INITIALISE to be used in PolyML.NameSpace.Structures.contents. *)
     fun makeSelectedValue(
-            Value{ name, typeOf=OldForm typeOf, access, class, locations, ... },
+            Value{ name, typeOf=ValueType(typeOf, templates), access, class, locations, ... },
             baseStruct as Struct{signat=Signatures { typeIdMap, ...}, name=baseName, ...}) =
     let
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(typeIdMap offset)
@@ -180,7 +180,7 @@ struct
             |   _ => []
     in
         mkSelectedVar (
-                Value{ name=name, typeOf=OldForm copiedType, access=access, class=class, locations=locations,
+                Value{ name=name, typeOf=ValueType(copiedType, templates), access=access, class=class, locations=locations,
                        references = NONE, instanceTypes=NONE },
                 baseStruct, baseLoc)
     end
@@ -367,7 +367,7 @@ struct
     (* Displays value as a block, with no external formatting.  This is used at the
        top level but it can be applied to values extracted with #lookup globalNameSpace.
        That can include constructors and overloaded functions. *)
-    fun displayValues (Value{name, typeOf=OldForm typeOf, class, access, locations, ...}, depth: FixedInt.int, nameSpace, sigMap): pretty =
+    fun displayValues (Value{name, typeOf=ValueType(typeOf, _), class, access, locations, ...}, depth: FixedInt.int, nameSpace, sigMap): pretty =
     let
         (* Create the "val X =" part. *)
         fun valPart (valOrCons, isColon) =
@@ -448,7 +448,7 @@ struct
     end
 
     (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
-    fun printValues (Value{typeOf=OldForm typeOf, class, access, ...}, depth) =
+    fun printValues (Value{typeOf=ValueType(typeOf, _), class, access, ...}, depth) =
         case (class, access) of
             (ValBound, Global code) => printValueForType (valOf(evalue code), typeOf, depth)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
@@ -1177,7 +1177,7 @@ struct
      or a function to make a packet. If it is a nullary constructor make
      an exception packet now, otherwise generate a function to construct
      an exception packet. *)
-    fun codeExFunction (value as Value{typeOf=OldForm typeOf, ...}, level, typeVarMap, instance, lex, lineno) =
+    fun codeExFunction (value as Value{typeOf=ValueType(typeOf, _), ...}, level, typeVarMap, instance, lex, lineno) =
     case getFnArgType typeOf of (* N.B. Not "instance" *)
         NONE => applyFunction (value, CodeZero, level, typeVarMap, List.map addStatus instance, lex, lineno)
     |   SOME _ =>
@@ -1252,7 +1252,7 @@ struct
     (* Using unification here isn't ideal.  We have to put the equality attribute
        back on to abstypes in case the unification requires it.  There may be other
        situations where things don't work properly. *)
-    fun getPolymorphism (Value{ typeOf=OldForm typeOf, access, name, ...}, expType, typeVarMap) =
+    fun getPolymorphism (Value{ typeOf=ValueType(typeOf, templates), access, name, ...}, expType, typeVarMap) =
     let
         val (t, polyVars) =
             case access of
