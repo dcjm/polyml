@@ -1084,7 +1084,7 @@ struct
                      ref we put in for type constructions. *)
                   #enterVal structEnv (name,
                     mkFormal (name, ValBound,
-                        ValueType(copyType (typeof, fn x => x, fn x => x), []), offset, locations));
+                        ValueType(copyType (typeof, fn _ => NONE, fn x => x, fn x => x), []), offset, locations));
                   (offset + 1)
                 end
                
@@ -1377,7 +1377,7 @@ struct
                         |   copyId _ = NONE
                                     
                         val copiedEquiv =
-                            copyType(equiv, fn x => x,
+                            copyType(equiv, fn _ => NONE, fn x => x,
                                 fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
                         (* For the moment always use a Free ID here. *)
                         val copiedId = makeTypeFunction(args, copiedEquiv, description)

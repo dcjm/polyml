@@ -970,7 +970,7 @@ struct
         |   copyId _ = NONE
         fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn x => x, fn s => s)
         fun copyTarget t = (* Leave type variables. *)
-            copyType (t, fn x => x, copyATypeConstr);
+            copyType (t, fn _ => NONE, fn x => x, copyATypeConstr);
         val copiedTarget = copyTarget target
         (* Do the match to a version of the candidate with copies of the
            type variables so that we can instantiate them.  We could do
@@ -3133,7 +3133,7 @@ struct
                 |   copyId _ = NONE
                 fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn x => x, fn s => s)
             in
-                copyType(t, fn tv=>tv, replaceTypeConstrs)
+                copyType(t, fn _ => NONE, fn tv=>tv, replaceTypeConstrs)
             end
 
             fun makeDecs (CoreValue(Value{class, name, typeOf=ValueType(typeOf, templates), locations, access, ...}),

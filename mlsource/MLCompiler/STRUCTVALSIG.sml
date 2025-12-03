@@ -130,6 +130,9 @@ sig
     and types = 
         TypeVar of typeVarForm
 
+        (* Bound type variable. This is an index into a table or list of types.  The name is just for printing. *)
+    |   BoundTypeVar of string * tvIndex
+
     |   TypeConstruction of
         {
             name:  string,

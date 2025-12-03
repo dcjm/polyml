@@ -603,6 +603,8 @@ struct
             |   LabelledType {recList,...} =>
                     List.foldr (fn ({ typeof, ... }, v) => foldT typeof v) res recList
 
+            |   BoundTypeVar _ => res
+
             |   BadType => res
          
             |   EmptyType => res
@@ -623,12 +625,12 @@ struct
        Used to make new type variables for all distinct type variables when
        generalising polymorphic functions, and to make new type stamps for
        type constructors when generalising signatures. *)
-    fun copyType (at, copyTypeVar, copyTypeConstr) =
+    fun copyType (at, indexBTV, copyTypeVar, copyTypeConstr) =
     let
         fun copyList [] = []
         |   copyList (l as (h :: t)) =
         let
-            val h' = copyType (h, copyTypeVar, copyTypeConstr);
+            val h' = copyType (h, indexBTV, copyTypeVar, copyTypeConstr);
             val t' = copyList t;
         in
             if identical (h', h) andalso identicalList (t', t)
@@ -639,7 +641,7 @@ struct
         fun copyRecordList [] = []
         |   copyRecordList (l as ({name, typeof} :: t)) =
         let
-            val typeof' = copyType (typeof, copyTypeVar, copyTypeConstr);
+            val typeof' = copyType (typeof, indexBTV, copyTypeVar, copyTypeConstr);
             val t' = copyRecordList t;
         in
             if identical (typeof', typeof) andalso identicalList (t', t)
@@ -652,6 +654,8 @@ struct
         case atyp of
             TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
                 copyTypeVar atyp
+    
+        |   BoundTypeVar(_, index) => getOpt(indexBTV index, atyp)
     
         |   TypeConstruction {constr, args, locations, ...} => 
             let
@@ -672,8 +676,8 @@ struct
            
         |   FunctionType {arg, result} => 
             let
-                val copiedArg  = copyType (arg,    copyTypeVar, copyTypeConstr);
-                val copiedRes  = copyType (result, copyTypeVar, copyTypeConstr);
+                val copiedArg  = copyType (arg,    indexBTV, copyTypeVar, copyTypeConstr);
+                val copiedRes  = copyType (result, indexBTV, copyTypeVar, copyTypeConstr);
             in
                 if identical (copiedArg, arg) andalso 
                     identical (copiedRes, result)
@@ -746,7 +750,7 @@ struct
                    copy the type pointed at by the variable. *)
                 case tvValue tyVar of
                     valu as LabelledType _ =>
-                        tvSetValue (typesTypeVar newTv, copyType (valu, copyTypeVar, fn t => t))
+                        tvSetValue (typesTypeVar newTv, copyType (valu, fn _ => NONE, copyTypeVar, fn t => t))
                 |   _ => ();
                 newTv
             end
@@ -754,7 +758,7 @@ struct
         
         val copied =
             (* Only process type variables. Return type constructors unchanged. *)
-            copyType (atyp, copyTypeVar, fn t => t (*copyTCons*))
+            copyType (atyp, fn _ => NONE, copyTypeVar, fn t => t (*copyTCons*))
     in
         (copied, ! madeList)
     end (* generaliseTypes *)
@@ -814,7 +818,7 @@ struct
      type variable they  will be unified to new equality type variables.
      Otherwise equality is not allowed. *)
     
-    fun computeEquality (ty, lookupTypId, lookupTypeVar) : tri =
+    fun computeEquality (ty, lookupTypId, lookupTypeVar, lookupBTV) : tri =
     let
         (* Can't use foldT because it is not monotonic
            (equality on ref 'a is allowed). *)
@@ -822,7 +826,7 @@ struct
            in the list. *)
         fun eqForList ([],    soFar) = soFar
           | eqForList (x::xs, soFar) = 
-            case computeEquality (x, lookupTypId, lookupTypeVar) of
+            case computeEquality (x, lookupTypId, lookupTypeVar, lookupBTV) of
                No    => No
              | Maybe => eqForList (xs, Maybe)
              | Yes   => eqForList (xs, soFar);
@@ -844,11 +848,13 @@ struct
                             (
                             case lookupTypeVar tyVar of
                                 No => No
-                              | _ => computeEquality (lab, lookupTypId, lookupTypeVar)
+                              | _ => computeEquality (lab, lookupTypId, lookupTypeVar, lookupBTV)
                             )
                      | _ => lookupTypeVar tyVar
                     )
-   
+
+        |   BoundTypeVar(_, index) => lookupBTV index
+
         |   FunctionType {...} => No  (* No equality on function types! *)
 
         |   TypeConstruction {constr=TypeConstrs
@@ -911,7 +917,7 @@ struct
     end
 
     (* Can this be used to set an eqtype? Used in "where type" constructions in signatures. *)
-    fun typePermitsEquality ty = computeEquality (ty, fn _ => No, fn _ => Yes) <> No
+    fun typePermitsEquality ty = computeEquality (ty, fn _ => No, fn _ => Yes, fn _ => Yes) <> No
 
   (* When a datatype is declared we test to see if equality is allowed. The
      types are mutually recursive so value constructors of one type may
@@ -952,7 +958,7 @@ struct
                    then equality is allowed for this datatype.  *)
                 val eq = 
                     computeEquality (#arg (typesFunctionType valTypeOf),
-                        genEquality, fn _ => Yes)
+                        genEquality, fn _ => Yes, fn _ => Yes)
             in
                 if eq = No
                 then (* Not allowed. *) No
@@ -992,7 +998,8 @@ struct
                                     findRef(tyVars, 0);
                                     Yes
                                 end
-                            val eq = computeEquality (resType, genEquality, lookupTypeVar)
+                            fun lookupBoundTV(TVIndex i) = (BoolArray.update(eqRefArray, i, true); Yes)
+                            val eq = computeEquality (resType, genEquality, lookupTypeVar, lookupBoundTV)
                             val eqRes =
                                 case eq of
                                     No => TypeFnEqNever
@@ -1121,7 +1128,8 @@ struct
         local
             val eqRefArray = BoolArray.array(List.length tyVars, false)
             fun lookupTypeVar tv = (findRefs tv eqRefArray; Yes)
-            val eq = computeEquality (resType, fn _ => No, lookupTypeVar)
+            fun lookupBTV(TVIndex i) = (BoolArray.update(eqRefArray, i, true); Yes)
+            val eq = computeEquality (resType, fn _ => No, lookupTypeVar, lookupBTV)
         in
             val eqRes =
                 case eq of
@@ -1249,7 +1257,7 @@ struct
             TypeId{idKind = TypeFn{tyVars, resType=equiv, ...}, description, access, ...} =>
             let
                 val copiedEquiv =
-                    copyType(equiv, fn x => x,
+                    copyType(equiv, fn _ => NONE, fn x => x,
                         fn tcon =>
                             copyTypeConstrWithCache (tcon, typeMap, fn x => x, mungeName, cache))
             in
@@ -1319,7 +1327,7 @@ struct
                 (* If it's a type function e.g. this was a "where type" we have to apply the
                    map to any type identifiers in the type. *)
                 val copiedEquiv =
-                    copyType(equiv, fn x => x,
+                    copyType(equiv, fn _ => NONE, fn x => x,
                         fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
             in
                 makeGeneralTypeFunction(args, copiedEquiv, description, access)
@@ -1411,7 +1419,9 @@ struct
                         EmptyType => PrettyString (typeVarName tyVar)
                     |   _         => dispP (tyVal, depth)
                 end
-      
+
+            |   BoundTypeVar(s, _) => PrettyString s
+
                 (* Type construction. *)
             |   TypeConstruction {args, name, constr=typeConstructor, ...} =>
                 let
@@ -2333,7 +2343,7 @@ struct
                     (* If we are unifying a type with an equality type variable
                        we must ensure that equality is allowed for that type. This
                        will turn most type variables into equality type vars. *)
-                    if tvEquality var andalso computeEquality (finalType, fn _ => No, canMkEqTv) = No
+                    if tvEquality var andalso computeEquality (finalType, fn _ => No, canMkEqTv, fn _ => raise InternalError "computeEq") = No
                     then cantMatch (Atype, Btype, "(Requires equality type)")
                       (* TODO: This can result in an unhelpful message if var is bound
                          to a flexible record since there is no indication in the

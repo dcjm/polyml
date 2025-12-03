@@ -1110,7 +1110,7 @@ struct
                                 then newTypeCons
                                 else tcon;
                             fun copyTyp (t : types) : types =
-                               copyType (t, fn x => x, (* Don't bother with type variables. *)
+                               copyType (t, fn _ => NONE, fn x => x, (* Don't bother with type variables. *)
                                    copyTypeCons);
                             val newType = copyTyp typeOf
                             val newAccess =
