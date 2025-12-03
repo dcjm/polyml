@@ -485,13 +485,13 @@ struct
            instance of the type containing the overload set. *)
         fun overloadType(Value{typeOf=ValueType(typeOf, _), access = Overloaded TypeDep, name, ...}, isConv) =
                 #1 (generaliseOverload(typeOf, Overloads.getOverloadTypes name, isConv))
-        |   overloadType(Value{typeOf=ValueType(typeOf, _), ...}, _) =  #1 (generalise typeOf)
+        |   overloadType(Value{typeOf=ValueType valType, ...}, _) =  #1 (generalise valType)
 
         fun instanceType (v as Value{access=Overloaded TypeDep, ...}) =
           (* Look up the current overloading for this function. *)
                 overloadType(v, false)
 
-        |   instanceType(Value{typeOf=ValueType(typeOf, _), ...}) = #1 (generalise typeOf)
+        |   instanceType(Value{typeOf=ValueType valType, ...}) = #1 (generalise valType)
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
@@ -2211,12 +2211,12 @@ struct
                those variables. Unfortunately, because of flexible records we need
                to repeat the unification we did in the previous pass. *)
             local
-                fun getTypeVarsAndInstance (Value{typeOf=ValueType(typeOf, _), instanceTypes, ...}, vars) =
+                fun getTypeVarsAndInstance (Value{typeOf=ValueType valType, instanceTypes, ...}, vars) =
                 let
                     val instances = ! (valOf instanceTypes)
                     fun getPolyVars typ =
                     let
-                        val (copied, tyVars) = generalise typeOf
+                        val (copied, tyVars) = generalise valType
                         (* Unify the types.  If there's an error we return a fresh set of the type
                            variables which gives the most general type.
                            There shouldn't be an error but there is one
@@ -2229,7 +2229,7 @@ struct
                            value in that case.  Test116 shows this. *)
                     in
                         if isSome(unifyTypes(copied, typ))
-                        then #2 (generalise typeOf)
+                        then #2 (generalise valType)
                         else tyVars (* Return the type vars instantiated to the instance types. *)
                     end
                     (* This returns a list, one entry for each instance, of a list of the
@@ -2242,7 +2242,7 @@ struct
                     |   transpose [] = []
                     val instanceVars = transpose instanceVarLists
                     (* Get the original type variables. *)
-                    val originalVars = getPolyTypeVars(typeOf, fn _ => NONE)
+                    val originalVars = getPolyTypeVars(valType, fn _ => NONE)
                     (* Look to see if we already have some of the original vars in the list.
                        If we have we use the same ref for each var and merge the instance types. *)
                     fun mergeVars(ovar, iTypes) =

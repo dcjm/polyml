@@ -614,7 +614,7 @@ struct
                         mkInd (offset, singleArg)
                     end
                 val code =(* Make an inline function. *)
-                case filterTypeVars (getPolyTypeVars(typeof, mapTypeVars typeVarMap)) of
+                case filterTypeVars (getPolyTypeVars((typeof, []), mapTypeVars typeVarMap)) of
                     [] => mkInlproc (selectorBody, 1, decName ^ "#" ^ name, [], 0)
                 |   polyVars => (* This may be polymorphic. *)
                         mkInlproc(
@@ -658,7 +658,7 @@ struct
 
     |   codeGenerate(c as Fn { location, expType=ref expType, ... }, context as { typeVarMap, debugEnv, ...}) =
             (* Function *)
-            (codeLambda(c, location, filterTypeVars(getPolyTypeVars(expType, mapTypeVars typeVarMap)), context), debugEnv)
+            (codeLambda(c, location, filterTypeVars(getPolyTypeVars((expType, []), mapTypeVars typeVarMap)), context), debugEnv)
 
     |   codeGenerate(Localdec {decs, body, ...}, context) =
             (* Local expressions only. Local declarations will be handled
@@ -1167,8 +1167,8 @@ struct
 
             (* Get the polymorphic variables for each function. *)
             local
-                fun getPoly(FValBind{functVar = ref (Value{typeOf=ValueType(typeOf, _), ...}), ...}) =
-                    filterTypeVars(getPolyTypeVars(typeOf, mapTypeVars typeVarMap))
+                fun getPoly(FValBind{functVar = ref (Value{typeOf=ValueType valType, ...}), ...}) =
+                    filterTypeVars(getPolyTypeVars(valType, mapTypeVars typeVarMap))
             in
                 val polyVarList = List.map getPoly tlist
             end
@@ -1587,8 +1587,8 @@ struct
 
                 (* Does this contain polymorphism? *)
                 val polyVarsForVals =
-                    List.map(fn Value{typeOf=ValueType(typeOf, _), ...} =>
-                                filterTypeVars (getPolyTypeVars(typeOf, mapTypeVars typeVarMap))) vars
+                    List.map(fn Value{typeOf=ValueType valType, ...} =>
+                                filterTypeVars (getPolyTypeVars(valType, mapTypeVars typeVarMap))) vars
                 val polyVars = List.foldl(op @) [] polyVarsForVals
                 val nPolyVars = List.length polyVars
                 

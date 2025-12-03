@@ -227,10 +227,10 @@ struct
            instance type(s).
            N.B.  This is probably because of the way that allowGeneralisation side-effects
            the type variables resulting in local type variables becoming generic. *)
-        fun getValue(valu, ValueType(ty, templates)) =
+        fun getValue(valu, ValueType valType) =
         let
             val filterTypeVars = List.filter (fn tv => not TYPEIDCODE.justForEqualityTypes orelse tvEquality tv)
-            val polyVars = filterTypeVars (getPolyTypeVars(ty, fn _ => NONE))
+            val polyVars = filterTypeVars (getPolyTypeVars(valType, fn _ => NONE))
             val nPolyVars = List.length polyVars
         in
             if nPolyVars = 0

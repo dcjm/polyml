@@ -23,7 +23,7 @@ sig
     type types
     type typeConstrs
     type typeConstrSet
-    type typeVarForm
+    type typeVar
     type typeVarMap
     type level
 
@@ -51,9 +51,9 @@ sig
         type typeVarMap = typeVarMap
         val defaultTypeVarMap: (int->int) * level -> typeVarMap (* The end of the chain. *)
         (* Add a set of type variables to the map. *)
-        val extendTypeVarMap: (typeVarForm * (level->codetree)) list * (int->int) * level * typeVarMap -> typeVarMap
+        val extendTypeVarMap: (typeVar * (level->codetree)) list * (int->int) * level * typeVarMap -> typeVarMap
         (* Look up a type variable and return the type it's mapped to. *)
-        val mapTypeVars: typeVarMap -> typeVarForm -> types option
+        val mapTypeVars: typeVarMap -> typeVar -> types option
         (* Mark in the cache chain that some type constructors are new. *)
         val markTypeConstructors: typeConstrs list * (int->int) * level * typeVarMap -> typeVarMap
         (* Get the set of cached type values that have been created after this entry. *)
@@ -71,7 +71,7 @@ sig
         type types      = types
         type typeConstrs= typeConstrs
         type typeConstrSet=typeConstrSet
-        type typeVarForm=typeVarForm
+        type typeVar=typeVar
         type typeVarMap = typeVarMap
         type codeBinding    = codeBinding
         type level = level

@@ -307,7 +307,7 @@ struct
 
 
     (* Print a value given its type. *)
-    fun printValueForType (value:machineWord, types, depth): pretty =
+    fun printValueForType (value:machineWord, valType as (types, _), depth): pretty =
     let
         (* Constuct printer code applied to the argument and the depth.
            Code-generate and evaluate it. *)
@@ -323,7 +323,7 @@ struct
         end
         val dummyTypes =
             List.map(fn tv => {value=TYPESTRUCT.unitType, equality=tvEquality tv, printity=false})
-                (getPolyTypeVars(types, fn _ => NONE))
+                (getPolyTypeVars(valType, fn _ => NONE))
         val polyCode = applyToInstance(dummyTypes, baseLevel, typeVarMap, fn _ => mkConst value)
         val printerCode =
             mkEval(
@@ -365,7 +365,7 @@ struct
     (* Displays value as a block, with no external formatting.  This is used at the
        top level but it can be applied to values extracted with #lookup globalNameSpace.
        That can include constructors and overloaded functions. *)
-    fun displayValues (Value{name, typeOf=ValueType(typeOf, _), class, access, locations, ...}, depth: FixedInt.int, nameSpace, sigMap): pretty =
+    fun displayValues (Value{name, typeOf=ValueType(valType as (typeOf, _)), class, access, locations, ...}, depth: FixedInt.int, nameSpace, sigMap): pretty =
     let
         (* Create the "val X =" part. *)
         fun valPart (valOrCons, isColon) =
@@ -409,7 +409,7 @@ struct
                         [
                             valPart("val", false),
                             PrettyBreak (1, 0),
-                            printValueForType (v, typeOf, depth),
+                            printValueForType (v, valType, depth),
                             PrettyString ":"
                         ]
                     |   _ => [ valPart("val", true) ]
@@ -446,9 +446,9 @@ struct
     end
 
     (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
-    fun printValues (Value{typeOf=ValueType(typeOf, _), class, access, ...}, depth) =
+    fun printValues (Value{typeOf=ValueType valType, class, access, ...}, depth) =
         case (class, access) of
-            (ValBound, Global code) => printValueForType (valOf(evalue code), typeOf, depth)
+            (ValBound, Global code) => printValueForType (valOf(evalue code), valType, depth)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
 
     (* Prints "sig ... end" as a block, with no external formatting *)
@@ -1251,8 +1251,9 @@ struct
     (* Using unification here isn't ideal.  We have to put the equality attribute
        back on to abstypes in case the unification requires it.  There may be other
        situations where things don't work properly. *)
-    fun getPolymorphism (Value{ typeOf=ValueType(typeOf, templates), access, name, ...}, expType, typeVarMap) =
+    fun getPolymorphism (Value{ typeOf=ValueType(valTypeOf as (typeOf, templates)), access, name, ...}, expType, typeVarMap) =
     let
+        (* typeVarMap is used to find type variables that are actually free at this point.  This is a legacy. *)
         val (t, polyVars) =
             case access of
                 Overloaded TypeDep =>
@@ -1262,7 +1263,7 @@ struct
                 in
                     (t, List.map (fn t => {value=t, equality=false, printity=false}) polyVars)
                 end
-            | _ => generaliseWithMap(typeOf, TypeVarMap.mapTypeVars typeVarMap)
+            | _ => generaliseWithMap(valTypeOf, TypeVarMap.mapTypeVars typeVarMap)
         (* Ignore the result.  There are circumstances in which we can get a
            unification error as the result of failing to find a fixed record type
            where the possible records we could find have non-unifiable types.

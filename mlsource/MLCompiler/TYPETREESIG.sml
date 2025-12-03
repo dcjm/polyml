@@ -24,7 +24,7 @@ sig
     type values;
     type typeConstrs;
     type typeConstrSet
-    type typeVarForm
+    type typeVar
     type lexan;
     type typeId;
     type pretty;
@@ -45,6 +45,9 @@ sig
     type tvLevel
     type valAccess
     type tvIndex
+    type typeVarTemplate
+    
+    type typeVarForm = typeVar
 
     type printTypeEnv =
         { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
@@ -66,8 +69,8 @@ sig
     val makeEquivalent:     typeConstrs * types list -> types;
     val firstArg:           types -> types
 
-    val makeGeneralTypeFunction:   typeVarForm list * types * typeIdDescription * valAccess -> typeId
-    and makeTypeFunction:   typeVarForm list * types * typeIdDescription -> typeId
+    val makeGeneralTypeFunction:   typeVar list * types * typeIdDescription * valAccess -> typeId
+    and makeTypeFunction:   typeVar list * types * typeIdDescription -> typeId
 
     (* Follow a chain of unified type variables *)
     val eventual:           types -> types
@@ -76,8 +79,8 @@ sig
     val getFnArgType:   types -> types option
    
     (* Unify two type variables which would otherwise be non-unifiable. *)
-    val linkTypeVars: typeVarForm * typeVarForm -> unit;
-    val setTvarLevel: typeVarForm * tvLevel -> unit
+    val linkTypeVars: typeVar * typeVar -> unit;
+    val setTvarLevel: typeVar * tvLevel -> unit
 
     (* Copy a type constructor. *)
     val copyTypeConstr:
@@ -118,17 +121,17 @@ sig
     (* Generate new copies of all unbound type variables - this is used on all
        non-local values or constructors so that, for example, each occurence of
        "hd", which has type 'a list -> 'a, can be separately bound to types. *)
-    val generalise: types -> types * {value: types, equality: bool, printity: bool} list
+    val generalise: types * typeVarTemplate list -> types * {value: types, equality: bool, printity: bool} list
     (* Create an instance of an overloaded type. *)
     val generaliseOverload: types * typeConstrs list * bool -> types * types list;
 
     (* The same as generalise but with a function that looks up types. *)
     val generaliseWithMap:
-        types * (typeVarForm -> types option) ->
+        (types * typeVarTemplate list) * (typeVar -> types option) ->
             types * {value: types, equality: bool, printity: bool} list
 
     (* Return the type variables that would be generalised at this point. *)
-    val getPolyTypeVars: types * (typeVarForm -> types option) -> typeVarForm list
+    val getPolyTypeVars: (types * typeVarTemplate list) * (typeVar -> types option) -> typeVar list
 
     (* Release type variables at this nesting level.  Updates the type to the
        generalised version. *)
@@ -179,7 +182,7 @@ sig
 
     (* If this is simply giving a new name to a type constructor returns the
        type identifier of the constructor that is being rebound. *)
-    val typeNameRebinding: typeVarForm list * types -> typeId option
+    val typeNameRebinding: typeVar list * types -> typeId option
 
     val leastGeneral: types list -> types
 
@@ -196,7 +199,7 @@ sig
     val makeParseTypeFreeVar: string * bool -> parseTypeVar
     val makeParseTypeBoundVar: string * tvIndex -> parseTypeVar
     val parseTypeVarError: parseTypeVar
-    val getTypeVar: parseTypeVar -> typeVarForm
+    val getTypeVar: parseTypeVar -> typeVar
     val unitTree: location -> typeParsetree
     val displayTypeParse: typeParsetree * FixedInt.int * printTypeEnv -> pretty;
     (* A list of type variables. *)
@@ -267,12 +270,13 @@ sig
         and  pretty     = pretty
         and  lexan      = lexan
         and  ptProperties = ptProperties
-        and  typeVarForm = typeVarForm
+        and  typeVar    = typeVar
         and  codetree   = codetree
         and  matchResult = matchResult
         and  tvLevel = tvLevel
         and  valAccess  = valAccess
         and  tvIndex = tvIndex
+        and  typeVarTemplate = typeVarTemplate
     end
 
 end;

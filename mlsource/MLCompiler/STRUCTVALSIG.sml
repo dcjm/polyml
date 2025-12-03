@@ -36,7 +36,6 @@ sig
   
     (* Standard type constructors. *)
   
-    type typeVarForm
     eqtype uniqueId
     
     type typeIdDescription = { location: location, name: string, description: string }
@@ -106,7 +105,7 @@ sig
     and typeVar =
         TypeVariable of
         {
-            link: typeVarLink ref,
+            link: (*typeVarLink*) types ref,
             equality: bool,
             printity: bool,
             nonunifiable: bool,
@@ -259,6 +258,8 @@ sig
         (* The names of all the fields including extra fields. *)
         fullList: labelFieldList
     }
+    
+    and typeVarForm = typeVar (* Backwards compatibility *)
 
     (* type identifiers. *)
     val isEquality:   typeId -> bool
@@ -382,7 +383,6 @@ sig
         and  infixity   = infixity
         and  functors   = functors
         and  locationProp = locationProp
-        and  typeVarForm = typeVarForm
         and  level      = level
         and  tvLevel    = tvLevel
         and  typeFnEq   = typeFnEq

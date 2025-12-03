@@ -1372,7 +1372,7 @@ struct
         type types      = types
         type typeConstrs= typeConstrs
         type typeConstrSet=typeConstrSet
-        type typeVarForm=typeVarForm
+        type typeVar    =typeVar
         type typeVarMap = typeVarMap
         type codeBinding    = codeBinding
         type level      = level

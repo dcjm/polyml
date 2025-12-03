@@ -193,7 +193,7 @@ struct
     and typeVar =
         TypeVariable of
         {
-            link: typeVarLink ref,
+            link: (*typeVarLink*) types ref,
             equality: bool,
             printity: bool,
             nonunifiable: bool,
@@ -380,12 +380,7 @@ struct
         (* We use a ref here both because we can then set equality if we
            need but also because it allows us to create a unique Id. *)
 
-    and typeVarForm = 
-    {
-        value:    types ref,
-        level:    tvLevel,
-        encoding: Word.word
-    }
+    and typeVarForm = typeVar (* Backwards compatibility *)
 
     and labelledRec =
     {
@@ -517,31 +512,23 @@ struct
      is already an equality variable). 
      ``weak'' is true if this is an imperative type variable e.g. '_a *)
 
-    fun sameTv (a : typeVarForm, b : typeVarForm) : bool = 
-        #value a = #value b; (* If the same ref it must be the same *)
-        
-    local
-        open Word
-        infix 8 >> <<
-        infix 7 andb
-        infix 6 orb
+    fun sameTv (TypeVariable{link=aLink, ...}, TypeVariable{link=bLink, ...})  = aLink = bLink
+
+    fun makeTv {value : types, level, equality, nonunifiable, printable} =
+    let
+        val tvLevel = case level of Generalisable => ~1 | NotGeneralisable i => i
     in
-        fun makeTv {value : types, level, equality, nonunifiable, printable} : typeVarForm =
-            { value    = ref value, (* REF HOTSPOT - 400 *)
-              level    = level,
-              encoding =  (if equality     then 0w4 else 0w0)
-                           orb (if nonunifiable then 0w2 else 0w0)
-                           orb (if printable    then 0w1 else 0w0)}
-        
-        and tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t
-        and tvValue ({value = ref v, ...} : typeVarForm) : types = v
-        and tvLevel ({level, ...} : typeVarForm) : tvLevel  = level
-        and tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0
-        and tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0
-        and tvPrintity ({encoding, ...} : typeVarForm)     = encoding andb 0w1 <> 0w0
-        
-        val generalisable = Generalisable
+        TypeVariable{ link = ref value, level= tvLevel, equality = equality, nonunifiable = nonunifiable, printity = printable}
     end
+    
+    and tvSetValue (TypeVariable{ link, ...} : typeVarForm, t : types) = link := t
+    and tvValue (TypeVariable{link = ref v, ...} : typeVarForm) : types = v
+    and tvLevel (TypeVariable{level, ...} : typeVarForm) : tvLevel  = if level < 0 then Generalisable else NotGeneralisable level
+    and tvEquality (TypeVariable{equality, ...} : typeVarForm)     = equality
+    and tvNonUnifiable (TypeVariable{nonunifiable, ...} : typeVarForm) = nonunifiable
+    and tvPrintity (TypeVariable{printity, ...} : typeVarForm)     = printity
+    
+    val generalisable = Generalisable
 
     local
         fun follow (FlexibleList(ref r)) = follow r
@@ -700,7 +687,6 @@ struct
         and  infixity   = infixity
         and  functors   = functors
         and  locationProp = locationProp
-        and  typeVarForm = typeVarForm
         and  level      = level
         and  tvLevel    = tvLevel
         and  typeFnEq   = typeFnEq

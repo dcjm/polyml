@@ -117,7 +117,7 @@ struct
     (* Description of the actions to perform when a structure matches a signature. *)
     datatype valueMatching =
         ValueMatch of
-            { sourceValue: values, targetType: types, coercion: valueCoercions }
+            { sourceValue: values, targetType: types * typeVarTemplate list, coercion: valueCoercions }
     |   StructureMatch of
             { sourceStructure: structVals, contentsMatch: structureMatch}
     |   TypeIdMatch of
@@ -960,11 +960,11 @@ struct
 
     datatype matchTypeResult =
         MatchError of matchResult
-    |   MatchSuccess of types
+    |   MatchSuccess of types * typeVarTemplate list
 
     (* Check that two types match.  Returns either an error result or the set
        of polymorphic variables for the source and the target. *)
-    fun matchTypes (candidate, target, targMap: int -> typeId option, _) =
+    fun matchTypes ((candidate, candidTempls), (target, targetTempls), targMap: int -> typeId option, _) =
     let
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = targMap offset
         |   copyId _ = NONE
@@ -979,11 +979,11 @@ struct
            we will not map it properly if it occurs again (we call "eventual"
            and get the second tv before calling the map function so we get a
            second copy and not the first copy). *)
-        val (copiedCandidate : types, _) = generalise candidate;
+        val (copiedCandidate : types, _) = generalise(candidate, candidTempls)
     in
         case unifyTypes (copiedCandidate, copiedTarget) of
             NONE => (* Succeeded. Return the unified type.  Either will do. *)
-                MatchSuccess copiedTarget
+                MatchSuccess(copiedTarget, [])
         |   SOME error => MatchError error
     end;
 
@@ -1005,8 +1005,8 @@ struct
         then () (* Have already given the error message. *)
         else (* Check the type constructors themselves first. This checks
                 that the sharing constraints have been satisfied. *)
-        case matchTypes (mkTypeConstruction (candidName, candid, tvars, []),
-                         mkTypeConstruction (targetName, target, tvars, []), 
+        case matchTypes ((mkTypeConstruction (candidName, candid, tvars, []), []),
+                         (mkTypeConstruction (targetName, target, tvars, []), []), 
                          targTypeMap, lex) of
                 MatchError error => (* Report the error. *)
                     errorInDatatype(candidSet, targetSet, matchErrorReport(lex, typeEnv, typeEnv) error)
@@ -1187,9 +1187,9 @@ struct
                                 (* We don't actually check the value constructors here, just load them if they
                                    match.  Because of the no-redefinition rule value constructors in the signature
                                    must also be present in the value environment so we check them there. *)
-                                fun matchConstructor(source as Value{typeOf=ValueType(typeOf, _), ...}, Value{access=Formal addr, ...}, matches) =
+                                fun matchConstructor(source as Value{typeOf=ValueType valTypeOf, ...}, Value{access=Formal addr, ...}, matches) =
                                         (addr,
-                                            ValueMatch { sourceValue = source, coercion = NoCoercion, targetType = typeOf }) :: matches
+                                            ValueMatch { sourceValue = source, coercion = NoCoercion, targetType = valTypeOf }) :: matches
                                 |   matchConstructor(_, _, matches) = matches
                             in
                                 (* Now check that the types match. *)
@@ -1274,11 +1274,11 @@ struct
                 if tagIs valueVar dVal
                 then
                 let
-                    val destVal as Value { typeOf=ValueType(destTypeOf, _), class=destClass, access=destAccess, ...} = tagProject valueVar dVal
+                    val destVal as Value { typeOf=ValueType destValType, class=destClass, access=destAccess, ...} = tagProject valueVar dVal
                 in
                     case univLookup (sigTab candidate, valueVar, dName) of
                         NONE => (sigStructMissingMsg(lex, near, lno, structPath) displayValue destVal; matches)
-                    |   SOME (candid as Value { typeOf=ValueType(sourceTypeOf, _), class=sourceClass, ...}) =>
+                    |   SOME (candid as Value { typeOf=ValueType sourceValType, class=sourceClass, ...}) =>
                         let
                             (* If the target is a constructor or exception the candidate must be
                                similar.  If the candidate is a constructor or exception this will
@@ -1302,7 +1302,7 @@ struct
                                         matches
                                     )
                             |   IsOK coercion =>
-                                case matchTypes (sourceTypeOf, destTypeOf, lookupType, lex) of
+                                case matchTypes (sourceValType, destValType, lookupType, lex) of
                                     MatchSuccess instanceType =>
                                     (
                                         (* If it matches an entry in the signature it counts as being exported
@@ -1369,8 +1369,8 @@ struct
                the most general type and discard any, possibly less general,
                references. *)
             case valu of
-                Value{ typeOf=ValueType(typeOf, _), instanceTypes=SOME instanceRef, ...} =>
-                    instanceRef := [#1(generalise typeOf)]
+                Value{ typeOf=ValueType valType, instanceTypes=SOME instanceRef, ...} =>
+                    instanceRef := [#1(generalise valType)]
             |   _ => ()
         end
         else ()
@@ -1401,15 +1401,15 @@ struct
             val v = tagProject valueVar dVal
         in
             case v of
-                Value { access=Formal addr, typeOf=ValueType(typeOf, _), ...} =>
-                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = typeOf }) :: matches
+                Value { access=Formal addr, typeOf=ValueType valTypeOf, ...} =>
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = valTypeOf }) :: matches
             |   _ => matches
         end
         else if tagIs typeConstrVar dVal
         then
         let
-            fun matchConstructor(v as Value{access=Formal addr, typeOf=ValueType(typeOf, _), ...}, matches) =
-                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = typeOf }) :: matches
+            fun matchConstructor(v as Value{access=Formal addr, typeOf=ValueType valTypeOf, ...}, matches) =
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = valTypeOf }) :: matches
             |   matchConstructor(_, matches) = matches
         in
             List.foldl matchConstructor matches (tsConstructors(tagProject typeConstrVar dVal))
@@ -1636,7 +1636,7 @@ struct
                            hidden by later declarations.  We still need the whole value environment in
                            case of datatype replication. *)
                         fun convertConstructor(
-                                valVal as Value{class, typeOf as ValueType(typ, _), locations, references, name, instanceTypes, ...},
+                                valVal as Value{class, typeOf as ValueType valTypeOf, locations, references, name, instanceTypes, ...},
                                 (otherConstrs, (addrs, matches))) =
                         let
                             val formalValue =
@@ -1646,7 +1646,7 @@ struct
                             (formalValue :: otherConstrs,
                                 (addrs + 1,
                                     (addrs,
-                                        ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=typ}) :: matches))
+                                        ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=valTypeOf}) :: matches))
                         end
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
                         fun makeTypeConstructor (name, typeVars, uid, locations) =
@@ -1694,7 +1694,7 @@ struct
                             #enterVal finalEnv (dName, value);
                             (addrs, matches)
                         )
-                    |   Value{class, typeOf as ValueType(oldTypeOf, _), locations, references, instanceTypes, ...} =>
+                    |   Value{class, typeOf as ValueType valTypeOf, locations, references, instanceTypes, ...} =>
                         let
                             val formalValue =
                                 Value{class=class, name=dName, typeOf=typeOf, access=Formal addrs,
@@ -1704,7 +1704,7 @@ struct
                             #enterVal finalEnv (dName, formalValue);
                             (addrs + 1,
                                 (addrs,
-                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=oldTypeOf}) :: matches)
+                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=valTypeOf}) :: matches)
                         end
                 end
                 else (addrs, matches)
@@ -2466,8 +2466,8 @@ struct
                        We can discard any other instance type info since it cannot be
                        more general. *)
                     case valu of
-                        Value{ typeOf=ValueType(typeOf, _), instanceTypes=SOME instanceRef, ...} =>
-                            instanceRef := [#1(generalise typeOf)]
+                        Value{ typeOf=ValueType valType, instanceTypes=SOME instanceRef, ...} =>
+                            instanceRef := [#1(generalise valType)]
                     |   _ => ()
                 )
             )
@@ -2591,7 +2591,9 @@ struct
                 end
 
             |   applyAction
-                ((destAddr, ValueMatch { sourceValue as Value{typeOf=ValueType(sourceTypeOf, _), name, ...}, coercion, targetType }),
+                ((destAddr,
+                    ValueMatch { sourceValue as Value{typeOf=ValueType(sourceValType as (sourceTypeOf, _)), name, ...},
+                    coercion, targetType as (targetTypeOf, _) }),
                  (otherCode, allSame)) =
                 let
                     (* Set up a new type variable environment in case this needs to create type
@@ -2641,11 +2643,11 @@ struct
                             )
 
                     local
-                        val (copiedCandidate, sourceVars) = generalise sourceTypeOf
+                        val (copiedCandidate, sourceVars) = generalise sourceValType
                         val sourceVars =
                             List.filter (fn {equality, ...} => not justForEqualityTypes orelse equality) sourceVars
                         val () = 
-                            case unifyTypes(copiedCandidate, targetType) of
+                            case unifyTypes(copiedCandidate, targetTypeOf) of
                                 NONE => ()
                             |   SOME report => (print(name ^ ":\n"); PolyML.print report; raise InternalError "unifyTypes failed in pass 3")
                         val filterTypeVars = List.filter (fn tv => not justForEqualityTypes orelse tvEquality tv)

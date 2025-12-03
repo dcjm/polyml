@@ -708,7 +708,9 @@ struct
 
     datatype generalMatch = Matched of {old: typeVarForm, new: types};
 
-    fun generaliseTypes (atyp : types, checkTv: typeVarForm->types option) = 
+    (* Copies the type replacing any generalisable type variables with new type variables.
+       checkTv is backwards compatibility. *)
+    fun generaliseTypes (atyp : types, lookupBound, checkTv: typeVarForm->types option) = 
     let
         val madeList = ref [] (* List of tyVars. *);
 
@@ -750,23 +752,76 @@ struct
                    copy the type pointed at by the variable. *)
                 case tvValue tyVar of
                     valu as LabelledType _ =>
-                        tvSetValue (typesTypeVar newTv, copyType (valu, fn _ => NONE, copyTypeVar, fn t => t))
+                        tvSetValue (typesTypeVar newTv, copyType (valu, SOME o lookupBound, copyTypeVar, fn t => t))
                 |   _ => ();
                 newTv
             end
-        | copyTypeVar atyp = atyp
+
+        |   copyTypeVar atyp = atyp
         
         val copied =
             (* Only process type variables. Return type constructors unchanged. *)
-            copyType (atyp, fn _ => NONE, copyTypeVar, fn t => t (*copyTCons*))
+            copyType (atyp, SOME o lookupBound, copyTypeVar, fn t => t (*copyTCons*))
     in
         (copied, ! madeList)
     end (* generaliseTypes *)
 
+    fun createTypeVariable(TemplPlain{ equality, printity }) =
+            makeTv {value=emptyType, level=generalisable, equality=equality,
+                         nonunifiable=false, printable=printity}
+    |   createTypeVariable(TemplFree tv) = tv
+    |   createTypeVariable(TemplFlexRecord{fields, generic=ref { frozen, fields=genFields}, equality, printity}) =
+        let
+            val final = FieldList(genFields, frozen)
+            val lab =
+                LabelledType {recList = fields,
+                              fullList = if frozen then final else FlexibleList(ref final) }
+        in
+            makeTv{value=lab, level=generalisable, equality=equality,
+                         nonunifiable=false, printable=printity}
+        end
+
+    (* Create a map for type variables.  Optimise the most common cases *)
+    fun createTypeVariableMap [] = (fn _ => raise InternalError "createTypeVariableMap")
+
+    |   createTypeVariableMap [a] =
+        let
+            val tv = createTypeVariable a
+        in
+            fn TVIndex 0 => tv | _ => raise InternalError "createTypeVariableMap"
+        end
+
+    |   createTypeVariableMap [a, b] =
+        let
+            val tvA = createTypeVariable a
+            and tvB = createTypeVariable b
+        in
+            fn TVIndex 0 => tvA | TVIndex 1 => tvB | _ => raise InternalError "createTypeVariableMap"
+        end
+
+    |   createTypeVariableMap [a, b, c] =
+        let
+            val tvA = createTypeVariable a
+            and tvB = createTypeVariable b
+            and tvC = createTypeVariable c
+        in
+            fn TVIndex 0 => tvA | TVIndex 1 => tvB | TVIndex 2 => tvC | _ => raise InternalError "createTypeVariableMap"
+        end
+
+    |   createTypeVariableMap templs =
+        let
+            val tvs = map createTypeVariable templs
+            val tvVector = Vector.fromList tvs
+        in
+            fn TVIndex n => Vector.sub(tvVector, n)
+        end
+
     (* Exported wrapper for generaliseTypes. *)
-    fun generalise atyp =
+    fun generalise(atyp, templs) =
     let
-        val (t, newMatch) = generaliseTypes (atyp, fn _ => NONE)
+        (* Create free type variables for each template. *)
+        val freeTypeMap = TypeVar o createTypeVariableMap templs
+        val (t, newMatch) = generaliseTypes (atyp, freeTypeMap, fn _ => NONE)
         fun makeResult(Matched{new, old}) =
             {value=new, equality=tvEquality old, printity=tvPrintity old}
     in
@@ -786,7 +841,7 @@ struct
                         SOME (_, ty) => SOME ty
                     |   NONE => NONE
             in
-                #1 (generaliseTypes(typeResult, getArg))
+                #1 (generaliseTypes(typeResult, fn _ => raise InternalError "makeEquivalent", getArg))
             end
 
         |   TypeId _ => raise InternalError "makeEquivalent: Not a type function"
@@ -1982,16 +2037,20 @@ struct
     |   recordNotFrozen _ = false (* record or type alias *);
 
     (* Return the original polymorphic type variables. *)
-    fun getPolyTypeVars(atyp, map) =
+    (* Backwards compatibility: if there are no templates it could be that it's the old form. *)
+    fun getPolyTypeVars((atyp, []), map) =
+        let
+            val (_, newMatch) = generaliseTypes (atyp, fn _ => raise InternalError "getPolyTypeVars", map)
+        in
+            List.map (fn(Matched{old, ...}) => old) newMatch
+        end
+
+    |   getPolyTypeVars((_, templates), _) = map createTypeVariable templates
+
+    fun generaliseWithMap((atyp, templates), map) =
     let
-        val (_, newMatch) = generaliseTypes (atyp, map)
-    in
-        List.map (fn(Matched{old, ...}) => old) newMatch
-    end;
-    
-    fun generaliseWithMap(atyp, map) =
-    let
-        val (t, newMatch) = generaliseTypes (atyp, map)
+        val freeTypeMap = TypeVar o createTypeVariableMap templates
+        val (t, newMatch) = generaliseTypes (atyp, freeTypeMap, map)
         fun makeResult(Matched{new, old}) =
             {value=new, equality=tvEquality old, printity=tvPrintity old}
     in
@@ -2012,7 +2071,7 @@ struct
                     SOME (_, ty) => SOME ty
                 |   NONE => NONE
         in
-            #1 (generaliseTypes(arg, getArg))
+            #1 (generaliseTypes(arg, fn _ => raise InternalError "constructorResult", getArg))
         end
     | constructorResult _ = raise InternalError "Not a function type"
 
@@ -2549,6 +2608,10 @@ struct
                         )
                 )
 
+            |   (BoundTypeVar (_, TVIndex iA), BoundTypeVar (_, TVIndex iB)) =>
+                    (* For the moment just do this. *)
+                    if iA = iB then () else cantMatch (tA, tB, "(Different bound type variables)")
+
             |   (TypeConstruction({constr = tACons as
                     TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidA, typeFunCount=tfCA, usedTvs, ...}, ...},...}, args=tAargs, ...}), 
                  TypeConstruction ({constr = tBCons as
@@ -2807,7 +2870,7 @@ struct
                    an empty overload set.  This should be replaced by
                    the current overload set in the copied function type. *)
                 val newSet = mkOverloadSet constrs
-                val (t, _) = generaliseTypes(t, fn old => if sameTv(old, tv) then SOME newSet else NONE)
+                val (t, _) = generaliseTypes(t, fn _ => raise InternalError "generaliseOverload", fn old => if sameTv(old, tv) then SOME newSet else NONE)
             in
                 (t, [newSet])
             end
@@ -2916,15 +2979,15 @@ struct
 
             (* Print a sequence of constructors (unblocked) *)
             fun pValConstrRest ([],     _    ): pretty list = []
-            |   pValConstrRest ((Value{typeOf=ValueType(typeOf, _), name, ...}):: T, depth): pretty list =
+            |   pValConstrRest ((Value{typeOf=ValueType valType, name, ...}):: T, depth): pretty list =
                 if depth < 0 then []           
-                else pValConstr (false, name, typeOf, depth) @
+                else pValConstr (false, name, valType, depth) @
                         pValConstrRest (T, depth - 1)
            
             fun pValConstrList ([],     _    ) = PrettyString "" (* shouldn't occur *)    
-            |   pValConstrList ((Value{typeOf=ValueType(typeOf, _), name, ...}) :: T, depth) =
+            |   pValConstrList ((Value{typeOf=ValueType valType, name, ...}) :: T, depth) =
                     PrettyBlock (2, true, [],
-                        pValConstr (true, name, typeOf, depth) @
+                        pValConstr (true, name, valType, depth) @
                         pValConstrRest (T, depth - 1)
                     )
 
@@ -3511,12 +3574,13 @@ struct
         and  pretty     = pretty
         and  lexan      = lexan
         and  ptProperties = ptProperties
-        and  typeVarForm = typeVarForm
+        and  typeVar    = typeVar
         and  codetree   = codetree
         and  matchResult = matchResult
         and  generalMatch = generalMatch
         and  tvLevel = tvLevel
         and  valAccess  = valAccess
         and  tvIndex = tvIndex
+        and  typeVarTemplate = typeVarTemplate
     end
 end (* TYPETREE *);

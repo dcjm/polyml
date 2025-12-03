@@ -107,13 +107,22 @@ struct
             open TYPETREE;
         in
             (* Make some type variables *)
-            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
+(*            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
             fun makeTV    () = mkTypeVar (generalisable, false, false, false)
             fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
             fun makeTypeVariable() =
                 makeTv {value=emptyType, level=generalisable, equality=false,
-                        nonunifiable=false, printable=false}
-            
+                        nonunifiable=false, printable=false}*)
+            val tvA = BoundTypeVar("'a", TVIndex 0)
+            and tvB = BoundTypeVar("'b", TVIndex 1)
+            and tvC = BoundTypeVar("'c", TVIndex 2)
+            and tvD = BoundTypeVar("'d", TVIndex 3)
+            and tvE = BoundTypeVar("'e", TVIndex 4)
+            and tvF = BoundTypeVar("'f", TVIndex 5)
+
+            val defaultTemplate = TemplPlain { equality=false, printity=false }
+            fun templates n = List.tabulate(n, fn _ => defaultTemplate)
+
             (* Make some functions *)
             infixr 5 ->>
             fun a ->> b = mkFunctionType (a, b);
@@ -137,13 +146,15 @@ struct
             val () = setPreferredInt(if intIsArbitraryPrecision then intInfConstr else fixedIntConstr)
         end;
 
-        fun makePolymorphic(tvs, c) =
+        fun makePolymorphic(templs, c) =
         let
             open TYPEIDCODE
-            val tvs =
-                List.filter(fn TypeVar tv => not justForEqualityTypes orelse tvEquality tv | _ => false) tvs
+            fun polyTemplate(TemplPlain{equality=true, ...}, n) = n+1
+            |   polyTemplate(TemplPlain{equality=false, ...}, n) = if justForEqualityTypes then n else n+1
+            |   polyTemplate _ = raise Misc.InternalError "polyTemplate"
+            val polyCount = List.foldl polyTemplate 0 templs
         in
-            if null tvs then c else mkInlproc(c, List.length tvs, "", [], 0)
+            if polyCount = 0 then c else mkInlproc(c, polyCount, "", [], 0)
         end
 
         (* Function to make a type identifier with a pretty printer that just prints "?".
@@ -162,9 +173,6 @@ struct
                     Global (genCode(code, [], 0) ())
                 end
         end
-        
-        val defaultTemplate = TemplPlain { equality=false, printity=false }
-        fun templates n = List.tabulate(n, fn _ => defaultTemplate)
 
         fun makeTypeConstructor (name, typeVars, uid, locations) =
             TypeConstrs
@@ -259,14 +267,11 @@ struct
         val () = enterGlobalType  ("option", optionConstr);
 
         local
+            (* For the moment use the old format since this is a datatype. *)
+            val a = mkTypeVar (generalisable, false, false, false)
             val refCons =
-                let
-                    val a = mkTypeVar(generalisable, false, false, false)
-                    val arity = 1
-                in
                     mkGconstr ("ref", ValueType(a ->> Ref a, templates 1),
-                        createUnaryConstructor(RefForm, arity, "ref"), false, 1, declInBasis)
-                end
+                        createUnaryConstructor(RefForm, 1, "ref"), false, 1, declInBasis)
         in
             val () = enterGlobalType  ("ref", TypeConstrSet(refConstr, [refCons]));
             val () = enterGlobalValue ("ref", refCons);
@@ -304,109 +309,86 @@ struct
         val () = enterGlobalType ("word", TypeConstrSet(wordConstr, []));
 
         val runCallEnv = makeStructure(globalEnv, "RunCall")
-        
-        fun enterRunCall (name : string, entry : codetree, typ : types, arity) : unit =
+
+        fun enterRunCall (name : string, entry : codetree, typ : types, templates) : unit =
         let
-            val value = mkGvar (name, ValueType(typ, templates arity), entry, declInBasis);
+            val code = makePolymorphic(templates, entry)
+            val value = mkGvar (name, ValueType(typ, templates), code, declInBasis);
         in
             #enterVal runCallEnv (name, value)
         end
   
         local
             (* unsafeCast.  Can be used to convert any value to any type. *)
-            val a = makeTV ()
-            val b = makeTV ()
-
             val unsafeCastEntry =
                 mkInlproc (mkLoadArgument 0  (* just the parameter *), 1, "unsafeCast(1)", [], 0)
+
         in
             val () =
-                enterRunCall ("unsafeCast", makePolymorphic([a, b], unsafeCastEntry), a ->> b, 2)
+                enterRunCall ("unsafeCast", unsafeCastEntry, tvA ->> tvB, templates 2)
         end
 
         local
-            val a = makeTV() and b = makeTV()
             open BuiltIns
         in
             (* isShort - test if a value is tagged rather than being an address. *)
             val () =
-                enterRunCall ("isShort", makePolymorphic([a], mkUnaryFn IsTaggedValue), a ->> Bool, 1)
+                enterRunCall ("isShort", mkUnaryFn IsTaggedValue, tvA ->> Bool, templates 1)
             (* pointer equality *)
             val () =
-                enterRunCall ("pointerEq",
-                    makePolymorphic([a], mkBinaryFn PointerEq), a ** a ->> Bool, 1)
+                enterRunCall ("pointerEq", mkBinaryFn PointerEq, tvA ** tvA ->> Bool, templates 1)
             (* load a word. The index is in words and is always zero or positive. *)
-            val () = enterRunCall ("loadWord",
-                    makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLWord{isImmutable=false})), a ** Word ->> b, 2)
+            val () = enterRunCall ("loadWord", mkLoadOperationFn(LoadStoreMLWord{isImmutable=false}), tvA ** Word ->> tvB, templates 2)
             (* Load a word from an immutable.  *)
-            val () = enterRunCall ("loadWordFromImmutable",
-                    makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLWord{isImmutable=true})), a ** Word ->> b, 2)
+            val () = enterRunCall ("loadWordFromImmutable", mkLoadOperationFn(LoadStoreMLWord{isImmutable=true}), tvA ** Word ->> tvB, templates 2)
             (* load a byte. The index is in bytes and is always zero or positive.  Probably the
                result should be a Word8.word value or a char. *)
-            val () = enterRunCall ("loadByte",
-                    makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLByte{isImmutable=false})), a ** Word ->> b, 2)
+            val () = enterRunCall ("loadByte", mkLoadOperationFn(LoadStoreMLByte{isImmutable=false}), tvA ** Word ->> tvB, templates 2)
             (* Load a byte from an immutable.  *)
-            val () = enterRunCall ("loadByteFromImmutable",
-                    makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLByte{isImmutable=true})), a ** Word ->> b, 2)
+            val () = enterRunCall ("loadByteFromImmutable", mkLoadOperationFn(LoadStoreMLByte{isImmutable=true}), tvA ** Word ->> tvB, templates 2)
             (* Load a 32-bit value into a large word *)
-            val () = enterRunCall ("loadPolyWord",
-                    makePolymorphic([a], mkLoadOperationFn(LoadStorePolyWord{isImmutable=false})), a ** Word ->> LargeWord, 1)
+            val () = enterRunCall ("loadPolyWord", mkLoadOperationFn(LoadStorePolyWord{isImmutable=false}), tvA ** Word ->> LargeWord, templates 1)
             (* Load a 64-bit value into a large word *)
-            val () = enterRunCall ("loadNativeWord",
-                    makePolymorphic([a], mkLoadOperationFn(LoadStoreNativeWord{isImmutable=false})), a ** Word ->> LargeWord, 1)
+            val () = enterRunCall ("loadNativeWord", mkLoadOperationFn(LoadStoreNativeWord{isImmutable=false}), tvA ** Word ->> LargeWord, templates 1)
             (* Get the length of a heap cell. *)
-            val () = enterRunCall ("memoryCellLength", makePolymorphic([a], mkUnaryFn MemoryCellLength), a ->> Word, 1)
+            val () = enterRunCall ("memoryCellLength", mkUnaryFn MemoryCellLength, tvA ->> Word, templates 1)
             (* Return the flags.  Perhaps this could return a Word8.word value instead of a word. *)
-            val () = enterRunCall ("memoryCellFlags", makePolymorphic([a], mkUnaryFn MemoryCellFlags), a ->> Word, 1)
+            val () = enterRunCall ("memoryCellFlags", mkUnaryFn MemoryCellFlags, tvA ->> Word, templates 1)
             (* Return the number of bytes per word.  This is a constant since we have separate pre-built
                compilers for 32-bit and 64-bit.  N.B. The byte order is not a constant since we
                only have a single pre-built compiler for little-endian and big-endian interpreted code. *)
-            val () = enterRunCall ("bytesPerWord", mkConst(toMachineWord wordSize), Word, 0)
+            val () = enterRunCall ("bytesPerWord", mkConst(toMachineWord wordSize), Word, templates 0)
             (* Store a word *)
-            val () = enterRunCall ("storeWord",
-                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLWord{isImmutable=false})), mkProductType[a, Word, b] ->> Unit, 2)
+            val () = enterRunCall ("storeWord", mkStoreOperationFn(LoadStoreMLWord{isImmutable=false}), mkProductType[tvA, Word, tvB] ->> Unit, templates 2)
             (* Store a byte *)
-            val () = enterRunCall ("storeByte",
-                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=false})), mkProductType[a, Word, b] ->> Unit, 2)
+            val () = enterRunCall ("storeByte", mkStoreOperationFn(LoadStoreMLByte{isImmutable=false}), mkProductType[tvA, Word, tvB] ->> Unit, templates 2)
             (* Store a word without release semantics. *)
-            val () = enterRunCall ("storeWordInitialise",
-                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLWord{isImmutable=true})), mkProductType[a, Word, b] ->> Unit, 2)
+            val () = enterRunCall ("storeWordInitialise", mkStoreOperationFn(LoadStoreMLWord{isImmutable=true}), mkProductType[tvA, Word, tvB] ->> Unit, templates 2)
             (* Store a byte without release semantics *)
-            val () = enterRunCall ("storeByteInitialise",
-                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=true})), mkProductType[a, Word, b] ->> Unit, 2)
+            val () = enterRunCall ("storeByteInitialise", mkStoreOperationFn(LoadStoreMLByte{isImmutable=true}), mkProductType[tvA, Word, tvB] ->> Unit, templates 2)
             (* Store a PolyWord value from a large word *)
-            val () = enterRunCall ("storePolyWord",
-                    makePolymorphic([a], mkStoreOperationFn(LoadStorePolyWord{isImmutable=false})), mkProductType[a, Word, LargeWord] ->> Unit, 1)
+            val () = enterRunCall ("storePolyWord", mkStoreOperationFn(LoadStorePolyWord{isImmutable=false}), mkProductType[tvA, Word, LargeWord] ->> Unit, templates 1)
             (* Store a native word value from a large word *)
-            val () = enterRunCall ("storeNativeWord",
-                    makePolymorphic([a], mkStoreOperationFn(LoadStoreNativeWord{isImmutable=false})), mkProductType[a, Word, LargeWord] ->> Unit, 1)
+            val () = enterRunCall ("storeNativeWord", mkStoreOperationFn(LoadStoreNativeWord{isImmutable=false}), mkProductType[tvA, Word, LargeWord] ->> Unit, templates 1)
             (* Lock a mutable cell. *)
-            val () = enterRunCall ("clearMutableBit",
-                    makePolymorphic([a], mkUnaryFn ClearMutableFlag), a ->> Unit, 1)
+            val () = enterRunCall ("clearMutableBit", mkUnaryFn ClearMutableFlag, tvA ->> Unit, templates 1)
             (* Allocate a byte cell.  The second argument is the flags byte.  It might be better
                if this were a Word8.word value.  *)
-            val () = enterRunCall ("allocateByteMemory",
-                    makePolymorphic([a], mkBinaryFn AllocateByteMemory), Word ** Word ->> a, 1)
+            val () = enterRunCall ("allocateByteMemory", mkBinaryFn AllocateByteMemory, Word ** Word ->> tvA, templates 1)
             (* Allocate a word cell. *)
-            val () = enterRunCall ("allocateWordMemory",
-                    makePolymorphic([a, b], mkAllocateWordMemoryFn), mkProductType[Word, Word, a] ->> b, 2)
+            val () = enterRunCall ("allocateWordMemory", mkAllocateWordMemoryFn, mkProductType[Word, Word, tvA] ->> tvB, templates 2)
             (* Byte vector operations. *)
-            val () = enterRunCall ("byteVectorEqual",
-                    makePolymorphic([a], mkBlockOperationFn BlockOpEqualByte), mkProductType[a, a, Word, Word, Word] ->> Bool, 1)
-            val () = enterRunCall ("byteVectorCompare",
-                    makePolymorphic([a], mkBlockOperationFn BlockOpCompareByte), mkProductType[a, a, Word, Word, Word] ->> Int, 1)
+            val () = enterRunCall ("byteVectorEqual", mkBlockOperationFn BlockOpEqualByte, mkProductType[tvA, tvA, Word, Word, Word] ->> Bool, templates 1)
+            val () = enterRunCall ("byteVectorCompare", mkBlockOperationFn BlockOpCompareByte, mkProductType[tvA, tvA, Word, Word, Word] ->> Int, templates 1)
             (* Block moves. *)
-            val () = enterRunCall ("moveBytes",
-                    makePolymorphic([a], mkBlockOperationFn (BlockOpMove{isByteMove=true})), mkProductType[a, a, Word, Word, Word] ->> Unit, 1)
-            val () = enterRunCall ("moveWords",
-                    makePolymorphic([a], mkBlockOperationFn (BlockOpMove{isByteMove=false})), mkProductType[a, a, Word, Word, Word] ->> Unit, 1)
+            val () = enterRunCall ("moveBytes", mkBlockOperationFn (BlockOpMove{isByteMove=true}), mkProductType[tvA, tvA, Word, Word, Word] ->> Unit, templates 1)
+            val () = enterRunCall ("moveWords", mkBlockOperationFn (BlockOpMove{isByteMove=false}), mkProductType[tvA, tvA, Word, Word, Word] ->> Unit, templates 1)
             (* Untagged loads and stores. *)
             val () = enterRunCall ("loadUntagged",
-                    mkLoadOperationFn LoadStoreUntaggedUnsigned, String ** Word ->> Word, 0)
+                    mkLoadOperationFn LoadStoreUntaggedUnsigned, String ** Word ->> Word, [])
             val () = enterRunCall ("storeUntagged",
-                    mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit, 0)
-            val () = enterRunCall ("touch",
-                        makePolymorphic([a], mkUnaryFn TouchAddress), a ->> Unit, 1)
+                    mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit, [])
+            val () = enterRunCall ("touch", mkUnaryFn TouchAddress, tvA ->> Unit, templates 1)
         end
 
         local
@@ -489,62 +471,51 @@ struct
             end
 
             local
-                val a = makeTV ()
-                and b = makeTV ()
-
                 fun makeInlCode(makeCall, name) =
                 let
                     val call1 = toMachineWord(makeCall 1)
                     val body = mkEval(mkConst call1, [mkLoadArgument 0])
-                    val proc = mkInlproc (body, 1, name, [], 0)
                 in
-                    makePolymorphic([a, b], proc)
+                    mkInlproc (body, 1, name, [], 0)
                 end
             in
                 val rtsCallFast1Entry = makeInlCode(makeFastCall, "rtsCallFast1")
             end
             
             local
-                val a = makeTV ()
-                and b = makeTV ()
-                and c = makeTV ()
-                and d = makeTV ()
-                and e = makeTV ()
-                and f = makeTV ()
-                
                 fun makeRtsCall(n, makeCall) = makeRunCallTupled(List.tabulate(n, fn _ => GeneralType), GeneralType, toMachineWord(makeCall n))
                 fun makeFullRtsCall n = makeRunCallTupledFull(List.tabulate(n, fn _ => GeneralType), GeneralType)
             in
-                val rtsCallFull0Entry = makePolymorphic([a], makeFullRtsCall 0)
-                and rtsCallFast0Entry = makePolymorphic([a], makeRtsCall(0, makeFastCall))
-                val rtsCall0Type = String ->> Unit ->> a
+                val rtsCallFull0Entry = makeFullRtsCall 0
+                and rtsCallFast0Entry = makeRtsCall(0, makeFastCall)
+                val rtsCall0Type = String ->> Unit ->> tvA
  
-                val rtsCall1Type = String ->> a ->> b
-                val rtsCallFull1Entry = makePolymorphic([a, b], makeFullRtsCall 1)
-                val rtsCallFull2Entry = makePolymorphic([a, b, c], makeFullRtsCall 2)
-                and rtsCallFast2Entry = makePolymorphic([a, b, c], makeRtsCall(2, makeFastCall))
-                val rtsCall2Type = String ->> TYPETREE.mkProductType [a,b] ->> c
-                val rtsCallFull3Entry = makePolymorphic([a, b, c, d], makeFullRtsCall 3)
-                val rtsCallFast3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFastCall))
-                val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
-                val rtsCallFull4Entry = makePolymorphic([a, b, c, d, e], makeFullRtsCall 4)
-                val rtsCallFast4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFastCall))
-                val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
-                val rtsCallFull5Entry = makePolymorphic([a, b, c, d, e, f], makeFullRtsCall 5)
-                val rtsCall5Type = String ->> TYPETREE.mkProductType [a,b,c,d,e] ->> f
+                val rtsCall1Type = String ->> tvA ->> tvB
+                val rtsCallFull1Entry = makeFullRtsCall 1
+                val rtsCallFull2Entry = makeFullRtsCall 2
+                and rtsCallFast2Entry = makeRtsCall(2, makeFastCall)
+                val rtsCall2Type = String ->> TYPETREE.mkProductType [tvA,tvB] ->> tvC
+                val rtsCallFull3Entry = makeFullRtsCall 3
+                val rtsCallFast3Entry = makeRtsCall(3, makeFastCall)
+                val rtsCall3Type = String ->> TYPETREE.mkProductType [tvA,tvB,tvC] ->> tvD
+                val rtsCallFull4Entry = makeFullRtsCall 4
+                val rtsCallFast4Entry = makeRtsCall(4, makeFastCall)
+                val rtsCall4Type = String ->> TYPETREE.mkProductType [tvA,tvB,tvC,tvD] ->> tvE
+                val rtsCallFull5Entry = makeFullRtsCall 5
+                val rtsCall5Type = String ->> TYPETREE.mkProductType [tvA,tvB,tvC,tvD,tvE] ->> tvF
             end
         in
-            val () = enterRunCall ("rtsCallFull0", rtsCallFull0Entry, rtsCall0Type, 1)
-            val () = enterRunCall ("rtsCallFast0", rtsCallFast0Entry, rtsCall0Type, 1)
-            val () = enterRunCall ("rtsCallFull1", rtsCallFull1Entry, rtsCall1Type, 2)
-            val () = enterRunCall ("rtsCallFast1", rtsCallFast1Entry, rtsCall1Type, 2)
-            val () = enterRunCall ("rtsCallFull2", rtsCallFull2Entry, rtsCall2Type, 3)
-            val () = enterRunCall ("rtsCallFast2", rtsCallFast2Entry, rtsCall2Type, 3)
-            val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type, 4)
-            val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type, 4)
-            val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type, 5)
-            val () = enterRunCall ("rtsCallFull4", rtsCallFull4Entry, rtsCall4Type, 5)
-            val () = enterRunCall ("rtsCallFull5", rtsCallFull5Entry, rtsCall5Type, 5)
+            val () = enterRunCall ("rtsCallFull0", rtsCallFull0Entry, rtsCall0Type, templates 1)
+            val () = enterRunCall ("rtsCallFast0", rtsCallFast0Entry, rtsCall0Type, templates 1)
+            val () = enterRunCall ("rtsCallFull1", rtsCallFull1Entry, rtsCall1Type, templates 2)
+            val () = enterRunCall ("rtsCallFast1", rtsCallFast1Entry, rtsCall1Type, templates 2)
+            val () = enterRunCall ("rtsCallFull2", rtsCallFull2Entry, rtsCall2Type, templates 3)
+            val () = enterRunCall ("rtsCallFast2", rtsCallFast2Entry, rtsCall2Type, templates 3)
+            val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type, templates 4)
+            val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type, templates 4)
+            val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type, templates 5)
+            val () = enterRunCall ("rtsCallFull4", rtsCallFull4Entry, rtsCall4Type, templates 5)
+            val () = enterRunCall ("rtsCallFull5", rtsCallFull5Entry, rtsCall5Type, templates 6)
             
             val makeRunCallTupled = makeRunCallTupled (* Needed for reals. *)
         end
@@ -985,16 +956,16 @@ struct
         end
 
         local
+            val singleTemplate = templates 1
             val fmemEnv = makeStructure(globalEnv, "ForeignMemory")
-            val a = makeTV()
             (* We don't have Word8.word or Word32.word at this point so the easiest way to
                deal with this is to make them polymorphic. *)
             val get8Function =
-                mkGvar("get8", ValueType(LargeWord ** Word ->> a, templates 1), makePolymorphic([a], mkLoadOperationFn LoadStoreC8), declInBasis)
+                mkGvar("get8", ValueType(LargeWord ** Word ->> tvA, singleTemplate), makePolymorphic(singleTemplate, mkLoadOperationFn LoadStoreC8), declInBasis)
             val get16Function =
                 mkGvar("get16", ValueType(LargeWord ** Word ->> Word, []), mkLoadOperationFn LoadStoreC16, declInBasis)
             val get32Function =
-                mkGvar("get32", ValueType(LargeWord ** Word ->> a, templates 1), makePolymorphic([a], mkLoadOperationFn LoadStoreC32), declInBasis)
+                mkGvar("get32", ValueType(LargeWord ** Word ->> tvA, singleTemplate), makePolymorphic(singleTemplate, mkLoadOperationFn LoadStoreC32), declInBasis)
             val get64Function =
                 mkGvar("get64", ValueType(LargeWord ** Word ->> LargeWord, []), mkLoadOperationFn LoadStoreC64, declInBasis)
             val getFloatFunction =
@@ -1003,14 +974,14 @@ struct
                 mkGvar("getDouble", ValueType(LargeWord ** Word ->> Real, []), mkLoadOperationFn LoadStoreCDouble, declInBasis)
             val set8Function =
                 mkGvar("set8",
-                    ValueType(mkProductType[LargeWord, Word, a] ->> Unit, templates 1), makePolymorphic([a], mkStoreOperationFn LoadStoreC8),
+                    ValueType(mkProductType[LargeWord, Word, tvA] ->> Unit, templates 1), makePolymorphic(singleTemplate, mkStoreOperationFn LoadStoreC8),
                     declInBasis)
             val set16Function =
                 mkGvar("set16",
                     ValueType(mkProductType[LargeWord, Word, Word] ->> Unit, []), mkStoreOperationFn LoadStoreC16, declInBasis)
             val set32Function =
                 mkGvar("set32",
-                    ValueType(mkProductType[LargeWord, Word, a] ->> Unit, templates 1), makePolymorphic([a], mkStoreOperationFn LoadStoreC32),
+                    ValueType(mkProductType[LargeWord, Word, tvA] ->> Unit, templates 1), makePolymorphic(singleTemplate, mkStoreOperationFn LoadStoreC32),
                     declInBasis)
             val set64Function =
                 mkGvar("set64",
@@ -1249,6 +1220,9 @@ struct
                 in
                     Global (genCode(code, [], 0) ())
                 end
+           fun makeTypeVariable() =
+                makeTv {value=emptyType, level=generalisable, equality=false,
+                        nonunifiable=false, printable=false}
         in
             val vectorType =
                 makeTypeConstructor("vector", [makeTypeVariable()],
@@ -1324,6 +1298,7 @@ struct
    treats type-specific functions specially and retains the type-specificity.
    That's important to allow the prelude code to expand the PolyML structure. *)
         local
+            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
             val eqType = let val a = makeEqTV () in a ** a ->> Bool end
             val eqVal  = mkSpecialFun("=", eqType, Equal)
         in
@@ -1331,6 +1306,7 @@ struct
         end        
 
         local
+            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
             val neqType = let val a = makeEqTV () in a ** a ->> Bool end
             val neqVal  = mkSpecialFun("<>", neqType, NotEqual)
         in
@@ -1538,6 +1514,7 @@ struct
         end
 
         local
+            fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
             val printType = let val a = makePrintTV () in a ->> a end;
             val printVal  = mkSpecialFun("print", printType, Print);
         in
@@ -1545,6 +1522,7 @@ struct
         end;
 
         local
+            fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
             val makeStringType = let val a = makePrintTV () in a ->> String end;
             val makeStringVal  = mkSpecialFun("makestring", makeStringType, MakeString);
         in
@@ -1552,6 +1530,7 @@ struct
         end;
 
         local
+            fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
             val prettyType = let val a = makePrintTV () in a ** fixedIntType ->> PrettyType end;
             val prettyVal  = mkSpecialFun("prettyRepresentation", prettyType, GetPretty);
         in
@@ -1560,6 +1539,7 @@ struct
  
         local
             (* addPrettyPrinter is the new function to install a pretty printer. *)
+            fun makeTV    () = mkTypeVar (generalisable, false, false, false)
             val a = makeTV ()
             val b = makeTV ()
         
@@ -1571,6 +1551,7 @@ struct
 
         (* This goes in RunCall since it's only for the basis library. *)
         local
+            fun makeTV    () = mkTypeVar (generalisable, false, false, false)
             val addOverloadType =
                 let val a = makeTV () and b = makeTV () in (a ->> b) ->> String ->> Unit end;
             val addOverloadVal  = mkSpecialFun("addOverload", addOverloadType, AddOverload);
@@ -1599,9 +1580,10 @@ struct
             open TYPETREE
             val uniStructEnv = makeStructure(bootstrapEnv, "Universal")
 
-            fun enterUniversal (name : string, entry : codetree, typ: types, arity) : unit =
+            fun enterUniversal (name : string, entry : codetree, typ: types, templates) : unit =
             let
-                val value = mkGvar (name, ValueType(typ, templates arity), entry, declInBasis);
+                val code = makePolymorphic(templates, entry)
+                val value = mkGvar (name, ValueType(typ, templates), code, declInBasis);
             in
                 #enterVal uniStructEnv (name, value)
             end;
@@ -1620,6 +1602,9 @@ struct
                 in
                     Global (genCode(code, [], 0) ())
                 end
+                fun makeTypeVariable() =
+                    makeTv {value=emptyType, level=generalisable, equality=false,
+                        nonunifiable=false, printable=false}
             in
                 (* type 'a tag *)
                 val tagConstr =
@@ -1637,25 +1622,21 @@ struct
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
             val Universal = mkTypeConstruction ("universal", univConstr, [], declInBasis)
 
-            val a = makeTV()
             (* val tagInject  : 'a tag -> 'a -> universal *)
-            val injectType = Tag a ->> a ->> Universal
+            val injectType = Tag tvA ->> tvA ->> Universal
             val () = enterUniversal ("tagInject",
-                        makePolymorphic([a],
-                            mkConst (toMachineWord (Universal.tagInject: 'a Universal.tag -> 'a -> Universal.universal))),
-                            injectType, 1)
+                            mkConst (toMachineWord (Universal.tagInject: 'a Universal.tag -> 'a -> Universal.universal)),
+                            injectType, templates 1)
             (* We don't actually need tagIs and tagProject since this is only used for
                the compiler.  Universal is redefined in the basis library. *)          
-            val projectType = Tag a ->> Universal ->> a 
+            val projectType = Tag tvA ->> Universal ->> tvA 
             val () = enterUniversal ("tagProject",
-                        makePolymorphic([a],
-                            mkConst (toMachineWord(Universal.tagProject: 'a Universal.tag -> Universal.universal -> 'a))),
-                            projectType, 1)
-            val testType = Tag a ->> Universal ->> Bool
+                            mkConst (toMachineWord(Universal.tagProject: 'a Universal.tag -> Universal.universal -> 'a)),
+                            projectType, templates 1)
+            val testType = Tag tvA ->> Universal ->> Bool
             val () = enterUniversal ("tagIs",
-                        makePolymorphic([a],
-                            mkConst (toMachineWord(Universal.tagIs: 'a Universal.tag -> Universal.universal -> bool))),
-                            testType, 1)
+                            mkConst (toMachineWord(Universal.tagIs: 'a Universal.tag -> Universal.universal -> bool)),
+                            testType, templates 1)
          in
             val Tag = Tag and Universal = Universal
         end
