@@ -480,18 +480,7 @@ struct
                 lex);
 
         (* Makes a type for an instance of an identifier. *)
-
-        (* Get the current overload set for the function and return a new
-           instance of the type containing the overload set. *)
-        fun overloadType(Value{typeOf=ValueType(typeOf, _), access = Overloaded TypeDep, name, ...}, isConv) =
-                #1 (generaliseOverload(typeOf, Overloads.getOverloadTypes name, isConv))
-        |   overloadType(Value{typeOf=ValueType valType, ...}, _) =  #1 (generalise valType)
-
-        fun instanceType (v as Value{access=Overloaded TypeDep, ...}) =
-          (* Look up the current overloading for this function. *)
-                overloadType(v, false)
-
-        |   instanceType(Value{typeOf=ValueType valType, ...}) = #1 (generalise valType)
+        fun instanceType(Value{typeOf=ValueType valType, ...}) = #1 (generalise valType)
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
@@ -586,12 +575,12 @@ struct
                     instanceType
                 end
     
-            |   Literal{converter, expType, location, ...} =>
+            |   Literal{converter=Value{typeOf=ValueType valTypeOf, ...}, expType, location, ...} =>
                 let
                     (* Find out the overloadings on this converter and
                        construct an instance of it.  The converters are
                        all functions from string to the result type. *)
-                    val instanceType = overloadType(converter, true)
+                    val (instanceType, instanceVars) = generalise valTypeOf
                     (* Apply the converter to string to get the type of the
                        literal. *)
                     val instance =
@@ -778,12 +767,12 @@ struct
                 instanceType (* Result is the instance type. *)
             end
 
-          | Literal{converter, expType, location, ...} =>
+          | Literal{converter=Value{typeOf=ValueType valTypeOf, ...}, expType, location, ...} =>
             let
                 (* Find out the overloadings on this converter and
                    construct an instance of it.  The converters are
                    all functions from string to the result type. *)
-                val instanceType = overloadType(converter, true)
+                val (instanceType, instanceVars) = generalise valTypeOf
                 val instance =
                     apply(instanceType, stringType, lex, location, foundNear near, typeEnv)
             in
@@ -1037,24 +1026,27 @@ struct
                     val props = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
 
                     val tcon =
-                        if isEmpty decType
-                        then (* Type specification *)
-                        let
-                            val description = { location = nameLoc, name = name, description = "" }
-                        in
-                            makeTypeConstructor (name, typeVars,
-                                makeTypeId(isEqtype, false, (tvcVars, EmptyType), description), props)
-                        end
-                        else case typeNameRebinding(typeVars, decType) of
-                            SOME typeId =>
-                                makeTypeConstructor (name,  typeVars,typeId, props)
-                        |   NONE =>
+                        case decType of
+                            EmptyType => (* Type specification *)
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
                                 makeTypeConstructor (name, typeVars,
-                                    makeTypeId(isEqtype, false, (tvcVars, decType), description), props)
+                                    makeTypeId(isEqtype, false, (tvcVars, EmptyType), description), props)
                             end
+                        |   _ =>
+                            (
+                                case typeNameRebinding(typeVars, decType) of
+                                    SOME typeId =>
+                                        makeTypeConstructor (name,  typeVars,typeId, props)
+                                |   NONE =>
+                                    let
+                                        val description = { location = nameLoc, name = name, description = "" }
+                                    in
+                                        makeTypeConstructor (name, typeVars,
+                                            makeTypeId(isEqtype, false, (tvcVars, decType), description), props)
+                                    end
+                            )
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
@@ -2059,6 +2051,19 @@ struct
                         |   SOME argtype =>
                                 (mkFunctionType (localAssignTypes argtype, resultType), false)
                     val locations = [DeclaredAt idLocn, SequenceNo (newBindingId lex)]
+  
+                    fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) : values =
+                        Value
+                        { 
+                          name    = name,
+                          typeOf  = typeOf,
+                          access  = access,
+                          class   = Constructor { nullary = nullary, ofConstrs = constrs },
+                          locations = locations,
+                          references = NONE,
+                          instanceTypes = NONE
+                        }
+
                     val cons =
                         makeValueConstr (name, ValueType(constrType, templates), isNullary, numOfConstrs, Local{addr = ref ~1, level = ref baseLevel},
                                          locations)

@@ -509,6 +509,44 @@ struct
         enter s (#name s) (sortLabels rest)
     end
 
+    (* Table of overloads.  Entries are added to this during the bootstrap process using addOverload.
+       Overloaded functions are the standard overloads: +, -, *, div, mod together with literal constant
+       conversion functions convString etc. *)
+    structure Overloads =
+    struct
+        open HashTable
+        val nOverloads = 16
+            (* +, -, *, div, mod, <, >, <=, >=, ~, abs, convInt, convWord, convReal, convChar, convString, *)
+        val overloadTable: (typeConstrs * codetree) list hash =
+            hashMake(nOverloads*3 div 2) (* Add some extra to avoid having to extend the table. *)
+
+        (* Add to the overload list.  Since this is intended only for the bootstrap there's
+           no need to remove duplicates. *)
+        fun addOverload (n, cons, code) =
+        let
+            val existing = getOpt(hashSub(overloadTable, n), [])
+        in
+            hashSet(overloadTable, n, (cons, code) :: existing)
+        end
+
+        (* Return all the overloads for a particular identifier.  This is used to populate
+           the overload list when an overloaded function is used. *)
+        fun getOverloadTypes n = List.map #1 (getOpt(hashSub(overloadTable, n), []))
+
+        (* Return the overload for a particular type.  It should only ever be called for a name and type
+           that was previously returned by getOverloadTypes. *)
+        fun getOverloadCode(n, TypeConstrs {identifier=consId,...}) =
+            case hashSub(overloadTable, n) of
+                SOME constrAndCode =>
+                (
+                    case List.find (fn (TypeConstrs {identifier=tId,...}, _) => sameTypeId (consId, tId)) constrAndCode of
+                        SOME(_, v) => v
+                    |   NONE => raise InternalError "getOverload: not overloaded on this type"
+                )
+            |   NONE => raise InternalError "getOverload: unknown overload"
+
+      end
+
   (* Chains down a list of type variables returning the type they are
      bound to. As a side-effect it also points all the type variables
      at this type to reduce the need for future chaining and to free
@@ -780,6 +818,9 @@ struct
             makeTv{value=lab, level=generalisable, equality=equality,
                          nonunifiable=false, printable=printity}
         end
+    |   createTypeVariable(TemplOverload s) =
+            makeTv {value=OverloadSet{typeset=Overloads.getOverloadTypes s}, level=generalisable, equality=false,
+                         nonunifiable=false, printable=false}
 
     (* Create a map for type variables.  Optimise the most common cases *)
     fun createTypeVariableMap [] = (fn _ => raise InternalError "createTypeVariableMap")
@@ -2049,12 +2090,19 @@ struct
 
     fun generaliseWithMap((atyp, templates), map) =
     let
-        val freeTypeMap = TypeVar o createTypeVariableMap templates
-        val (t, newMatch) = generaliseTypes (atyp, freeTypeMap, map)
+        val freeTypeMap = createTypeVariableMap templates
+        fun mapToResult n =
+        let
+            val tv = freeTypeMap(TVIndex n)
+        in
+            {value=TypeVar tv, equality=tvEquality tv, printity=tvPrintity tv}
+        end
+        val newTypeVars = List.tabulate(List.length templates, mapToResult)
+        val (t, newMatch) = generaliseTypes (atyp, TypeVar o freeTypeMap, map)
         fun makeResult(Matched{new, old}) =
             {value=new, equality=tvEquality old, printity=tvPrintity old}
     in
-        (t, List.map makeResult newMatch)
+        (t, List.map makeResult newMatch @ newTypeVars)
     end
   
    (* Find the argument type which gives this result when the constructor
@@ -2853,29 +2901,6 @@ struct
    |  firstArg(FunctionType{arg, ...}) = eventual arg
    |  firstArg t = t
 
-    (* Returns an instance of an overloaded function using the supplied
-       list of type constructors for the overloading. *)
-    fun generaliseOverload(t, constrs, isConverter) =
-    let
-        (* Returns the result type of a function. *)
-        fun getResult(FunctionType{result, ...}) = eventual result
-        |   getResult _ = raise InternalError "getResult - not a function";
-
-        val arg = if isConverter then getResult t else firstArg t
-    in
-        case arg of
-            TypeVar tv =>
-            let
-                (* The argument should be a type variable, possibly set to
-                   an empty overload set.  This should be replaced by
-                   the current overload set in the copied function type. *)
-                val newSet = mkOverloadSet constrs
-                val (t, _) = generaliseTypes(t, fn _ => raise InternalError "generaliseOverload", fn old => if sameTv(old, tv) then SOME newSet else NONE)
-            in
-                (t, [newSet])
-            end
-          | _ => raise InternalError "generaliseOverload - arg is not a type var"
-    end
     (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
        or datatype 'a joe = bill of 'a list | mary of 'a * int or
        simply type 'a abs if the type is abstract. *)
@@ -3521,44 +3546,6 @@ struct
         |   2 => if isUnit (eventual t) then NONE else SOME "A non unit value is being discarded."
         |   _ => NONE
     end
-
-    (* Table of overloads.  Entries are added to this during the bootstrap process using addOverload.
-       Overloaded functions are the standard overloads: +, -, *, div, mod together with literal constant
-       conversion functions convString etc. *)
-    structure Overloads =
-    struct
-        open HashTable
-        val nOverloads = 16
-            (* +, -, *, div, mod, <, >, <=, >=, ~, abs, convInt, convWord, convReal, convChar, convString, *)
-        val overloadTable: (typeConstrs * codetree) list hash =
-            hashMake(nOverloads*3 div 2) (* Add some extra to avoid having to extend the table. *)
-
-        (* Add to the overload list.  Since this is intended only for the bootstrap there's
-           no need to remove duplicates. *)
-        fun addOverload (n, cons, code) =
-        let
-            val existing = getOpt(hashSub(overloadTable, n), [])
-        in
-            hashSet(overloadTable, n, (cons, code) :: existing)
-        end
-
-        (* Return all the overloads for a particular identifier.  This is used to populate
-           the overload list when an overloaded function is used. *)
-        fun getOverloadTypes n = List.map #1 (getOpt(hashSub(overloadTable, n), []))
-
-        (* Return the for a particular type.  It should only ever be called for a name and type
-           that was previously returned by getOverloadTypes. *)
-        fun getOverloadCode(n, TypeConstrs {identifier=consId,...}) =
-            case hashSub(overloadTable, n) of
-                SOME constrAndCode =>
-                (
-                    case List.find (fn (TypeConstrs {identifier=tId,...}, _) => sameTypeId (consId, tId)) constrAndCode of
-                        SOME(_, v) => v
-                    |   NONE => raise InternalError "getOverload: not overloaded on this type"
-                )
-            |   NONE => raise InternalError "getOverload: unknown overload"
-
-      end
 
     structure Sharing =
     struct

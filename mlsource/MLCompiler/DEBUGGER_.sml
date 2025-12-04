@@ -237,6 +237,18 @@ struct
             then mkConst valu
             else mkInlproc(mkConst valu, nPolyVars, "poly", [], 0)
         end
+  
+        fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) : values =
+            Value
+            { 
+              name    = name,
+              typeOf  = typeOf,
+              access  = access,
+              class   = Constructor { nullary = nullary, ofConstrs = constrs },
+              locations = locations,
+              references = NONE,
+              instanceTypes = NONE
+            }
     in
         fun makeValue state (name, ty, location, valu) =
             mkGvar(name, runTimeType state ty, getValue(valu, ty), location)

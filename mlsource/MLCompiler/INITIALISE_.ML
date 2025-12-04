@@ -107,12 +107,6 @@ struct
             open TYPETREE;
         in
             (* Make some type variables *)
-(*            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
-            fun makeTV    () = mkTypeVar (generalisable, false, false, false)
-            fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
-            fun makeTypeVariable() =
-                makeTv {value=emptyType, level=generalisable, equality=false,
-                        nonunifiable=false, printable=false}*)
             val tvA = BoundTypeVar("'a", TVIndex 0)
             and tvB = BoundTypeVar("'b", TVIndex 1)
             and tvC = BoundTypeVar("'c", TVIndex 2)
@@ -212,14 +206,7 @@ struct
             mkTypeConstruction ("ref", refConstr, [base], declInBasis);
         
         fun Option (base : types) : types  =
-            mkTypeConstruction ("option", tsConstr optionConstr, [base], declInBasis);
-        
-        
-        (* Type-dependent functions. *)
-        fun mkSpecialFun (name:string, typeof, opn: typeDependent) = makeOverloaded (name, ValueType(typeof, []), opn)
-        
-        (* Overloaded functions. *)
-        fun mkOverloaded (name:string) typeof: values = mkSpecialFun(name, typeof, TypeDep)
+            mkTypeConstruction ("option", tsConstr optionConstr, [base], declInBasis)
 
         (* Make a structure.  Returns the table as an
            environment so that entries can be added to the structure. *)
@@ -1286,30 +1273,17 @@ struct
         val () = #enterType bootstrapEnv ("array", TypeConstrSet(array2Constr, []))
         val () = #enterType bootstrapEnv ("byteArray", TypeConstrSet(byteArrayConstr, []))
 
-
-(* "=', '<>', PolyML.print etc are type-specific function which appear
-   to be polymorphic.  The compiler recognises these and treats them specially.
-   For (in)equality that means generating type-specific versions of the equality
-   operations; for print etc that means printing in a type-specific way.  They
-   can become true polymorphic functions and lose their type-specificity.  For
-   (in)equality that means defaulting to structure equality which is normal and
-   expected behaviour.  For print etc that means losing the ability to print
-   and just printing "?" so it's important to avoid that happening.  "open"
-   treats type-specific functions specially and retains the type-specificity.
-   That's important to allow the prelude code to expand the PolyML structure. *)
         local
-            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
-            val eqType = let val a = makeEqTV () in a ** a ->> Bool end
-            val eqVal  = mkSpecialFun("=", eqType, Equal)
+            val eqType = tvA ** tvA ->> Bool
+            val eqTempl = TemplPlain { equality=true, printity=false }
+            val eqVal =
+                Value{ name = "=", typeOf = ValueType(eqType, [eqTempl]), access = Overloaded Equal,
+                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
+            val neqVal =
+                Value{ name = "<>", typeOf = ValueType(eqType, [eqTempl]), access = Overloaded NotEqual,
+                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
         in
             val () = enterGlobalValue ("=", eqVal)
-        end        
-
-        local
-            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
-            val neqType = let val a = makeEqTV () in a ** a ->> Bool end
-            val neqVal  = mkSpecialFun("<>", neqType, NotEqual)
-        in
             val () = enterGlobalValue ("<>", neqVal)
         end        
 
@@ -1513,50 +1487,51 @@ struct
             val PrettyType = mkTypeConstruction ("pretty", tsConstr typeconstr, [], declInBasis)
         end
 
+        (* Type-dependent functions. *)
+        fun mkSpecialFun (name, typeof, templs, opn) =
+            Value{ name = name, typeOf = ValueType(typeof, templs), access = Overloaded opn, class = ValBound,
+                   locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
+
         local
-            fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
-            val printType = let val a = makePrintTV () in a ->> a end;
-            val printVal  = mkSpecialFun("print", printType, Print);
+            val printVal =
+                mkSpecialFun("print", tvA ->> tvA, [TemplPlain{ equality=false, printity=true }], Print)
         in
-            val () = enterPolyMLVal ("print", printVal);
+            val () = enterPolyMLVal ("print", printVal)
         end;
 
         local
-            fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
-            val makeStringType = let val a = makePrintTV () in a ->> String end;
-            val makeStringVal  = mkSpecialFun("makestring", makeStringType, MakeString);
+            val makeStringVal =
+                mkSpecialFun("makestring", tvA ->> String, [TemplPlain{ equality=false, printity=true }], MakeString)
         in
-            val () = enterPolyMLVal ("makestring", makeStringVal);
+            val () = enterPolyMLVal ("makestring", makeStringVal)
         end;
 
         local
-            fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
-            val prettyType = let val a = makePrintTV () in a ** fixedIntType ->> PrettyType end;
-            val prettyVal  = mkSpecialFun("prettyRepresentation", prettyType, GetPretty);
+            val prettyRepVal  =
+                mkSpecialFun("prettyRepresentation", tvA ** fixedIntType ->> PrettyType,
+                    [TemplPlain{ equality=false, printity=true }], GetPretty)
         in
-            val () = enterPolyMLVal ("prettyRepresentation", prettyVal);
+            val () = enterPolyMLVal ("prettyRepresentation", prettyRepVal)
         end;
  
         local
-            (* addPrettyPrinter is the new function to install a pretty printer. *)
-            fun makeTV    () = mkTypeVar (generalisable, false, false, false)
-            val a = makeTV ()
-            val b = makeTV ()
-        
-            val addPrettyType = (TYPETREE.fixedIntType ->> b ->> a ->> PrettyType) ->> Unit;
-            val addPrettyVal  = mkSpecialFun("addPrettyPrinter", addPrettyType, AddPretty);
+            (* addPrettyPrinter installs a pretty printer for a type. *)
+            val addPrettyType = (TYPETREE.fixedIntType ->> tvB ->> tvA ->> PrettyType) ->> Unit
+            val addPrettyVal =
+                mkSpecialFun("addPrettyPrinter", addPrettyType, templates 2, AddPretty)
         in
-            val () = enterPolyMLVal ("addPrettyPrinter", addPrettyVal);
+            val () = enterPolyMLVal ("addPrettyPrinter", addPrettyVal)
         end;
 
         (* This goes in RunCall since it's only for the basis library. *)
         local
-            fun makeTV    () = mkTypeVar (generalisable, false, false, false)
-            val addOverloadType =
-                let val a = makeTV () and b = makeTV () in (a ->> b) ->> String ->> Unit end;
-            val addOverloadVal  = mkSpecialFun("addOverload", addOverloadType, AddOverload);
+            (* addOverload.  N.B. The order of the type variables is significant.  The code in VALUE_OPS expects
+               the first bound variable to be the function result and the second bound variable to be the function
+               argument. *)
+            val addOverloadType = (tvB ->> tvA) ->> String ->> Unit
+            val addOverloadVal  = mkSpecialFun("addOverload", addOverloadType, templates 2, AddOverload)
         in
-            val () = #enterVal runCallEnv ("addOverload", addOverloadVal);
+            val () = #enterVal runCallEnv ("addOverload", addOverloadVal)
         end
 
         local
@@ -1570,7 +1545,7 @@ struct
         end
 
         local
-            val sourceLocVal  = mkSpecialFun("sourceLocation", Unit ->> Location, GetLocation);
+            val sourceLocVal  = mkSpecialFun("sourceLocation", Unit ->> Location, [], GetLocation)
         in
             val () = enterPolyMLVal ("sourceLocation", sourceLocVal);
         end;
@@ -1709,10 +1684,13 @@ struct
         end;
         
         local
-            val ty      = TYPETREE.mkOverloadSet[]
-            val addType = ty ** ty ->> ty;
-            val negType = ty ->> ty;
-            val cmpType = ty ** ty ->> Bool;
+            val addType = tvA ** tvA ->> tvA
+            val negType = tvA ->> tvA
+            val cmpType = tvA ** tvA ->> Bool
+
+            fun mkOverloaded name typeof =
+                Value{ name = name, typeOf = ValueType(typeof, [TemplOverload name]), access = Overloaded TypeDep,
+                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
         in
             val () = enterGlobalValue ("+", mkOverloaded "+"   addType);
             val () = enterGlobalValue ("-", mkOverloaded "-"   addType);

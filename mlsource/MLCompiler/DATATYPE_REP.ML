@@ -488,6 +488,20 @@ struct
         fullCopyDatatype(TypeConstrSet(dtype, gConstrs), fn 0 => newId | _ => raise Subscript, "")
     end
 
+  
+    fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) =
+        Value
+        { 
+          name    = name,
+          typeOf  = typeOf,
+          access  = access,
+          class   = Constructor { nullary = nullary, ofConstrs = constrs },
+          locations = locations,
+          references = NONE,
+          instanceTypes = NONE
+        }
+
+
     (* Nil and :: are used in parsetree for lists constructed
        using [ ... ] and are also used for initialisation. *)
     local

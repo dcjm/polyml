@@ -178,7 +178,8 @@ struct
        record as a whole.  generic is a reference that is shared between all instances.  Whenever
        the function is used the names, but not the types, of the fields used are added to the
        list.  If the actual argument is a fixed record the record is frozen and no new fields
-       can be added. *)
+       can be added. TemplOverload is used for the functions at the outer level that can be
+       overloaded. *)
     and typeVarTemplate =
         TemplPlain of { equality: bool, printity: bool }
     |   TemplFree of typeVar
@@ -188,6 +189,7 @@ struct
             generic: { frozen: bool, fields: string list} ref,
             equality: bool, printity: bool
         }
+    |   TemplOverload of string
 
     (* Variables used in unification.  These are instantiated from generic type variables. *)
     and typeVar =
@@ -469,26 +471,9 @@ struct
     
   (* Types. *)
     
-  (* Destructors, constructors and predicates for types *)
-  val emptyType            = EmptyType;
-  val badType              = BadType;
+    val emptyType            = EmptyType
+    val badType              = BadType
 
-  fun isEmpty             EmptyType           = true | isEmpty            _ = false;
-  fun isBad               BadType             = true | isBad              _ = false;
-  
-  fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) : values =
-    Value
-    { 
-      name    = name,
-      typeOf  = typeOf,
-      access  = access,
-      class   = Constructor { nullary = nullary, ofConstrs = constrs },
-      locations = locations,
-      references = NONE,
-      instanceTypes = NONE
-    };
-
-  
   (* A type variable is implemented as a true variable i.e. it can
      be assigned a particular type when it is unified. Initially it is
      set to EmptyType which represents an unset type variable.
@@ -509,8 +494,7 @@ struct
      or type variables in signatures. Such type variables can have their
      level changed but cannot be unified with other types, with other
      nonunifiable type variables or with equality variables (unless it
-     is already an equality variable). 
-     ``weak'' is true if this is an imperative type variable e.g. '_a *)
+     is already an equality variable). *)
 
     fun sameTv (TypeVariable{link=aLink, ...}, TypeVariable{link=bLink, ...})  = aLink = bLink
 
@@ -598,11 +582,7 @@ struct
     fun makeFormalStruct (name, signat, addr, location) =
       makeStruct (name, signat, Formal addr, location);
      
-    (* Values. *)  
-    fun makeOverloaded (name, typeOf, operation) : values =
-    Value{ name = name, typeOf = typeOf, access = Overloaded operation, class = ValBound,
-           locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE};
-
+    (* Values. *)
     val undefinedValue    =
     Value{ name = "<undefined>", typeOf = ValueType(BadType, []), access = Global CodeZero, class = ValBound,
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE };

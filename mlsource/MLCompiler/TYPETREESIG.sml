@@ -122,8 +122,6 @@ sig
        non-local values or constructors so that, for example, each occurence of
        "hd", which has type 'a list -> 'a, can be separately bound to types. *)
     val generalise: types * typeVarTemplate list -> types * {value: types, equality: bool, printity: bool} list
-    (* Create an instance of an overloaded type. *)
-    val generaliseOverload: types * typeConstrs list * bool -> types * types list;
 
     (* The same as generalise but with a function that looks up types. *)
     val generaliseWithMap:

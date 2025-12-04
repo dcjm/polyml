@@ -86,7 +86,8 @@ sig
        record as a whole.  generic is a reference that is shared between all instances.  Whenever
        the function is used the names, but not the types, of the fields used are added to the
        list.  If the actual argument is a fixed record the record is frozen and no new fields
-       can be added. *)
+       can be added. TemplOverload is used for the functions at the outer level that can be
+       overloaded. *)
     and typeVarTemplate =
         TemplPlain of { equality: bool, printity: bool }
     |   TemplFree of typeVar
@@ -96,6 +97,7 @@ sig
             generic: { frozen: bool, fields: string list} ref,
             equality: bool, printity: bool
         }
+    |   TemplOverload of string
 
     (* Variables used in unification.  These are instantiated from generic type variables.
        In addition to equality and printity described above there is also the nonunifiable
@@ -279,9 +281,6 @@ sig
     val badType:   types
     val emptyType: types
 
-    val isBad:     types -> bool
-    val isEmpty:   types -> bool
-
     val recordFields   : labelledRec -> string list
     val recordIsFrozen : labelledRec -> bool
 
@@ -325,9 +324,6 @@ sig
     (* Values. *)
     val undefinedValue: values
     val isUndefinedValue: values -> bool
-
-    val makeOverloaded: string * valueType * typeDependent -> values
-    val makeValueConstr: string * valueType * bool * int * valAccess * locationProp list -> values
 
     (* Infix status *)
     datatype infixity = 

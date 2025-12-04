@@ -88,6 +88,18 @@ struct
   open DATATYPEREP
   
     (* Functions to construct the values. *)
+  
+    fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) : values =
+        Value
+        { 
+          name    = name,
+          typeOf  = typeOf,
+          access  = access,
+          class   = Constructor { nullary = nullary, ofConstrs = constrs },
+          locations = locations,
+          references = NONE,
+          instanceTypes = NONE
+        }
 
     fun mkGconstr (name, typeof, code, nullary, constrs, location) =
        makeValueConstr (name, typeof, nullary, constrs, Global code, location);
@@ -1103,7 +1115,6 @@ struct
             (* AddOverload is only intended for use by writers of library modules.
                It only does limited checking and should be regarded as "unsafe". *)
             let
-
             fun rmvars (TypeVar tv) = rmvars(tvValue tv)
             |   rmvars t = t
             (* instance should be ('a->'b) -> string -> unit.  For overloadings
@@ -1150,7 +1161,7 @@ struct
         (* This is messy but necessary for efficiency.  If we simply treat
            addOverload as a function we would be able to pick up the
            additional overloading as a pointer to a function.  Most overloads
-           are small functions or wrapped calls to RTS functions and so
+           are small functions or wrapped calls to built-in functions and so
            we need to get the inline code for them. *)
                 (* evalue raises an exception if "argument" is not a constant,
                   or more usefully, a global value containing a constant and
@@ -1251,19 +1262,10 @@ struct
     (* Using unification here isn't ideal.  We have to put the equality attribute
        back on to abstypes in case the unification requires it.  There may be other
        situations where things don't work properly. *)
-    fun getPolymorphism (Value{ typeOf=ValueType(valTypeOf as (typeOf, templates)), access, name, ...}, expType, typeVarMap) =
+    fun getPolymorphism (Value{ typeOf=ValueType valTypeOf, name, ...}, expType, typeVarMap) =
     let
         (* typeVarMap is used to find type variables that are actually free at this point.  This is a legacy. *)
-        val (t, polyVars) =
-            case access of
-                Overloaded TypeDep =>
-                let
-                    val (t, polyVars) =
-                        generaliseOverload(typeOf, Overloads.getOverloadTypes name, false)
-                in
-                    (t, List.map (fn t => {value=t, equality=false, printity=false}) polyVars)
-                end
-            | _ => generaliseWithMap(valTypeOf, TypeVarMap.mapTypeVars typeVarMap)
+        val (t, polyVars) = generaliseWithMap(valTypeOf, TypeVarMap.mapTypeVars typeVarMap)
         (* Ignore the result.  There are circumstances in which we can get a
            unification error as the result of failing to find a fixed record type
            where the possible records we could find have non-unifiable types.

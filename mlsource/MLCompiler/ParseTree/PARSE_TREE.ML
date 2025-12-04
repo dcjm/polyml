@@ -77,11 +77,10 @@ struct
     
     local    
        (* Make overloaded functions for the conversions. *)
-       (* For the moment we make the type string->t and raise an exception
-          if the constant cannot be converted. *)
-       val ty      = mkOverloadSet[]
-       val funType = mkFunctionType (stringType, ty);
-       fun mkOverloaded name : values = makeOverloaded (name, ValueType(funType, []), TypeDep)
+        val funType = mkFunctionType (stringType, BoundTypeVar("'a", TVIndex 0))
+        fun mkOverloaded name  =
+            Value{ name = name, typeOf = ValueType(funType, [TemplOverload name]), access = Overloaded TypeDep,
+                class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
     in
         val convString = mkOverloaded "convString"
         and convInt = mkOverloaded "convInt"
