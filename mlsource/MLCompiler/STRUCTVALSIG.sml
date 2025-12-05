@@ -78,7 +78,9 @@ sig
        cases.  equality means this is an equality type; printity is a Poly/ML extension and indicates
        a polymorphic function that contains a call to PolyML.print.  The compiler adds equality
        functions to functions that contain an equality test and print functions to those that
-       use PolyML.print.  TemplFree is used for a type variable that is free in the current context.
+       use PolyML.print.  Currently, with TypeIdCode.justForEqualityTypes set to true, only
+       polymorphic functions that involve equality types will also print correctly with PolyML.print.
+       TemplFree is used for a type variable that is free in the current context.
        It can only be used for local functions.  TemplFlexRecord is the most complex and is used
        for local functions that contain a flexible record which has not been constrained to a
        specific record type with the function itself.  It contains the actual fields used within

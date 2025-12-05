@@ -351,10 +351,8 @@ struct
 
         (* Variables, constructors and fn are non-expansive.
            [] is a derived form of "nil" so must be included.
-           Integer and string constants are also constructors but
-           cannot involve imperative type variables. Constrained
-           versions are also non-expansive.
-           This has been extended and made more explicit in ML 97. *)
+           Integer and string constants are also constructors.
+           Constrained versions are also non-expansive. *)
         fun nonExpansive (Fn _)   = true
         |   nonExpansive (Ident _) = true
         |   nonExpansive (List{elements = [], ...}) = true
@@ -790,6 +788,7 @@ struct
                    variables to be monomorphic.  The reason for this is that if there are polymorphic
                    type variables remaining in identifiers in the next pass we treat the identifier as
                    polymorphic and wrap a function round it. *)
+                (* TODO: This needs to be looked at because this really only applies if *)
                 val () =
                     if nonExpansive v
                     then ()
@@ -1625,7 +1624,8 @@ struct
 
             (* Now allow generalisation on the variables being declared.
                For imperative type variables we have to know whether the
-               expression is expansive. *)
+               expression is expansive.
+               N.B. This also checks for free type variables at the top level. *)
             fun allowGen (d, (ValBind {exp, line, ...})) =
                 (
                     allowGeneralisation 
