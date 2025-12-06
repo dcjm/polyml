@@ -563,14 +563,9 @@ struct
         val oldVal = tvValue tv
         val newVal = eventual oldVal;   (* Search that *)
     in
-        (* Update the type variable to point to the last in the chain.
-         We don't do this if the value hasn't changed.  The reason for
-         that was that assignment to refs in the database in the old
-         persistent store system was very expensive and we wanted to avoid
-         unnecessary assignments.  This special case could probably be removed. *)
-        if PolyML.pointerEq(oldVal, newVal)
-        then ()
-        else tvSetValue (tv, newVal); (* Put it on *)
+        (* Update the type variable to point to the last in the chain. *)
+        tvSetValue (tv, newVal); (* Put it on *)
+
         case newVal of
             EmptyType => t (* Not bound to anything - return the type variable *)
         |   LabelledType (r as { recList, fullList }) =>
@@ -3085,12 +3080,12 @@ struct
     |   _ => NONE
     
 
-  (* Assigns type variables to variables with generalisation permitted
-     if their level is at least that of the current level.
-     In ML90 mode this produced an error message for any top-level
-     free imperative type variables.  We don't do that in ML97 because
-     it is possible that another declaration may "freeze" the type variable
-     before the composite expression reaches the top level. *)
+  (* Called at the end of a val or fun binding.
+     There are various actions here depending on whether the expression is non-expansive
+     and whether this is the top level.
+     The current version side-effects type variables by adding on a generalisable type
+     variable at the end of the chain if the type variable can be generalised.
+     *)
   fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo, typeEnv) =
     let
         fun giveError(s1: string, s2: string) =
@@ -3143,9 +3138,9 @@ struct
                                e.g. let fun f x y = x+y in f 2.0 end.  An alternative
                                would be take the default type (in this case int).
                                DCJM 1/9/00. *)
-                            val nonCopiable = not nonExpansive
                             val newLevel =
-                               if nonCopiable then NotGeneralisable(level-1) else Generalisable (* copiable *);
+                               if not nonExpansive then NotGeneralisable(level-1) else Generalisable (* copiable *)
+                            val nonCopiable = not nonExpansive andalso tvNonUnifiable tvar
 
                             val isOk =
                                 (* If the type variable has top-level scope then we have
@@ -3154,7 +3149,7 @@ struct
                                 (* If the type variable is non-unifiable and the expression is
                                    expansive then we have an error since this will have to
                                    be a monotype.  *)
-                                if tvNonUnifiable tvar andalso nonCopiable andalso showError
+                                if nonCopiable andalso showError
                                 then
                                     (
                                     giveError("Type", "includes a free type variable");
@@ -3165,8 +3160,11 @@ struct
                                record to the new variable. *)
                             val newTypeVar =
                                 makeTv {value=tvValue tvar, level=newLevel, equality=tvEquality tvar,
-                                        nonunifiable=if nonCopiable then (tvNonUnifiable tvar) else false,
-                                        printable=tvPrintity tvar}
+                                        nonunifiable=nonCopiable, printable=tvPrintity tvar}
+                            (*val (newTypeValue, newTemplates) =
+                                if nonExpansive
+                                then (* Create a bound type variable.*)
+                                else *)
                         in
                             tvSetValue (tvar, TypeVar newTypeVar);
                             (* If we are using the "narrow" context for overloading and
@@ -3200,7 +3198,8 @@ struct
                        expansive expression.  This is because the semantics treats type
                        abbreviations as type functions and so any type variables that
                        are eliminated by the function application do not appear in the
-                       "type" that the semantics applies to the expression. *)
+                       "type" that the semantics applies to the expression.  So
+                       "ref 1: 'a t ref" is valid. *)
                     let
                         fun processArg(tvar, ((showError, nonExpansive), n)) =
                             (general tvar (showError, nonExpansive orelse not(BoolVector.sub(usedTvs, n))), n+1)
