@@ -1621,28 +1621,25 @@ struct
             in
                 val () = ListPair.app checkTypes (decs, valdecs)
             end
-
-            (* Now allow generalisation on the variables being declared.
-               For imperative type variables we have to know whether the
-               expression is expansive.
-               N.B. This also checks for free type variables at the top level. *)
-            fun allowGen (d, (ValBind {exp, line, ...})) =
-                (
-                    allowGeneralisation 
-                        (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv)
-                ) (* allowGen *)
-        in
-            ListPair.appEq allowGen (decs, valdecs);
-            (* And declare the new names into the surrounding environment. *)
+            
+            (* Generalise the list and declare the new names into the surrounding environment. *)
+            fun generaliseAndDeclare(ValBind{exp, variables=ref vars, line, ...}) =
             let
-                fun enterDec(s, v as Value{instanceTypes, ...}) =
-                (
-                    valOf instanceTypes := []; (* Remove any recursive references. *)
-                    #enterVal env (s, v)
-                )
+                fun genAndEnter(Value{name, typeOf=ValueType(typeOf, _), access, class, locations, references, ...}) =
+                let
+                    val valType =
+                        allowGeneralisation(typeOf, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv)
+                    val newValue =
+                        Value{name=name, typeOf=ValueType valType, access=access, class=class, locations=locations,
+                              references=references, instanceTypes=NONE}
+                in
+                    #enterVal env (name, newValue)
+                end
             in
-                #apply newEnv enterDec
+                List.app genAndEnter vars
             end
+        in
+            List.app generaliseAndDeclare valdecs
         end (* assValDeclaration *)
 
         and assFunDeclaration {dec=tlist: fvalbind list, explicit, implicit, ...} =
@@ -1916,24 +1913,25 @@ struct
                 end
             in
                 val () = List.app processBinding tlist
-            end;
+            end
 
+            fun generaliseAndDeclare(
+                    FValBind{functVar as ref(Value{typeOf=ValueType(typeOf, _), access, class, locations, name, references, ...}), ...}) =
+            let
+                val valType =
+                    allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv)
+                val newValue =
+                    Value{name=name, typeOf=ValueType valType, access=access, class=class, locations=locations,
+                          references=references, instanceTypes=NONE}
+            in
+                #enterVal env (name, newValue);
+                functVar := newValue
+            end
         in
             (* Now declare the new names into the surrounding environment,
                releasing the copy flags on the type variables. All fun
                bindings are non-expansive. *)
-            List.app
-                (fn(FValBind{
-                    functVar as ref(var as Value{typeOf=ValueType(typeOf, _), locations, name, instanceTypes, ...}), ...}) =>
-                (
-                    (* Generalise the types.  allowGeneralisation side-effects the type variables,
-                       replaces any that can be generalised by general variables. *)
-                    allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
-                    (* Remove any recursive references.  This really isn't right. *)
-                    valOf instanceTypes := [];
-                    #enterVal env (name, var);
-                    functVar := var
-                )) tlist
+            List.app generaliseAndDeclare tlist
         end (* assFunDeclaration *)
 
         and assAbsData({typelist=typeList, withtypes, declist, equalityStatus, isAbsType=isAbs, ...}) =
@@ -2218,7 +2216,7 @@ struct
             local
                 fun getTypeVarsAndInstance (Value{typeOf=ValueType valType, instanceTypes, ...}, vars) =
                 let
-                    val instances = ! (valOf instanceTypes)
+                    val instances = case instanceTypes of NONE => [] | SOME(ref i) => i
                     fun getPolyVars typ =
                     let
                         val (copied, tyVars) = generalise valType

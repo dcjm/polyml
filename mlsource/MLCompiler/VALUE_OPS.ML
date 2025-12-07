@@ -1262,7 +1262,7 @@ struct
     (* Using unification here isn't ideal.  We have to put the equality attribute
        back on to abstypes in case the unification requires it.  There may be other
        situations where things don't work properly. *)
-    fun getPolymorphism (Value{ typeOf=ValueType valTypeOf, name, ...}, expType, typeVarMap) =
+    fun getPolymorphism (Value{ typeOf=ValueType valTypeOf, ...}, expType, typeVarMap) =
     let
         (* typeVarMap is used to find type variables that are actually free at this point.  This is a legacy. *)
         val (t, polyVars) = generaliseWithMap(valTypeOf, TypeVarMap.mapTypeVars typeVarMap)

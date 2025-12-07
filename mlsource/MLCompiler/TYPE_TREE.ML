@@ -52,9 +52,6 @@ functor TYPE_TREE (
 
 ) :  TYPETREESIG =
 
-(*****************************************************************************)
-(*                  TYPETREE functor body                                    *)
-(*****************************************************************************)
 struct
   open MISC;
   open PRETTY;
@@ -94,13 +91,6 @@ struct
     fun tcEquivalent(TypeConstrs{identifier = TypeId {idKind = TypeFn{resType, ...}, ...}, ...}) = resType
     |   tcEquivalent _ = raise InternalError "tcEquivalent: Not a type function"
 
-  (* A type construction is the application of a type constructor to
-     a sequence of types to yield a type. A construction may have a nil
-     list if it is a single type identifier such as ``int''. *)
-  
-  (* When a type constructor is encountered in the first pass this entry 
-     is put in. Subsequently a type constructor entry will be assigned to
-     it so that the types can be checked. *)
 
 (*************)
 
@@ -488,10 +478,8 @@ struct
     (* Similar to alphabetic ordering except that shorter labels come before longer ones.
        This has the advantage that numerical labels are compared by their numerical order
        i.e. 1 < 2 < 10 whereas alphabetic ordering puts "1" < "10" < "2". *)
-    fun compareLabels (a : string, b : string) : int = 
-    if size a = size b 
-    then if a = b then 0 else if a < b then ~1 else 1
-    else if size a < size b then ~1 else 1;
+    fun compareLabels (a, b) =
+        case Int.compare(size a, size b) of EQUAL => String.compare(a, b) | order => order
 
     (* Sort using the label ordering.
        A simple sort routine - particularly if the list is already sorted. *)
@@ -499,12 +487,12 @@ struct
     |   sortLabels (s::rest) =
     let
         fun enter s _    [] = [s]
-          | enter s name (l as ( (h as {name=hname, ...}) :: t)) =
-        let
-            val comp = compareLabels (name, hname);
-        in
-            if comp <= 0 then s :: l else h :: enter s name t
-        end;
+        |   enter s name (l as ( (h as {name=hname, ...}) :: t)) =
+        (
+            case compareLabels (name, hname) of
+                GREATER => h :: enter s name t
+            |   _ => s :: l
+        )
     in  
         enter s (#name s) (sortLabels rest)
     end
@@ -590,16 +578,13 @@ struct
                         (* This case can occur if we are producing an error message because of
                            a type-incorrect program so we just ignore it. *)
                 |   addToInstance(generic :: geRest, inst as instance :: iRest) =
-                    let
-                        val order = compareLabels (generic, #name instance);
-                    in
-                        if order = 0 (* Equal *)
-                        then instance :: addToInstance(geRest, iRest)
-                        else if order < 0 (* generic name < instance name *)
-                        then createNewField generic :: addToInstance(geRest, inst)
-                        else (* This is another case that can occur with type-incorrect code. *)
-                            instance :: addToInstance(generic :: geRest, iRest)
-                    end
+                    (
+                        case compareLabels (generic, #name instance) of
+                            EQUAL => addToInstance(geRest, iRest)
+                        |   LESS => createNewField generic :: addToInstance(geRest, inst)
+                        |   GREATER => (* This is another case that can occur with type-incorrect code. *)
+                                instance :: addToInstance(generic :: geRest, iRest)
+                    )
 
                 val newList = addToInstance(recordFields r, recList)
                 val newRecord =
@@ -799,54 +784,57 @@ struct
         (copied, ! madeList)
     end (* generaliseTypes *)
 
-    fun createTypeVariable(TemplPlain{ equality, printity }) =
+    (* Create type variables.  If unifiable is true, the usual case, the type
+       variables are new assignable variables.
+       If it is false, used when creating a type to be matched from a structure, type variables
+       are nonunifiable. This case occurs if we have a structure without an explicit signature.
+       The signature is created from the structure but it might have had overloading or flex
+       records that have only be resolved later. *)
+    fun createTypeVariable unifiable (TemplPlain{ equality, printity }) =
             makeTv {value=emptyType, level=generalisable, equality=equality,
-                         nonunifiable=false, printable=printity}
-    |   createTypeVariable(TemplFree tv) = tv
-    |   createTypeVariable(TemplFlexRecord{fields, generic=ref { frozen, fields=genFields}, equality, printity}) =
-        let
-            val final = FieldList(genFields, frozen)
-            val lab =
-                LabelledType {recList = fields,
-                              fullList = if frozen then final else FlexibleList(ref final) }
-        in
-            makeTv{value=lab, level=generalisable, equality=equality,
-                         nonunifiable=false, printable=printity}
-        end
-    |   createTypeVariable(TemplOverload s) =
+                         nonunifiable=not unifiable, printable=printity}
+    |   createTypeVariable _ (TemplFree tv) = tv
+    |   createTypeVariable _ (TemplFlexRecord{fields, generic, equality, printity}) =
+            (* All instances share the same generic list of fields.  It may have been frozen
+               at this point but since we need to return a type variable here there's no point
+               in checking. *)
+            makeTv{value=LabelledType {recList = fields, fullList = FlexibleList generic }, level=Generalisable, equality=equality,
+                    nonunifiable=false, printable=printity}
+
+    |   createTypeVariable _ (TemplOverload s) =
             makeTv {value=OverloadSet{typeset=Overloads.getOverloadTypes s}, level=generalisable, equality=false,
                          nonunifiable=false, printable=false}
 
     (* Create a map for type variables.  Optimise the most common cases *)
-    fun createTypeVariableMap [] = (fn _ => raise InternalError "createTypeVariableMap")
+    fun createTypeVariableMap _ [] = (fn _ => raise InternalError "createTypeVariableMap")
 
-    |   createTypeVariableMap [a] =
+    |   createTypeVariableMap unifiable [a] =
         let
-            val tv = createTypeVariable a
+            val tv = createTypeVariable unifiable a
         in
             fn TVIndex 0 => tv | _ => raise InternalError "createTypeVariableMap"
         end
 
-    |   createTypeVariableMap [a, b] =
+    |   createTypeVariableMap unifiable [a, b] =
         let
-            val tvA = createTypeVariable a
-            and tvB = createTypeVariable b
+            val tvA = createTypeVariable unifiable a
+            and tvB = createTypeVariable unifiable b
         in
             fn TVIndex 0 => tvA | TVIndex 1 => tvB | _ => raise InternalError "createTypeVariableMap"
         end
 
-    |   createTypeVariableMap [a, b, c] =
+    |   createTypeVariableMap unifiable [a, b, c] =
         let
-            val tvA = createTypeVariable a
-            and tvB = createTypeVariable b
-            and tvC = createTypeVariable c
+            val tvA = createTypeVariable unifiable a
+            and tvB = createTypeVariable unifiable b
+            and tvC = createTypeVariable unifiable c
         in
             fn TVIndex 0 => tvA | TVIndex 1 => tvB | TVIndex 2 => tvC | _ => raise InternalError "createTypeVariableMap"
         end
 
-    |   createTypeVariableMap templs =
+    |   createTypeVariableMap unifiable templs =
         let
-            val tvs = map createTypeVariable templs
+            val tvs = map (createTypeVariable unifiable) templs
             val tvVector = Vector.fromList tvs
         in
             fn TVIndex n => Vector.sub(tvVector, n)
@@ -856,12 +844,23 @@ struct
     fun generalise(atyp, templs) =
     let
         (* Create free type variables for each template. *)
-        val freeTypeMap = TypeVar o createTypeVariableMap templs
+        val freeTypeMap = TypeVar o (createTypeVariableMap true) templs
         val (t, newMatch) = generaliseTypes (atyp, freeTypeMap, fn _ => NONE)
         fun makeResult(Matched{new, old}) =
             {value=new, equality=tvEquality old, printity=tvPrintity old}
     in
         (t, List.map makeResult newMatch)
+    end
+
+    (* Create a match type i.e. a type from a value but with explicit non-unifiable type
+       variables instead of unifiable variables.  In particular if the templates include
+       TemplFlexRecord and the record is now frozen this creates a fixed record. *)
+    fun createMatchType(atyp, templs) =
+    let
+        val freeTypeMap = TypeVar o (createTypeVariableMap false) templs
+        val (t, _) = generaliseTypes (atyp, freeTypeMap, fn _ => NONE)
+    in
+        t
     end
 
     (* If we have a type construction which is an alias for another type
@@ -2081,11 +2080,11 @@ struct
             List.map (fn(Matched{old, ...}) => old) newMatch
         end
 
-    |   getPolyTypeVars((_, templates), _) = map createTypeVariable templates
+    |   getPolyTypeVars((_, templates), _) = map (createTypeVariable true) templates
 
     fun generaliseWithMap((atyp, templates), map) =
     let
-        val freeTypeMap = createTypeVariableMap templates
+        val freeTypeMap = createTypeVariableMap true templates
         fun mapToResult n =
         let
             val tv = freeTypeMap(TVIndex n)
@@ -2194,26 +2193,24 @@ struct
                 |   matchLabelled (aList as ((aVal as {name=aName,typeof=aType})::aRest),
                                    bList as ((bVal as {name=bName,typeof=bType})::bRest)) =
                     (* both not nil - look at the names. *)
-                    let
-                        val order = compareLabels (aName, bName);
-                    in
-                        if order = 0 (* equal *)
-                        then (* same name - must be unifiable types *)
-                        ( (* The result is (either) one of these with the rest of the list. *)
-                            match (aType, bType);
-                            aVal :: matchLabelled (aRest, bRest)
-                        )
-                        else if order < 0 (* aName < bName *)
-                        then (* The entries in each list are in order so this means that this
-                               entry is not in bList. If the typeB is frozen this is an error. *)
-                            if typBFrozen (* Continue with the entry removed. *)
-                        then (cantMatch (typA, typB, "(Field " ^ aName ^ " missing)"); aList)
-                        else aVal :: matchLabelled (aRest, bList)
-                        else (* aName > bName *)
-                            if typAFrozen
-                        then (cantMatch (typA, typB, "(Field " ^ bName ^ " missing)"); bList)
-                        else bVal :: matchLabelled (aList, bRest)
-                     end (* not nil *);
+                    (
+                        case compareLabels (aName, bName) of
+                            EQUAL => (* same name - must be unifiable types *)
+                            ( (* The result is (either) one of these with the rest of the list. *)
+                                match (aType, bType);
+                                aVal :: matchLabelled (aRest, bRest)
+                            )
+                        |   LESS => (* aName < bName *)
+                                (* The entries in each list are in order so this means that this
+                                       entry is not in bList. If the typeB is frozen this is an error. *)
+                                if typBFrozen (* Continue with the entry removed. *)
+                                then (cantMatch (typA, typB, "(Field " ^ aName ^ " missing)"); aList)
+                                else aVal :: matchLabelled (aRest, bList)
+                        |   GREATER => (* aName > bName *)
+                                if typAFrozen
+                                then (cantMatch (typA, typB, "(Field " ^ bName ^ " missing)"); bList)
+                                else bVal :: matchLabelled (aList, bRest)
+                     )
  
                 (* Return the combined list. Only actually used if both are flexible. *)
                 val result =
@@ -2243,7 +2240,19 @@ struct
                     then ()
                     else
                     let
-                        val genericFields = FieldList(map #name result, false)
+                        fun getFields(FlexibleList(ref r)) = getFields r
+                        |   getFields(FieldList(g, _)) = g
+                        (* Merge the generics. *)
+                        fun mergeGen([], a) = a
+                        |   mergeGen(a, []) = a
+                        |   mergeGen(a as aHd :: aTl, b as bHd :: bTl) =
+                            (
+                                case compareLabels (aHd, bHd) of
+                                    EQUAL => aHd :: mergeGen(aTl, bTl)
+                                |   LESS => aHd :: mergeGen(aTl, b)
+                                |   GREATER  => bHd :: mergeGen(a, bTl)
+                            )
+                        val genericFields = FieldList(mergeGen(getFields gA, getFields gB), false)
                     in
                         (* If these are both flexible we have link all the generics together
                            so that if we freeze any one of them they all get frozen. *)
@@ -3086,15 +3095,20 @@ struct
      The current version side-effects type variables by adding on a generalisable type
      variable at the end of the chain if the type variable can be generalised.
      *)
-  fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo, typeEnv) =
+    fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo, typeEnv) =
     let
+        (* Error message with context. *)
+        val haveErrored = ref false (* Just generate a single message even if there are multiple errors *)
         fun giveError(s1: string, s2: string) =
+        if ! haveErrored then ()
+        else
         let
             (* Use a single sequence. *)
             val vars : typeVarForm -> string = varNameSequence ();
             open DEBUG
             val parameters = debugParams lex
             val errorDepth = getParameter errorDepthTag parameters
+            val () = haveErrored := true
         in
             reportError lex
             {
@@ -3121,106 +3135,142 @@ struct
             val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
         end
 
-        fun general t (genArgs as (showError, nonExpansive)) =
-            case eventual t of
-                TypeVar tvar =>
-                let
-                    val argSet =
-                        if (case tvLevel tvar of NotGeneralisable v => v >= level | Generalisable => false)
-                            andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
-                        then
-                        let
-                            (* Make a new generisable type variable, except that type
-                               variables in an expansive context cannot be generalised.
-                               We also don't generalise if this is an overload set.
-                               The reason for that is that it allows us to get overloading
-                               information from the surrounding context.
-                               e.g. let fun f x y = x+y in f 2.0 end.  An alternative
-                               would be take the default type (in this case int).
-                               DCJM 1/9/00. *)
-                            val newLevel =
-                               if not nonExpansive then NotGeneralisable(level-1) else Generalisable (* copiable *)
-                            val nonCopiable = not nonExpansive andalso tvNonUnifiable tvar
+        (* Perform checks and return the generic version with the templates.  Even if the context is
+           non-expansive it is possible to generalise it. *)
+        fun createGeneric(t, templates: typeVarTemplate list, nonExpan) =
+        case eventual t of
+            typ as TypeVar tvar =>
+            (
+                case tvValue tvar of
+                    OverloadSet {typeset, ...} =>
+                    if checkOverloadFlex
+                    then (* Narrow context for overloading: select "preferred" type. *)
+                    (
+                        case preferredOverload typeset of
+                            SOME (constr as TypeConstrs {name, locations, ...}) =>
+                                (TypeConstruction{constr=constr, args=[], locations=locations, name=name}, templates)
 
-                            val isOk =
-                                (* If the type variable has top-level scope then we have
-                                   a free type variable.  We only want to generate this
-                                   message once even if we have multiple type variables.*)
-                                (* If the type variable is non-unifiable and the expression is
-                                   expansive then we have an error since this will have to
-                                   be a monotype.  *)
-                                if nonCopiable andalso showError
-                                then
-                                    (
-                                    giveError("Type", "includes a free type variable");
-                                    false
-                                    )
-                                else showError;
-                            (* It may be a flexible record so we have to transfer the
-                               record to the new variable. *)
-                            val newTypeVar =
-                                makeTv {value=tvValue tvar, level=newLevel, equality=tvEquality tvar,
-                                        nonunifiable=nonCopiable, printable=tvPrintity tvar}
-                            (*val (newTypeValue, newTemplates) =
-                                if nonExpansive
-                                then (* Create a bound type variable.*)
-                                else *)
-                        in
-                            tvSetValue (tvar, TypeVar newTypeVar);
-                            (* If we are using the "narrow" context for overloading and
-                               flexible records we should apply this here.  Otherwise it is
-                               dealt with in the next pass when we have the full program context. *)
-                            case (checkOverloadFlex, tvValue tvar) of
-                                (true, LabelledType _) => giveError("Type", "is an unresolved flexible record")
-                            |   (true, OverloadSet {typeset, ...}) =>
-                                (   (* Set this to the "preferred" type.  Typically this is "int" but for overloaded literals
-                                       (e.g. 0w0) it could be something else. *)
-                                    case preferredOverload typeset of
-                                        SOME tycons =>
-                                            tvSetValue(tvar,
-                                                mkTypeConstruction(tcName tycons, tycons, [], []))
-                                    |   NONE => raise InternalError "general: No matching type"
-                                )
-                            |   _ => ();
-                            (isOk, nonExpansive)
-                        end
-                        else genArgs
-                in
-                    general (tvValue tvar) argSet (* Process any flexible record. *)
-                end
+                        |   NONE => raise InternalError "general: No matching type"
+                    )
+                    else (* Normal setting: find overloading from full context. For the moment just return this type
+                            variable containing the current overload set. *)
+                        (typ, templates)
 
-            |   TypeConstruction {args,
-                     constr=TypeConstrs{
-                        identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
-                    (* There is a pathological case here.  If we have a type equivalence
-                       which contains type variables that do not occur on the RHS
-                       (e.g. type 'a t = int) then we generalise over them even with an
-                       expansive expression.  This is because the semantics treats type
-                       abbreviations as type functions and so any type variables that
-                       are eliminated by the function application do not appear in the
-                       "type" that the semantics applies to the expression.  So
-                       "ref 1: 'a t ref" is valid. *)
+                |   LabelledType{recList, fullList} => (* Unresolved flexible record. *)
                     let
-                        fun processArg(tvar, ((showError, nonExpansive), n)) =
-                            (general tvar (showError, nonExpansive orelse not(BoolVector.sub(usedTvs, n))), n+1)
-                        (* Process any arguments that have not been processed in the equivalent. *)
-                        val (r, _) = List.foldr processArg (genArgs, 0) args
+                        (* If we're using the narrow context it should have been resolved. *)
+                        val () = if checkOverloadFlex then giveError("Type", "is an unresolved flexible record") else ()
+                        val genericRef =
+                            case fullList of FlexibleList r => r | FieldList _ => raise InternalError "createGeneric: not flex record"
+                        (* Copy the fields that have been used as with frozen labelled records. *)
+                        fun copyRecordEntry({name, typeof}, (fields, templs)) =
+                        let
+                            val (copiedTyp, newtempls) = createGeneric(typeof, templs, nonExpan)
+                        in
+                            ({name=name, typeof=copiedTyp} :: fields, newtempls)
+                        end
+                        val (copiedList, resTempls) = List.foldl copyRecordEntry ([], templates) recList
+                        val newTempl =
+                            TemplFlexRecord{ fields=List.rev copiedList, generic=genericRef, equality = tvEquality tvar, printity=tvPrintity tvar }
                     in
-                        r
+                        (BoundTypeVar("'a", TVIndex(List.length resTempls)), newTempl :: resTempls)
                     end
 
-            |   TypeConstruction {args, ...} =>
-                    List.foldr (fn (t, v) => general t v) genArgs args
+                |   _ =>
+                    (
+                        if (case tvLevel tvar of NotGeneralisable v => v < level | Generalisable => false)
+                        then (* Explicit type variable at an outer level.  Same whether expansive or not.
+                                For the moment just return this type variable. *)
+                            (typ, templates)
 
-            |   FunctionType {arg, result} => general arg (general result genArgs)
+                        else if nonExpan
+                        then (* New generic type variable. *)
+                            (BoundTypeVar("'a", TVIndex(List.length templates)),
+                                TemplPlain { equality=tvEquality tvar, printity=tvPrintity tvar } :: templates)
 
-            |   LabelledType {recList,...} =>
-                    List.foldr (fn ({ typeof, ... }, v) => general typeof v) genArgs recList
+                        else (* Expansive context. *)
+                        let
+                            (* For the moment just return a new type variable. *)
+                            val newTypeVar =
+                                makeTv {value=EmptyType, level=NotGeneralisable(level-1), equality=tvEquality tvar,
+                                        nonunifiable=tvNonUnifiable tvar, printable=tvPrintity tvar}
+                            val _ =
+                                (* If the type variable is non-unifiable and the expression is
+                                   expansive and the type variable is local then we have an error since
+                                   this will have to be a monotype. *)
+                                if tvNonUnifiable tvar
+                                then giveError("Type", "includes a free type variable")
+                                else ()
+                        in
+                            (TypeVar newTypeVar, templates)
+                        end
+                    )
+            )
 
-            |   _ => genArgs
+        |   BoundTypeVar _ => raise InternalError "createGeneric: already bound"
+
+        |   TypeConstruction {constr as
+                TypeConstrs{identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, args, locations, name} =>
+                (* If we have a type function which contains type variables that do not occur
+                   on the RHS (e.g. type 'a t = int) then we generalise over them even with an
+                   expansive expression.  So "ref 1: 'a t ref" is valid. *)
+            let
+                fun copyEntry(ty, (resList, templs: typeVarTemplate list, n)) =
+                let
+                    val (copiedTyp, newtempls) =
+                        createGeneric(ty, templs, nonExpan orelse not(BoolVector.sub(usedTvs, n)))
+                in
+                    (copiedTyp :: resList, newtempls, n+1)
+                end
+                val (copiedArgs, resTemplates, _) = List.foldl copyEntry ([], templates, 0) args
+            in
+                (TypeConstruction{constr=constr, args=List.rev copiedArgs, locations=locations, name=name}, resTemplates)
+            end
+
+        |   TypeConstruction {constr, args, locations, name} =>
+            let
+                fun copyEntry(ty, (resList, templs: typeVarTemplate list, n)) =
+                let
+                    val (copiedTyp, newtempls) = createGeneric(ty, templs, nonExpan)
+                in
+                    (copiedTyp :: resList, newtempls, n+1)
+                end
+                val (copiedArgs, resTemplates, _) = List.foldl copyEntry ([], templates, 0) args
+            in
+                (TypeConstruction{constr=constr, args=List.rev copiedArgs, locations=locations, name=name}, resTemplates)
+            end
+
+        |   FunctionType {arg, result} =>
+            let
+                val (copiedArg, argTemplates) = createGeneric(arg, templates, nonExpan)
+                val (copiedRes, resTemplates) = createGeneric(result, argTemplates, nonExpan)
+            in
+                (FunctionType {arg = copiedArg, result = copiedRes}, resTemplates)
+            end
+
+        |   LabelledType {recList, fullList} =>
+                (* Rigid labelled records only.  Flexible ones are treated as type vars. *)
+            let
+                fun copyRecordEntry({name, typeof}, (fields, templs)) =
+                let
+                    val (copiedTyp, newtempls) = createGeneric(typeof, templs, nonExpan)
+                in
+                    ({name=name, typeof=copiedTyp} :: fields, newtempls)
+                end
+                val (copiedList, resTempls) = List.foldl copyRecordEntry ([], templates) recList
+            in
+                (LabelledType {recList = List.rev copiedList, fullList = fullList}, resTempls)
+            end
+
+        |   EmptyType => raise InternalError "createGeneric: EmptyType"
+
+        |   BadType => (BadType, templates)
+
+        |   OverloadSet _ => raise InternalError "createGeneric: OverloadSet"
+
+        val (newType, newTemplates) = createGeneric(t, [], nonExpansive)
     in
-        general t (true, nonExpansive);
-        ()
+        (newType, List.rev newTemplates)
     end (*  end allowGeneralisation *);
 
   (* Check for free type variables at the top level.  Added for ML97.  This replaces the

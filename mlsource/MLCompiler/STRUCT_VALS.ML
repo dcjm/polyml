@@ -188,7 +188,7 @@ struct
     |   TemplFlexRecord of
         { 
             fields: { name: string, typeof: types } list,
-            generic: { frozen: bool, fields: string list} ref,
+            generic: labelFieldList ref,
             equality: bool, printity: bool
         }
     |   TemplOverload of string

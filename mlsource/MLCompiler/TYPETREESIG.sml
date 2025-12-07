@@ -131,10 +131,13 @@ sig
     (* Return the type variables that would be generalised at this point. *)
     val getPolyTypeVars: (types * typeVarTemplate list) * (typeVar -> types option) -> typeVar list
 
+    (* Create a match type suitable for a signature from a structure. *)
+    val createMatchType: types * typeVarTemplate list -> types
+
     (* Release type variables at this nesting level.  Updates the type to the
        generalised version. *)
     val allowGeneralisation: types * int * bool *
-                             lexan * location * (unit -> pretty) * printTypeEnv -> unit
+                             lexan * location * (unit -> pretty) * printTypeEnv -> types * typeVarTemplate list
 
     (* Check for a local datatype "escaping".  Added for ML97. *)
     val checkForEscapingDatatypes: types * (string -> unit) -> unit
