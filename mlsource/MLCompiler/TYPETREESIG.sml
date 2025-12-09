@@ -46,6 +46,7 @@ sig
     type valAccess
     type tvIndex
     type typeVarTemplate
+    type argumentType
     
     type typeVarForm = typeVar
 
@@ -65,7 +66,6 @@ sig
     val entryNumber:        string * types -> int;
     val recordNotFrozen:    types -> bool;
     val recordWidth:        types -> int;
-    val recordFieldMap:     (types -> 'a) -> types -> 'a list
     val makeEquivalent:     typeConstrs * types list -> types;
     val firstArg:           types -> types
 
@@ -147,7 +147,11 @@ sig
 
     val constructorResult: types * types list -> types;
 
-    val identical:       types * types -> bool;
+    val identical:       types * types -> bool
+
+    (* Get the codetree "types".  This is used during code-generation to see if
+       a function arguments or results are a tuple or contain floating-point values. *)
+    val getCodetreeType: types -> argumentType list
 
     val boolConstr:   typeConstrs;
     val fixedIntConstr:typeConstrs
@@ -172,9 +176,6 @@ sig
     val exnType:        types
     
     val isPointerEqType: typeId -> bool
-    
-    datatype floatKind = FloatDouble | FloatSingle
-    val isFloatingPt: types -> floatKind option
 
     val isUndefinedTypeConstr: typeConstrs -> bool
     val isBadType:  types -> bool
@@ -278,6 +279,7 @@ sig
         and  valAccess  = valAccess
         and  tvIndex = tvIndex
         and  typeVarTemplate = typeVarTemplate
+        and  argumentType = argumentType
     end
 
 end;

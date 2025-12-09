@@ -549,13 +549,17 @@ struct
                             1, "print-labelled", getClosure localLevel, 0)
                     end
 
-                |   LabelledType (r as { recList, ...}) =>
+                |   LabelledType { recList, fullList, ...} =>
                     let
                         (* See if this has fields numbered 1=, 2= etc.   N.B.  If it has only one field
                            we need to print 1= since we don't have singleton tuples. *)
                         fun isRec([], _) = true
                         |   isRec({name, ...} :: l, n) = name = Int.toString n andalso isRec(l, n+1)
-                        val isTuple = recordIsFrozen r andalso isRec(recList, 1) andalso List.length recList >= 2
+                        
+                        fun recordIsFrozen (FlexibleList(ref r)) = recordIsFrozen r
+                        |   recordIsFrozen (FieldList (_, b)) = b
+
+                        val isTuple = recordIsFrozen fullList andalso isRec(recList, 1) andalso List.length recList >= 2
                         val localLevel = newLevel level
                         val valToPrint = mkInd(0, arg1) and depthCode = mkInd(1, arg1)
                         val fields = List.tabulate(List.length recList, fn n => n)

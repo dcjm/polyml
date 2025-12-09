@@ -87,10 +87,6 @@ struct
   fun typesFunctionType     (FunctionType     x) = x
      | typesFunctionType     _ = raise Match;
 
-    (* This is really left over from an old definition. *)
-    fun tcEquivalent(TypeConstrs{identifier = TypeId {idKind = TypeFn{resType, ...}, ...}, ...}) = resType
-    |   tcEquivalent _ = raise InternalError "tcEquivalent: Not a type function"
-
 
 (*************)
 
@@ -141,6 +137,16 @@ struct
         }
 
     fun tsConstr(TypeConstrSet(ts, _)) = ts
+
+    local
+        fun follow (FlexibleList(ref r)) = follow r
+        |   follow (FieldList c) = c
+    in
+        fun recordIsFrozen { fullList, ...} =
+            #2 (follow fullList)
+        and recordFields {fullList, ...} =
+            #1 (follow fullList)
+    end
 
 
   fun mkFunctionType (arg, result) = 
@@ -580,7 +586,7 @@ struct
                 |   addToInstance(generic :: geRest, inst as instance :: iRest) =
                     (
                         case compareLabels (generic, #name instance) of
-                            EQUAL => addToInstance(geRest, iRest)
+                            EQUAL => instance :: addToInstance(geRest, iRest)
                         |   LESS => createNewField generic :: addToInstance(geRest, inst)
                         |   GREATER => (* This is another case that can occur with type-incorrect code. *)
                                 instance :: addToInstance(generic :: geRest, iRest)
@@ -619,6 +625,9 @@ struct
             |   FunctionType {arg, result} => foldT arg (foldT result res)
     
             |   LabelledType {recList,...} =>
+                    List.foldr (fn ({ typeof, ... }, v) => foldT typeof v) res recList
+
+            |   BoundFlexRecord(_, {recList, ...}) =>
                     List.foldr (fn ({ typeof, ... }, v) => foldT typeof v) res recList
 
             |   BoundTypeVar _ => res
@@ -667,14 +676,17 @@ struct
             else {name=name, typeof=typeof'} :: t'
         end  (* copyList *);
 
-        val atyp = eventual at;
+        val atyp = eventual at
     in
         case atyp of
             TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
                 copyTypeVar atyp
     
-        |   BoundTypeVar(_, index) => getOpt(indexBTV index, atyp)
-    
+        |   BoundTypeVar(_, index) =>
+                (* Instantiate the type variable if there is a map.  Currently this can also be called when
+                   processing signatures so allow for the look-up to fail and return the original. *)
+                getOpt(indexBTV index, atyp)
+
         |   TypeConstruction {constr, args, locations, ...} => 
             let
                 val copiedArgs   = copyList args;
@@ -685,8 +697,7 @@ struct
                    replicated datatypes. *)
                 val copiedName = tcName copiedConstr
             in
-                if identicalList (copiedArgs, args) andalso
-                    identicalConstr (copiedConstr, constr)
+                if identicalList (copiedArgs, args) andalso identicalConstr (copiedConstr, constr)
                 then atyp 
                 else (* Must copy it. *) 
                     mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
@@ -697,13 +708,12 @@ struct
                 val copiedArg  = copyType (arg,    indexBTV, copyTypeVar, copyTypeConstr);
                 val copiedRes  = copyType (result, indexBTV, copyTypeVar, copyTypeConstr);
             in
-                if identical (copiedArg, arg) andalso 
-                    identical (copiedRes, result)
+                if identical (copiedArg, arg) andalso identical (copiedRes, result)
                 then atyp 
                 else FunctionType {arg = copiedArg, result = copiedRes}
             end 
-              
-        |   LabelledType {recList, fullList} =>
+
+        |   LabelledType ({recList, fullList}) =>
                 (* Rigid labelled records only.  Flexible ones are treated as type vars. *)
             let
                 val copiedList = copyRecordList recList
@@ -712,7 +722,25 @@ struct
                 then atyp 
                 else LabelledType {recList = copiedList, fullList = fullList}
             end
-                        
+
+        |   BoundFlexRecord(index, {recList, fullList}) =>
+            (
+                case indexBTV index of
+                    SOME typeVar =>
+                    let
+                        val typV =
+                            case typeVar of TypeVar tv => tv | _ => raise InternalError "copyType: BoundFlexRecord not variable"
+                        val copiedList = copyRecordList recList
+                    in
+                        (* Set this to a labelled record. *)
+                        tvSetValue(typV, LabelledType {recList=copiedList, fullList=fullList});
+                        typeVar (* Return the type variable. *)
+                    end
+                    (* This can occur if we are processing a flexible record inside a structure.
+                       Currently we copy the "signature".  *)
+                |   NONE => BoundFlexRecord(index, {recList=copyRecordList recList, fullList=fullList})
+            )
+
         |   EmptyType =>
                 EmptyType
 
@@ -794,13 +822,6 @@ struct
             makeTv {value=emptyType, level=generalisable, equality=equality,
                          nonunifiable=not unifiable, printable=printity}
     |   createTypeVariable _ (TemplFree tv) = tv
-    |   createTypeVariable _ (TemplFlexRecord{fields, generic, equality, printity}) =
-            (* All instances share the same generic list of fields.  It may have been frozen
-               at this point but since we need to return a type variable here there's no point
-               in checking. *)
-            makeTv{value=LabelledType {recList = fields, fullList = FlexibleList generic }, level=Generalisable, equality=equality,
-                    nonunifiable=false, printable=printity}
-
     |   createTypeVariable _ (TemplOverload s) =
             makeTv {value=OverloadSet{typeset=Overloads.getOverloadTypes s}, level=generalisable, equality=false,
                          nonunifiable=false, printable=false}
@@ -995,6 +1016,9 @@ struct
         |   LabelledType {recList, ...} => (* Record equality if all subtypes are (ignore frozen!) *)
                 (* TODO: Avoid copying the list? *)
                 eqForList (map (fn{typeof, ...}=>typeof) recList, Yes)
+
+        |   BoundFlexRecord _ => raise InternalError "computeEquality: BoundFlexRecord"
+
 
         |   OverloadSet _ =>
                 (* This should not happen because all overload sets should be pointed
@@ -1706,6 +1730,8 @@ struct
                         [ PrettyString (if recordIsFrozen r then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
                         )
                 end
+
+            |   BoundFlexRecord(_, reclist) => dispP (LabelledType reclist, depth)
 
             |   OverloadSet {typeset = []} => PrettyString "no type"
 
@@ -3135,6 +3161,9 @@ struct
             val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
         end
 
+        (* Map from type variables to bound variables we have already made. *)
+        val typeVarMapList: (typeVar * tvIndex) list ref = ref nil
+
         (* Perform checks and return the generic version with the templates.  Even if the context is
            non-expansive it is possible to generalise it. *)
         fun createGeneric(t, templates: typeVarTemplate list, nonExpan) =
@@ -3160,8 +3189,6 @@ struct
                     let
                         (* If we're using the narrow context it should have been resolved. *)
                         val () = if checkOverloadFlex then giveError("Type", "is an unresolved flexible record") else ()
-                        val genericRef =
-                            case fullList of FlexibleList r => r | FieldList _ => raise InternalError "createGeneric: not flex record"
                         (* Copy the fields that have been used as with frozen labelled records. *)
                         fun copyRecordEntry({name, typeof}, (fields, templs)) =
                         let
@@ -3170,10 +3197,10 @@ struct
                             ({name=name, typeof=copiedTyp} :: fields, newtempls)
                         end
                         val (copiedList, resTempls) = List.foldl copyRecordEntry ([], templates) recList
-                        val newTempl =
-                            TemplFlexRecord{ fields=List.rev copiedList, generic=genericRef, equality = tvEquality tvar, printity=tvPrintity tvar }
+                        val newRecord = { recList=List.rev copiedList, fullList=fullList }
                     in
-                        (BoundTypeVar("'a", TVIndex(List.length resTempls)), newTempl :: resTempls)
+                        (BoundFlexRecord(TVIndex(List.length resTempls), newRecord),
+                            TemplPlain { equality=tvEquality tvar, printity=tvPrintity tvar } :: resTempls)
                     end
 
                 |   _ =>
@@ -3184,9 +3211,19 @@ struct
                             (typ, templates)
 
                         else if nonExpan
-                        then (* New generic type variable. *)
-                            (BoundTypeVar("'a", TVIndex(List.length templates)),
-                                TemplPlain { equality=tvEquality tvar, printity=tvPrintity tvar } :: templates)
+                        then (* If we've already made a bound variable here we need to reuse it. *)
+                        (
+                            case List.find(fn (tv, _) => sameTv(tv, tvar)) (!typeVarMapList) of
+                                NONE =>
+                                let
+                                    val newIndex = TVIndex(List.length templates)
+                                    val () = typeVarMapList := (tvar, newIndex) :: (!typeVarMapList)
+                                in
+                                    (BoundTypeVar("'a", newIndex),
+                                        TemplPlain { equality=tvEquality tvar, printity=tvPrintity tvar } :: templates)
+                                end
+                            |   SOME(_, index) => (BoundTypeVar("'a", index), templates)
+                        )
 
                         else (* Expansive context. *)
                         let
@@ -3208,6 +3245,7 @@ struct
             )
 
         |   BoundTypeVar _ => raise InternalError "createGeneric: already bound"
+        |   BoundFlexRecord _ => raise InternalError "createGeneric: already bound"
 
         |   TypeConstruction {constr as
                 TypeConstrs{identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, args, locations, name} =>
@@ -3248,7 +3286,7 @@ struct
                 (FunctionType {arg = copiedArg, result = copiedRes}, resTemplates)
             end
 
-        |   LabelledType {recList, fullList} =>
+        |   LabelledType ({recList, fullList}) =>
                 (* Rigid labelled records only.  Flexible ones are treated as type vars. *)
             let
                 fun copyRecordEntry({name, typeof}, (fields, templs)) =
@@ -3341,46 +3379,80 @@ struct
         |   _ => NONE
     end
 
-  (* Returns the number of the entry in the list. Used to find out the
-     location of fields in a labelled record for expressions and pattern
-     matching. Assumes that the label appears in the list somewhere. *)
-     
-  fun entryNumber (label, LabelledType{recList, ...}) =
-    let (* Count up the list. *)
-      fun entry ({name, ...}::l) n =
-        if name = label then n else entry l (n + 1)
-       |  entry [] _ = raise Match
+    local
+        (* We have to use the full list; not all fields may be in recList. *)
+        fun getFieldList(LabelledType rcrd) = recordFields rcrd
+        |   getFieldList(TypeVar tvar) = getFieldList(tvValue tvar)
+        |   getFieldList(TypeConstruction{
+                    constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...}, args, ...}) =
+                getFieldList(makeEquivalent(constr, args)) (* Type function *)
+        |   getFieldList _ = raise InternalError "getFieldList - not a record"
     in
-      entry recList 0
+        (* Returns the number of the entry in the list. Used to find out the
+           location of fields in a labelled record for expressions and pattern
+           matching. Assumes that the label appears in the list somewhere. *)
+        fun entryNumber (label, rcrd) = 
+        let
+            val fields = getFieldList rcrd
+
+            fun entry (name :: l) n = if name = label then n else entry l (n + 1)
+            |   entry [] _ = raise InternalError "entryNumber: label not present"
+        in
+            entry fields 0
+        end
+
+        (* Size of a labelled record. *)
+        and recordWidth rcrd = List.length(getFieldList rcrd)
+        
     end
-      
-   | entryNumber (label, TypeVar tvar) =
-        entryNumber (label, tvValue tvar)
-      
-   | entryNumber (label, TypeConstruction{constr, ...}) = (* Type alias *)
-        entryNumber (label, tcEquivalent constr)
-      
-   | entryNumber _ =
-        raise InternalError "entryNumber - not a record"
 
-  (* Size of a labelled record. *)
+    (* Get the codetree "types".  This is used during code-generation to see if
+       a function arguments or results are a tuple or contain floating-point values. *)
+    local
+        val realId = tcIdentifier realConstr and floatId = tcIdentifier floatConstr
 
-  fun recordWidth (LabelledType{recList, ...}) =
-        length recList
-      
-   | recordWidth (TypeVar tvar) =
-        recordWidth (tvValue tvar)
-      
-   | recordWidth (TypeConstruction{constr, ...}) = (* Type alias *)
-        recordWidth (tcEquivalent constr)
-      
-   | recordWidth _ =
-        raise InternalError "entryNumber - not a record"
+        fun isFloatId constr =
+        let
+            val id = tcIdentifier constr
+        in
+            if sameTypeId(id, realId) then DoubleFloatType
+            else if sameTypeId(id, floatId) then SingleFloatType
+            else GeneralType
+        end
+    in
+        fun getCodetreeType (LabelledType(rcrd as {recList, ...})) =
+            (* If it's "unit" return a single general type.  If the record has not
+               been frozen it's an error reported elsewhere.  It could be a flexible
+               record that is frozen in which case we just pass the address of the
+               whole record. *)
+            if List.length recList = 0 orelse not(recordIsFrozen rcrd) orelse
+                    List.length recList <> List.length (recordFields rcrd)
+            then [GeneralType]
+            else
+            let
+                fun getType{typeof, ...} =
+                    case getCodetreeType typeof of [single] => single | _ => GeneralType
+            in
+                List.map getType recList
+            end
 
-    fun recordFieldMap f (LabelledType{recList, ...}) = List.map (f o (fn {typeof, ...} => typeof)) recList
-    |   recordFieldMap f (TypeVar tvar) = recordFieldMap f (tvValue tvar)
-    |   recordFieldMap f (TypeConstruction{constr, ...}) = recordFieldMap f (tcEquivalent constr)
-    |   recordFieldMap _ _ = raise InternalError "entryNumber - not a record"
+        |   getCodetreeType (TypeVar tvar) = getCodetreeType (tvValue tvar)
+
+        |   getCodetreeType (TypeConstruction{
+                    constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...}, args, ...}) =
+                getCodetreeType (makeEquivalent(constr, args))
+
+        |   getCodetreeType (TypeConstruction{constr, args=[], ...}) = [isFloatId constr]
+
+        |   getCodetreeType(OverloadSet {typeset, ...}) =
+            (
+                case preferredOverload typeset of
+                    SOME t => [isFloatId t] (* real only.  float is never preferred. *)
+                |   NONE => [GeneralType]
+            )
+
+        |   getCodetreeType _ = [GeneralType]
+    end
 
     (* Unify two type variables which would otherwise be non-unifiable.
        Used when we have found a local type variable with the same name
@@ -3543,33 +3615,6 @@ struct
         |   _ => (* May arise if there's been an error. *) mkTypeVar(generalisable, false, false, false)
     end
 
-    (* Test if this is floating point i.e. the "real" type. We could include
-       abbreviations of real as well but it's probably not worth it. *)
-    datatype floatKind = FloatDouble | FloatSingle
-    
-    local
-        val realId = tcIdentifier realConstr and floatId = tcIdentifier floatConstr
-
-        fun isFloatId constr =
-        let
-            val id = tcIdentifier constr
-        in
-            if sameTypeId(id, realId) then SOME FloatDouble
-            else if sameTypeId(id, floatId) then SOME FloatSingle
-            else NONE
-        end
-    in
-        fun isFloatingPt(TypeConstruction{args=[], constr, ...}) = isFloatId constr
-        |   isFloatingPt(OverloadSet {typeset, ...}) =
-            (
-                case preferredOverload typeset of
-                    SOME t => isFloatId t (* real only.  float is never preferred. *)
-                |   NONE => NONE
-            )
-        |   isFloatingPt(TypeVar tv) = isFloatingPt (tvValue tv)
-        |   isFloatingPt _ = NONE
-    end
-
     fun checkDiscard(t: types, lex: lexan): string option =
     let
         open DEBUG
@@ -3618,5 +3663,6 @@ struct
         and  valAccess  = valAccess
         and  tvIndex = tvIndex
         and  typeVarTemplate = typeVarTemplate
+        and  argumentType = argumentType
     end
-end (* TYPETREE *);
+end;

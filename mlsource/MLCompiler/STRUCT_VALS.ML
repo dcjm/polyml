@@ -173,24 +173,11 @@ struct
        use PolyML.print.  Currently, with TypeIdCode.justForEqualityTypes set to true, only
        polymorphic functions that involve equality types will also print correctly with PolyML.print.
        TemplFree is used for a type variable that is free in the current context.
-       It can only be used for local functions.  TemplFlexRecord is the most complex and is used
-       for local functions that contain a flexible record which has not been constrained to a
-       specific record type with the function itself.  It contains the actual fields used within
-       the function and also whether the function used equality and/or PolyML.print on the
-       record as a whole.  generic is a reference that is shared between all instances.  Whenever
-       the function is used the names, but not the types, of the fields used are added to the
-       list.  If the actual argument is a fixed record the record is frozen and no new fields
-       can be added. TemplOverload is used for the functions at the outer level that can be
-       overloaded. *)
+       It can only be used for local functions. TemplOverload is used for the functions at
+       the outer level that can be overloaded. *)
     and typeVarTemplate =
         TemplPlain of { equality: bool, printity: bool }
     |   TemplFree of typeVar
-    |   TemplFlexRecord of
-        { 
-            fields: { name: string, typeof: types } list,
-            generic: labelFieldList ref,
-            equality: bool, printity: bool
-        }
     |   TemplOverload of string
 
     (* Variables used in unification.  These are instantiated from generic type variables. *)
@@ -240,6 +227,11 @@ struct
         }
 
     |   LabelledType  of labelledRec
+
+        (* A flexible record i.e. one derived from "{a, ...}". This can only occur with
+           local values since the record must be frozen at the top level.  The bound
+           variable stands in for the unspecified fields. *)
+    |   BoundFlexRecord of tvIndex * labelledRec
 
     |   OverloadSet   of
         {
@@ -515,16 +507,6 @@ struct
     and tvPrintity (TypeVariable{printity, ...} : typeVarForm)     = printity
     
     val generalisable = Generalisable
-
-    local
-        fun follow (FlexibleList(ref r)) = follow r
-        |   follow (FieldList c) = c
-    in
-        fun recordIsFrozen { fullList, ...} =
-            #2 (follow fullList)
-        and recordFields {fullList, ...} =
-            #1 (follow fullList)
-    end
 
   (* Type constructors are identifiers which take zero or more types and yield a
      type as result. Their main property is that two type constructors can be 

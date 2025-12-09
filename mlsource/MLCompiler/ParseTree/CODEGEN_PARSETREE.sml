@@ -127,13 +127,6 @@ struct
     |   loadArgsFromTuple(types, arg) =
             ListPair.zip(List.tabulate(List.length types, fn num => mkInd (num, arg)), types)
 
-    (* Return the argument/result type which is currently just floating point or everything else. *)
-    fun getCodeArgType t =
-        case isFloatingPt t of
-            NONE => GeneralType
-        |   SOME FloatDouble => DoubleFloatType
-        |   SOME FloatSingle => SingleFloatType 
-
     (* tupleWidth returns the width of a tuple or record or 1 if it
        isn't one.  It is used to detect both argument tuples and results.
        When used for arguments the idea is that frequently a tuple is
@@ -151,12 +144,12 @@ struct
        not be correct. *)
     (* This now returns the argument type for each entry so returns a list rather
        than a number. *)
-    fun tupleWidth(TupleTree{expType=ref expType, ...}) = recordFieldMap getCodeArgType expType
+    fun tupleWidth(TupleTree{expType=ref expType, ...}) = getCodetreeType expType
 
     |  tupleWidth(Labelled{expType=ref expType, ...}) =
        if recordNotFrozen expType (* An error, but reported elsewhere. *)
        then [GeneralType] (* Safe enough *)
-       else recordFieldMap getCodeArgType expType
+       else getCodetreeType expType
 
     |  tupleWidth(Cond{thenpt, elsept, ...}) =
         (
@@ -192,11 +185,11 @@ struct
 
     |  tupleWidth(ExpSeq(p, _)) = tupleWidth(#1 (List.last p))
 
-    |  tupleWidth(Ident{ expType=ref expType, ...}) = [getCodeArgType expType]
+    |  tupleWidth(Ident{ expType=ref expType, ...}) = getCodetreeType expType
 
-    |  tupleWidth(Literal{ expType=ref expType, ...}) = [getCodeArgType expType]
+    |  tupleWidth(Literal{ expType=ref expType, ...}) = getCodetreeType expType
 
-    |  tupleWidth(Applic{ expType=ref expType, ...}) = [getCodeArgType expType]
+    |  tupleWidth(Applic{ expType=ref expType, ...}) = getCodetreeType expType
 
     |  tupleWidth _ = [GeneralType]
 
