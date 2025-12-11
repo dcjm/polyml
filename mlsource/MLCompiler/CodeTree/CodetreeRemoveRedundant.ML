@@ -335,18 +335,14 @@ struct
                     (* Remove unused arguments.  They're unnecessary and may cause problems
                        later on. *)
                     fun filterUnused [] = ([], [])
-                    |   filterUnused (({use=[], value, ...}, _) :: args) =
-                        let
-                            val (used, discards) = filterUnused args
-                            (* We only need to keep this if it might have a side-effect. *)
-                        in
-                           (used, NullBinding(cleanCode(value, [UseGeneral])) :: discards)
-                        end
-                    |   filterUnused(({value, addr, use}, t) :: args) =
+                    |   filterUnused(({value, addr, ...}, t) :: args) =
                         let
                             val (used, discards) = filterUnused args
                         in
-                            (({value=cleanCode(value, use), addr=addr, use=use}, t) :: used, discards)
+                            case Array.sub(locals, addr) of
+                                [] => (* We only need to keep this if it might have a side-effect. *)
+                                    (used, NullBinding(cleanCode(value, [UseGeneral])) :: discards)
+                            |   use => (({value=cleanCode(value, use), addr=addr, use=use}, t) :: used, discards)
                         end
                     val (usedArgs, discards) = filterUnused arguments
                 in
