@@ -173,12 +173,122 @@ struct
 
         local
             open TypeValue
+(*            local
+                open RunCall
+            in
+                (* Structural equality.  This is the fall back if we can't find a type-specific function. *)
+                fun structuralEquality(a: Address.machineWord, b: Address.machineWord) =
+                if PolyML.pointerEq(a, b) then true
+                else if isShort a orelse isShort b then false
+                else
+                let
+                    val aFlags = memoryCellFlags a
+                    and bFlags = memoryCellFlags b
+                    and aLen = memoryCellLength a
+                    and bLen = memoryCellLength b
+                in
+                    if aFlags <> bFlags orelse aLen <> bLen then false
+                    else if aFlags = 0w0 (* Word data *)
+                    then
+                    let
+                        fun eqWords c =
+                            if c = aLen then true
+                            else structuralEquality(loadWordFromImmutable(a, c),
+                                loadWordFromImmutable(b, c)) andalso eqWords(c+0w1)
+                    in
+                        eqWords 0w0
+                    end
+                    else if aFlags = 0w1 (* Byte data *)
+                    then
+                    let
+                        val byteLen = aLen * bytesPerWord
+                        fun eqBytes c =
+                            if c = byteLen then true
+                            else (loadByteFromImmutable(a, c): Word8.word) = loadByteFromImmutable(b, c) andalso eqBytes(c+0w1)
+                    in
+                        eqBytes 0w0
+                    end
+                    else false
+                end
+            end*)
             (* The printer and equality functions must be valid functions even when they
                will never be called.  We may have to construct dummy type values
                by applying a polymorphic type constructor to them and if
                they don't have the right form the optimiser will complain.
                If we're only using type values for equality type variables the default
                print function will be used in polymorphic functions so must print "?". *)
+(*            val defaultEquality =
+                mkProc(mkEval(mkConst(toMachineWord structuralEquality),
+                    [mkTuple[mkLoadArgument 0, mkLoadArgument 1]]), 2, "structureEq", [], 0)*)
+            local
+                open BuiltIns
+                val argA = mkLoadArgument 0 and argB = mkLoadArgument 1
+                (* Variables *)
+                val aFlags = 0 and bFlags = 1 and aLen = 2 and bLen = 3
+                and loopVar = 4 and loopA = 5 and loopB = 6
+                val nLocals = 7
+                fun mkOrelse(a, b) = mkIf(a, CodeTrue, b)
+                fun mkEqual(a, b) = mkBinary(WordComparison{test=TestEqual, isSigned=false }, a, b)
+                fun mkNotEq(a, b) = mkUnary(NotBoolean, mkEqual(a, b))
+                val wordFlags = mkConst(toMachineWord Address.F_words)
+                and byteFlags = mkConst(toMachineWord Address.F_bytes)
+                val bytesWord = mkConst(toMachineWord RunCall.bytesPerWord)
+                val const1 = mkConst(toMachineWord 1)
+                fun loadWord(base, index) =
+                    mkLoadOperation(LoadStoreMLWord{isImmutable=true}, base, index)
+            in
+                val defaultEquality =
+                    mkProc(
+                        mkIf(mkEqualPointerOrWord(argA, argB), CodeTrue,
+                            mkIf(
+                                mkOrelse(mkUnary(BuiltIns.IsTaggedValue, argA), mkUnary(BuiltIns.IsTaggedValue, argB)),
+                                CodeFalse,
+                                mkEnv(
+                                    [
+                                        mkDec(aFlags, mkUnary(BuiltIns.MemoryCellFlags, argA)),
+                                        mkDec(bFlags, mkUnary(BuiltIns.MemoryCellFlags, argB)),
+                                        mkDec(aLen, mkUnary(BuiltIns.MemoryCellLength, argA)),
+                                        mkDec(bLen, mkUnary(BuiltIns.MemoryCellLength, argB))
+                                    ],
+                                    mkIf(
+                                        mkOrelse(mkNotEq(mkLoadLocal aFlags, mkLoadLocal bFlags),
+                                            mkNotEq(mkLoadLocal aLen, mkLoadLocal bLen)),
+                                        CodeFalse,
+                                        mkIf(mkEqual(mkLoadLocal aFlags, wordFlags),
+
+                                            (* Word data - loop to process every word.  TODO: loop for
+                                               len-1 and then tail recurse for the last word.  This will
+                                               work better for lists.  N.B. Check for length = 0 i.e. unit. *)
+                                            mkBeginLoop(
+                                                mkIf(mkEqual(mkLoadLocal loopVar, mkLoadLocal aLen),
+                                                    CodeTrue,
+                                                    mkEnv(
+                                                        [
+                                                            mkDec(loopA, loadWord(argA, mkLoadLocal loopVar)),
+                                                            mkDec(loopB, loadWord(argB, mkLoadLocal loopVar))
+                                                        ],
+                                                        mkIf(
+                                                            mkEval(loadRecursive, [mkLoadLocal loopA, mkLoadLocal loopB]),
+                                                            mkLoop[mkBinary(WordArith ArithAdd, mkLoadLocal loopVar, const1)],
+                                                            CodeFalse))
+                                                ),
+                                                [(loopVar, CodeZero)]
+                                            ),
+
+                                            mkIf(mkEqual(mkLoadLocal aFlags, byteFlags),
+                                                (* Byte data. *)
+                                                mkBlockOperation{kind=BlockOpEqualByte, leftBase=argA, rightBase=argB,
+                                                    leftIndex=CodeZero, rightIndex=CodeZero,
+                                                    length=mkBinary(WordArith ArithMult, mkLoadLocal aLen, bytesWord)},
+                                                (* Any other flags e.g. F_mutable => false *)
+                                                CodeFalse
+                                            )
+                                        )
+                                    ))
+                                )
+                            ),
+                        2, "structureEq", [], nLocals)
+            end
             val errorFunction2 = mkProc(CodeZero, 2, "errorCode2", [], 0)
             val codeFn = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
 
@@ -211,7 +321,7 @@ struct
             val codeTuple =
                 mkTuple[
                     createTypeValue{ (* Unused type variable. *)
-                        eqCode=errorFunction2, printCode=codePrintDefault, boxedCode=boxedEither, sizeCode=singleWord},
+                        eqCode=defaultEquality, printCode=codePrintDefault, boxedCode=boxedEither, sizeCode=singleWord},
                     createTypeValue{ (* Function. *)
                         eqCode=errorFunction2, printCode=codeFn, boxedCode=boxedAlways, sizeCode=singleWord},
                     fixedIntCode, intInfCode, boolCode, stringCode, charCode
