@@ -598,6 +598,8 @@ struct
             end
     end
 
+    val loadRecursive = Extract LoadRecursive
+
     structure Foreign = Backend.Foreign
 
     structure Sharing =
