@@ -113,7 +113,7 @@ struct
     |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
     |   TypeFn of
         {
-            tyVars:     typeVarForm list,
+            arity:      int,
             resType:    types,
             usedTvs:    BoolVector.vector,
             typeFunCount: int,
@@ -246,7 +246,6 @@ struct
         TypeConstrs of
         {
             name:       string,
-            typeVars:   typeVarForm list,
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }

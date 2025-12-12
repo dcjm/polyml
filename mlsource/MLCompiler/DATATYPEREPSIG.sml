@@ -27,7 +27,7 @@ sig
     type level
 
     val chooseConstrRepr :
-        (string*types) list * int -> { constrs: codetree list, boxed: codetree, size: codetree }
+        (string*types) list * int -> { constrs: codetree list }
 
     type representations
     val RefForm:   representations;

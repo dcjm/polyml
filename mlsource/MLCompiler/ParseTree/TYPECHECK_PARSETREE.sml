@@ -336,7 +336,6 @@ struct
             applyList badType l
         end
 
-        fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
         fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
         fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
@@ -482,14 +481,7 @@ struct
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
-        fun makeTypeConstructor (name, typeVars, uid, locations) =
-            TypeConstrs
-            {
-                name       = name,
-                typeVars   = typeVars,
-                identifier = uid,
-                locations = locations
-            }
+        fun makeTypeConstructor (name, uid, locations) = TypeConstrs { name = name, identifier = uid, locations = locations }
 
         fun processPattern(pat, enterResult, level, notConst, mkVar, isRec) =
         let
@@ -1017,7 +1009,7 @@ struct
                 (* Can now declare the new types. *)
                 fun processType (TypeBind {name, typeVars=tvcVars, isEqtype, nameLoc, tcon=tcRef, ...}, decType) =
                 let
-                    val typeVars = map getTypeVar tvcVars
+                    val typeVars = map getBoundTypeVar tvcVars
                     (* Construct a type constructor which is an alias of the
                        right-hand side of the declaration.  If we are effectively
                        giving a new name to a type constructor we use the same type
@@ -1030,19 +1022,19 @@ struct
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
-                                makeTypeConstructor (name, typeVars,
+                                makeTypeConstructor (name,
                                     makeTypeId(isEqtype, false, (tvcVars, EmptyType), description), props)
                             end
                         |   _ =>
                             (
                                 case typeNameRebinding(typeVars, decType) of
                                     SOME typeId =>
-                                        makeTypeConstructor (name,  typeVars,typeId, props)
+                                        makeTypeConstructor (name, typeId, props)
                                 |   NONE =>
                                     let
                                         val description = { location = nameLoc, name = name, description = "" }
                                     in
-                                        makeTypeConstructor (name, typeVars,
+                                        makeTypeConstructor (name,
                                             makeTypeId(isEqtype, false, (tvcVars, decType), description), props)
                                     end
                             )
@@ -1086,10 +1078,10 @@ struct
                     val locations = [DeclaredAt newLoc, SequenceNo (newBindingId lex)]
                     (* Create a new constructor with the same unique ID. *)
                     val typeID = tcIdentifier tcons
-                    val newTypeCons = makeTypeConstructor(newName, tcTypeVars tcons, typeID, locations)
+                    val newTypeCons = makeTypeConstructor(newName, typeID, locations)
     
                     (* Copy the value constructors. *)
-                    fun copyAConstructor(Value{name=cName, typeOf=ValueType(typeOf, _), class, access, ...}) =
+                    fun copyAConstructor(Value{name=cName, typeOf=ValueType(typeOf, valTempls), class, access, ...}) =
                         let
                             (* Copy the types of value constructors replacing
                                occurrences of the old type with the new one.
@@ -1114,7 +1106,7 @@ struct
                                 |    (Formal _, NONE) => access
                                 |    _ => access; (* Probably already a global. *)
                         in
-                            Value{name=cName, typeOf=ValueType(newType, []), class=class, access=newAccess, locations=locations,
+                            Value{name=cName, typeOf=ValueType(newType, valTempls), class=class, access=newAccess, locations=locations,
                                   references = NONE, instanceTypes=NONE}
                         end
 
@@ -1954,20 +1946,19 @@ struct
             );
        
             (* Make the type constructors and put them in a list. *)
-            fun enterTcon (DatatypeBind {name, tcon, typeVars=tcvVars, nameLoc, ...}) =
+            fun enterTcon (DatatypeBind {name, tcon, typeVars, nameLoc, ...}) =
             let
                 (* Make a new ID.  If this is within a let declaration we always make
                    a free ID because it is purely local and can't be exported. *)
                 val description = { location = nameLoc, name = name, description = "" }
-                val typeVars = map getTypeVar tcvVars
                 val arity = length typeVars
             
                 val newId =
                     if letDepth = 0
-                    then makeTypeId(false, true, (tcvVars, EmptyType), description)
+                    then makeTypeId(false, true, (typeVars, EmptyType), description)
                     else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
-                val tc = makeTypeConstructor(name, typeVars, newId, locations)
+                val tc = makeTypeConstructor(name, newId, locations)
             in
                 tcon := TypeConstrSet(tc, []);
                 enterType(TypeConstrSet(tc, []), name);
@@ -1998,13 +1989,12 @@ struct
             (* Can now enter the `withtypes'. *)
             fun enterWithType (TypeBind {name, typeVars=tcvVars, nameLoc, tcon=tcRef, ...}, decType) =
             let
-                val typeVars = map getTypeVar tcvVars
                 val description = { location = nameLoc, name = name, description = "" }
                 (* Construct a type constructor which is an alias of the
                    right-hand side of the declaration. *)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val tcon =
-                    makeTypeConstructor (name, typeVars,
+                    makeTypeConstructor (name,
                         makeTypeId(false, false, (tcvVars, decType), description), locations)
                 val tset = TypeConstrSet(tcon, [])
             in
@@ -2028,7 +2018,7 @@ struct
             fun genValueConstrs (DatatypeBind {name, typeVars, constrs, nameLoc, tcon, ...}, typ) =
             let
                 val numOfConstrs = length constrs;
-                val typeVarsAsTypes = List.map (TypeVar o getTypeVar) typeVars
+                val typeVarsAsTypes = List.map getBoundTypeVar typeVars
                 (* Default template for each type variable. *)
                 val templates = List.map (fn _ => TemplPlain{ equality=false, printity=false }) typeVars
         

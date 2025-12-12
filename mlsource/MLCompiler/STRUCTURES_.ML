@@ -855,7 +855,6 @@ struct
 
     fun idAccess (TypeId { access, ...}) = access 
     fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
     fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
@@ -863,11 +862,9 @@ struct
 
     val tcEquality = isEquality o tcIdentifier;
 
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
-
-    fun tsConstructors(TypeConstrSet(_, tvs)) = tvs
 
     (* TODO: If the item being errored is in a substructure it currently doesn't report
        the name of the substructure. *)
@@ -983,7 +980,7 @@ struct
     in
         case unifyTypes (copiedCandidate, copiedTarget) of
             NONE => (* Succeeded. Return the unified type.  Either will do. *)
-                MatchSuccess(copiedTarget, [])
+                MatchSuccess(copiedTarget, targetTempls)
         |   SOME error => MatchError error
     end;
 
@@ -995,7 +992,10 @@ struct
     let
         val candidName : string = tcName candid;
         val targetName : string = tcName target;
-        val tvars = List.map TypeVar (tcTypeVars target); (* either will do *)
+
+        (* Create non-unifiable type variables as the arguments. *)
+        val tvars = List.tabulate(tcArity candid, fn _ => mkTypeVar(NotGeneralisable 0, false, true, false))
+        
         (* If we get an error in the datatype itself print the full datatype. *)
         val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
         val errorInDatatype =
@@ -1178,15 +1178,17 @@ struct
                 if tagIs typeConstrVar dVal
                 then (* Types *)
                 let (* For each type in the target ... *)
-                    val target = tagProject typeConstrVar dVal
+                    val target as TypeConstrSet(_, targConstrs) = tagProject typeConstrVar dVal
                 in
                     (* Find a candidate with the same name. *)
                     case univLookup (sigTab candidate, typeConstrVar, dName) of
-                        SOME candid =>
+                        SOME (candid as TypeConstrSet(_, candConstrs)) =>
                             let
                                 (* We don't actually check the value constructors here, just load them if they
                                    match.  Because of the no-redefinition rule value constructors in the signature
-                                   must also be present in the value environment so we check them there. *)
+                                   must also be present in the value environment so we check them there.
+                                   Note: this means we actually pass the constructors twice, once in the value
+                                   environment and also in the constructor set. *)
                                 fun matchConstructor(source as Value{typeOf=ValueType valTypeOf, ...}, Value{access=Formal addr, ...}, matches) =
                                         (addr,
                                             ValueMatch { sourceValue = source, coercion = NoCoercion, targetType = valTypeOf }) :: matches
@@ -1194,7 +1196,7 @@ struct
                             in
                                 (* Now check that the types match. *)
                                 checkTypeConstrs(candid, target, lookupType, lex, near, lno, typeEnv, structPath);
-                                ListPair.foldl matchConstructor matches (tsConstructors candid, tsConstructors target)
+                                ListPair.foldl matchConstructor matches (candConstrs, targConstrs)
                             end
                     |   NONE => matches (* If the lookup failed ignore
                                      the error - we've already reported it in matchNames *)
@@ -1411,8 +1413,9 @@ struct
             fun matchConstructor(v as Value{access=Formal addr, typeOf=ValueType valTypeOf, ...}, matches) =
                     (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = valTypeOf }) :: matches
             |   matchConstructor(_, matches) = matches
+            val TypeConstrSet(_, tconstrs) = tagProject typeConstrVar dVal
         in
-            List.foldl matchConstructor matches (tsConstructors(tagProject typeConstrVar dVal))
+            List.foldl matchConstructor matches tconstrs
         end
         else matches
     in
@@ -1649,17 +1652,9 @@ struct
                                         ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=valTypeOf}) :: matches))
                         end
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
-                        fun makeTypeConstructor (name, typeVars, uid, locations) =
-                            TypeConstrs
-                            {
-                                name       = name,
-                                typeVars   = typeVars,
-                                identifier = uid,
-                                locations = locations
-                            }
                         val newConstructor =
-                            makeTypeConstructor(
-                                tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
+                            TypeConstrs { name = tcName typConstr, identifier = tcIdentifier typConstr,
+                                locations = tcLocations typConstr }
                     in
                         #enterType finalEnv (dName, TypeConstrSet(newConstructor, List.rev newConstrs));
                         newAddrMatch
@@ -2015,7 +2010,7 @@ struct
                     makeLocalTypeId(List.length args, true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
             |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                    makeTypeFunction(map getTypeVar typeVars, decType,
+                    makeTypeFunction(List.length typeVars, decType,
                         { location = location, name = structPath ^ name, description = description })
 
             (* Process the body and discard the type. *)

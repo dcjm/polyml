@@ -112,7 +112,7 @@ struct
     fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
     |   tcIsAbbreviation _ = false
 
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = List.length tyVars
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
@@ -304,9 +304,7 @@ struct
                                 [arg1]),
                             1, "print-" ^ tcName, [], 0)
                 in
-                    createTypeValue{
-                        eqCode=extractEquality codedId, printCode=printFn,
-                        boxedCode=extractBoxed codedId, sizeCode=extractSize codedId}
+                    createTypeValue{eqCode=extractEquality codedId, printCode=printFn}
                 end
             in
                 (* A few common types.  These are effectively always cached. *)
@@ -320,10 +318,8 @@ struct
             (* Code generate this now so we only get one entry. *)
             val codeTuple =
                 mkTuple[
-                    createTypeValue{ (* Unused type variable. *)
-                        eqCode=defaultEquality, printCode=codePrintDefault, boxedCode=boxedEither, sizeCode=singleWord},
-                    createTypeValue{ (* Function. *)
-                        eqCode=errorFunction2, printCode=codeFn, boxedCode=boxedAlways, sizeCode=singleWord},
+                    createTypeValue{ (* Unused type variable. *) eqCode=defaultEquality, printCode=codePrintDefault},
+                    createTypeValue{ (* Function. *) eqCode=errorFunction2, printCode=codeFn},
                     fixedIntCode, intInfCode, boolCode, stringCode, charCode
                 ]
             val code = genCode(codeTuple, [], 0)()
@@ -458,119 +454,6 @@ struct
                 |   _ => maxSoFar
             end
 
-    (* Get the boxedness status for a type i.e. whether values of the type are always addresses,
-       always tagged integers or could be either. *)
-    fun boxednessForType(ty, level: level, getTypeValueForID, typeVarMap): codetree =
-        case findCachedTypeCode(typeVarMap, ty) of
-            SOME (code, _) => TypeValue.extractBoxed(code level)
-        |   NONE =>
-            let
-                fun boxednessForConstruction(TypeConstrs {identifier,...}, args): codetree =
-                (* Get the boxedness for a datatype construction. *)
-                let
-                    (* Get the boxedness functions for the argument types.
-                       This applies only to polytypes. *)
-                    fun getArg ty : codetree =
-                    let
-                        val boxedFun = boxednessForType(ty, level, getTypeValueForID, typeVarMap)
-                        open TypeValue
-                    in
-                        (* We need a type value here although only the boxedFun will be used. *)
-                        createTypeValue{eqCode=CodeZero, printCode=CodeZero, boxedCode=boxedFun, sizeCode=singleWord}
-                    end
-
-                    val codeForId =
-                        TypeValue.extractBoxed(getTypeValueForID(identifier, args, level))
-                in
-                    (* Apply the function we obtained to any type arguments. *)
-                    if null args then codeForId else mkEval(codeForId, map getArg args)
-                end
-            in
-                case ty of
-                    TypeVar tyVar =>
-                    (
-                        case tvValue tyVar of
-                            OverloadSet _ => boxednessForConstruction(typeConstrFromOverload(ty, false), [])
-                        |   EmptyType => raise InternalError "boxedness: should already have been handled"
-                        |   tyVal => boxednessForType(tyVal, level, getTypeValueForID, typeVarMap)
-                    )
-
-                |   TypeConstruction{constr, args, ...} =>
-                        if tcIsAbbreviation constr  (* May be an alias *)
-                        then boxednessForType (makeEquivalent (constr, args), level, getTypeValueForID, typeVarMap)
-                        else boxednessForConstruction(constr, args)
-
-                |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
-                        (* Unary tuples are optimised - no indirection. *)
-                        boxednessForType(singleton, level, getTypeValueForID, typeVarMap)
-
-                |   LabelledType _ => TypeValue.boxedAlways (* Tuple are currently always boxed. *)
-
-                    (* Functions are handled in the cache case. *)
-                |   _ => raise InternalError "boxednessForType: Unknown type"
-            end
-
-    (* Get the size for values of the type.  A value N other than 1 means that every value of the
-       type is a pointer to a tuple of exactly N words.  Zero is never used.  *)
-    fun sizeForType(ty, level, getTypeValueForID, typeVarMap): codetree =
-        case findCachedTypeCode(typeVarMap, ty) of
-            SOME (code, _) => TypeValue.extractSize(code level)
-        |   NONE =>
-            let
-                fun sizeForConstruction(TypeConstrs {identifier,...}, args): codetree =
-                (* Get the size for a datatype construction. *)
-                let
-                    (* Get the size functions for the argument types.
-                       This applies only to polytypes. *)
-                    fun getArg ty : codetree =
-                    let
-                        val sizeFun = sizeForType(ty, level, getTypeValueForID, typeVarMap)
-                        open TypeValue
-                    in
-                        (* We need a type value here although only the sizeFun will be used. *)
-                        createTypeValue{eqCode=CodeZero, printCode=CodeZero, boxedCode=CodeZero, sizeCode=sizeFun}
-                    end
-
-                    val codeForId =
-                        TypeValue.extractSize(getTypeValueForID(identifier, args, level))
-                in
-                    (* Apply the function we obtained to any type arguments. *)
-                    if null args then codeForId else mkEval(codeForId, map getArg args)
-                end
-            in
-                case ty of
-                    TypeVar tyVar =>
-                    (
-                        case tvValue tyVar of
-                            OverloadSet _ => sizeForConstruction(typeConstrFromOverload(ty, false), [])
-                        |   EmptyType => raise InternalError "size: should already have been handled"
-                        |   tyVal => sizeForType(tyVal, level, getTypeValueForID, typeVarMap)
-                    )
-
-                |   TypeConstruction{constr, args, ...} =>
-                        if tcIsAbbreviation constr  (* May be an alias *)
-                        then sizeForType (makeEquivalent (constr, args), level, getTypeValueForID, typeVarMap)
-                        else sizeForConstruction(constr, args)
-
-                |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
-                        (* Unary tuples are optimised - no indirection. *)
-                        sizeForType(singleton, level, getTypeValueForID, typeVarMap)
-
-                |   LabelledType{recList, ...} =>
-                    let
-                        val length = List.length recList
-                    in
-                        (* Set the length to the number of words that can be unpacked.
-                           If there are more than 4 items it's probably not worth packing
-                           them into other tuples so set this to one. *)
-                        if length <= 4 (*!maxPacking*)
-                        then mkConst(toMachineWord length)
-                        else TypeValue.singleWord
-                    end
-
-                    (* Functions are handled in the cache case. *)
-                |   _ => raise InternalError "sizeForType: Unknown type"
-            end
  
     fun printerForType(ty, baseLevel, argTypes: typeVarMap) =
     let
@@ -610,15 +493,7 @@ struct
                             (* We need a type value here.  The printer field will be used to
                                print the type argument and the boxedness and size fields may
                                be needed to extract the argument from the constructed value. *)
-                            fun makePrinterId t =
-                            let
-                                fun codeForId(typeId, _, l) = codeId(typeId, l)
-                            in
-                                createTypeValue
-                                    {eqCode=CodeZero, printCode=printCode(t, nLevel),
-                                     boxedCode=boxednessForType(t, nLevel, codeForId, argTypes),
-                                     sizeCode=sizeForType(t, nLevel, codeForId, argTypes)}
-                            end
+                            fun makePrinterId t = createTypeValue {eqCode=CodeZero, printCode=printCode(t, nLevel)}
 
                             val argList = map makePrinterId args
                         in
@@ -759,9 +634,7 @@ struct
                     (* We need a type value here.  The equality function will be used to compare
                        the argument type and the boxedness and size parameters may be needed for
                        the constructors. *)
-                    createTypeValue{eqCode=eqFun, printCode=CodeZero,
-                        boxedCode=boxednessForType(ty, level, getTypeValueForID, typeVarMap),
-                        sizeCode=sizeForType(ty, level, getTypeValueForID, typeVarMap)}
+                    createTypeValue{eqCode=eqFun, printCode=CodeZero}
                 end
 
             val resFun =
@@ -840,7 +713,7 @@ struct
     let
         val typesAndAddresses = ListPair.zipEq(typeDataList, eqAddresses)
 
-        fun equalityForDatatype(({typeConstr=TypeConstrSet(tyConstr as TypeConstrs {name=tcName,...}, vConstrs), eqStatus, (*boxedCode, sizeCode,*) ...}, addr),
+        fun equalityForDatatype(({typeConstr=TypeConstrSet(tyConstr as TypeConstrs {name=tcName,...}, vConstrs), eqStatus, ...}, addr),
                                 otherFns) =
         if eqStatus
         then
@@ -882,9 +755,8 @@ struct
                 else
                 *)
                 case List.find(fn({typeConstr=(TypeConstrSet(TypeConstrs {identifier=tsId,...}, _)), ...}, _) => sameTypeId(tsId, typeId)) typesAndAddresses of
-                    SOME({boxedCode, sizeCode, ...}, addr) =>  (* Mutually recursive. *)
-                         TypeValue.createTypeValue{eqCode=mkLoad(addr, l, baseEqLevel), printCode=CodeZero,
-                                                   boxedCode=boxedCode, sizeCode=sizeCode}
+                    SOME({ ...}, addr) =>  (* Mutually recursive. *)
+                         TypeValue.createTypeValue{eqCode=mkLoad(addr, l, baseEqLevel), printCode=CodeZero}
                 |   NONE => codeId(typeId, l)
 
             (* Filter out the ShortForm constructors.  They arise
@@ -1188,7 +1060,7 @@ struct
        the implementation. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId{source=TypeId{idKind=TypeFn{tyVars=[], resType, ...}, ...}, isEq, mkAddr, level, ...} =
+    fun codeGenerativeId{source=TypeId{idKind=TypeFn{arity=0, resType, ...}, ...}, isEq, mkAddr, level, ...} =
         let (* Monotype abbreviation. *)
             (* Create a new type value cache. *)
             val typeVarMap = defaultTypeVarMap(mkAddr, level)
@@ -1199,29 +1071,25 @@ struct
                 if not isEq then CodeZero
                 else (* We need a function that takes two arguments rather than a single pair. *)
                     makeEq(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
-            val boxedCode =
-                boxednessForType(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
-            val sizeCode =
-                sizeForType(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
             val printCode =
                 printerForType(resType, level, typeVarMap)
         in
             mkEnv(
                 TypeVarMap.getCachedTypeValues typeVarMap,
                 createTypeValue {
-                    eqCode = eqCode, boxedCode = boxedCode, sizeCode = sizeCode,
+                    eqCode = eqCode,
                     printCode =
                     mkAllocateWordMemory(
                         mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printCode)
                 })
         end
 
-    |   codeGenerativeId{source=TypeId{idKind=TypeFn{tyVars=argTypes, resType, ...}, ...}, isEq, mkAddr, level, ...} =
+    |   codeGenerativeId{source=TypeId{idKind=TypeFn{arity, resType, ...}, ...}, isEq, mkAddr, level, ...} =
         let (* Polytype abbreviation: All the entries in the tuple are functions that must
                be applied to the base type values when the type constructor is used. *)
             (* Create a new type value cache. *)
             val typeVarMap = defaultTypeVarMap(mkAddr, level)
-            val nArgs = List.length argTypes
+            val nArgs = arity
 
             fun createCode(makeCode, name) =
                 let
@@ -1232,6 +1100,10 @@ struct
                     local
                         val args =
                             List.tabulate(nArgs, fn addr => fn l => mkLoadParam(addr, l, nLevel))
+                        val argTypes =
+                            List.tabulate(arity,
+                                fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
+                                             equality=false, printable=false})
                     in
                         val typeEnv = ListPair.zipEq(argTypes, args)
                     end
@@ -1251,22 +1123,15 @@ struct
                 if not isEq then CodeZero
                 else createCode(fn(nLevel, argTypeMap) =>
                         makeEq(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), argTypeMap), "equality()")
-            and boxedCode =
-                createCode(fn(nLevel, argTypeMap) =>
-                    boxednessForType(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), argTypeMap), "boxedness()")
-            and sizeCode =
-                createCode(fn(nLevel, argTypeMap) =>
-                    sizeForType(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), argTypeMap), "size()")
         in
             mkEnv(
                 TypeVarMap.getCachedTypeValues typeVarMap,
                 createTypeValue {
-                    eqCode = eqCode, boxedCode = boxedCode,
+                    eqCode = eqCode,
                     printCode =
                     mkAllocateWordMemory(
                         mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                        printCode),
-                    sizeCode = sizeCode
+                        printCode)
                 })
         end
 
@@ -1297,17 +1162,14 @@ struct
         in
             mkEnv(
                 dec,
-                createTypeValue {
-                    eqCode = extractEquality loadLocal, printCode = printCode,
-                    boxedCode = extractBoxed loadLocal, sizeCode = extractSize loadLocal
-                }
+                createTypeValue { eqCode = extractEquality loadLocal, printCode = printCode }
              )
         end
 
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
     fun createDatatypeFunctions(
-            typeDatalist: {typeConstr: typeConstrSet, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list,
+            typeDatalist: {typeConstr: typeConstrSet, eqStatus: bool} list,
             mkAddr, level, typeVarMap, makePrintFunction) =
     let
         (* Each entry has an equality function and a ref to a print function.
@@ -1331,7 +1193,7 @@ struct
         (* Create the typeId values and set their addresses.  The print function is
            initially set as zero. *)
         local
-            fun makeTypeId({typeConstr=TypeConstrSet(TypeConstrs {identifier=TypeId { access, ...},...}, _), boxedCode, sizeCode, ...}, eqAddr) =
+            fun makeTypeId({typeConstr=TypeConstrSet(TypeConstrs {identifier=TypeId { access, ...},...}, _), ...}, eqAddr) =
             let
                 val var = case access of Local a => a | _ => raise InternalError "not local"
                 val newAddr = mkAddr 1
@@ -1343,9 +1205,7 @@ struct
                         printCode=
                             mkAllocateWordMemory(
                                 mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                                 CodeZero (* Temporary - replaced by setPrinter. *)),
-                        boxedCode = boxedCode,
-                        sizeCode = sizeCode
+                                 CodeZero (* Temporary - replaced by setPrinter. *))
                     }
             in
                 #addr var := newAddr;
@@ -1406,9 +1266,7 @@ struct
             mkAllocateWordMemory(
                 mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), codePrintDefault)
     in
-        createTypeValue{
-            eqCode = alwaysTrue, printCode = printCode,
-            boxedCode = boxedEither, sizeCode = singleWord }
+        createTypeValue{ eqCode = alwaysTrue, printCode = printCode  }
     end
 
     val noEquality = mkProc(CodeFalse, 2, "noEquality", [], 0)
@@ -1428,20 +1286,14 @@ struct
             if equality orelse printity
             then
                 let
-                    open TypeValue
-                    fun getTypeValueForID(typeId, _, l) = codeId(typeId, l)
                     val eqCode =
                         if equality
                         then makeEq(t, level, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
                         else noEquality
-                    val boxedCode = boxednessForType(t, level, getTypeValueForID, polyVarMap)
                     val printCode =
                         if printity then printerForType(t, level, polyVarMap) else noPrinter
-                    val sizeCode = sizeForType(t, level, getTypeValueForID, polyVarMap)
                 in
-                    createTypeValue{
-                        eqCode=eqCode, printCode=printCode,
-                        boxedCode=boxedCode, sizeCode=sizeCode}
+                    TypeValue.createTypeValue{ eqCode=eqCode, printCode=printCode }
                 end
             else (* If we don't require the equality or print function we can use the cache. *)
             case findCachedTypeCode(polyVarMap, t) of
@@ -1451,18 +1303,8 @@ struct
                     val maxCache = getMaxDepth polyVarMap (t, 1)
                     val cacheEntry = List.nth(polyVarMap, List.length polyVarMap - maxCache)
                     val { cache, mkAddr, level=decLevel, ...} = cacheEntry
-                    local
-                        open TypeValue
-                        val boxedCode =
-                            boxednessForType(t, decLevel, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
-                        val sizeCode =
-                            sizeForType(t, decLevel, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
-                    in
-                        val typeValue =
-                            createTypeValue{
-                                eqCode=noEquality, printCode=noPrinter,
-                                boxedCode=boxedCode, sizeCode=sizeCode}
-                    end
+                    val typeValue =
+                        TypeValue.createTypeValue{ eqCode=noEquality, printCode=noPrinter}
                     (* Make a new entry and put it in the cache. *)
                     val decAddr = mkAddr 1
                     val () = cache := {decCode = mkDec(decAddr, typeValue), typeOf = t, address = decAddr } :: !cache

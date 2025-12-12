@@ -62,7 +62,6 @@ struct
 
     (* Helper function from STRUCT_VALS.  Should be replaced by patterns. *)
     fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
@@ -107,11 +106,10 @@ struct
                 fun makeName s = strName ^ s
                 fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
                 |   copyId _ = NONE
-                fun makeTypeConstructor (name, typeVars, uid, locations) =
+                fun makeTypeConstructor (name, uid, locations) =
                     TypeConstrs
                     {
                         name       = name,
-                        typeVars   = typeVars,
                         identifier = uid,
                         locations = locations
                     }
@@ -119,7 +117,7 @@ struct
                 (* On the first pass we build datatypes, on the second type abbreviations
                    using the copied datatypes. *)
                 case tcIdentifier tcon of
-                    TypeId{idKind=TypeFn{tyVars=args, resType=equiv, ...}, access, description, ...} =>
+                    TypeId{idKind=TypeFn{arity, resType=equiv, ...}, access, description, ...} =>
                     if buildDatatypes then rest (* Not on this pass. *)
                     else (* Build a new entry whether the typeID has changed or not. *)
                     let
@@ -128,9 +126,9 @@ struct
                                 fn tcon =>
                                     copyTypeConstrWithCache(tcon, copyId, fn x => x, makeName, initialCache))
                         val copiedId =
-                            makeGeneralTypeFunction(args, copiedEquiv, description, access)
+                            makeGeneralTypeFunction(arity, copiedEquiv, description, access)
                     in
-                        makeTypeConstructor(makeName(tcName tcon), args, copiedId, tcLocations tcon) :: rest
+                        makeTypeConstructor(makeName(tcName tcon), copiedId, tcLocations tcon) :: rest
                     end
 
                 |   id =>
@@ -139,9 +137,7 @@ struct
                     (
                         case copyId id of
                             NONE => rest (* Skip (or add to cache?) *)
-                        |   SOME newId =>
-                            makeTypeConstructor
-                                (makeName(tcName tcon), tcTypeVars tcon, newId, tcLocations tcon) :: rest
+                        |   SOME newId => makeTypeConstructor (makeName(tcName tcon), newId, tcLocations tcon) :: rest
                     )
             end
             else rest

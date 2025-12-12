@@ -69,8 +69,8 @@ sig
     val makeEquivalent:     typeConstrs * types list -> types;
     val firstArg:           types -> types
 
-    val makeGeneralTypeFunction:   typeVar list * types * typeIdDescription * valAccess -> typeId
-    and makeTypeFunction:   typeVar list * types * typeIdDescription -> typeId
+    val makeGeneralTypeFunction:   int * types * typeIdDescription * valAccess -> typeId
+    and makeTypeFunction:   int * types * typeIdDescription -> typeId
 
     (* Follow a chain of unified type variables *)
     val eventual:           types -> types
@@ -184,7 +184,7 @@ sig
 
     (* If this is simply giving a new name to a type constructor returns the
        type identifier of the constructor that is being rebound. *)
-    val typeNameRebinding: typeVar list * types -> typeId option
+    val typeNameRebinding: types list * types -> typeId option
 
     val leastGeneral: types list -> types
 
@@ -202,6 +202,7 @@ sig
     val makeParseTypeBoundVar: string * tvIndex -> parseTypeVar
     val parseTypeVarError: parseTypeVar
     val getTypeVar: parseTypeVar -> typeVar
+    val getBoundTypeVar: parseTypeVar -> types
     val unitTree: location -> typeParsetree
     val displayTypeParse: typeParsetree * FixedInt.int * printTypeEnv -> pretty;
     (* A list of type variables. *)
@@ -222,21 +223,7 @@ sig
     sig
         val extractEquality: codetree -> codetree
         and extractPrinter: codetree -> codetree
-        and extractBoxed: codetree -> codetree
-        and extractSize: codetree -> codetree
-
-        val boxedNever: codetree
-        and boxedAlways: codetree
-        and boxedEither: codetree
-
-        val isBoxedNever: codetree
-        and isBoxedAlways: codetree
-        and isBoxedEither: codetree
-
-        val singleWord: codetree
-        
-        val createTypeValue:
-            {eqCode: codetree, printCode: codetree, boxedCode: codetree, sizeCode: codetree} -> codetree
+        val createTypeValue: {eqCode: codetree, printCode: codetree} -> codetree
     end
 
     structure ValueConstructor:

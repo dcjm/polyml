@@ -249,7 +249,6 @@ struct
      mkTagTest which can be converted into an indexed case.  This can't be
      used for ShortForm because the values for the datatype include addresses. 
 *)
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
     |   tcIsAbbreviation _ = false
@@ -403,14 +402,9 @@ struct
                     in
                         chooseOptimisedRepr2(0w0, arity, l) (* can use tagged tuples *)
                     end
-            end;
-        fun makeFun c = mkInlproc(c, arity, "boxed/size", [], 0)
-        val (boxed, size) =
-            if arity = 0
-            then (* Monotype *) (TypeValue.boxedEither, TypeValue.singleWord)
-            else (* Polytype *) (makeFun TypeValue.boxedEither, makeFun TypeValue.singleWord)
+            end
     in
-        { constrs = chooseRepr kinds, boxed = boxed, size = size } 
+        { constrs = chooseRepr kinds } 
     end;
  
    (* RefForm, NilForm and ConsForm are only used for built-in types *)
@@ -419,30 +413,22 @@ struct
 (*****************************************************************************)
 (*             Standard values and exceptions.                               *)
 (*****************************************************************************)
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            typeVars   = typeVars,
-            identifier = uid,
-            locations = locations
-        }
+    fun makeTypeConstructor (name, uid, locations) = TypeConstrs { name = name, identifier = uid, locations = locations }
 
     (* Build a datatype within the basis. *)
-    fun buildBasisDatatype(tcName, tIdPath, tyVars, isEqType: bool,
-            mkValConstrs: typeConstrs -> (values * codetree) list * codetree * codetree) =
+    fun buildBasisDatatype(tcName, tIdPath, arity, isEqType: bool,
+            mkValConstrs: typeConstrs -> (values * codetree) list) =
     let
         (* Create a temporary datatype.  The "name" we put in here is usually the
            same as the type constructor name except for datatypes in the PolyML structure
            which have the PolyML prefix. *)
-        val arity = List.length tyVars
         val description = basisDescription tIdPath
         val id =
             makeBoundId(arity, Local{addr = ref ~1, level = ref baseLevel}, 0 (* IdNumber*),
                 isEqType, true, description)
-        val dtype = makeTypeConstructor (tcName, tyVars, id, [DeclaredAt inBasis]);
+        val dtype = makeTypeConstructor (tcName, id, [DeclaredAt inBasis]);
         (* Build the constructors. *)
-        val (valConstrsAndDecs, boxedCode, sizeCode) = mkValConstrs dtype
+        val valConstrsAndDecs = mkValConstrs dtype
         (* The constructors have to be ordered as in genValueConstrs in PARSE_TREE. *)
         fun leq (Value{name=xname, ...}, _) (Value{name=yname, ...}, _) = xname < yname;
         val sortedConstrs = quickSort leq valConstrsAndDecs;
@@ -466,8 +452,7 @@ struct
         (* Create the datatype.  Sets the address of the local in "id". *)
         val dtCode =
             createDatatypeFunctions(
-                [{typeConstr=initialTypeSet, eqStatus=isEqType, boxedCode=boxedCode, sizeCode=sizeCode}],
-                mkAddrs, baseLevel, defMap, true)
+                [{typeConstr=initialTypeSet, eqStatus=isEqType}], mkAddrs, baseLevel, defMap, true)
 
         (* Compile and execute the code to build the functions and extract the result. *)
         val globalCode =
@@ -508,8 +493,7 @@ struct
         fun makeConsAndNil listType =
         let
             val arity = 1
-            val listTypeVars  = tcTypeVars listType;
-            val alpha         = TypeVar(hd listTypeVars);
+            val alpha         = BoundTypeVar("'a", TVIndex 0)
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
             val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList)
             val listTemplate  = [TemplPlain{equality=false, printity=false }]
@@ -520,16 +504,11 @@ struct
             val nilRepresentation = createNullaryConstructor(ShortForm 0w0, arity, "nil")
             val consRepresentation = createUnaryConstructor(UnboxedForm 2, arity, "::")
         in
-            ([(nilConstructor, nilRepresentation), (consConstructor, consRepresentation)],
-            mkInlproc(TypeValue.boxedEither, 1, "boxed-list", [], 0),
-            mkInlproc(TypeValue.singleWord, 1, "size-list", [], 0))
+            [(nilConstructor, nilRepresentation), (consConstructor, consRepresentation)]
         end
     in
         val listConstr =
-            buildBasisDatatype("list", "list",
-                [makeTv {value=EmptyType, level=generalisable, nonunifiable=false,
-                         equality=false, printable=false}],
-                    true, makeConsAndNil)
+            buildBasisDatatype("list", "list", 1, true, makeConsAndNil)
         val (nilConstructor, consConstructor) =
             case listConstr of
                 TypeConstrSet(_, [consC as Value{name="::", ...}, nilC as Value{name="nil", ...}]) =>
@@ -541,8 +520,7 @@ struct
         fun makeNoneAndSome optionType =
         let
             val arity = 1
-            val optionTypeVars  = tcTypeVars optionType;
-            val alpha         = TypeVar(hd optionTypeVars);
+            val alpha         = BoundTypeVar("'a", TVIndex 0)
             val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
             val someType      = mkFunctionType (alpha, alphaOption)
             val optionTemplate = [TemplPlain{equality=false, printity=false }]
@@ -553,15 +531,11 @@ struct
             val noneRepresentation = createNullaryConstructor(ShortForm 0w0, arity, "NONE")
             and someRepresentation = createUnaryConstructor(BoxedForm, arity, "SOME")
         in
-            ([(noneConstructor, noneRepresentation), (someConstructor, someRepresentation)],
-             mkInlproc(TypeValue.boxedEither, 1, "boxed-option", [], 0),
-             mkInlproc(TypeValue.singleWord, 1, "size-option", [], 0))
+            [(noneConstructor, noneRepresentation), (someConstructor, someRepresentation)]
         end
     in
-        val optionConstr=
-            buildBasisDatatype("option", "option",
-                [makeTv {value=EmptyType, level=generalisable, nonunifiable=false,
-                         equality=false, printable=false}], true, makeNoneAndSome)
+        val optionConstr =
+            buildBasisDatatype("option", "option", 1, true, makeNoneAndSome)
         val (noneConstructor, someConstructor) =
             case optionConstr of
                 TypeConstrSet(_, [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}]) => (noneC, someC)
@@ -589,8 +563,8 @@ struct
                 ]
         in
             val locationCons =
-                makeTypeConstructor("location", [],
-                    makeTypeFunction([], mkLabelled(sortLabels fields, true), basisDescription "PolyML.location"),
+                makeTypeConstructor("location",
+                    makeTypeFunction(0, mkLabelled(sortLabels fields, true), basisDescription "PolyML.location"),
                     [DeclaredAt inBasis])
             val locationConstr = TypeConstrSet(locationCons, [])
         end
@@ -610,14 +584,14 @@ struct
                 fun makeCons(s,t) =
                     makeValueConstr(s, ValueType(mkFunctionType(t, contextType), []), false, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
-                val {constrs=constrCode, boxed, size} = chooseConstrRepr(constrs, 0)
+                val {constrs=constrCode} = chooseConstrRepr(constrs, 0)
             in
-                (ListPair.zipEq(List.map makeCons constrs, constrCode), boxed, size)
+                ListPair.zipEq(List.map makeCons constrs, constrCode)
             end
         in
             val contextConstr =
             (* This is currently an eqtype so must be marked as such. *)
-                buildBasisDatatype("context", "PolyML.context", [], true, makeConstructors)
+                buildBasisDatatype("context", "PolyML.context", 0, true, makeConstructors)
         end
 
         local
@@ -648,12 +622,12 @@ struct
                 end
                 val {constrs=constrCode, ...} = chooseConstrRepr(constrs, 0)
             in
-                (ListPair.zipEq(List.map makeCons constrs, constrCode), TypeValue.boxedEither, TypeValue.singleWord)
+                ListPair.zipEq(List.map makeCons constrs, constrCode)
             end
         in
             val prettyConstr =
             (* This is currently an eqtype so must be marked as such. *)
-                buildBasisDatatype("pretty", "PolyML.pretty", [], true, makeConstructors)
+                buildBasisDatatype("pretty", "PolyML.pretty", 0, true, makeConstructors)
         end
     end
 

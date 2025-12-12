@@ -161,32 +161,30 @@ struct
                     open TypeValue
                     val code =
                         createTypeValue{
-                            eqCode = CodeZero, printCode = mkConst (toMachineWord (ref monotypePrinter)),
-                            boxedCode = boxedNever, sizeCode = singleWord }
+                            eqCode = CodeZero, printCode = mkConst (toMachineWord (ref monotypePrinter))}
                 in
                     Global (genCode(code, [], 0) ())
                 end
         end
 
-        fun makeTypeConstructor (name, typeVars, uid, locations) =
+        fun makeTypeConstructor (name, uid, locations) =
             TypeConstrs
             {
                 name       = name,
-                typeVars   = typeVars,
                 identifier = uid,
                 locations = locations
             }
 
-        fun makeTypeAbbreviation(name, fullName, typeVars, typeResult, locations) =
+        fun makeTypeAbbreviation(name, fullName, arity, typeResult, locations) =
             makeTypeConstructor(
-                name, typeVars, makeTypeFunction(typeVars, typeResult, basisDescription fullName),
+                name, makeTypeFunction(arity, typeResult, basisDescription fullName),
                 locations)
 
         (* Make an opaque type and add it to an environment. *)
         fun makeAndDeclareOpaqueType(typeName, fullName, env) =
         let
             val typeconstr =
-                makeTypeConstructor(typeName, [],
+                makeTypeConstructor(typeName,
                     makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription fullName),
                     declInBasis);
         in
@@ -277,16 +275,13 @@ struct
                     val code =
                         createTypeValue{
                             eqCode=equalLongWordFn,
-                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
-                            boxedCode = boxedNever,
-                            sizeCode = singleWord
-                            }
+                            printCode=mkConst (toMachineWord (ref monoTypePrinter)) }
                 in
                    Global (genCode(code, [], 0) ())
                 end
         in
             val largeWordType =
-                makeTypeConstructor("word", [],
+                makeTypeConstructor("word",
                     makeFreeId(0, idCode, true, basisDescription "LargeWord.word"), declInBasis)
             val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
         end
@@ -916,14 +911,11 @@ struct
             val code =
                 createTypeValue{
                     eqCode=equalPointerOrWordFn,
-                    printCode=mkConst (toMachineWord (ref monoTypePrinter)),
-                    boxedCode=boxedAlways,
-                    sizeCode=singleWord
-                }
+                    printCode=mkConst (toMachineWord (ref monoTypePrinter))}
             (* Thread.thread type.  This is an equality type with pointer equality. *)
             val threadConstr= 
                 makeTypeConstructor (
-                    "thread", [], makeFreeId(0, Global (genCode(code, [], 0) ()), true, basisDescription "thread"),
+                    "thread",makeFreeId(0, Global (genCode(code, [], 0) ()), true, basisDescription "thread"),
                     [DeclaredAt inBasis])
             val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
             val selfFunction = mkGvar ("self", ValueType(Unit ->> threadType, []), getCurrentThreadIdFn, declInBasis)
@@ -1051,12 +1043,11 @@ struct
                 fun monotypePrinter _ = PRETTY.PrettyString "?"
                 val code =
                     createTypeValue{
-                        eqCode = equalTaggedWordFn, printCode = mkConst (toMachineWord (ref monotypePrinter)),
-                        boxedCode = boxedNever, sizeCode = singleWord }
+                        eqCode = equalTaggedWordFn, printCode = mkConst (toMachineWord (ref monotypePrinter)) }
                 val abiEqAndPrint = Global (genCode(code, [], 0) ())
             in
                 val abiConstr =
-                    makeTypeConstructor("abi", [],
+                    makeTypeConstructor("abi",
                         makeFreeId(0, abiEqAndPrint, true,
                             basisDescription "Foreign.LowLevel.abi"), declInBasis)
             end
@@ -1065,7 +1056,7 @@ struct
             (* It would be possible to put the definition of cType in here but it's complicated.
                It's easier to use an opaque type and put in a cast later. *)
             val ctypeConstr =
-                makeTypeConstructor("ctype", [],
+                makeTypeConstructor("ctype",
                         makeFreeId(0, defaultEqAndPrintCode(), false,
                             basisDescription "Foreign.LowLevel.ctype"), declInBasis)
             val () = #enterType foreignEnv ("ctype", TypeConstrSet(ctypeConstr, []))
@@ -1201,18 +1192,13 @@ struct
                     open TypeValue
                     val code =
                         createTypeValue{
-                            eqCode=eqCode, printCode=mkConst (toMachineWord (ref polyTypePrinter)),
-                            boxedCode=mkInlproc(boxedAlways, 1, "boxed-vector", [], 0),
-                            sizeCode=mkInlproc(singleWord, 1, "size-vector", [], 0)}
+                            eqCode=eqCode, printCode=mkConst (toMachineWord (ref polyTypePrinter))}
                 in
                     Global (genCode(code, [], 0) ())
                 end
-           fun makeTypeVariable() =
-                makeTv {value=emptyType, level=generalisable, equality=false,
-                        nonunifiable=false, printable=false}
         in
             val vectorType =
-                makeTypeConstructor("vector", [makeTypeVariable()],
+                makeTypeConstructor("vector",
                     makeFreeId(1, idCode, true, basisDescription "vector"), declInBasis)
             val () = enterGlobalType  ("vector", TypeConstrSet(vectorType, []))
         end
@@ -1254,14 +1240,13 @@ struct
                     open TypeValue
                     val code =
                         createTypeValue{
-                            eqCode=eqCode, printCode=mkConst (toMachineWord (ref monoTypePrinter)),
-                            boxedCode=boxedAlways, sizeCode=singleWord}
+                            eqCode=eqCode, printCode=mkConst (toMachineWord (ref monoTypePrinter))}
                 in
                     Global (genCode(code, [], 0) ())
                 end
         in
             val byteVectorType =
-                makeTypeConstructor("byteVector", [],
+                makeTypeConstructor("byteVector",
                     makeFreeId(0, idCode, true, basisDescription "byteVector"), declInBasis)
             val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []))
         end
@@ -1335,7 +1320,7 @@ struct
             val fields = List.foldl (fn (p,l) => createFields p @ l) [] valTypes
     
             val recordType =
-                makeTypeAbbreviation("nameSpace", "PolyML.NameSpace.nameSpace", [], mkLabelled(sortLabels fields, true), declInBasis);
+                makeTypeAbbreviation("nameSpace", "PolyML.NameSpace.nameSpace", 0, mkLabelled(sortLabels fields, true), declInBasis);
             val () = #enterType nameSpaceEnv ("nameSpace", TypeConstrSet(recordType, []));
             
             (* The result type of the compiler includes valueVal etc. *)
@@ -1402,7 +1387,7 @@ struct
             (* Entries in the static list.  This type is only used within the implementation of
                DebuggerInterface in the basis library and does not appear in the final signature. *)
             val environEntryConstr =
-                makeTypeConstructor("environEntry", [],
+                makeTypeConstructor("environEntry",
                     makeFreeId(0, defaultEqAndPrintCode(), false,
                         basisDescription "PolyML.DebuggerInterface.environEntry"), declInBasis)
             val environEntryType =
@@ -1430,7 +1415,7 @@ struct
             val () = #enterType debuggerEnv ("environEntry", TypeConstrSet(environEntryConstr, constructors))
             (* Debug state type. *)
             val debugStateConstr =
-                makeTypeAbbreviation("debugState", "PolyML.DebuggerInterface.debugState", [],
+                makeTypeAbbreviation("debugState", "PolyML.DebuggerInterface.debugState", 0,
                     mkProductType[List environEntryType, List machineWordType, Location], declInBasis)
             val () = #enterType debuggerEnv ("debugState", TypeConstrSet(debugStateConstr, []))
             val debugStateType = mkTypeConstruction ("debugState", debugStateConstr, [], declInBasis)
@@ -1571,26 +1556,21 @@ struct
                     val code =
                         createTypeValue{
                                 eqCode=CodeZero, (* Not an equality type *)
-                                printCode=mkConst (toMachineWord (ref polyTypePrinter)),
-                                boxedCode=mkInlproc(boxedEither(* Assume worst case *), 1, "boxed-tag", [], 0),
-                                sizeCode=mkInlproc(singleWord, 1, "size-tag", [], 0)}
+                                printCode=mkConst (toMachineWord (ref polyTypePrinter))}
                 in
                     Global (genCode(code, [], 0) ())
                 end
-                fun makeTypeVariable() =
-                    makeTv {value=emptyType, level=generalisable, equality=false,
-                        nonunifiable=false, printable=false}
             in
                 (* type 'a tag *)
                 val tagConstr =
-                    makeTypeConstructor("tag", [makeTypeVariable()],
+                    makeTypeConstructor("tag",
                         makeFreeId(1, idCode, false, basisDescription "tag"), declInBasis);
                 val () = #enterType uniStructEnv ("tag", TypeConstrSet(tagConstr, []))
             end
 
             (* type universal *)
             val univConstr =
-                makeTypeConstructor("universal", [],
+                makeTypeConstructor("universal",
                         makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription "universal"), declInBasis);
             val () = #enterType uniStructEnv ("universal",  TypeConstrSet(univConstr, []));
 
@@ -1620,13 +1600,13 @@ struct
             open TYPETREE
             (* Parsetree properties datatype. *)
             val propConstr =
-                makeTypeConstructor("ptProperties", [],
+                makeTypeConstructor("ptProperties",
                     makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), declInBasis);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
             (* Parsetree type. *)
             val parseTreeConstr =
-                makeTypeAbbreviation("parseTree", "PolyML.parseTree", [], Location ** List PtProperties, declInBasis);    
+                makeTypeAbbreviation("parseTree", "PolyML.parseTree", 0, Location ** List PtProperties, declInBasis);    
             val ParseTree = mkTypeConstruction ("parseTree", parseTreeConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("parseTree", TypeConstrSet(parseTreeConstr, []));
 

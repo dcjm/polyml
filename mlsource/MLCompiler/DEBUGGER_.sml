@@ -176,22 +176,12 @@ struct
 
     end
 
-(*    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
-    |   tcIsAbbreviation _ = false*)
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            typeVars   = typeVars,
-            identifier = uid,
-            locations = locations
-        }
-
     (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
-    fun makeTypeConstr (state: debugState) (TypeConstrSet(TypeConstrs {identifier, name, typeVars, locations, ...}, (*tcConstructors*) _)) =
+    fun makeTypeConstr (state: debugState) (TypeConstrSet(TypeConstrs {identifier, name, locations, ...}, (*tcConstructors*) _)) =
         let
             val typeID = searchType state identifier
-            val newTypeCons = makeTypeConstructor(name, typeVars, typeID, locations)
+            val newTypeCons =
+                TypeConstrs { name = name, identifier = typeID, locations = locations }
 
             val newValConstrs = (*map copyAConstructor tcConstructors*) []
         in

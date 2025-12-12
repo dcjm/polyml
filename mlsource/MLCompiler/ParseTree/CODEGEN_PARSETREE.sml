@@ -1012,9 +1012,9 @@ struct
                     fun getConstrType(Value{typeOf=ValueType(FunctionType{arg, ...}, _), name, ...}) = (name, arg)
                     |   getConstrType(Value{name, ...}) = (name, EmptyType)
                     val constrTypesAndNames = List.map getConstrType constrs
-                    val {constrs, boxed, size} = chooseConstrRepr(constrTypesAndNames, arity)
+                    val {constrs} = chooseConstrRepr(constrTypesAndNames, arity)
                 in
-                    ({typeConstr=tc, eqStatus=eqStatus, boxedCode=boxed, sizeCode=size}, constrs)
+                    ({typeConstr=tc, eqStatus=eqStatus}, constrs)
                 end
             in
                 val constrAndBoxSizeCode = ListPair.mapEq getConstrCode (typelist, eqStatus)

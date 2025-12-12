@@ -115,7 +115,6 @@ struct
     (* Helper functions copied from STRUCT_VALS.  Not exported.   These should
        generally be replaced by the direct pattern matching. *)
     fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
     fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
@@ -123,18 +122,11 @@ struct
 
     val tcEquality = isEquality o tcIdentifier;
 
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            typeVars   = typeVars,
-            identifier = uid,
-            locations = locations
-        }
+    fun makeTypeConstructor (name, uid, locations) = TypeConstrs { name = name, identifier = uid, locations = locations }
 
     fun tsConstr(TypeConstrSet(ts, _)) = ts
 
@@ -203,6 +195,24 @@ struct
         {name = stripZeros name, typeof = t}
     end
 
+    (* Create a bound variable.  Give it the name 'a, 'b etc.  Create the first ten
+       in advance to reduce duplication. *)
+    local
+        fun createNewBoundVar isEq n =
+        let
+            fun makeName n = if n < 26 then [chr(n+ord #"a")] else chr(n mod 26 + ord #"a") :: makeName(n div 26)
+            val varName = List.rev(makeName n)
+            val name = String.implode(if isEq then #"'" :: #"'" :: varName else #"'" :: varName)
+        in
+            BoundTypeVar(name, TVIndex n)
+        end
+        val nonEqVars = Vector.tabulate(10, createNewBoundVar false)
+        and eqVars = Vector.tabulate(10, createNewBoundVar true)
+    in
+        fun createBoundVar true n = if n < 10 then Vector.sub(eqVars, n) else createNewBoundVar true n
+        |   createBoundVar false n = if n < 10 then Vector.sub(nonEqVars, n) else createNewBoundVar false n
+    end
+
     (* Functions to construct the run-time representations of type constructor values,
        type values and value constructors.  These are all tuples and centralising the
        code here avoids having the offsets as integers at various places.
@@ -216,39 +226,11 @@ struct
     struct
         val equalityOffset = 0
         and printerOffset = 1
-        and boxnessOffset = 2
-        and sizeOffset = 3
-
-        local
-            (* Values used to represent boxness. *)
-            val boxedRepNever  = 0w1   (* Never boxed, always tagged e.g. bool *)
-            and boxedRepAlways = 0w2   (* Always boxed, never tagged e.g. function types *)
-            and boxedRepEither = 0w3   (* Either boxed or tagged e.g. (arbitrary precision) int *)
-            fun make n = mkConst(Address.toMachineWord n)
-            fun isCode n =
-                mkInlproc(mkEqualTaggedWord(mkLoadArgument 0, make n), 1, "test-box", [], 0)
-        in
-            val boxedNever  = make boxedRepNever
-            and boxedAlways = make boxedRepAlways
-            and boxedEither = make boxedRepEither
-            (* Test for boxedness.  This must be applied to the value extracted from
-               the "boxedness" field after applying to any base type arguments in
-               the case of a polytype constructor. *)
-            val isBoxedNever  = isCode boxedRepNever
-            and isBoxedAlways = isCode boxedRepAlways
-            and isBoxedEither = isCode boxedRepEither
-        end
-
-        (* Sizes are always a single word. *)
-        val singleWord = mkConst(Address.toMachineWord 0w1)
 
         fun extractEquality idCode = mkInd(equalityOffset, idCode)
         and extractPrinter idCode = mkInd(printerOffset, idCode)
-        and extractBoxed idCode = mkInd(boxnessOffset, idCode)
-        and extractSize idCode = mkInd(sizeOffset, idCode)
 
-        fun createTypeValue{eqCode, printCode, boxedCode, sizeCode} =
-            mkTuple[eqCode, printCode, boxedCode, sizeCode]
+        fun createTypeValue{eqCode, printCode} = mkTuple[eqCode, printCode]
     end
 
     (* Value constructors are represented by tuples, either pairs for nullary constructors
@@ -275,29 +257,23 @@ struct
         fun defaultMonoTypePrinter _ = PrettyString "?"
         fun defaultPolyTypePrinter _ _ = PrettyString "?"
 
-        fun eqAndPrintCode (eqCode, nArgs, boxed) =
+        fun eqAndPrintCode (eqCode, nArgs) =
         let
             val code =
                 if nArgs = 0
                 then createTypeValue{
                         eqCode=eqCode,
-                        printCode=mkConst (toMachineWord (ref defaultMonoTypePrinter)),
-                        boxedCode = boxed,
-                        sizeCode = singleWord
-                        }
+                        printCode=mkConst (toMachineWord (ref defaultMonoTypePrinter))}
                 else createTypeValue{
                         eqCode=mkInlproc(eqCode, nArgs, "eq-helper()", [], 0),
-                        printCode=mkConst (toMachineWord (ref defaultPolyTypePrinter)),
-                        boxedCode = mkInlproc(boxed, nArgs, "boxed-helper()", [], 0),
-                        sizeCode = mkInlproc(singleWord, nArgs, "size-helper()", [], 0)
-                        }
+                        printCode=mkConst (toMachineWord (ref defaultPolyTypePrinter))}
         in
             Global (genCode(code, [], 0) ())
         end
 
-        fun makeConstr(name, fullName, eqFun, boxed) =
-            makeTypeConstructor (name, [],
-                makeFreeId(0, eqAndPrintCode(eqFun, 0, boxed), true, basisDescription fullName),
+        fun makeConstr(name, fullName, eqFun) =
+            makeTypeConstructor (name,
+                makeFreeId(0, eqAndPrintCode(eqFun, 0), true, basisDescription fullName),
                 [DeclaredAt inBasis])
     
         (* since code generator relies on these representations,
@@ -396,11 +372,11 @@ struct
             val intEquality = genCode(intEquality, [Universal.tagInject DEBUG.maxInlineSizeTag 5], 1) ()
         end
     in
-        val fixedIntConstr = makeConstr("int",  "FixedInt.int", equalTaggedWordFn, boxedNever) (* Fixed precision is always short *)
-        val intInfConstr = makeConstr("int",    "IntInf.int", intEquality, boxedEither)
-        val charConstr   = makeConstr("char",   "char", equalTaggedWordFn, boxedNever) (* Always short *)
-        val stringConstr = makeConstr("string", "string", stringEquality, boxedEither (* Single chars are unboxed. *))
-        val wordConstr   = makeConstr("word",   "word", equalTaggedWordFn, boxedNever)
+        val fixedIntConstr = makeConstr("int",  "FixedInt.int", equalTaggedWordFn) (* Fixed precision is always short *)
+        val intInfConstr = makeConstr("int",    "IntInf.int", intEquality)
+        val charConstr   = makeConstr("char",   "char", equalTaggedWordFn) (* Always short *)
+        val stringConstr = makeConstr("string", "string", stringEquality)
+        val wordConstr   = makeConstr("word",   "word", equalTaggedWordFn)
 
         (* Ref is a datatype with a single constructor.  The constructor is added in INITIALISE.
            Equality is special for "'a ref", "'a array" and "'a Array2.array".  They permit equality
@@ -408,30 +384,27 @@ struct
         val refConstr =
             makeTypeConstructor 
                 ("ref",
-                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "ref"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1), true, basisDescription "ref"),
                 [DeclaredAt inBasis]);
         val arrayConstr =
             makeTypeConstructor 
                 ("array",
-                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "Array.array"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1), true, basisDescription "Array.array"),
                 [DeclaredAt inBasis]);
         val array2Constr =
             makeTypeConstructor 
                 ("array",
-                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "Array2.array"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1), true, basisDescription "Array2.array"),
                 [DeclaredAt inBasis]);
         val byteArrayConstr =
             makeTypeConstructor 
-                ("byteArray", [],
-                makeFreeId(0, eqAndPrintCode(equalPointerOrWordFn, 0, boxedAlways), true, basisDescription "byteArray"),
+                ("byteArray",
+                makeFreeId(0, eqAndPrintCode(equalPointerOrWordFn, 0), true, basisDescription "byteArray"),
                 [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolConstr =
             makeTypeConstructor 
-                ("bool", [], makeFreeId(0, eqAndPrintCode(equalTaggedWordFn, 0, boxedNever), true, basisDescription "bool"),
+                ("bool", makeFreeId(0, eqAndPrintCode(equalTaggedWordFn, 0), true, basisDescription "bool"),
                 [DeclaredAt inBasis]);
     end
 
@@ -446,32 +419,29 @@ struct
     local
         open Address PRETTY TypeValue
 
-        fun makeType(name, descr, boxed) =
+        fun makeType(name, descr) =
         let
             fun defaultPrinter _ = PrettyString "?"
             val code =
                 createTypeValue{
                     eqCode=CodeZero (* No equality. *),
-                    printCode=mkConst (toMachineWord (ref defaultPrinter)),
-                    boxedCode=boxed,
-                    sizeCode=singleWord
+                    printCode=mkConst (toMachineWord (ref defaultPrinter))
                 }
         in
             makeTypeConstructor (
-                name, [], makeFreeId(0, Global (genCode(code, [], 0) ()), false, descr),
+                name, makeFreeId(0, Global (genCode(code, [], 0) ()), false, descr),
                 [DeclaredAt inBasis])
         end
     in
-        val realConstr   = makeType("real", basisDescription "real", boxedAlways(* Currently*)) (* Not an eqtype in ML97. *)
+        val realConstr   = makeType("real", basisDescription "real") (* Not an eqtype in ML97. *)
         (* Short real: Real32.real *)
         val floatConstr  =
-            makeType("real", basisDescription "real",
-                if RunCall.bytesPerWord <= 0w4 then boxedAlways else boxedNever)
-        val exnConstr    = makeType("exn", basisDescription "exn", boxedAlways);
+            makeType("real", basisDescription "real")
+        val exnConstr    = makeType("exn", basisDescription "exn");
         (* "undefConstr" is used as a place-holder during parsing for the actual type constructor.
            If the type constructor is not found this may appear in an error message. *)
         val undefConstr  =
-            makeType("undefined", { location = inBasis, description = "Undefined", name = "undefined" }, boxedEither);
+            makeType("undefined", { location = inBasis, description = "Undefined", name = "undefined" })
     end
           
     fun isUndefined cons = sameTypeId (tcIdentifier cons, tcIdentifier undefConstr);
@@ -889,15 +859,12 @@ struct
        and then copying the type. *)
     fun makeEquivalent (atyp, args) =
         case tcIdentifier atyp of
-            TypeId{idKind=TypeFn{tyVars=typeArgs, resType=typeResult, ...}, ...} =>
+            TypeId{idKind=TypeFn{resType=typeResult, ...}, ...} =>
             let
-                val matches = ListPair.zip(typeArgs, args)
-                fun getArg tv =
-                    case List.find(fn (atv, _) => sameTv(tv, atv)) matches of
-                        SOME (_, ty) => SOME ty
-                    |   NONE => NONE
+                val vars = Vector.fromList args
+                fun getArg(TVIndex n) = Vector.sub(vars, n)
             in
-                #1 (generaliseTypes(typeResult, fn _ => raise InternalError "makeEquivalent", getArg))
+                #1 (generaliseTypes(typeResult, getArg, fn _ => NONE))
             end
 
         |   TypeId _ => raise InternalError "makeEquivalent: Not a type function"
@@ -1100,18 +1067,10 @@ struct
                     val () = enter (constructorId, Processed Maybe)
                 in
                     case constructorId of
-                        TypeId{idKind = TypeFn{resType, equality, tyVars, ...}, ...} => (* withtype *)
+                        TypeId{idKind = TypeFn{resType, equality, arity, ...}, ...} => (* withtype *)
                         let
-                            val eqRefArray = BoolArray.array(List.length tyVars, false)
-                            fun lookupTypeVar tv =
-                                let
-                                    fun findRef([], _) = ()
-                                    |   findRef(t :: r, n) =
-                                        if sameTv(t, tv) then BoolArray.update(eqRefArray, n, true) else findRef(r, n+1)
-                                in
-                                    findRef(tyVars, 0);
-                                    Yes
-                                end
+                            val eqRefArray = BoolArray.array(arity, false)
+                            fun lookupTypeVar _ = raise InternalError "lookupTypeVar"
                             fun lookupBoundTV(TVIndex i) = (BoolArray.update(eqRefArray, i, true); Yes)
                             val eq = computeEquality (resType, genEquality, lookupTypeVar, lookupBoundTV)
                             val eqRes =
@@ -1182,7 +1141,7 @@ struct
     end (* computeDatatypeEqualities *)
 
     (* Create a type function and compute the relevant information. *)
-    fun makeGeneralTypeFunction(tyVars, resType, desc, access) =
+    fun makeGeneralTypeFunction(arity, resType, desc, access) =
     let
         (* If this refers to another type construction involving a type function add one
            to its type-function count.  When seeing if two type constructions unify we
@@ -1196,24 +1155,15 @@ struct
             |   _ => 1
         (* It is possible that one or more type variables are unreferenced.  They must be
            ignored during unification. *)
-        fun findRefs tv refArray =
-            let
-                fun findRef([], _) = ()
-                |   findRef(t :: r, n) =
-                    if sameTv(t, tv) then BoolArray.update(refArray, n, true) else findRef(r, n+1)
-            in
-                findRef(tyVars, 0);
-                refArray
-            end
-        
-        val refArray = BoolArray.array(List.length tyVars, false)
+        val refArray = BoolArray.array(arity, false)
         local
             fun processTypes typ =
             let
                 val t = eventual typ
             in
                 case t of
-                    TypeVar tv => (findRefs tv refArray; ())
+                    TypeVar _=> raise InternalError "TypeVar"
+                |   BoundTypeVar(_, TVIndex n) => BoolArray.update(refArray, n, true)
                 |   FunctionType {arg, result} => (processTypes arg; processTypes result)
                 |   LabelledType {recList,...} => List.app (processTypes o #typeof) recList
                     (* Type construction of type function.  Only include referenced variables. *)
@@ -1240,8 +1190,8 @@ struct
            That means that only certain of the arguments can affect equality.
            e.g. type ('a, 'b, 'c) t = ('a * 'b ref).  (int, real, real) t admits equality. *)
         local
-            val eqRefArray = BoolArray.array(List.length tyVars, false)
-            fun lookupTypeVar tv = (findRefs tv eqRefArray; Yes)
+            val eqRefArray = BoolArray.array(arity, false)
+            fun lookupTypeVar _ = raise InternalError "lookupTypeVar"
             fun lookupBTV(TVIndex i) = (BoolArray.update(eqRefArray, i, true); Yes)
             val eq = computeEquality (resType, fn _ => No, lookupTypeVar, lookupBTV)
         in
@@ -1253,7 +1203,7 @@ struct
 
         val typeFn =
         {
-            tyVars = tyVars,
+            arity = arity,
             resType = resType,
             usedTvs = refVector,
             typeFunCount = nextFunCount,
@@ -1264,14 +1214,14 @@ struct
         TypeId { access=access, description = desc, idKind = TypeFn typeFn}
     end
 
-    fun makeTypeFunction(tyVars, resType, desc) =
-        makeGeneralTypeFunction(tyVars, resType, desc, Global CodeZero)
+    fun makeTypeFunction(arity, resType, desc) =
+        makeGeneralTypeFunction(arity, resType, desc, Global CodeZero)
 
     (* The unit type is equivalent to the empty record. *)
     val unitConstr   =
-        makeTypeConstructor ("unit", [],
+        makeTypeConstructor ("unit",
             makeTypeFunction(
-                [], LabelledType {recList = [], fullList = FieldList([], true)},
+                0, LabelledType {recList = [], fullList = FieldList([], true)},
                 { location = inBasis, description = "unit", name = "unit" }),
             [DeclaredAt inBasis]);
 
@@ -1368,7 +1318,7 @@ struct
        function copies that as well. Does not copy value constructors. *)
     fun copyTypeConstrWithCache (tcon, typeMap, _, mungeName, cache) =
         case tcIdentifier tcon of
-            TypeId{idKind = TypeFn{tyVars, resType=equiv, ...}, description, access, ...} =>
+            TypeId{idKind = TypeFn{arity, resType=equiv, ...}, description, access, ...} =>
             let
                 val copiedEquiv =
                     copyType(equiv, fn _ => NONE, fn x => x,
@@ -1378,8 +1328,8 @@ struct
                 if identical (equiv, copiedEquiv)
                 then tcon (* Type is identical and we don't want to change the name. *)
                 else (* How do we find a type function? *)
-                    makeTypeConstructor (mungeName(tcName tcon), tyVars,
-                        makeGeneralTypeFunction(tyVars, copiedEquiv, description, access),
+                    makeTypeConstructor (mungeName(tcName tcon),
+                        makeGeneralTypeFunction(arity, copiedEquiv, description, access),
                             tcLocations tcon)
             end
 
@@ -1417,7 +1367,7 @@ struct
                                 val newName = mungeName(tcName tcon)
                             in
                                 (*print(concat[tcName tcon, " not cached\n"]);*)
-                                makeTypeConstructor(newName, tcTypeVars tcon, newId, tcLocations tcon)
+                                makeTypeConstructor(newName, newId, tcLocations tcon)
                             end
                     end
             )
@@ -1434,7 +1384,7 @@ struct
 
         |   map2 (id as TypeId{idKind=Free _, ...}) = id
 
-        |   map2 (TypeId{idKind=TypeFn{tyVars=args, resType=equiv, ...}, access, description, ...}) =
+        |   map2 (TypeId{idKind=TypeFn{arity, resType=equiv, ...}, access, description, ...}) =
             let
                 fun copyId(TypeId{idKind=Free _, ...}) = NONE
                 |   copyId id = SOME(map2 id)
@@ -1444,7 +1394,7 @@ struct
                     copyType(equiv, fn _ => NONE, fn x => x,
                         fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
             in
-                makeGeneralTypeFunction(args, copiedEquiv, description, access)
+                makeGeneralTypeFunction(arity, copiedEquiv, description, access)
             end
     in
         map2(m1 n)
@@ -1843,7 +1793,7 @@ struct
         ]
 
     val printTypeVars =
-        printTypeVariables (fn (var, depth, typeV) => tDisp (TypeVar var, depth, typeV, emptyTypeEnv, NONE))
+        printTypeVariables (fn (var, depth, typeV) => tDisp (var, depth, typeV, emptyTypeEnv, NONE))
 
     (* Parse tree for types.  This is used to represent types in the source. *)
     datatype typeParsetree =
@@ -1866,7 +1816,7 @@ struct
 
     and parseTypeVar =
         ParseTypeFreeVar of { name: string, typeVar: typeVarForm }
-    |   ParseTypeBoundVar of { name: string, index: tvIndex, typeVar: typeVarForm }
+    |   ParseTypeBoundVar of { name: string, index: tvIndex }
     |   ParseTypeError (* Error case *)
 
     fun typeFromTypeParse(
@@ -1893,7 +1843,7 @@ struct
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar, ...}, ...}) = TypeVar typeVar
 
-    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{typeVar, ...}, ...}) = TypeVar typeVar
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
             TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true, printable=false})
@@ -1924,14 +1874,17 @@ struct
 
     (* Bound type variables appear in type and datatype definitions. *)
     fun makeParseTypeBoundVar(name, index) =
-        ParseTypeBoundVar{ name=name, index=index,
-            typeVar = makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=false, printable=false} }
+        ParseTypeBoundVar{ name=name, index=index }
     
     val parseTypeVarError = ParseTypeError
-    
-    fun getTypeVar(ParseTypeBoundVar{typeVar, ...}) = typeVar
-    |   getTypeVar(ParseTypeFreeVar{typeVar, ...}) = typeVar
+
+    fun getTypeVar(ParseTypeFreeVar{typeVar, ...}) = typeVar
+    |   getTypeVar(ParseTypeBoundVar _) = raise InternalError "getTypeVar: bound"
     |   getTypeVar ParseTypeError = makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}
+
+    fun getBoundTypeVar(ParseTypeBoundVar{index=TVIndex i, ...}) = createBoundVar false i
+    |   getBoundTypeVar ParseTypeError = BadType
+    |   getBoundTypeVar(ParseTypeFreeVar _) = raise InternalError "getBoundTypeVar: free"
 
     fun unitTree location = ParseTypeLabelled{ fields = [], frozen = true, location = location }
 
@@ -2082,7 +2035,7 @@ struct
             end
 
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar, ...}, ...}) = TypeVar typeVar
-        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{typeVar, ...}, ...}) = TypeVar typeVar
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
                 TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true, printable=false})
 
@@ -2133,13 +2086,15 @@ struct
      (Actually "list" is treated specially). *)
     fun constructorResult (FunctionType{arg, result=TypeConstruction{args, ...}}, typeArgs) =
         let
-            val matches = ListPair.zip(List.map typesTypeVar args, typeArgs)
-            fun getArg tv =
-                case List.find(fn (atv, _) => sameTv(tv, atv)) matches of
-                    SOME (_, ty) => SOME ty
-                |   NONE => NONE
+            (* Temporary check - they should be bound variables in order *)
+            fun checkArg(n, BoundTypeVar(_, TVIndex m) ::args) =
+                if n <> m then raise InternalError "checkArg" else checkArg(n+1, args)
+            |   checkArg(n, []) = if n = List.length typeArgs then () else raise InternalError "checkArg"
+            |   checkArg _ = raise InternalError "checkArg"
+            val _ = checkArg(0, args)
+            val argMap = Vector.fromList typeArgs
         in
-            #1 (generaliseTypes(arg, fn _ => raise InternalError "constructorResult", getArg))
+            #1 (generaliseTypes(arg, fn(TVIndex n) => Vector.sub(argMap, n), fn _ => NONE))
         end
     | constructorResult _ = raise InternalError "Not a function type"
 
@@ -2936,13 +2891,14 @@ struct
        simply type 'a abs if the type is abstract. *)
     fun displayTypeConstrsWithMap (
         TypeConstrSet(
-            TypeConstrs{identifier=TypeId{idKind=TypeFn{tyVars=args, resType=result, ...}, ...}, name, ...}, []), depth, typeEnv, sigMap) =
+            TypeConstrs{identifier=TypeId{idKind=TypeFn{arity, resType=result, ...}, ...}, name, ...}, []), depth, typeEnv, sigMap) =
          (* Type function *)
         if depth <= 0 
         then PrettyString "..."
         else
         let
             val typeV = varNameSequence () (* Local sequence for this binding. *)
+            val args = List.tabulate(arity, createBoundVar false)
         in
             PrettyBlock (3, false, [],
                 PrettyString "type" ::
@@ -2958,7 +2914,7 @@ struct
                 )
         end
 
-    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{identifier, typeVars, ...}, [] (* No constructors *)), depth, _, _) =
+    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{identifier, ...}, [] (* No constructors *)), depth, _, _) =
         (* Abstract type or type in a signature. *)
         if depth <= 0 
         then PrettyString "..."
@@ -2966,7 +2922,7 @@ struct
             PrettyString (
                 if isEquality identifier then "eqtype" else "type") ::
             PrettyBreak (1, 0) ::
-            printTypeVars (typeVars, depth, varNameSequence ()) @
+            printTypeVars (List.tabulate(tcArity tCons,  createBoundVar false), depth, varNameSequence ()) @
             [PrettyString (#second(splitString(tcName tCons)))]
             )
 
@@ -2978,11 +2934,9 @@ struct
         let
             val typeV = varNameSequence ()
             (* Construct a ('a, 'b, 'c) tyCons construction for the result types
-               of each of the constructors.  N.B. We use the original type
-               constructors because they have the appropriate equality type properties.
-               datatype 'a t = A of 'a is not the same as ''a t = A of ''a. *)
-            val typeVars = tcTypeVars tCons
-            val typeResult = mkTypeConstruction(name, tCons, map TypeVar typeVars, locations)
+               of each of the constructors. *)
+            val typeVars = List.tabulate(tcArity tCons,  createBoundVar false)
+            val typeResult = mkTypeConstruction(name, tCons, typeVars, locations)
 
             (* Print a single constructor (blocked) *)
             fun pValConstr (first, name, typeOf, depth) =
@@ -3338,7 +3292,7 @@ struct
                 val declDescription =
                     { location = declLoc, name = name, description = "Constructed from a free type variable." }
                 val tCons =
-                    makeTypeConstructor (name, [],
+                    makeTypeConstructor (name,
                         makeFreeId(0, Global(printAndEqCode()), tvEquality tvar, declDescription),
                         [DeclaredAt declLoc]);
                 val newVal = mkTypeConstruction(name, tCons, [], [])
@@ -3362,7 +3316,7 @@ struct
        (s in this example) is just a simple type name. *)
     fun typeNameRebinding(typeArgs, typeResult): typeId option =
     let
-        fun eqTypeVar(TypeVar ta, tb) = sameTv (ta, tb)
+        fun eqTypeVar(BoundTypeVar(_, i), BoundTypeVar(_, j)) = i = j
         |   eqTypeVar _ = false
     in
         case typeResult of

@@ -182,8 +182,9 @@ struct
  let
    (* These procedures to parse type declarations are used in both
       signature and expression parsing. *)
+    datatype tvcType = TVCreateBound | TVCreateFree
 
-    fun getTypeVars{apply,enter,...} =
+    fun getTypeVars create {apply,enter,...} =
     let
         (* Optional type identifier or sequence of type identifiers.  Used
            in type and datatype declarations and also in val and fun
@@ -208,7 +209,12 @@ struct
                             nm ^ " has already been used.")
                         else ()
                     )
-                val tyVar = makeParseTypeBoundVar(iden, TVIndex seq)
+                (* These are bound variables in types and datatypes but free variables
+                   in val and fun bindings. *)
+                val tyVar =
+                    case create of
+                        TVCreateBound => makeParseTypeBoundVar(iden, TVIndex seq)
+                    |   TVCreateFree => makeParseTypeFreeVar(iden, isEqtype iden)
             in
                 enter (iden, tyVar);
                 insymbol lex;
@@ -298,7 +304,7 @@ struct
     fun typeBinding (isSpec, isEqtype, _) fsys =
     let
         val newTVenv  = searchList ();
-        val typeVars = getTypeVars newTVenv
+        val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
         val (typeName, idLocn)   = getShortId (ident, fsys ++ equalsSign, lex);
         val typeVarEnv = genTypeVarEnv newTVenv
@@ -332,7 +338,7 @@ struct
         val () = insymbol lex;
         val newTVenv = searchList ();
         (* The type variables will be empty if this is a replication. *)
-        val typeVars = getTypeVars newTVenv
+        val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
         val (typeName, idLocn) = getShortId (ident, fsys ++ equalsSign, lex);
         
@@ -451,7 +457,7 @@ struct
     (* Datatype and abstype declarations and datatype specifications. *)
     let
         val newTVenv = searchList ();
-        val typeVars = getTypeVars newTVenv
+        val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
         val (typeName, idLocn) = getShortId (ident, fsys ++ equalsSign, lex);
 
@@ -1294,7 +1300,7 @@ struct
                                             SOME t => t | NONE => #lookupTvar implicitTvars s};
                             
                     (* Tyvarseq *)
-                    val _ = getTypeVars
+                    val _ = getTypeVars TVCreateFree
                                 { enter = #enter explicitTvars,
                                   lookup = #lookup explicitTvars,
                                   apply = #apply explicitTvars}
@@ -1345,7 +1351,7 @@ struct
                                           SOME t => t | NONE => #lookupTvar implicitTvars s};
                             
                     (* Tyvarseq *)
-                    val _ = getTypeVars
+                    val _ = getTypeVars TVCreateFree
                                 { enter = #enter explicitTvars,
                                   lookup = #lookup explicitTvars,
                                   apply = #apply explicitTvars}
@@ -1602,7 +1608,7 @@ struct
                that the type is a longtycon. *)
             val () = getsym(SYMBOLS.TypeSy, lex);
             val newTVenv  = searchList ();
-            val typeVars = getTypeVars newTVenv
+            val typeVars = getTypeVars TVCreateBound newTVenv
             val (typeName, nameLoc)  = getLongId (ident, fsys ++ equalsSign, lex);
             val typeVarEnv = genTypeVarEnv newTVenv
             val () = getsym (SYMBOLS.EqualsSign, lex);

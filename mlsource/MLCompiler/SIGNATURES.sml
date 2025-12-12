@@ -409,11 +409,10 @@ struct
     end
 
     fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
@@ -806,7 +805,7 @@ struct
 
         and signatureWhereType(sigExp, parseTypeVars, typeName, realisationType, line, Env globalEnv, structPath) =
         let
-            val typeVars = map getTypeVar parseTypeVars
+            val typeVars = map getBoundTypeVar parseTypeVars
             (* We construct the signature into the result signature.  When we apply the
                "where" we need to look up the types (and structures) only within the
                signature constrained by the "where" and not in the surrounding signature.
@@ -939,7 +938,7 @@ struct
                                         else
                                         let
                                             val typeId =
-                                                makeTypeFunction(typeVars, realisation,
+                                                makeTypeFunction(List.length typeVars, realisation,
                                                     { location = line, description = "", name = typeName })
                                         in
                                             StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
@@ -1172,16 +1171,8 @@ struct
                                     [] => tySet (* Not a datatype. *)
                                 |   constrs =>
                                     let
-                                        fun makeTypeConstructor (name, typeVars, uid, locations) =
-                                            TypeConstrs
-                                            {
-                                                name       = name,
-                                                typeVars   = typeVars,
-                                                identifier = uid,
-                                                locations = locations
-                                            }
                                         val newTy =
-                                            makeTypeConstructor(tcName ty, tcTypeVars ty, tcIdentifier ty, tcLocations ty)
+                                            TypeConstrs { name = tcName ty,  identifier = tcIdentifier ty, locations = tcLocations ty }
                                     in
                                         TypeConstrSet(newTy, List.map copyConstructor constrs)
                                     end;
@@ -1266,7 +1257,7 @@ struct
                     makeVariableId(length args, eq, isdt, true, loc, structPath)
 
                 |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                        makeTypeFunction(map getTypeVar typeVars, decType, { location = location, name = structPath ^ name, description = description })
+                        makeTypeFunction(List.length typeVars, decType, { location = location, name = structPath ^ name, description = description })
 
                 (* We need a map to look up types.  This is only used in one place:
                    if the item we're processing is a datatype then we need to look
@@ -1360,7 +1351,7 @@ struct
                         (newId :: distinctIds, newId :: mappedIds)
                     end
 
-                |   FreeSlot (TypeId{idKind=TypeFn{tyVars=args, resType=equiv, ...}, description, ...}) =>
+                |   FreeSlot (TypeId{idKind=TypeFn{arity, resType=equiv, ...}, description, ...}) =>
                     let
                         (* Generally, IDs in a FreeSlot will be either Bound or Free but
                            they could be TypeFunctions as a result of a "where type" and
@@ -1380,7 +1371,7 @@ struct
                             copyType(equiv, fn _ => NONE, fn x => x,
                                 fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
                         (* For the moment always use a Free ID here. *)
-                        val copiedId = makeTypeFunction(args, copiedEquiv, description)
+                        val copiedId = makeTypeFunction(arity, copiedEquiv, description)
                         (* Update the array with this copied version.  If other subsequent type functions
                            use this entry they will then pick up the copied version.  Because "where type"
                            constraints can only refer to earlier types we have to process this from earlier
