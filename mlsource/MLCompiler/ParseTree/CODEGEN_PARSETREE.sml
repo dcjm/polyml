@@ -185,7 +185,7 @@ struct
 
     |  tupleWidth(ExpSeq(p, _)) = tupleWidth(#1 (List.last p))
 
-    |  tupleWidth(Ident{ expType=ref expType, ...}) = getCodetreeType expType
+    |  tupleWidth(Ident{ expType=ref(expType, _), ...}) = getCodetreeType expType
 
     |  tupleWidth(Literal{ expType=ref expType, ...}) = getCodetreeType expType
 
@@ -293,10 +293,6 @@ struct
             getVariablesInPatt(pattern, getVariablesInPatt(var, varl))
     |   getVariablesInPatt(Parenthesised(p, _), varl) = getVariablesInPatt(p, varl)
     |   getVariablesInPatt(_, varl) = varl (* constants and error cases. *);
-
-    (* If we are only passing equality types filter out the others. *)
-    val filterTypeVars = List.filter (fn tv => not justForEqualityTypes orelse tvEquality tv)
-
 
     fun codeMatch(near, alt : matchtree list, arg,
                   isHandlerMatch, matchContext as { level, mkAddr, lex, typeVarMap, ...}): codetree =
@@ -477,7 +473,7 @@ struct
                      { level, typeVarMap, lex, debugEnv, ...}) = (* Exception identifier *)
         (codeExFunction (v, level, typeVarMap, [], lex, location), debugEnv)
 
-    |   codeGenerate(Ident {value = ref (v as Value{class = Constructor _, ...}), expType=ref expType, location, ...},
+    |   codeGenerate(Ident {value = ref (v as Value{class = Constructor _, ...}), location, ...},
                      { level, typeVarMap, lex, debugEnv, ...}) = (* Constructor identifier *)
         let
             (* The instance type is not necessarily the same as the type
@@ -485,24 +481,16 @@ struct
                1 :: nil, "::" has an instance type of
                int * list int -> list int but the type of "::" is
                'a * 'a list -> 'a list. *)
-            (* When using the constructor as a value we just want
-               the second word.  Must pass [] as the polyVars otherwise
-               this will be applied BEFORE extracting the construction
-               function not afterwards. *)
-            fun getConstr level =
-                ValueConstructor.extractInjection(codeVal (v, level, typeVarMap, [], lex, location))
-            val polyVars = getPolymorphism (v, expType, typeVarMap)
-            val code =
-                applyToInstance(if justForEqualityTypes then [] else polyVars, level, typeVarMap, getConstr)
+            (* When using the constructor as a value we just want the second word. *)
+            val code = ValueConstructor.extractInjection(codeVal (v, level, typeVarMap, [], lex, location))
         in
             (code, debugEnv)
         end
 
-    |   codeGenerate(Ident {value = ref v, expType=ref expType, location, ...},
+    |   codeGenerate(Ident {value = ref v, expType=ref(_, instanceVars), location, ...},
                      { level, typeVarMap, lex, debugEnv, ...}) = (* Value identifier *)
         let
-            val polyVars = getPolymorphism (v, expType, typeVarMap)
-            val code = codeVal (v, level, typeVarMap, polyVars, lex, location)
+            val code = codeVal (v, level, typeVarMap, instanceVars, lex, location)
         in
             (code, debugEnv)
         end
@@ -514,13 +502,12 @@ struct
               | NONE    => (CodeZero, debugEnv)
         )
 
-    |   codeGenerate(Applic {f = Ident {value = ref function, expType=ref expType, ...}, arg, location, ...}, context as { level, typeVarMap, lex, ...}) =
+    |   codeGenerate(Applic {f = Ident {value = ref function, expType=ref(_, instanceVars), ...}, arg, location, ...}, context as { level, typeVarMap, lex, ...}) =
         (* Some functions are special e.g. overloaded and type-specific functions.
            These need to picked out and processed by applyFunction. *)
         let
-            val polyVars = getPolymorphism (function, expType, typeVarMap)
             val (argCode, argEnv) = codeGenerate (arg, context)
-            val code = applyFunction (function, argCode, level, typeVarMap, polyVars, lex, location)
+            val code = applyFunction (function, argCode, level, typeVarMap, instanceVars, lex, location)
         in
             (code, argEnv)
         end
@@ -589,7 +576,7 @@ struct
             (mkEnv (declist recList (fn _ => raise InternalError "missing in record")), debugEnv)
         end
 
-    |   codeGenerate(c as Selector {name, labType, location, typeof, ...}, { decName, typeVarMap, lex, debugEnv, ...}) =
+    |   codeGenerate(c as Selector {name, labType, location, ...}, { decName, lex, debugEnv, ...}) =
             let
                 (* Check that the type is frozen. *)
                 val () =
@@ -607,12 +594,7 @@ struct
                         mkInd (offset, singleArg)
                     end
                 val code =(* Make an inline function. *)
-                case filterTypeVars (getPolyTypeVars((typeof, []), mapTypeVars typeVarMap)) of
-                    [] => mkInlproc (selectorBody, 1, decName ^ "#" ^ name, [], 0)
-                |   polyVars => (* This may be polymorphic. *)
-                        mkInlproc(
-                            mkInlproc (selectorBody, 1, decName ^ "#" ^ name, [], 0),
-                            List.length polyVars, decName ^ "#" ^ name ^ "(P)", [], 0)
+                    mkInlproc (selectorBody, 1, decName ^ "#" ^ name, [], 0)
             in
                 (code, debugEnv)
             end
@@ -620,26 +602,15 @@ struct
     |   codeGenerate(Unit _, { debugEnv, ...}) = (* Use zero.  It is possible to have () = (). *)
             (CodeZero, debugEnv)
 
-    |   codeGenerate(List{elements, expType = ref listType, location, ...}, context as { level, typeVarMap, lex, debugEnv, ...}) =
+    |   codeGenerate(List{elements, location, ...}, context as { level, typeVarMap, lex, debugEnv, ...}) =
             let (* Construct a list.  We need to apply the constructors appropriate to the type. *)
-                val baseType =
-                    case listType of
-                        TypeConstruction{args=[baseType], ...} => baseType
-                    |   _ => raise InternalError "List: bad element type"
-                val consType = mkFunctionType(mkProductType[baseType, listType], listType)
-                fun consList [] =
-                    let (* "nil" *)
-                        val polyVars = getPolymorphism (nilConstructor, listType, typeVarMap)
-                        fun getConstr level =
-                            ValueConstructor.extractInjection(
-                                codeVal (nilConstructor, level, typeVarMap, [], lex, location))
-                    in
-                        applyToInstance(polyVars, level, typeVarMap, getConstr)
-                    end
+                fun consList [] = (* "nil" *)
+                        ValueConstructor.extractInjection(
+                            codeVal (nilConstructor, level, typeVarMap, [], lex, location))
                 |   consList (h::t) =
                     let (* :: *)
                         val H = codegen (h, context) and T = consList t
-                        val polyVars = getPolymorphism (consConstructor, consType, typeVarMap)
+                        val polyVars = []
                     in
                         applyFunction (consConstructor, mkTuple [H,T], level, typeVarMap, polyVars, lex, location)
                     end
@@ -649,9 +620,9 @@ struct
 
     |   codeGenerate(Constraint {value, ...}, context) = codeGenerate (value, context) (* code gen. the value *)
 
-    |   codeGenerate(c as Fn { location, expType=ref expType, ... }, context as { typeVarMap, debugEnv, ...}) =
+    |   codeGenerate(c as Fn { location, ... }, context as { debugEnv, ...}) =
             (* Function *)
-            (codeLambda(c, location, filterTypeVars(getPolyTypeVars((expType, []), mapTypeVars typeVarMap)), context), debugEnv)
+            (codeLambda(c, location, [], context), debugEnv)
 
     |   codeGenerate(Localdec {decs, body, ...}, context) =
             (* Local expressions only. Local declarations will be handled
@@ -1158,35 +1129,15 @@ struct
             val addressList = List.map (fn _ => mkAddr 2 (* We need two addresses. *)) tlist
             val () = ListPair.appEq (fn (t, a) => setValueAddress(t, a, level)) (tlist, addressList)
 
-            (* Get the polymorphic variables for each function. *)
-            local
-                fun getPoly(FValBind{functVar = ref (Value{typeOf=ValueType valType, ...}), ...}) =
-                    filterTypeVars(getPolyTypeVars(valType, mapTypeVars typeVarMap))
-            in
-                val polyVarList = List.map getPoly tlist
-            end
-
             (* Now we can process the function bindings. *)
             fun loadFunDecs ((fb as FValBind{numOfPatts = ref numOfPats, functVar = ref(Value{name, ...}),
                               clauses, argType = ref aType, resultType = ref resType, location, ...})::otherDecs,
-                             polyVars :: otherPolyVars,
                              addr :: otherAddresses) =
                 let
                     (* Make up the function, and if there are several mutually
                        recursive functions, put it in the vector. *)
                     val procName  = decName ^ name;
-                    val nPolyVars = List.length polyVars
-                    (*val _ =
-                        print(concat[name, " is ", Int.toString nPolyVars, "-ary\n"])*)
-                    (* Check that all the type-vars are in the list. *)
-                    (*local
-                        fun checkVars tv =
-                            case List.find(fn t => sameTv(t, tv)) fdTypeVars of
-                                SOME _ => ()
-                            |   NONE => raise InternalError "Type var not found"
-                    in
-                        val _ = List.app checkVars polyVars
-                    end*)
+                    val nPolyVars = 0
 
                     (* Produce a list of the size of any tuples or labelled records
                        in the first clause. Tuples in the first clause are passed as
@@ -1313,31 +1264,10 @@ struct
 
                         val innerProcName : string = 
                             concat ([procName,  "(" , Int.toString totalArgs, ")"]);
-    
-                        local
-                            (* The poly args come after any result tuple. *)
-                            val tupleOffset = if resTupleLength = 1 then 0 else 1
-                            val argAddrs =
-                                List.tabulate(nPolyVars, fn n => fn l => mkLoadParam(n+nArgTypes-nPolyVars-tupleOffset, l, fnLevel))
-                            val mainTypeVars = ListPair.zipEq(polyVars, argAddrs)
-                            (* Also need to add any variables used by other polymorphic
-                               functions but not in the existing list.  This is only for very unusual cases. *)
-                            fun addExtras (fPolyVars, pVarList) =
-                            let
-                                fun checkPolymorphism(fpVar, pVars) =
-                                    if isSome(List.find (fn(t, _) => sameTv(t, fpVar)) mainTypeVars)
-                                       orelse isSome(List.find (fn (t, _) => sameTv(t, fpVar)) pVars)
-                                    then pVars else (fpVar, fn _ => defaultTypeCode) :: pVars
-                            in
-                                List.foldl checkPolymorphism pVarList fPolyVars
-                            end
-                            val extraEntries = List.foldl addExtras [] polyVarList
-                        in
-                            val typevarArgMap = mainTypeVars @ extraEntries
-                            val newTypeVarMap =
-                                extendTypeVarMap(typevarArgMap, fnMkAddr, fnLevel, typeVarMap)
-                        end
-                    
+
+                        val newTypeVarMap =
+                            extendTypeVarMap([], fnMkAddr, fnLevel, typeVarMap)
+                
                         val fnContext =
                             context |>
                                repNewLevel(innerProcName, fnMkAddr, fnLevel) |> repTypeVarMap newTypeVarMap
@@ -1354,36 +1284,18 @@ struct
                            involving "don't care" polymorphic variables) it is possible to call a
                            function with more polymorphism. *)
                         local
-                            fun createApplications(fVal::fVals, addr::addrList, [] :: polyVarList, otherDecs) =
+                            fun createApplications(fVal::fVals, addr::addrList, otherDecs) =
                                 (
                                     (* Monomorphic functions. *)
                                     setValueAddress(fVal, addr, level);
-                                    createApplications(fVals, addrList, polyVarList, otherDecs)
+                                    createApplications(fVals, addrList, otherDecs)
                                 )
 
-                            |   createApplications(
-                                    fVal::fVals, addr::addrList, fPolyVars ::polyVarList, otherDecs) =
-                                let
-                                    fun createMatches fpVar =
-                                        case List.find (fn(t, _) => sameTv(t, fpVar)) typevarArgMap of
-                                            SOME (_, codeFn) => codeFn fnLevel
-                                        |   NONE => raise InternalError "createMatches: Missing type var"
-                                    val polyArgs = List.map createMatches fPolyVars
-                                    val newAddr = fnMkAddr 1
-                                    val polyFn = mkLoad(addr, fnLevel, level)
-                                        (* Set the address to this so if we use this function we pick
-                                           up this declaration. *)
-                                    val () = setValueAddress(fVal, newAddr, fnLevel);
-                                    val newDecs = mkDec(newAddr, mkEval(polyFn, polyArgs)) :: otherDecs
-                                in
-                                    createApplications(fVals, addrList, polyVarList, newDecs)
-                                end
-
-                            |   createApplications(_, _, _, decs) = decs
+                            |   createApplications(_, _,decs) = decs
                         in 
                             val appDecs =
                                 if noInlineFunction then [] (* This may be directly recursive. *)
-                                else createApplications (tlist, addressList, polyVarList, [])
+                                else createApplications (tlist, addressList, [])
                         end
 
                         local
@@ -1440,8 +1352,7 @@ struct
                        parameters are provided at once they will be
                        optimised away. *)
                    
-                    val polyLevel =
-                        if null polyVars then level else newLevel level
+                    val polyLevel = level
 
                     (* Make into curried functions *)
                     fun makeFuns(innerLevel, _, mkParms, []) =
@@ -1486,25 +1397,21 @@ struct
                     val () = setValueAddress(fb, addr, level)
                in
                     if noInlineFunction
-                    then (addr, innerFun) :: loadFunDecs(otherDecs, otherPolyVars, otherAddresses)
+                    then (addr, innerFun) :: loadFunDecs(otherDecs, otherAddresses)
                     else
                     let
                         val (baseFun, _) = makeFuns (polyLevel, procName, fn _ => [], tupleSeq)
-                        val polyFun =
-                            if null polyVars then baseFun
-                            else mkInlproc(baseFun, List.length polyVars, procName ^ "(P)", getClosure polyLevel, 0)
                     in
                         (* Return the `inner' procedure and the inline
                           functions as a mutually recursive pair. Try putting
                           the inner function first to see if the optimiser
                           does better this way. *)
-                        (addr + 1, innerFun) :: (addr, polyFun) ::
-                            loadFunDecs(otherDecs, otherPolyVars, otherAddresses)
+                        (addr + 1, innerFun) :: (addr, baseFun) :: loadFunDecs(otherDecs, otherAddresses)
                     end
                end (* loadFunDecs *)
             |   loadFunDecs _ = []
 
-            val loaded = loadFunDecs(tlist, polyVarList, addressList)
+            val loaded = loadFunDecs(tlist, addressList)
 
             (* Set the final addresses in case they have changed.  N.B.  Do this before
                loading any debug references. *)
@@ -1569,7 +1476,7 @@ struct
         end (* codeRecValBindings *)
 
     (* Non-recursive val bindings. *)
-    and codeNonRecValBindings(valBindings, near, originalContext: cgContext as { decName, typeVarMap, lex, isOuterLevel, ...}) =
+    and codeNonRecValBindings(valBindings, near, originalContext: cgContext as { decName, lex, isOuterLevel, ...}) =
         let
             (* Non-recursive val bindings. *)
             fun codeBinding (ValBind{dec=vbDec, exp=vbExp, line, variables=ref vars, ...}, otherDecs) =
@@ -1579,9 +1486,7 @@ struct
                     case vars of [] => "_" | _ => String.concatWith "|" (List.map (fn Value{name, ...} => name) vars)
 
                 (* Does this contain polymorphism? *)
-                val polyVarsForVals =
-                    List.map(fn Value{typeOf=ValueType valType, ...} =>
-                                filterTypeVars (getPolyTypeVars(valType, mapTypeVars typeVarMap))) vars
+                val polyVarsForVals = List.map(fn _ => []) vars
                 val polyVars = List.foldl(op @) [] polyVarsForVals
                 val nPolyVars = List.length polyVars
                 

@@ -121,6 +121,7 @@ struct
         (* Entries are either type var maps or "stoppers". *)
         datatype typeVarMapEntry =
             TypeVarFormEntry of (typeVarForm * (level->codetree)) list
+        |   TypeBoundVarEntry of tvIndex -> (level->codetree) option
         |   TypeConstrListEntry of typeConstrs list
 
         type typeVarMap =
@@ -148,28 +149,18 @@ struct
         fun extendTypeVarMap (tvMap: (typeVarForm * (level->codetree)) list, mkAddr, level, typeVarMap) =
             {entryType = TypeVarFormEntry tvMap, cache = ref [], mkAddr=mkAddr, level=level} :: typeVarMap
 
-        (* If we find the type var in the map return it as a type.  This is used to
-           eliminate apparently generalisable type vars from the list. *)
-        fun mapTypeVars [] _ = NONE
-
-        |   mapTypeVars ({entryType=TypeVarFormEntry typeVarMap, ...} :: rest) tyVar =
-            (
-            case List.find(fn(t, _) => sameTv(t, tyVar)) typeVarMap of
-                SOME (tv, _) => SOME(TypeVar tv)
-            |   NONE => mapTypeVars rest tyVar
-            )
-
-        |   mapTypeVars (_ :: rest) tyVar = mapTypeVars rest tyVar
+        fun extendBoundTypeVarMap (tvMap: tvIndex->(level->codetree) option, mkAddr, level, typeVarMap) =
+            {entryType = TypeBoundVarEntry tvMap, cache = ref [], mkAddr=mkAddr, level=level} :: typeVarMap
 
         (* Check to see if a type constructor is in the "stopper" set and return the level
            if it is. *)
         fun checkTypeConstructor(_, []) = ~1 (* Not there. *)
-        |   checkTypeConstructor(tyCons, {entryType=TypeVarFormEntry _, ...} :: rest) =
-                checkTypeConstructor(tyCons, rest: typeVarMap)
         |   checkTypeConstructor(tyCons as TypeConstrs {identifier=consId,...}, {entryType=TypeConstrListEntry tConstrs, ...} :: rest) =
                 if List.exists(fn (TypeConstrs {identifier,...}) => sameTypeId(identifier, consId)) tConstrs
                 then List.length rest + 1
                 else checkTypeConstructor(tyCons, rest)
+        |   checkTypeConstructor(tyCons, _ :: rest) =
+                checkTypeConstructor(tyCons, rest: typeVarMap)
 
         local
             open TypeValue
@@ -402,6 +393,25 @@ struct
                     |   ty => findCachedTypeCode(typeVarMap, ty)
                 )
 
+            |   BoundTypeVar(_, index) =>
+                let
+                    fun findCodeFromTypeVar [] = ((fn _ => defaultTypeCode), 0)
+                        (* Return default code for a missing type variable.  This can occur
+                           if we have unreferenced type variables that need to be supplied but
+                           are treated as "don't care". *)
+
+                    |   findCodeFromTypeVar({entryType=TypeBoundVarEntry typeVarMap, ...} :: rest) =
+                        (
+                            case typeVarMap index of
+                                SOME codeFn => (codeFn, List.length rest+1)
+                            |   NONE => findCodeFromTypeVar rest
+                        )
+
+                    |   findCodeFromTypeVar(_ :: rest) = findCodeFromTypeVar rest
+                in
+                    SOME(findCodeFromTypeVar typeVarMap)
+                end
+
             |   TypeConstruction { constr, args, ...} =>
                     let
                         fun sameTypeConstr(TypeConstrs {identifier=tc1d,...}, TypeConstrs {identifier=tc2d,...}) = sameTypeId(tc1d, tc2d)
@@ -424,36 +434,6 @@ struct
     end
 
     open TypeVarMap
-
-    (* Find the earliest entry in the cache table where we can put this entry. *)
-    fun getMaxDepth (typeVarMap: typeVarMap) (ty: types, maxSoFar:int) : int =
-        case findCachedTypeCode(typeVarMap, ty) of
-            SOME (_, cacheDepth) => Int.max(cacheDepth, maxSoFar)
-        |   NONE =>
-            let
-            in
-                case ty of
-                    TypeVar tyVar =>
-                    (
-                        case tvValue tyVar of
-                            OverloadSet _ => maxSoFar (* Overloads are all global. *)
-                        |   EmptyType => maxSoFar
-                        |   tyVal => getMaxDepth typeVarMap (tyVal, maxSoFar)
-                    )
-
-                |   TypeConstruction{constr, args, ...} =>
-                        if tcIsAbbreviation constr  (* May be an alias *)
-                        then getMaxDepth typeVarMap (makeEquivalent (constr, args), maxSoFar)
-                        else List.foldl (getMaxDepth typeVarMap)
-                                       (Int.max(maxSoFar, checkTypeConstructor(constr, typeVarMap))) args
-
-                |   LabelledType {recList, ...} =>
-                        List.foldl (fn ({typeof, ...}, m) =>
-                                getMaxDepth typeVarMap (typeof, m)) maxSoFar recList
-
-                |   _ => maxSoFar
-            end
-
  
     fun printerForType(ty, baseLevel, argTypes: typeVarMap) =
     let
@@ -675,6 +655,13 @@ struct
                 |   tyVal => makeEq(tyVal, level, getTypeValueForID, typeVarMap)
             )
 
+        |   BoundTypeVar _ =>
+            (
+                case findCachedTypeCode(typeVarMap, ty) of
+                    SOME (code, _) => TypeValue.extractEquality(code level)
+                |   NONE => raise InternalError "makeEq: should already have been handled"
+            )
+
         |   TypeConstruction{constr, args, ...} =>
                 if tcIsAbbreviation constr  (* May be an alias *)
                 then makeEq (makeEquivalent (constr, args), level, getTypeValueForID, typeVarMap)
@@ -733,15 +720,15 @@ struct
                     let
                         (* Add the polymorphic variables after the ordinary ones. *)
                         (* Create functions to load these if they are used in the map.  They may be non-local!!! *)
-                        val args = List.tabulate(nTypeVars, fn addr => fn l => mkLoadParam(addr+2, l, baseEqLevelP1))
+                        val args = Vector.tabulate(nTypeVars, fn addr => fn l => mkLoadParam(addr+2, l, baseEqLevelP1))
                         (* Put the outer args in the map *)
-                        val varToArgMap = ListPair.zipEq(argTypes, args)
+                        fun varToArgMap(TVIndex n) = if n < nTypeVars then SOME(Vector.sub(args, n)) else NONE
                         (* Load the local args to return. *)
                         val localArgList = List.tabulate (nTypeVars, fn addr => mkLoadParam(addr+2, baseEqLevelP1, baseEqLevelP1))
                         val addrs = ref 0 (* Make local declarations for any type values. *)
                         fun mkAddr n = !addrs before (addrs := !addrs + n)
                     in
-                        (localArgList, extendTypeVarMap(varToArgMap, mkAddr, baseEqLevelP1, typeVarMap))
+                        (localArgList, extendBoundTypeVarMap(varToArgMap, mkAddr, baseEqLevelP1, typeVarMap))
                     end
 
             (* If this is a reference to a datatype we're currently generating
@@ -867,10 +854,6 @@ struct
         and depthCode = mkInd(1, arg1)
         val nLevel = newLevel level
         val constrArity = tcArity typeCons
-        val argTypes = 
-            List.tabulate(constrArity,
-                fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
-                             equality=false, printable=false})
 
         val (localArgList, innerLevel, newTypeVarMap) =
             case constrArity of
@@ -878,19 +861,22 @@ struct
             |   _ =>
                 let
                     val nnLevel = newLevel nLevel
-                    fun mkTcArgMap (argTypes, level, oldLevel) =
-                        let
-                            val nArgs = List.length argTypes
-                            val argAddrs = List.tabulate(nArgs, fn n => n)
-                            val args = List.map(fn addr => fn l => mkLoadParam(addr, l, oldLevel)) argAddrs
-                        in
-                            (ListPair.zipEq(argTypes, args), List.map (fn addr => mkLoadParam(addr, level, oldLevel)) argAddrs)
-                        end
-                    val (varToArgMap, localArgList) = mkTcArgMap(argTypes, nnLevel, nLevel)
+                    local
+                        val level = nnLevel
+                        and oldLevel = nLevel
+                        val nArgs = constrArity
+                        val argAddrs = List.tabulate(nArgs, fn n => n)
+                        val args = List.map(fn addr => fn l => mkLoadParam(addr, l, oldLevel)) argAddrs
+                        val argVec = Vector.fromList args
+                    in
+                        fun varToArgMap(TVIndex n) = if n < constrArity then SOME(Vector.sub(argVec, n)) else NONE
+                        val localArgList = List.map (fn addr => mkLoadParam(addr, level, oldLevel)) argAddrs
+                    end
+
                     val addrs = ref 1 (* Make local declarations for any type values. *)
                     fun mkAddr n = !addrs before (addrs := !addrs + n)
                 in
-                    (localArgList, nnLevel, extendTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap))
+                    (localArgList, nnLevel, extendBoundTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap))
                 end
 
         (* If we have an expression as the argument we parenthesise it unless it is
@@ -1007,9 +993,9 @@ struct
                     then (* Just the name *) nameCode
                     else
                     let
-                        val typeOfArg = constructorResult(typeOf, List.map TypeVar argTypes)
+                        val argTypes = List.tabulate(constrArity, fn n => BoundTypeVar("'a", TVIndex n))
+                        val typeOfArg = constructorResult(typeOf, argTypes)
                         val getValue = mkEval(addPolymorphism(extractProjection constructorCode), [argCode])
-                        
                     in
                         codePrettyBlock(1, false, [],
                             codeList(
@@ -1096,19 +1082,9 @@ struct
                     val nLevel = newLevel level
                     val addrs = ref 0
                     fun mkAddr n = !addrs before (addrs := !addrs + n)
-
-                    local
-                        val args =
-                            List.tabulate(nArgs, fn addr => fn l => mkLoadParam(addr, l, nLevel))
-                        val argTypes =
-                            List.tabulate(arity,
-                                fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
-                                             equality=false, printable=false})
-                    in
-                        val typeEnv = ListPair.zipEq(argTypes, args)
-                    end
-                    
-                    val argTypeMap = extendTypeVarMap(typeEnv, mkAddr, nLevel, typeVarMap)
+                    val args = Vector.tabulate(arity, fn addr => fn l => mkLoadParam(addr, l, nLevel))
+                    fun varToArgMap(TVIndex n) = if n < arity then SOME(Vector.sub(args, n)) else NONE
+                    val argTypeMap = extendBoundTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap)
                     val innerFnCode = makeCode(nLevel, argTypeMap)
                 in
                     mkProc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, name, getClosure nLevel, !addrs)
@@ -1268,58 +1244,6 @@ struct
     in
         createTypeValue{ eqCode = alwaysTrue, printCode = printCode  }
     end
-
-    val noEquality = mkProc(CodeFalse, 2, "noEquality", [], 0)
-    (* Since we don't have a way of writing a "printity" type variable there are cases
-       when the printer will have to fall back to this. e.g. if we have a polymorphic
-       printing function as a functor argument. *)
-    val noPrinter = codePrintDefault
-
-    (* If this is a polymorphic value apply it to the type instance. *)
-    fun applyToInstance'([], level, _, code) = code level (* Monomorphic. *)
-
-    |   applyToInstance'(sourceTypes, level, polyVarMap, code) =
-    let
-        (* If we need either the equality or print function we generate a new
-           entry and ignore anything in the cache. *)
-        fun makePolyParameter {value=t, equality, printity} =
-            if equality orelse printity
-            then
-                let
-                    val eqCode =
-                        if equality
-                        then makeEq(t, level, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
-                        else noEquality
-                    val printCode =
-                        if printity then printerForType(t, level, polyVarMap) else noPrinter
-                in
-                    TypeValue.createTypeValue{ eqCode=eqCode, printCode=printCode }
-                end
-            else (* If we don't require the equality or print function we can use the cache. *)
-            case findCachedTypeCode(polyVarMap, t) of
-                SOME (code, _) => code level
-            |   NONE =>
-                let
-                    val maxCache = getMaxDepth polyVarMap (t, 1)
-                    val cacheEntry = List.nth(polyVarMap, List.length polyVarMap - maxCache)
-                    val { cache, mkAddr, level=decLevel, ...} = cacheEntry
-                    val typeValue =
-                        TypeValue.createTypeValue{ eqCode=noEquality, printCode=noPrinter}
-                    (* Make a new entry and put it in the cache. *)
-                    val decAddr = mkAddr 1
-                    val () = cache := {decCode = mkDec(decAddr, typeValue), typeOf = t, address = decAddr } :: !cache
-                in
-                    mkLoad(decAddr, level, decLevel)
-                end
-    in
-        mkEval(code level, List.map makePolyParameter sourceTypes)
-    end
-
-    (* For now limit this to equality types. *)
-    fun applyToInstance(sourceTypes, level, polyVarMap, code) =
-        applyToInstance'(
-            List.filter(fn {equality, ...} => not justForEqualityTypes orelse equality) sourceTypes,
-            level, polyVarMap, code)
 
     structure Sharing =
     struct

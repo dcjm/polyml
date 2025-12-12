@@ -41,9 +41,6 @@ sig
     val printerForType: types * level * typeVarMap -> codetree
     (* Generate a function of the form (t,t) -> bool. *)
     val equalityForType: types * level * typeVarMap -> codetree
-
-    val applyToInstance:
-        { value: types, equality: bool, printity: bool} list * level * typeVarMap * (level -> codetree) -> codetree
     
     structure TypeVarMap:
     sig
@@ -52,8 +49,6 @@ sig
         val defaultTypeVarMap: (int->int) * level -> typeVarMap (* The end of the chain. *)
         (* Add a set of type variables to the map. *)
         val extendTypeVarMap: (typeVar * (level->codetree)) list * (int->int) * level * typeVarMap -> typeVarMap
-        (* Look up a type variable and return the type it's mapped to. *)
-        val mapTypeVars: typeVarMap -> typeVar -> types option
         (* Mark in the cache chain that some type constructors are new. *)
         val markTypeConstructors: typeConstrs list * (int->int) * level * typeVarMap -> typeVarMap
         (* Get the set of cached type values that have been created after this entry. *)
@@ -61,8 +56,6 @@ sig
     end
 
     val defaultTypeCode: codetree
-    
-    val justForEqualityTypes: bool
 
     structure Sharing:
     sig

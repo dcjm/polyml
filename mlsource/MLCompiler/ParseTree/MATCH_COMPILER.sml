@@ -399,10 +399,9 @@ struct
     in
 
         (* Take a pattern and merge it into an andOrTree. *)
-        fun buildAot (Ident {value=ref ident, expType=ref expType, ... }, tree, patNo, line, context as { typeVarMap, ...} ) =
+        fun buildAot (Ident {value=ref ident, ... }, tree, patNo, line, context ) =
             let
-                val polyVars =
-                    List.map #value (getPolymorphism (ident, expType, typeVarMap))
+                val polyVars = []
                 fun doArg a = buildAot(WildCard nullLocation, a, patNo, line, context)
             in
                 case ident of
@@ -478,10 +477,10 @@ struct
                 buildAot(TupleTree{fields=tupleList, location=location, expType=ref expType}, tree, patNo, location, context)
             end
 
-        |   buildAot (Applic{f = Ident{value = ref applVal, expType = ref expType, ...}, arg, location, ...},
-                      tree, patNo, _, context as { typeVarMap, ...}) =
+        |   buildAot (Applic{f = Ident{value = ref applVal, ...}, arg, location, ...},
+                      tree, patNo, _, context) =
             let
-                val polyVars = List.map #value (getPolymorphism (applVal, expType, typeVarMap))
+                val polyVars = []
                 fun doArg atree = buildAot(arg, atree, patNo, location, context)
             in
                 case applVal of

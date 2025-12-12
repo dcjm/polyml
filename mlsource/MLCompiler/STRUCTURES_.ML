@@ -2637,62 +2637,12 @@ struct
                                         mkInd(1, codeVal (sourceValue, localLevel, typeVarMap, [], lex, location nullLex))
                             )
 
-                    local
-                        val (copiedCandidate, sourceVars) = generalise sourceValType
-                        val copiedTarget = createMatchType targetType
-                        val sourceVars =
-                            List.filter (fn {equality, ...} => not justForEqualityTypes orelse equality) sourceVars
-                        val () = 
-                            case unifyTypes(copiedCandidate, copiedTarget) of
-                                NONE => ()
-                            |   SOME report => (print(name ^ ":\n"); PolyML.print report; raise InternalError "unifyTypes failed in pass 3")
-                        val filterTypeVars = List.filter (fn tv => not justForEqualityTypes orelse tvEquality tv)
-                        val destVars = filterTypeVars (getPolyTypeVars(targetType, fn _ => NONE))
-
-                        (* If we have the same polymorphic variables in the source
-                           and destination we don't need to apply a coercion.
-                           N.B. We may have the same number of polymorphic variables
-                           but still have to apply it if we have, for example,
-                           fun f x => x   matching  val f: 'a list -> 'a list. *)
-                        fun equalEntry({value=source, ...}, destTv) =
-                            case eventual source of
-                                TypeVar sourceTv => sameTv(sourceTv, destTv)
-                            |   _ => false
-                    in
                         val (polyCode, justCopy) =
-                            if ListPair.allEq equalEntry (sourceVars, destVars)
-                            then
-                                (loadCode(level) (* Nothing to do. *),
+                                (loadCode level (* Nothing to do. *),
                                      (* We're just copying if this is the same address. *)
                                      case sourceValue of
                                         Value{access=Formal sourceAddr, ...} => destAddr=sourceAddr
                                      |  _ => false)
-
-                            else if null destVars (* Destination is monomorphic. *)
-                            then (applyToInstance(sourceVars, level, typeVarMap, loadCode), false)
-
-                            else
-                            let
-                                open TypeVarMap
-                                val destPolymorphism = List.length destVars
-                                val localLevel = newLevel level
-                                val argAddrs =
-                                    List.tabulate(destPolymorphism, fn n => fn l => mkLoadParam(n, l, localLevel))
-                                val argMap = ListPair.zipEq(destVars, argAddrs)
-                                val addrs = ref 0
-                                fun mkAddrs n = ! addrs before (addrs := !addrs+n)
-                                val newTypeVarMap = extendTypeVarMap(argMap, mkAddrs, localLevel, typeVarMap)
-                                (* Apply the source to the parameters provided by the destination.  In almost
-                                   all cases we will be removing polymorphism here but it is possible to
-                                   add polymorphism through type definitions of the form type 'a t = int. *)
-                                val application =
-                                    applyToInstance(sourceVars, localLevel, newTypeVarMap, loadCode)
-                            in
-                                (mkProc(
-                                    mkEnv(getCachedTypeValues newTypeVarMap, application),
-                                    destPolymorphism, name ^ "(P)", getClosure localLevel, !addrs), false)
-                            end
-                    end
                 in
                     (mkEnv(TypeVarMap.getCachedTypeValues typeVarMap, polyCode) :: otherCode,
                      (* We can use the original structure if nothing else has changed, the offset in

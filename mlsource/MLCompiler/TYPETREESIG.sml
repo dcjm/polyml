@@ -121,12 +121,7 @@ sig
     (* Generate new copies of all unbound type variables - this is used on all
        non-local values or constructors so that, for example, each occurence of
        "hd", which has type 'a list -> 'a, can be separately bound to types. *)
-    val generalise: types * typeVarTemplate list -> types * {value: types, equality: bool, printity: bool} list
-
-    (* The same as generalise but with a function that looks up types. *)
-    val generaliseWithMap:
-        (types * typeVarTemplate list) * (typeVar -> types option) ->
-            types * {value: types, equality: bool, printity: bool} list
+    val generalise: types * typeVarTemplate list -> types * types list
 
     (* Return the type variables that would be generalised at this point. *)
     val getPolyTypeVars: (types * typeVarTemplate list) * (typeVar -> types option) -> typeVar list

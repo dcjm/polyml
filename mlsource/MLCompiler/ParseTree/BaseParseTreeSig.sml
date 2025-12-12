@@ -58,7 +58,7 @@ sig
          say, after all the unification has been done. *)
         {
             name: string,
-            expType: types ref,
+            expType: (types * types list) ref,
             value: values ref,
             location: location,
             possible: (unit -> string list) ref (* Used with the IDE. *)

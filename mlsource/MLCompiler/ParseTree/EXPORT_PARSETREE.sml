@@ -145,7 +145,7 @@ struct
         end
     in
         case p of
-            Ident{location, expType=ref expType, value, possible, ...} =>
+            Ident{location, expType=ref(expType, _), value, possible, ...} =>
             let
                 (* Include the type and declaration properties if these
                    have been set. *)

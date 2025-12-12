@@ -69,10 +69,10 @@ sig
     val codeStruct:     structVals * level -> codetree
     val codeAccess:     valAccess  * level -> codetree
     val codeVal:
-        values * level * typeVarMap * {value: types, equality: bool, printity: bool} list * lexan * location -> codetree
+        values * level * typeVarMap * types list * lexan * location -> codetree
     val codeExFunction: values * level * typeVarMap * types list * lexan * location -> codetree
     val applyFunction:
-        values * codetree * level * typeVarMap * {value: types, equality: bool, printity: bool} list *
+        values * codetree * level * typeVarMap * types list *
             lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
     val makeGuard:      values * types list * codetree * level * typeVarMap -> codetree 
@@ -97,8 +97,6 @@ sig
 
     val codeLocation: location -> codetree
 
-    val getPolymorphism: values * types * typeVarMap -> {value: types, equality: bool, printity: bool} list
-    
     val getLiteralValue: values * string * types * (string->unit) -> machineWord option
 
     (* Types that can be shared. *)

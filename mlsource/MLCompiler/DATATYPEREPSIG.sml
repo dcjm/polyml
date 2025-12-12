@@ -33,8 +33,8 @@ sig
     val RefForm:   representations;
     val EnumForm:  { tag: word, maxTag: word } -> representations;
 
-    val createNullaryConstructor: representations * int * string -> codetree
-    val createUnaryConstructor: representations * int * string -> codetree
+    val createNullaryConstructor: representations * string -> codetree
+    val createUnaryConstructor: representations * string -> codetree
 
     (* Standard values *)
     val listConstr: typeConstrSet

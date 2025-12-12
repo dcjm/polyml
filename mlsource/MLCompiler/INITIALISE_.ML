@@ -140,17 +140,6 @@ struct
             val () = setPreferredInt(if intIsArbitraryPrecision then intInfConstr else fixedIntConstr)
         end;
 
-        fun makePolymorphic(templs, c) =
-        let
-            open TYPEIDCODE
-            fun polyTemplate(TemplPlain{equality=true, ...}, n) = n+1
-            |   polyTemplate(TemplPlain{equality=false, ...}, n) = if justForEqualityTypes then n else n+1
-            |   polyTemplate _ = raise Misc.InternalError "polyTemplate"
-            val polyCount = List.foldl polyTemplate 0 templs
-        in
-            if polyCount = 0 then c else mkInlproc(c, polyCount, "", [], 0)
-        end
-
         (* Function to make a type identifier with a pretty printer that just prints "?".
            None of the types are equality types so the equality function is empty. *)
         local
@@ -222,10 +211,10 @@ struct
         local
             val falseCons =
                 mkGconstr ("false", ValueType(Bool, []),
-                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, 0(*monotype*), "false"), true, 2, declInBasis)
+                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, "false"), true, 2, declInBasis)
             val trueCons  =
                 mkGconstr ("true",  ValueType(Bool, []),
-                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, 0(*monotype*), "true"), true, 2, declInBasis)
+                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, "true"), true, 2, declInBasis)
             val boolEnv = makeStructure(globalEnv, "Bool") (* Bool structure *)
             val notFn =
                 mkGvar("not", ValueType(Bool ->> Bool, []), mkUnaryFn BuiltIns.NotBoolean, declInBasis)
@@ -256,7 +245,7 @@ struct
             val a = mkTypeVar (generalisable, false, false, false)
             val refCons =
                     mkGconstr ("ref", ValueType(a ->> Ref a, templates 1),
-                        createUnaryConstructor(RefForm, 1, "ref"), false, 1, declInBasis)
+                        createUnaryConstructor(RefForm, "ref"), false, 1, declInBasis)
         in
             val () = enterGlobalType  ("ref", TypeConstrSet(refConstr, [refCons]));
             val () = enterGlobalValue ("ref", refCons);
@@ -294,7 +283,7 @@ struct
 
         fun enterRunCall (name : string, entry : codetree, typ : types, templates) : unit =
         let
-            val code = makePolymorphic(templates, entry)
+            val code = entry
             val value = mkGvar (name, ValueType(typ, templates), code, declInBasis);
         in
             #enterVal runCallEnv (name, value)
@@ -940,11 +929,11 @@ struct
             (* We don't have Word8.word or Word32.word at this point so the easiest way to
                deal with this is to make them polymorphic. *)
             val get8Function =
-                mkGvar("get8", ValueType(LargeWord ** Word ->> tvA, singleTemplate), makePolymorphic(singleTemplate, mkLoadOperationFn LoadStoreC8), declInBasis)
+                mkGvar("get8", ValueType(LargeWord ** Word ->> tvA, singleTemplate), mkLoadOperationFn LoadStoreC8, declInBasis)
             val get16Function =
                 mkGvar("get16", ValueType(LargeWord ** Word ->> Word, []), mkLoadOperationFn LoadStoreC16, declInBasis)
             val get32Function =
-                mkGvar("get32", ValueType(LargeWord ** Word ->> tvA, singleTemplate), makePolymorphic(singleTemplate, mkLoadOperationFn LoadStoreC32), declInBasis)
+                mkGvar("get32", ValueType(LargeWord ** Word ->> tvA, singleTemplate), mkLoadOperationFn LoadStoreC32, declInBasis)
             val get64Function =
                 mkGvar("get64", ValueType(LargeWord ** Word ->> LargeWord, []), mkLoadOperationFn LoadStoreC64, declInBasis)
             val getFloatFunction =
@@ -953,14 +942,14 @@ struct
                 mkGvar("getDouble", ValueType(LargeWord ** Word ->> Real, []), mkLoadOperationFn LoadStoreCDouble, declInBasis)
             val set8Function =
                 mkGvar("set8",
-                    ValueType(mkProductType[LargeWord, Word, tvA] ->> Unit, templates 1), makePolymorphic(singleTemplate, mkStoreOperationFn LoadStoreC8),
+                    ValueType(mkProductType[LargeWord, Word, tvA] ->> Unit, templates 1), mkStoreOperationFn LoadStoreC8,
                     declInBasis)
             val set16Function =
                 mkGvar("set16",
                     ValueType(mkProductType[LargeWord, Word, Word] ->> Unit, []), mkStoreOperationFn LoadStoreC16, declInBasis)
             val set32Function =
                 mkGvar("set32",
-                    ValueType(mkProductType[LargeWord, Word, tvA] ->> Unit, templates 1), makePolymorphic(singleTemplate, mkStoreOperationFn LoadStoreC32),
+                    ValueType(mkProductType[LargeWord, Word, tvA] ->> Unit, templates 1), mkStoreOperationFn LoadStoreC32,
                     declInBasis)
             val set64Function =
                 mkGvar("set64",
@@ -1542,7 +1531,7 @@ struct
 
             fun enterUniversal (name : string, entry : codetree, typ: types, templates) : unit =
             let
-                val code = makePolymorphic(templates, entry)
+                val code = entry
                 val value = mkGvar (name, ValueType(typ, templates), code, declInBasis);
             in
                 #enterVal uniStructEnv (name, value)

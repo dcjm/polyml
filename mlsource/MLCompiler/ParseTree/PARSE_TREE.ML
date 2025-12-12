@@ -69,7 +69,7 @@ struct
       Ident
         {
           name   = name,
-          expType = ref EmptyType,
+          expType = ref(EmptyType, []),
           value  = ref undefinedValue,
           location = loc,
           possible = ref(fn () => [])

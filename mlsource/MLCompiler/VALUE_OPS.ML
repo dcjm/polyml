@@ -313,30 +313,23 @@ struct
                 TypeConstrSet(undefConstr, [])
             )
     end 
-
  
       (* Printing. *)
 
 
     (* Print a value given its type. *)
-    fun printValueForType (value:machineWord, valType as (types, _), depth): pretty =
+    fun printValueForType (value:machineWord, (types, _), depth): pretty =
     let
         (* Constuct printer code applied to the argument and the depth.
            Code-generate and evaluate it. *)
-        (* If this is polymorphic apply it to a dummy set of instance types.
-           This may happen if we have val it = NONE at the top level.
-           The equality attributes of the type variables must match so that
-           this works correctly with justForEqualityTypes set. *)
         val addrs = ref 0 (* Make local declarations for any type values. *)
         local
             fun mkAddr n = !addrs before (addrs := !addrs + n)
         in
             val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, baseLevel)
         end
-        val dummyTypes =
-            List.map(fn tv => {value=TYPESTRUCT.unitType, equality=tvEquality tv, printity=false})
-                (getPolyTypeVars(valType, fn _ => NONE))
-        val polyCode = applyToInstance(dummyTypes, baseLevel, typeVarMap, fn _ => mkConst value)
+
+        val polyCode = mkConst value
         val printerCode =
             mkEval(
                 printerForType(types, baseLevel, typeVarMap),
@@ -735,21 +728,14 @@ struct
 
     (* This is applied to the instance variables if it is polymorphic and bound by
        a val or fun binding or is a datatype constructor. *)
-    fun applyToInstanceType(polyVars, ValBound, level, typeVarMap, code) =
-            applyToInstance(polyVars, level, typeVarMap, code)
-    |   applyToInstanceType(polyVars, Constructor _, level, typeVarMap, code) =
-            applyToInstance(if justForEqualityTypes then [] else polyVars, level, typeVarMap, code)
-    |   applyToInstanceType(_, PattBound, level, _, code) = code level
-    |   applyToInstanceType(_, Exception, level, _, code) = code level
+    fun applyToInstanceType(_, _, level, _, code) = code level
 
     val arg1     = mkLoadArgument 0 (* saves a lot of garbage *)
-
-    fun addStatus typ = {value=typ, equality=false, printity=false}
 
  (* Code-generate an identifier matched to a value.  N.B. If the value is a
     constructor it returns the pair or triple representing the functions on the
     constructor. *)
- fun codeVal (Value{access = Global code, class, ...}, level: level, typeVarMap, instance, _, _) =
+ fun codeVal (Value{access = Global code, class, ...}, level: level, typeVarMap, instance: types list, _, _) =
             applyToInstanceType(instance, class, level, typeVarMap, fn _ => code)
 
   |  codeVal (Value{access = Local{addr=ref locAddr, level=ref locLevel}, class, ...},
@@ -791,12 +777,10 @@ struct
                     ),
                     1, "print()", [], 0)            
         in
-            if justForEqualityTypes
-            then printFun
-            else mkProc(printFun, 1, "print(P)", [], 0)
+            printFun
         end
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level: level, typeVarMap, [{value=argType, ...}], lex, _) =
+  |  codeVal (Value{access = Overloaded Print, ...}, level: level, typeVarMap, [argType], lex, _) =
         let 
             (* We should have a single entry for the type. *)
             open DEBUG
@@ -834,16 +818,10 @@ struct
         raise InternalError "Overloaded Print - wrong instance type"
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, [], _, _) =
-        let
         (* If this appears in a structure produce a default version. *)
-            val makestringFn = mkProc(mkConst(toMachineWord "?"), 1, "makestring()", [], 0)
-        in
-            if justForEqualityTypes
-            then makestringFn
-            else mkProc(makestringFn, 1, "makestring(P)", [], 0)
-        end
+            mkProc(mkConst(toMachineWord "?"), 1, "makestring()", [], 0)
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level: level, typeVarMap, [{value=argType, ...}], _, _) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level: level, typeVarMap, [argType], _, _) =
         let
             val nLevel = newLevel level
         in
@@ -872,7 +850,7 @@ struct
             mkProc(printerForType(badType, nLevel, typeVarMap), 1, "getPretty", getClosure nLevel, 0)
         end
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, level: level, typeVarMap, [{value=argType, ...}], _, _) =
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, level: level, typeVarMap, [argType], _, _) =
        (* Get the pretty code for the specified argument. *)
             printerForType(argType, level, typeVarMap)
 
@@ -880,18 +858,10 @@ struct
         raise InternalError "Overloaded GetPretty - wrong instance type"
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, [], _, _) =
-        let
             (* If this appears in a structure create a function that raises an exception if run. *)
-            val defAddPretty =
-                mkConst (toMachineWord
-                        (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
-        in
-            if justForEqualityTypes
-            then defAddPretty
-            else mkProc(defAddPretty, 1, "AddPretty(P)", [], 0)
-        end
+        mkConst (toMachineWord (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, level: level, _, [{value=installType, ...}, {value=argPrints, ...}], lex, loc) =
+  |  codeVal (Value{access = Overloaded AddPretty, ...}, level: level, _, [installType, argPrints], lex, loc) =
         let 
          (* "instance" should be (int-> 'a -> 'b -> pretty) -> unit.
              We need to get the 'a and 'b.  This function installs a
@@ -1041,7 +1011,7 @@ struct
         end
 
  (* Some of these have a more efficient way of calling them as functions. *)
- and applyFunction (value as Value{class=Exception, ...}, argument, level, typeVarMap, instance, lex, lineno) =
+ and applyFunction (value as Value{class=Exception, ...}, argument, level, typeVarMap, instance: types list, lex, lineno) =
      let
        (* If we are applying it as a function we cannot be after the
           exception id, we must be constructing an exception packet. *)
@@ -1058,10 +1028,7 @@ struct
     let
         (* If this is a value constructor we need to get the construction
            function and use that. *)
-        fun getConstr level =
-            ValueConstructor.extractInjection(codeVal (value, level, typeVarMap, [], lex, lineno))
-        val polyConstr =
-            applyToInstance(if justForEqualityTypes then [] else argVars, level, typeVarMap, getConstr)
+        val polyConstr = ValueConstructor.extractInjection(codeVal (value, level, typeVarMap, [], lex, lineno))
     in
          (* Don't apply this "early".  It might be the ref constructor and that
            must not be applied until run-time.  The optimiser should take care
@@ -1078,7 +1045,7 @@ struct
                 (* We should have a single entry for the type. *)
                 val argType =
                     case instance of
-                        [{value, ...}] => value
+                        [value] => value
                     |   _ => raise InternalError "Overload Equal"
                 (* The instance type is a function so we have to get the first argument. *)
                 val code = equalityForType(argType, level, typeVarMap)
@@ -1091,7 +1058,7 @@ struct
                 (* We should have a single entry for the type. *)
                 val argType =
                     case instance of
-                        [{value, ...}] => value
+                        [value] => value
                     |   _ => raise InternalError "Overload NotEqual"
                 (* Use the "=" function to provide inequality as well as equality. *)
                 val code = equalityForType(argType, level, typeVarMap)
@@ -1104,7 +1071,7 @@ struct
            let
                 val argType =
                     case instance of
-                        [{value, ...}] => value
+                        [value] => value
                     |   _ => raise InternalError "Overload TypeDep"
              val (code, _) = getOverloadInstance(valName, argType, false)
            in
@@ -1122,7 +1089,7 @@ struct
                may be a pair, but in the case of conversion functions we want the 'b. *)
             val (resultType, argType) =
                 case instance of
-                    [{value=alpha, ...}, {value=beta, ...}] => (rmvars alpha, rmvars beta)
+                    [alpha, beta] => (rmvars alpha, rmvars beta)
                 |   _ => (badType, badType)
 
             fun followTypes(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = Free _, ...},...}, ...}) = constr
@@ -1189,13 +1156,13 @@ struct
      an exception packet. *)
     fun codeExFunction (value as Value{typeOf=ValueType(typeOf, _), ...}, level, typeVarMap, instance, lex, lineno) =
     case getFnArgType typeOf of (* N.B. Not "instance" *)
-        NONE => applyFunction (value, CodeZero, level, typeVarMap, List.map addStatus instance, lex, lineno)
+        NONE => applyFunction (value, CodeZero, level, typeVarMap, instance, lex, lineno)
     |   SOME _ =>
             let
                 val nLevel = newLevel level
             in
                 mkProc 
-                  (applyFunction (value, arg1, nLevel, typeVarMap, List.map addStatus instance, lex, lineno),
+                  (applyFunction (value, arg1, nLevel, typeVarMap, instance, lex, lineno),
                     1, "", getClosure nLevel, 0)
             end
 
@@ -1210,11 +1177,7 @@ struct
         for the test and have to parameterise the result.     *)
     fun makeGuard (value as Value{class=Constructor _, ...}, argVars, testing, level, typeVarMap) =
         let
-            fun tester level =
-                ValueConstructor.extractTest(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
-            val testCode =
-                applyToInstance(if justForEqualityTypes then [] else List.map addStatus argVars,
-                                level, typeVarMap, tester)
+            val testCode = ValueConstructor.extractTest(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
         in
             mkEval(testCode, [testing])
         end
@@ -1232,11 +1195,7 @@ struct
     fun makeInverse(value as Value{class=Constructor{nullary=false, ...}, ...},
                     argVars, arg, level, typeVarMap): codetree =
         let
-            fun getInverse level =
-                ValueConstructor.extractProjection(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
-            val loadCode =
-                applyToInstance(if justForEqualityTypes then [] else List.map addStatus argVars,
-                                level, typeVarMap, getInverse)
+            val loadCode = ValueConstructor.extractProjection(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
         in
             mkEval(loadCode, [arg])
         end
@@ -1253,27 +1212,6 @@ struct
             mkVarField (2,arg)
 
     |   makeInverse _ = raise InternalError "makeInverse"
-
-    (* Work out the polymorphism and the mapping between the formal
-       type variables and the actual types.  Because flexible records
-       may introduce extra polymorphism we can only do this once we've
-       frozen them.  e.g. fun f x = #1 x + #2 x may be monomorphic or
-       polymorphic depending on what it's subsequently applied to. *)
-    (* Using unification here isn't ideal.  We have to put the equality attribute
-       back on to abstypes in case the unification requires it.  There may be other
-       situations where things don't work properly. *)
-    fun getPolymorphism (Value{ typeOf=ValueType valTypeOf, ...}, expType, typeVarMap) =
-    let
-        (* typeVarMap is used to find type variables that are actually free at this point.  This is a legacy. *)
-        val (t, polyVars) = generaliseWithMap(valTypeOf, TypeVarMap.mapTypeVars typeVarMap)
-        (* Ignore the result.  There are circumstances in which we can get a
-           unification error as the result of failing to find a fixed record type
-           where the possible records we could find have non-unifiable types.
-           See Tests/Fail/Test072.ML *)
-        val _ = unifyTypes(t, expType)
-    in
-        polyVars
-    end
 
     (* Convert a literal constant. We can only do this once any overloading
        has been resolved. *)

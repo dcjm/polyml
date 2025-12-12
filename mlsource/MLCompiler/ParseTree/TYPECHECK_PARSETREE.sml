@@ -477,7 +477,7 @@ struct
                 lex);
 
         (* Makes a type for an instance of an identifier. *)
-        fun instanceType(Value{typeOf=ValueType valType, ...}) = #1 (generalise valType)
+        fun instanceType(Value{typeOf=ValueType valType, ...}) = generalise valType
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
@@ -537,7 +537,7 @@ struct
                                     Value{class=Constructor{nullary, ...}, ...} => nullary
                                 |   Value{typeOf=ValueType(typeOf, _), ...} => (* exception *) not (isSome(getFnArgType typeOf))
                         in
-                            if isNullary then instanceType nameVal
+                            if isNullary then #1 (instanceType nameVal)
                             else
                             (
                                 errorNear (lex, true, pat, location,
@@ -561,7 +561,7 @@ struct
                             valTypeOf (* and return its type *)
                         end;
                 in
-                    expType := instanceType; (* Record the instance type.*)
+                    expType := (instanceType, []); (* Record the instance type.*)
                     instanceType
                 end
     
@@ -601,10 +601,10 @@ struct
                                 if isConstructor constrVal
                                 then
                                 let
-                                    val cType = instanceType constrVal
+                                    val instance as (cType, _) = instanceType constrVal
                                 in
                                     value := constrVal;
-                                    expType := cType; (* Record the instance type.*)
+                                    expType := instance; (* Record the instance type.*)
                                     cType
                                 end
                                 else (* Undeclared or a variable. *)
@@ -739,7 +739,7 @@ struct
                             {lookupVal = #lookupVal env, lookupStruct = #lookupStruct env},
                             name, giveError (near, lex, location));
                 (* Set the value and type found. *)
-                val instanceType = instanceType expValue;
+                val instanceTypeAndVars as (instanceType, _)  = instanceType expValue;
             in
                 (* Include this reference in the list of local references. *)
                 case expValue of
@@ -751,7 +751,7 @@ struct
                     Value { instanceTypes=SOME instanceRef, ...} =>
                         instanceRef := instanceType :: ! instanceRef
                 |   _ => ();
-                expType := instanceType;
+                expType := instanceTypeAndVars;
                 value  := expValue;
                 possible := (fn () => allValLongNamesWithPrefix name env);
                 instanceType (* Result is the instance type. *)
@@ -1292,7 +1292,7 @@ struct
                                     Value{class=Exception, ...} => ()
                                 |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
-                                expType := oldExcType; (* And remember the type. *)
+                                expType := (oldExcType, []); (* And remember the type. *)
                                 possible := (fn () => allValLongNamesWithPrefix prevName env);
                                 (* The result is an exception with the same type. *)
                                 mkEx (name, excType, locations)
@@ -1887,7 +1887,7 @@ struct
                               Ident
                                 {
                                   name   = name,
-                                  expType = ref EmptyType,
+                                  expType = ref(EmptyType, []),
                                   value  = ref undefinedValue,
                                   location = loc,
                                   possible = ref(fn () => [])
@@ -2256,7 +2256,7 @@ struct
                 fun reduceTypes(tv, ref types) =
                     (* Although tv is a type variable it could occur as the least general type.
                        Unify takes care of that. *)
-                    if isSome(unifyTypes(TypeVar tv, leastGeneral(List.map #value types)))
+                    if isSome(unifyTypes(TypeVar tv, leastGeneral types))
                     then raise InternalError "reduceTypes: Unable to set type vars"
                     else ()
             in

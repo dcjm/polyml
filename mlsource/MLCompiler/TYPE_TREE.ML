@@ -836,11 +836,10 @@ struct
     let
         (* Create free type variables for each template. *)
         val freeTypeMap = TypeVar o (createTypeVariableMap true) templs
-        val (t, newMatch) = generaliseTypes (atyp, freeTypeMap, fn _ => NONE)
-        fun makeResult(Matched{new, old}) =
-            {value=new, equality=tvEquality old, printity=tvPrintity old}
+        val (t, _) = generaliseTypes (atyp, freeTypeMap, fn _ => NONE)
+        val typeVarList = List.tabulate(List.length templs, fn n => freeTypeMap(TVIndex n))
     in
-        (t, List.map makeResult newMatch)
+        (t, typeVarList)
     end
 
     (* Create a match type i.e. a type from a value but with explicit non-unifiable type
@@ -2061,23 +2060,6 @@ struct
 
     |   getPolyTypeVars((_, templates), _) = map (createTypeVariable true) templates
 
-    fun generaliseWithMap((atyp, templates), map) =
-    let
-        val freeTypeMap = createTypeVariableMap true templates
-        fun mapToResult n =
-        let
-            val tv = freeTypeMap(TVIndex n)
-        in
-            {value=TypeVar tv, equality=tvEquality tv, printity=tvPrintity tv}
-        end
-        val newTypeVars = List.tabulate(List.length templates, mapToResult)
-        val (t, newMatch) = generaliseTypes (atyp, TypeVar o freeTypeMap, map)
-        fun makeResult(Matched{new, old}) =
-            {value=new, equality=tvEquality old, printity=tvPrintity old}
-    in
-        (t, List.map makeResult newMatch @ newTypeVars)
-    end
-  
    (* Find the argument type which gives this result when the constructor
       is applied. If we have, for example, a value of type int list and
       we have discovered that this is a "::" node we have to work back by
