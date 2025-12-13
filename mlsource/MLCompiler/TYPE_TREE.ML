@@ -2080,7 +2080,11 @@ struct
         end
     | constructorResult _ = raise InternalError "Not a function type"
 
-    (* Look for the occurrence of locally declared datatypes in the type of a value. *)
+    (* Look for the occurrence of locally declared datatypes in the type of a value.
+       This works by looking to see if we have a reference to a local datatype whose
+       address has not yet been set.  If it hasn't that means it's either local to
+       a function or refers to a datatype that occurs textually later.  That can
+       happen if we have a ref that we assign later.  See Tests/Fail/Test064-69. *)
     fun checkForEscapingDatatypes(ty: types, errorFn: string->unit) : unit =
     let
         fun checkTypes (typ: types) (ok: bool) : bool =
@@ -3174,6 +3178,9 @@ struct
                                 if tvNonUnifiable tvar
                                 then giveError("Type", "includes a free type variable")
                                 else ()
+                            (* Set the original to this.  We need that for the check for escaping datatypes
+                               to work.  It uses the original type but that may be set later. *)
+                            val _ = tvSetValue (tvar, TypeVar newTypeVar)
                         in
                             (TypeVar newTypeVar, templates)
                         end
