@@ -323,20 +323,13 @@ struct
         (* Constuct printer code applied to the argument and the depth.
            Code-generate and evaluate it. *)
         val addrs = ref 0 (* Make local declarations for any type values. *)
-        local
-            fun mkAddr n = !addrs before (addrs := !addrs + n)
-        in
-            val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, baseLevel)
-        end
-
         val polyCode = mkConst value
         val printerCode =
             mkEval(
                 printerForType(types, baseLevel),
                 [mkTuple[polyCode, mkConst(toMachineWord depth)]])
         val pretty =
-            RunCall.unsafeCast(
-                valOf(evalue(genCode(CODETREE.mkEnv(TypeVarMap.getCachedTypeValues typeVarMap, printerCode), [], !addrs)())))
+            RunCall.unsafeCast(valOf(evalue(genCode(printerCode, [], !addrs)())))
     in
         pretty
     end

@@ -24,7 +24,6 @@ sig
     type typeConstrs
     type typeConstrSet
     type typeVar
-    type typeVarMap
     type level
 
     val codeId: typeId * level -> codetree
@@ -32,8 +31,7 @@ sig
         { source: typeId, isEq: bool, isDatatype: bool, mkAddr: int->int, level: level} -> codetree
     
     val createDatatypeFunctions:
-         {typeConstr: typeConstrSet, eqStatus: bool } list *
-            (int->int) * level * typeVarMap * bool -> codeBinding list
+         {typeConstr: typeConstrSet, eqStatus: bool } list * (int->int) * level * bool -> codeBinding list
     
     val codeForUniqueId: unit->codetree
 
@@ -41,20 +39,6 @@ sig
     val printerForType: types * level -> codetree
     (* Generate a function of the form (t,t) -> bool. *)
     val equalityForType: types * level  -> codetree
-    
-    structure TypeVarMap:
-    sig
-        (* Cache of type values and map of type variables. *)
-        type typeVarMap = typeVarMap
-        val defaultTypeVarMap: (int->int) * level -> typeVarMap (* The end of the chain. *)
-        (* Add a set of type variables to the map. *)
-        val extendTypeVarMap: (typeVar * (level->codetree)) list * (int->int) * level * typeVarMap -> typeVarMap
-        (* Mark in the cache chain that some type constructors are new. *)
-        val markTypeConstructors: typeConstrs list * (int->int) * level * typeVarMap -> typeVarMap
-        (* Get the set of cached type values that have been created after this entry. *)
-        val getCachedTypeValues: typeVarMap -> codeBinding list
-    end
-
     val defaultTypeCode: codetree
 
     structure Sharing:
@@ -65,7 +49,6 @@ sig
         type typeConstrs= typeConstrs
         type typeConstrSet=typeConstrSet
         type typeVar=typeVar
-        type typeVarMap = typeVarMap
         type codeBinding    = codeBinding
         type level = level
     end

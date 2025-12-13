@@ -1143,8 +1143,9 @@ struct
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
     fun createDatatypeFunctions(
             typeDatalist: {typeConstr: typeConstrSet, eqStatus: bool} list,
-            mkAddr, level, typeVarMap, makePrintFunction) =
+            mkAddr, level, makePrintFunction) =
     let
+        val typeVarMap = defaultTypeVarMap(fn _ => raise InternalError "createDatatypeFunctions", level)
         (* Each entry has an equality function and a ref to a print function.
            The print functions for each type needs to indirect through the refs
            when printing other types so that if a pretty printer is later

@@ -2590,9 +2590,6 @@ struct
                     ValueMatch { sourceValue as Value{typeOf=ValueType((sourceTypeOf, _)), name, ...}, coercion, targetType }),
                  (otherCode, allSame)) =
                 let
-                    (* Set up a new type variable environment in case this needs to create type
-                       values to match a polymorphic source value to a monomorphic context. *)
-                    val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
                     (* If the entry is from a signature select from the code.  Apply any coercion from
                        constructors to values. *)
                     fun loadCode localLevel =
@@ -2643,7 +2640,7 @@ struct
                                         Value{access=Formal sourceAddr, ...} => destAddr=sourceAddr
                                      |  _ => false)
                 in
-                    (mkEnv(TypeVarMap.getCachedTypeValues typeVarMap, polyCode) :: otherCode,
+                    (polyCode :: otherCode,
                      (* We can use the original structure if nothing else has changed, the offset in
                         the destination structure is the same as the offset in the source and
                         we don't have any coercion. *)
@@ -2740,25 +2737,23 @@ struct
     |   LetDec {decs, body = localStr, ...} =>
         let (* let strdec in strexp end *)
             (* Generate the declarations but throw away the loads. *)
-            val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
             (* TODO: Get the debug environment correct here. *)
-            fun processBody(decs, _, debugEnv, _, _, _) = (decs, debugEnv)
+            fun processBody(decs, _, debugEnv, _, _) = (decs, debugEnv)
             val (code, debug) =
-                codeStrdecs(strName, decs, debugEnv, mkAddr, level, typeVarMap, [], processBody)
+                codeStrdecs(strName, decs, debugEnv, mkAddr, level, [], processBody)
             val {code = bodyCode, load = bodyLoad } =
                 structureCode (localStr, strName, debug, mkAddr, level)
         in
             {
-                code = TypeVarMap.getCachedTypeValues typeVarMap @ code @ bodyCode,
+                code = code @ bodyCode,
                 load = bodyLoad
             }
         end
 
       | StructDec {alist, matchToResult=ref matchToResult, ...} =>
         let
-            val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
-            fun processBody(decs, _, debugEnv, _, _, _) = (decs: codeBinding list, debugEnv)
-            val (coded, _(*debugEnv*)) = codeStrdecs(strName, alist, debugEnv, mkAddr, level, typeVarMap, [], processBody)
+            fun processBody(decs, _, debugEnv, _, _) = (decs: codeBinding list, debugEnv)
+            val (coded, _(*debugEnv*)) = codeStrdecs(strName, alist, debugEnv, mkAddr, level, [], processBody)
             (* We match to the dummy signature here.  If there is a signature outside
                we will match again.  This results in double copying but that should
                all be sorted out by the optimiser. *)
@@ -2767,7 +2762,7 @@ struct
           (* The result is a block containing the declarations and
              code to load the results. *)
             {
-                code = TypeVarMap.getCachedTypeValues typeVarMap @ coded,
+                code = coded,
                 load = applyMatchActions (mkTuple loads, matchToResult, fn _ => raise Subscript, mkAddr, level)
             }
         end
@@ -2787,11 +2782,11 @@ struct
 
     (* We need to generate code for the declaration and then code to load
        the results into a tuple. *)
-    and codeStrdecs (strName, [], debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody) =
-            processBody(leadingDecs: codeBinding list, strName, debugEnv, mkAddr, level, typeVarMap) (* Do the continuation. *)
+    and codeStrdecs (strName, [], debugEnv, mkAddr, level, leadingDecs, processBody) =
+            processBody(leadingDecs: codeBinding list, strName, debugEnv, mkAddr, level) (* Do the continuation. *)
         
     |   codeStrdecs (strName, (StructureDec { bindings = structList, typeIdsForDebug = ref debugIds, ... }) :: sTail,
-                     debugEnv, mkAddr, level, _(*typeVarMap*), leadingDecs, processBody) =
+                     debugEnv, mkAddr, level, leadingDecs, processBody) =
         let
             fun codeStructureBind ({name, value, valRef, ...}: structBind, debug) =
             let
@@ -2818,46 +2813,40 @@ struct
             (* A structure binding may introduce new type IDs either directly or by way of
                opaque signatures or functor application.  Ideally we'd add these using something like
                markTypeConstructors but for now just start a new environment. *)
-            (* TODO: Check this.  It looks as though TypeVarMap.getCachedTypeValues newTypeVarMap
-               always returns the empty list. *)
-            val newTypeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
             val (codeRest, debugRest) =
-                codeStrdecs (strName, sTail, idDebug, mkAddr, level, newTypeVarMap, [], processBody)
+                codeStrdecs (strName, sTail, idDebug, mkAddr, level, [], processBody)
         in
-            (leadingDecs @ code @ debugIdDecs @ TypeVarMap.getCachedTypeValues newTypeVarMap @ codeRest, debugRest)
+            (leadingDecs @ code @ debugIdDecs @ codeRest, debugRest)
         end
 
     |   codeStrdecs (strName, (Localdec {decs, body, ...}) :: sTail,
-                     debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody) =
+                     debugEnv, mkAddr, level, leadingDecs, processBody) =
         let
-            fun processTail(previousDecs, newStrName, newDebugEnv, newMkAddr, newLevel, newTypeVarMap) =
+            fun processTail(previousDecs, newStrName, newDebugEnv, newMkAddr, newLevel) =
             let
                 (* TODO: Get the debug environment right here. *)
             in
-                codeStrdecs (newStrName, sTail, newDebugEnv, newMkAddr, newLevel, newTypeVarMap,
-                             previousDecs, processBody)
+                codeStrdecs (newStrName, sTail, newDebugEnv, newMkAddr, newLevel, previousDecs, processBody)
             end
             
-            fun processBody(previousDecs, newStrName, newDebugEnv, newMkAddr, newLevel, newTypeVarMap) =
+            fun processBody(previousDecs, newStrName, newDebugEnv, newMkAddr, newLevel) =
             let
                 (* TODO: Get the debug environment right here. *)
             in
-                codeStrdecs (newStrName, body, newDebugEnv, newMkAddr, newLevel, newTypeVarMap,
-                             previousDecs, processTail)
+                codeStrdecs (newStrName, body, newDebugEnv, newMkAddr, newLevel, previousDecs, processTail)
             end
         in
             (* Process the declarations then the body and then the tail. *)
-            codeStrdecs (strName, decs, debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody)
+            codeStrdecs (strName, decs, debugEnv, mkAddr, level, leadingDecs, processBody)
         end
  
       | codeStrdecs (strName, (CoreLang {dec, ...}) :: sTail,
-                     debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody) =
+                     debugEnv, mkAddr, level, leadingDecs, processBody) =
         let
-            fun processTail(newCode, newDebugEnv, newTypeVarMap) =
-                codeStrdecs (strName, sTail, newDebugEnv, mkAddr, level, newTypeVarMap,
-                              newCode, processBody)
+            fun processTail(newCode, newDebugEnv) =
+                codeStrdecs (strName, sTail, newDebugEnv, mkAddr, level, newCode, processBody)
             val (code, debug) =
-                gencode (dec, lex, debugEnv, level, mkAddr, typeVarMap, strName, processTail)
+                gencode (dec, lex, debugEnv, level, mkAddr, strName, processTail)
         in
             (leadingDecs @ code, debug)
         end
@@ -2901,14 +2890,12 @@ struct
  
         fun codeTopdecs (StrDec(str, _), debugEnv, mkAddr) =
             let
-                open TypeVarMap
                 val level = baseLevel
-                val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
                 val (code, debug) =
-                    codeStrdecs("", [str], debugEnv, mkAddr, level, typeVarMap, [],
-                        fn(decs, _, debugEnv, _, _, _) => (decs, debugEnv))
+                    codeStrdecs("", [str], debugEnv, mkAddr, level, [],
+                        fn(decs, _, debugEnv, _, _) => (decs, debugEnv))
             in
-                { code = TypeVarMap.getCachedTypeValues typeVarMap @ code, debug = debug }
+                { code = code, debug = debug }
             end
 
         |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv, mkOuterAddr) =

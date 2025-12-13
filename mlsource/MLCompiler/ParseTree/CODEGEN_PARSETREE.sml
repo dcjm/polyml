@@ -81,7 +81,6 @@ struct
     open VALUEOPS
     open MISC
     open DATATYPEREP
-    open TypeVarMap
     open DEBUGGER
 
     datatype environEntry = datatype DEBUGGER.environEntry
@@ -90,22 +89,19 @@ struct
     type cgContext =
         {
             decName: string, debugEnv: debuggerStatus, mkAddr: int->int,
-            level: level, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref,
+            level: level, lex: lexan, lastDebugLine: int ref,
             isOuterLevel: bool (* Used only to decide if we need to report non-exhaustive matches. *)
         }
 
-    fun repDecName decName ({debugEnv, mkAddr, level, typeVarMap, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
-        { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
+    fun repDecName decName ({debugEnv, mkAddr, level, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
+        { debugEnv=debugEnv, mkAddr=mkAddr, level=level,
           decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = isOuterLevel}: cgContext
-    and repDebugEnv debugEnv ({decName, mkAddr, level, typeVarMap, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
-        { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
-          decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = isOuterLevel}: cgContext
-    and repTypeVarMap typeVarMap ({decName, debugEnv, mkAddr, level, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
-        { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
+    and repDebugEnv debugEnv ({decName, mkAddr, level, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
+        { debugEnv=debugEnv, mkAddr=mkAddr, level=level,
           decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = isOuterLevel}: cgContext
     (* Create a new level.  Sets isOuterLevel to false. *)
-    and repNewLevel(decName, mkAddr, level) ({debugEnv, lex, lastDebugLine, typeVarMap, ...}: cgContext) =
-        { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
+    and repNewLevel(decName, mkAddr, level) ({debugEnv, lex, lastDebugLine, ...}: cgContext) =
+        { debugEnv=debugEnv, mkAddr=mkAddr, level=level,
           decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = false}: cgContext
 
     (* Try this pipeline function *)
@@ -962,7 +958,7 @@ struct
 
     |   codeSequence (
             (AbsDatatypeDeclaration {typelist, declist, equalityStatus = ref absEq, isAbsType, withtypes, ...}, _) :: pTail,
-            leading, codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, lex, ...}, processBody) =
+            leading, codeSeqContext as {mkAddr, level, debugEnv, lex, ...}, processBody) =
         let (* Code-generate the eq and print functions for the abstype first
                then the declarations, which may use these. *)
             (* The debugging environment for the declarations should include
@@ -1016,7 +1012,7 @@ struct
             end
 
             val typeFunctions =
-                createDatatypeFunctions(tcEqBoxSize, mkAddr, level, typeVarMap,
+                createDatatypeFunctions(tcEqBoxSize, mkAddr, level,
                     getParameter createPrintFunctionsTag (debugParams lex))
 
             local
@@ -1031,11 +1027,6 @@ struct
                 val typeDebugEnv = withTypeDebugEnv
             end
 
-            (* Mark these in the type value cache.  If they are used in subsequent polymorphic IDs
-               we must create them after this. *)
-            val newTypeVarMap =
-                markTypeConstructors(List.map (fn TypeConstrSet(ts, _) => ts) typeCons, mkAddr, level, typeVarMap)
-
             (* Process the with..end part. We have to restore the equality attribute for abstypes
                here in case getPolymorphism requires it. *)
             val () =
@@ -1044,7 +1035,7 @@ struct
                 else ()
             val (localDecs, newDebug) =
                 codeSequence (declist, [],
-                              codeSeqContext |> repDebugEnv typeDebugEnv |> repTypeVarMap newTypeVarMap,
+                              codeSeqContext |> repDebugEnv typeDebugEnv,
                               fn (code, {debugEnv, ...}) => (code, debugEnv))
             val () =
                 if isAbsType
@@ -1052,14 +1043,13 @@ struct
 
             (* Then the subsequent declarations. *)
             val (tailDecs, finalEnv) =
-                codeSequence (pTail, [], codeSeqContext |> repDebugEnv newDebug |> repTypeVarMap newTypeVarMap, processBody)
+                codeSequence (pTail, [], codeSeqContext |> repDebugEnv newDebug, processBody)
         in
             (* The code consists of previous declarations, the value constructors, the type IDs,
                debug declarations for the types and value constructors, any type values created for
                subsequent polymorphic calls, declarations in with...end and finally code after
                this declaration within the same "let..in..end" block. *)
-            (leading @ valConstrDecs @ typeFunctions @ typeDebugDecs @
-              getCachedTypeValues newTypeVarMap @ localDecs @ tailDecs, finalEnv)
+            (leading @ valConstrDecs @ typeFunctions @ typeDebugDecs @ localDecs @ tailDecs, finalEnv)
         end
 
     |   codeSequence ((OpenDec {variables=ref vars, structures = ref structs, typeconstrs = ref types, ...}, _) :: pTail,
@@ -1090,7 +1080,7 @@ struct
     (* Code generate a set of fun bindings.  This is used for other function creation as
        well since it handles the most general case. *)
     and codeFunBindings(tlist: fvalbind list, near,
-                        context as {decName, mkAddr, level, typeVarMap, lex, ...}) =
+                        context as {decName, mkAddr, level, lex, ...}) =
         let
             (* Get the function variables. *)
             val functionVars = map (fn(FValBind{functVar = ref var, ...}) => var) tlist
@@ -1136,7 +1126,6 @@ struct
                     (* Make up the function, and if there are several mutually
                        recursive functions, put it in the vector. *)
                     val procName  = decName ^ name;
-                    val nPolyVars = 0
 
                     (* Produce a list of the size of any tuples or labelled records
                        in the first clause. Tuples in the first clause are passed as
@@ -1177,7 +1166,7 @@ struct
                     end
 
                     (* Count the total number of arguments needed. *)
-                    val totalArgs = List.foldl (op +) (extraArg+nPolyVars) (List.map List.length tupleSeq)
+                    val totalArgs = List.foldl (op +) extraArg (List.map List.length tupleSeq)
 
                     (* The old test was "totalArgs = 1", but that's not really
                        right, because we could have one genuine arg plus a
@@ -1227,12 +1216,11 @@ struct
                            next version of makeArgs but it's all too complicated. *)
                         fun makeArgs(parms, []) =
                             let
-                                val polyParms = List.tabulate(nPolyVars, fn _ => GeneralType)
                                 val resTupleSize = resTupleLength
                             in
                                 if resTupleSize = 1
-                                then parms @ polyParms
-                                else parms @ polyParms @ [ContainerType resTupleSize]
+                                then parms
+                                else parms @ [ContainerType resTupleSize]
                             end
                         |    makeArgs(parms, t::ts) = makeArgs (t @ parms, ts)
                     in
@@ -1246,13 +1234,13 @@ struct
 
                         val argList : codetree =
                             if numOfPats = 1
-                            then mkArgTuple(nArgTypes-totalArgs, totalArgs-extraArg-nPolyVars)
+                            then mkArgTuple(nArgTypes-totalArgs, totalArgs-extraArg)
                             else
                             let
                                 fun makeArgs([],  _) = []
                                 |   makeArgs(h::t, n) = mkArgTuple(nArgTypes-n-List.length h, List.length h) :: makeArgs(t, n + List.length h)
                             in
-                                mkTuple (makeArgs(tupleSeq, extraArg+nPolyVars))
+                                mkTuple (makeArgs(tupleSeq, extraArg))
                             end
 
                         local
@@ -1264,12 +1252,8 @@ struct
                         val innerProcName : string = 
                             concat ([procName,  "(" , Int.toString totalArgs, ")"]);
 
-                        val newTypeVarMap =
-                            extendTypeVarMap([], fnMkAddr, fnLevel, typeVarMap)
-                
                         val fnContext =
-                            context |>
-                               repNewLevel(innerProcName, fnMkAddr, fnLevel) |> repTypeVarMap newTypeVarMap
+                            context |> repNewLevel(innerProcName, fnMkAddr, fnLevel)
 
                         (* If we have (mutually) recursive references to polymorphic functions
                            we need to create local versions applied to the polymorphic variables.
@@ -1339,7 +1323,7 @@ struct
                     in
                         val innerFun =
                             mkFunction{
-                                body=mkEnv(getCachedTypeValues newTypeVarMap @ appDecs, codeForBody),
+                                body=mkEnv(appDecs, codeForBody),
                                 argTypes=argTypes, resultType=resultType, name=innerProcName,
                                 closure=getClosure fnLevel, numLocals=fnMkAddr 0}
                     end;
@@ -1358,14 +1342,12 @@ struct
                         let
                             (* Load a reference to the inner function. *)
                             val loadInnerFun = mkLoad (addr + 1, innerLevel, level)
-                            val polyParms =
-                                List.tabulate(nPolyVars, fn n => (mkLoadParam(n, innerLevel, polyLevel), GeneralType))
                             val resTupleSize = resTupleLength
                             val parms = mkParms innerLevel
                         in
                             (* Got to the bottom. - put in a call to the procedure. *)
                             if resTupleSize = 1
-                            then (mkCall (loadInnerFun, parms @ polyParms, resultType), 0)
+                            then (mkCall (loadInnerFun, parms, resultType), 0)
                             else (* Create a container for the result, side-effect
                                     it in the function, then create a tuple from it.
                                     Most of the time this will be optimised away. *)
@@ -1375,7 +1357,7 @@ struct
                             in
                                 (mkEnv(
                                     [mkContainer(containerAddr, resTupleSize,
-                                       mkCall(loadInnerFun, parms @ polyParms @ [(loadContainer, ContainerType resTupleSize)], GeneralType))],
+                                       mkCall(loadInnerFun, parms @ [(loadContainer, ContainerType resTupleSize)], GeneralType))],
                                     mkTupleFromContainer(containerAddr, resTupleSize)),
                                  containerAddr+1 (* One local *))
                             end
@@ -1484,36 +1466,7 @@ struct
                 val fName =
                     case vars of [] => "_" | _ => String.concatWith "|" (List.map (fn Value{name, ...} => name) vars)
 
-                (* Does this contain polymorphism? *)
-                val polyVarsForVals = List.map(fn _ => []) vars
-                val polyVars = List.foldl(op @) [] polyVarsForVals
-                val nPolyVars = List.length polyVars
-                
-                (* In almost all cases polymorphic declarations are of the form
-                   val a = b   or  val a = fn ...  .  They can, though, arise in
-                   pathological cases with arbitrary patterns and complex expressions.
-                   If any of the variables are polymorphic the expression must have been
-                   non-expansive.  That means that we can safely evaluate it repeatedly.
-                   There's one exception: it may raise Bind. (e.g. val SOME x = NONE).
-                   For that reason we make sure it is evaluated at least once.
-                   We build the code as a function and then apply it one or more times.
-                   This is really to deal with pathological cases and pretty well all
-                   of this will be optimised away. *)
-                val localContext as {level, mkAddr, typeVarMap, ...} =
-                    if nPolyVars = 0
-                    then originalContext
-                    else
-                    let
-                        val addresses = ref 1
-                        fun fnMkAddr n = (! addresses) before (addresses := ! addresses + n)
-                        val fnLevel = newLevel (#level originalContext)
-                        val argAddrs = List.tabulate(nPolyVars, fn n => fn l => mkLoadParam(n, l, fnLevel))
-                        val argMap = ListPair.zipEq(polyVars, argAddrs)
-                        val newTypeVarMap =
-                            extendTypeVarMap(argMap, fnMkAddr, fnLevel, #typeVarMap originalContext)
-                    in
-                        originalContext |> repNewLevel(decName, fnMkAddr, fnLevel) |> repTypeVarMap newTypeVarMap
-                    end
+                val localContext as {level, mkAddr, ...} = originalContext
 
                 val exp = codegen (vbExp, localContext |> repDecName (decName ^ fName ^ "-"))
                 (* Save the argument in a variable. *)
@@ -1540,75 +1493,7 @@ struct
                     then List.app (reportUnreferencedValue lex) (getVariablesInPatt(vbDec, []))
                     else ()
                 
-                val resultCode =
-                    if nPolyVars = 0 then #dec decCode @ bindCode
-                    else
-                    let
-                        fun loadVal(Value{access=Local{addr=ref add, ...}, ...}) = mkLoadLocal add
-                        |   loadVal _ = raise InternalError "loadVal"
-
-                        val outerAddrs = #mkAddr originalContext
-                        and outerLevel = #level originalContext
-
-                        (* Construct a function that, when applied, returns all the variables. *)
-                        val fnAddr = outerAddrs 1
-                        val resFunction =
-                            mkDec(fnAddr,
-                                mkInlproc(
-                                    mkEnv(getCachedTypeValues typeVarMap @ #dec decCode
-                                          @ bindCode, mkTuple(List.map loadVal vars)),
-                                    nPolyVars, "(P)", getClosure level, mkAddr 0))
-
-                        (* Apply the general function to the set of type variables using either the
-                           actual type variables if they are in this particular variable or defaults
-                           if they're not. *)
-                        fun application(pVars, level) =
-                        let
-                            val nPVars = List.length pVars
-                            val varNos = ListPair.zipEq(pVars, List.tabulate(nPVars, fn x=>x))
-                            fun getArg argV =
-                                case List.find (fn (v, _) => sameTv(v, argV)) varNos of
-                                    SOME (_, n) => mkLoadParam(n, level, level)
-                                |   NONE => defaultTypeCode
-                        in
-                            mkEval(mkLoad(fnAddr, level, outerLevel), List.map getArg polyVars)
-                        end
-
-                        (* For each variable construct either a new function if it is polymorphic
-                           or a simple value if it is not (e.g. val (a, b) = (fn x=>x, 1)).
-                           Set the local addresses at the same time. *)
-                        fun loadFunctions(var::vars, polyV::polyVs, n) =
-                            let
-                                val vAddr = outerAddrs 1
-                                val () =
-                                    case var of
-                                        Value{access=Local{addr, level}, ...} =>
-                                            (addr := vAddr; level := outerLevel)
-                                    |   _ => raise InternalError "loadFunctions"
-                            in
-                                mkDec(vAddr,
-                                    case polyV of
-                                        [] => (* monomorphic *) mkInd(n, application([], outerLevel))
-                                    |   _ => (* polymorphic *)
-                                        let
-                                            val nPolyVars = List.length polyV
-                                            val nLevel = newLevel outerLevel
-                                        in
-                                            mkInlproc(
-                                                mkInd(n, application(polyV, nLevel)),
-                                                nPolyVars, "(P)", getClosure nLevel, 0)
-                                        end
-                                ) :: loadFunctions(vars, polyVs, n+1)
-                            end
-                        |   loadFunctions _ = []
-
-                        val loadCode = loadFunctions(vars, polyVarsForVals, 0)
-                    in
-                        (* Return the declaration of the function, a dummy application that will
-                           force any pattern checking and raise a Match if necessary and the
-                           declarations of the variables. *)
-                        resFunction :: mkNullDec(application([], outerLevel)) :: loadCode
-                    end
+                val resultCode = #dec decCode @ bindCode
             in
                 otherDecs @ resultCode
             end
@@ -1619,11 +1504,11 @@ struct
     (* Code generates the parse tree. *)
     fun gencode
             (pt : parsetree, lex: lexan, debugEnv: debuggerStatus, outerLevel, 
-             mkOuterAddresses, outerTypeVarMap, structName: string, continuation) : codeBinding list * debuggerStatus =
+             mkOuterAddresses, structName: string, continuation) : codeBinding list * debuggerStatus =
         codeSequence ([(pt, ref NONE)], [],
-            {decName=structName, mkAddr=mkOuterAddresses, level=outerLevel, typeVarMap=outerTypeVarMap,
+            {decName=structName, mkAddr=mkOuterAddresses, level=outerLevel,
              debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0, isOuterLevel = true},
-             fn (code: codeBinding list, {debugEnv, typeVarMap, ...}) => continuation(code, debugEnv, typeVarMap))
+             fn (code: codeBinding list, {debugEnv, ...}) => continuation(code, debugEnv))
 
     (* Types that can be shared. *)
     structure Sharing =
@@ -1633,7 +1518,6 @@ struct
         and  codetree = codetree
         and  environEntry = environEntry
         and  level = level
-        and  typeVarMap = typeVarMap
         and  codeBinding = codeBinding
         and  debuggerStatus  = debuggerStatus
     end

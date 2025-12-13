@@ -76,7 +76,6 @@ struct
     open VALUEOPS
     open MISC
     open DATATYPEREP
-    open TypeVarMap
 
     datatype environEntry = datatype DEBUGGER.environEntry
 

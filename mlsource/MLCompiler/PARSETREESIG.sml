@@ -26,7 +26,6 @@ sig
     type lexan;
     type pretty;
     type typeId;
-    type typeVarMap
     type codetree;
     type env;
     type typeConstrs
@@ -151,8 +150,8 @@ sig
     (* Inherited from CodegenParsetree *)
     type debuggerStatus
     val gencode:
-        parsetree * lexan * debuggerStatus * level * (int->int) * typeVarMap * string *
-            (codeBinding list * debuggerStatus * typeVarMap -> codeBinding list * debuggerStatus)
+        parsetree * lexan * debuggerStatus * level * (int->int) * string *
+            (codeBinding list * debuggerStatus -> codeBinding list * debuggerStatus)
             -> codeBinding list * debuggerStatus
 
     (* Types that can be shared. *)
@@ -183,7 +182,6 @@ sig
         and  labelRecEntry=labelRecEntry
         and  ptProperties = ptProperties
         and  matchtree   = matchtree
-        and  typeVarMap = typeVarMap
         and  level = level
         and  debuggerStatus    = debuggerStatus
     end

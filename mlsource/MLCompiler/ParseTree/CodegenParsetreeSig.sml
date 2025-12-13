@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,7 +20,6 @@ sig
     type parsetree
     type lexan
     type level
-    type typeVarMap
     type codetree
     type codeBinding
     type environEntry
@@ -28,8 +27,8 @@ sig
     type debuggerStatus
 
     val gencode:
-        parsetree * lexan * debuggerStatus * level * (int->int) * typeVarMap * string *
-            (codeBinding list * debuggerStatus * typeVarMap -> codeBinding list * debuggerStatus)
+        parsetree * lexan * debuggerStatus * level * (int->int) * string *
+            (codeBinding list * debuggerStatus -> codeBinding list * debuggerStatus)
             -> codeBinding list * debuggerStatus
 
     structure Sharing:
@@ -39,7 +38,6 @@ sig
         and  codetree = codetree
         and  environEntry = environEntry
         and  level = level
-        and  typeVarMap = typeVarMap
         and  codeBinding = codeBinding
         and  debuggerStatus  = debuggerStatus
     end

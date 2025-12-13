@@ -445,18 +445,15 @@ struct
         |   declConstr _ = raise InternalError "declConstr: not local"
         val (declConstrs, loadConstrs) = ListPair.unzip(List.map declConstr sortedConstrs)
 
-        val defMap = TypeVarMap.defaultTypeVarMap(mkAddrs, baseLevel)
-
         (* Create the datatype.  Sets the address of the local in "id". *)
         val dtCode =
             createDatatypeFunctions(
-                [{typeConstr=initialTypeSet, eqStatus=isEqType}], mkAddrs, baseLevel, defMap, true)
+                [{typeConstr=initialTypeSet, eqStatus=isEqType}], mkAddrs, baseLevel, true)
 
         (* Compile and execute the code to build the functions and extract the result. *)
         val globalCode =
             genCode(
-                mkEnv(
-                    declConstrs @ TypeVarMap.getCachedTypeValues defMap @ dtCode, mkTuple(codeId(id, baseLevel) :: loadConstrs)),
+                mkEnv(declConstrs @ dtCode, mkTuple(codeId(id, baseLevel) :: loadConstrs)),
                 [], !addrs)()
         val newId = makeFreeId(arity, Global(mkInd(0, globalCode)), isEqType, description)
         
