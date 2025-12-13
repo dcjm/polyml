@@ -124,9 +124,14 @@ sig
     val generalise: types * typeVarTemplate list -> types * types list
 
     (* Release type variables at this nesting level.  Updates the type to the
-       generalised version. *)
-    val allowGeneralisation: types * int * bool *
-                             lexan * location * (unit -> pretty) * printTypeEnv -> types * typeVarTemplate list
+       generalised version.  Returns a type with bound variables for those which are
+       generic along with templates for each bound variable. *)
+    val allowGeneralisation: types * int * lexan * location * (unit -> pretty) * printTypeEnv ->
+        types * typeVarTemplate list
+
+    (* See if the type contains non-unifiable i.e. explicit type variables but it's an
+       expansive context. *)
+    val containsLocalFreeVariables: types * int -> bool
 
     (* Check for a local datatype "escaping".  Added for ML97. *)
     val checkForEscapingDatatypes: types * (string -> unit) -> unit

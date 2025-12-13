@@ -3012,7 +3012,7 @@ struct
      The current version side-effects type variables by adding on a generalisable type
      variable at the end of the chain if the type variable can be generalised.
      *)
-    fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo, typeEnv) =
+    fun allowGeneralisation (t, level, lex, location, moreInfo, typeEnv) =
     let
         (* Error message with context. *)
         val haveErrored = ref false (* Just generate a single message even if there are multiple errors *)
@@ -3055,9 +3055,8 @@ struct
         (* Map from type variables to bound variables we have already made. *)
         val typeVarMapList: (typeVar * tvIndex) list ref = ref nil
 
-        (* Perform checks and return the generic version with the templates.  Even if the context is
-           non-expansive it is possible to generalise it. *)
-        fun createGeneric(t, templates: typeVarTemplate list, nonExpan) =
+        (* Perform checks and return the generic version with the templates. *)
+        fun createGeneric(t, templates: typeVarTemplate list) =
         case eventual t of
             typ as TypeVar tvar =>
             (
@@ -3083,7 +3082,7 @@ struct
                         (* Copy the fields that have been used as with frozen labelled records. *)
                         fun copyRecordEntry({name, typeof}, (fields, templs)) =
                         let
-                            val (copiedTyp, newtempls) = createGeneric(typeof, templs, nonExpan)
+                            val (copiedTyp, newtempls) = createGeneric(typeof, templs)
                         in
                             ({name=name, typeof=copiedTyp} :: fields, newtempls)
                         end
@@ -3101,8 +3100,7 @@ struct
                                 For the moment just return this type variable. *)
                             (typ, templates)
 
-                        else if nonExpan
-                        then (* If we've already made a bound variable here we need to reuse it. *)
+                        else (* If we've already made a bound variable here we need to reuse it. *)
                         (
                             case List.find(fn (tv, _) => sameTv(tv, tvar)) (!typeVarMapList) of
                                 NONE =>
@@ -3116,7 +3114,7 @@ struct
                             |   SOME(_, index) => (BoundTypeVar("'a", index), templates)
                         )
 
-                        else (* Expansive context. *)
+(*                        else (* Expansive context. *)
                         let
                             (* For the moment just return a new type variable. *)
                             val newTypeVar =
@@ -3134,36 +3132,18 @@ struct
                             val _ = tvSetValue (tvar, TypeVar newTypeVar)
                         in
                             (TypeVar newTypeVar, templates)
-                        end
+                        end*)
                     )
             )
 
         |   BoundTypeVar _ => raise InternalError "createGeneric: already bound"
         |   BoundFlexRecord _ => raise InternalError "createGeneric: already bound"
 
-        |   TypeConstruction {constr as
-                TypeConstrs{identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, args, locations, name} =>
-                (* If we have a type function which contains type variables that do not occur
-                   on the RHS (e.g. type 'a t = int) then we generalise over them even with an
-                   expansive expression.  So "ref 1: 'a t ref" is valid. *)
-            let
-                fun copyEntry(ty, (resList, templs: typeVarTemplate list, n)) =
-                let
-                    val (copiedTyp, newtempls) =
-                        createGeneric(ty, templs, nonExpan orelse not(BoolVector.sub(usedTvs, n)))
-                in
-                    (copiedTyp :: resList, newtempls, n+1)
-                end
-                val (copiedArgs, resTemplates, _) = List.foldl copyEntry ([], templates, 0) args
-            in
-                (TypeConstruction{constr=constr, args=List.rev copiedArgs, locations=locations, name=name}, resTemplates)
-            end
-
         |   TypeConstruction {constr, args, locations, name} =>
             let
                 fun copyEntry(ty, (resList, templs: typeVarTemplate list, n)) =
                 let
-                    val (copiedTyp, newtempls) = createGeneric(ty, templs, nonExpan)
+                    val (copiedTyp, newtempls) = createGeneric(ty, templs)
                 in
                     (copiedTyp :: resList, newtempls, n+1)
                 end
@@ -3174,8 +3154,8 @@ struct
 
         |   FunctionType {arg, result} =>
             let
-                val (copiedArg, argTemplates) = createGeneric(arg, templates, nonExpan)
-                val (copiedRes, resTemplates) = createGeneric(result, argTemplates, nonExpan)
+                val (copiedArg, argTemplates) = createGeneric(arg, templates)
+                val (copiedRes, resTemplates) = createGeneric(result, argTemplates)
             in
                 (FunctionType {arg = copiedArg, result = copiedRes}, resTemplates)
             end
@@ -3185,7 +3165,7 @@ struct
             let
                 fun copyRecordEntry({name, typeof}, (fields, templs)) =
                 let
-                    val (copiedTyp, newtempls) = createGeneric(typeof, templs, nonExpan)
+                    val (copiedTyp, newtempls) = createGeneric(typeof, templs)
                 in
                     ({name=name, typeof=copiedTyp} :: fields, newtempls)
                 end
@@ -3200,10 +3180,49 @@ struct
 
         |   OverloadSet _ => raise InternalError "createGeneric: OverloadSet"
 
-        val (newType, newTemplates) = createGeneric(t, [], nonExpansive)
+        val (newType, newTemplates) = createGeneric(t, [])
     in
         (newType, List.rev newTemplates)
-    end (*  end allowGeneralisation *);
+    end (*  end allowGeneralisation *)
+
+    (* See if the type contains non-unifiable i.e. explicit type variables but it's an expansive context. *)
+    fun containsLocalFreeVariables(t, level) =
+    let
+        fun checkFree typ v =
+        let
+            val t = eventual typ
+        in
+            case t of
+                TypeVar tvar =>
+                    (* Explicit type variables at outer levels are allowed but not at this level. *)
+                    if v then true
+                    else if (case tvLevel tvar of NotGeneralisable v => v < level | Generalisable => false) then false
+                    else tvNonUnifiable tvar
+
+                (* If this is a type function we mustn't check type variables that aren't actually used. *)
+            |   TypeConstruction {args, constr=TypeConstrs{identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
+                    #1 (List.foldl(fn (t, (v, n)) => (if BoolVector.sub(usedTvs, n) then checkFree t v else v, n+1)) (v, 0) args)
+
+            |   TypeConstruction {args, ...} => (* Then process the arguments. *)
+                    List.foldr (fn (t, v) => checkFree t v) v args
+           
+            |   FunctionType {arg, result} => checkFree arg (checkFree result v)
+    
+            |   LabelledType {recList,...} =>
+                    List.foldr (fn ({ typeof, ... }, v) => checkFree typeof v) v recList
+
+            |   BoundFlexRecord(_, {recList, ...}) =>
+                    List.foldr (fn ({ typeof, ... }, v) => checkFree typeof v) v recList
+
+            |   BoundTypeVar _ => v
+            |   BadType => v
+            |   EmptyType => v
+            |   OverloadSet _ => v
+        end
+    in
+        checkFree t false
+    end
+    
 
   (* Check for free type variables at the top level.  Added for ML97.  This replaces the
      test in allowGeneralisation above and is applied to all top-level
@@ -3214,14 +3233,14 @@ struct
      fun f x = raise x; f Subscript; to work.  DCJM 8/3/01. *)
   fun checkForFreeTypeVariables(valName: string, ty: types, lex: lexan, printAndEqCode) : unit =
   let
-    (* Generate new names for the type constructors. *)
+    (* Generate new names for the type variables. *)
     val count = ref 0
     fun genName num =
         (if num >= 26 then genName (num div 26 - 1) else "")
         ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
 
     fun checkTypes (TypeVar tvar) () =
-        if isEmpty(tvValue tvar) andalso tvLevel tvar = NotGeneralisable 1
+        if isEmpty(tvValue tvar) andalso (case tvLevel tvar of Generalisable => false | NotGeneralisable _ => true)
         then (* The type variable is unbound (specifically, not
                 an overload set) and it is not generic i.e. it
                 must have come from an expansive expression. *)

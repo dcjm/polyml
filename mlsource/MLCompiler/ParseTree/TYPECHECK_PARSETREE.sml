@@ -1619,8 +1619,19 @@ struct
             let
                 fun genAndEnter(Value{name, typeOf=ValueType(typeOf, _), access, class, locations, references, ...}) =
                 let
+                    (* If this is a non-expansive context we can create a generic instance.  Otherwise the
+                       original type variables are used.  In that case we need to check that there are
+                       no references to explicit type variables. *)
                     val valType =
-                        allowGeneralisation(typeOf, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv)
+                        if nonExpansive exp
+                        then allowGeneralisation(typeOf, newLevel, lex, line, foundNear v, typeEnv)
+                        else
+                        (
+                            if containsLocalFreeVariables(typeOf, newLevel)
+                            then errorNear (lex, true, v, line, "Explicit type variables cannot be generalised")
+                            else ();
+                            (typeOf, [])
+                        )
                     val newValue =
                         Value{name=name, typeOf=ValueType valType, access=access, class=class, locations=locations,
                               references=references, instanceTypes=NONE}
@@ -1911,7 +1922,7 @@ struct
                     FValBind{functVar as ref(Value{typeOf=ValueType(typeOf, _), access, class, locations, name, references, ...}), ...}) =
             let
                 val valType =
-                    allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv)
+                    allowGeneralisation(typeOf, funLevel, lex, declaredAt locations, foundNear v, typeEnv)
                 val newValue =
                     Value{name=name, typeOf=ValueType valType, access=access, class=class, locations=locations,
                           references=references, instanceTypes=NONE}
