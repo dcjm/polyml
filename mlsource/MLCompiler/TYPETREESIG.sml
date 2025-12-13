@@ -175,8 +175,6 @@ sig
        type identifier of the constructor that is being rebound. *)
     val typeNameRebinding: types list * types -> typeId option
 
-    val leastGeneral: types list -> types
-
     (* Parse tree operations. *)
     type typeParsetree and parseTypeVar
     val ParseTypeBad: typeParsetree
