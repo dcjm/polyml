@@ -23,7 +23,6 @@ sig
     type values
     type typeConstrSet
     type typeId
-    type typeVarMap
     type level
 
     val chooseConstrRepr :
@@ -48,7 +47,7 @@ sig
     and contextConstr: typeConstrSet
     and prettyConstr: typeConstrSet
 
-    val mkExIden:       types * level * typeVarMap -> codetree
+    val mkExIden:       types * level -> codetree
 
     (* Types that can be shared. *)
     structure Sharing:
@@ -58,7 +57,6 @@ sig
         type values         = values
         type typeConstrSet  = typeConstrSet
         type typeId         = typeId
-        type typeVarMap     = typeVarMap
         type level          = level
     end
 end;

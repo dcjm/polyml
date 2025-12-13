@@ -84,8 +84,7 @@ struct
 
     (* To simplify passing the context it is wrapped up in this type.
        This is a subset of the context used in CODEGEN_PARSETREE. *)
-    type matchContext =
-        { mkAddr: int->int, level: level, typeVarMap: typeVarMap, lex: lexan }
+    type matchContext = { mkAddr: int->int, level: level, lex: lexan }
  
     (* Devised by Mike Fourman, Nick Rothwell and me (DCJM).  First coded
        up by Nick Rothwell for the Kit Compiler. First phase of the match
@@ -551,9 +550,7 @@ struct
                    preferred type. *)
                 val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload(expType, true)
                 val equality =
-                    equalityForType(
-                        mkTypeConstruction(tcName, constr, [], []), level,
-                        defaultTypeVarMap(fn _ => raise InternalError "equalityForType", baseLevel) (* Should never be used. *))
+                    equalityForType(mkTypeConstruction(tcName, constr, [], []), level)
                 val litValue: machineWord option =
                     getLiteralValue(converter, literal, expType, fn s => errorNear(lex, true, vars, location, s))
             in
@@ -675,7 +672,7 @@ struct
             { pattNo: int, tests: (naiveTest * values list) list } list
  
     and pattCodeConstructor =
-        PattCodeDatatype of values * types list
+        PattCodeDatatype of values
     |   PattCodeException of values
     |   PattCodeSpecial of codetree * machineWord option
 
@@ -790,7 +787,7 @@ struct
 
                 |   Cons(cl, width) =>
                     let
-                        fun doConstr({ patts, constructor, appliedTo, polyVars, ...}, rest) =
+                        fun doConstr({ patts, constructor, appliedTo, ...}, rest) =
                             let 
                                 (* If this pattern is in the active set
                                    we discriminate on it. *)
@@ -803,7 +800,7 @@ struct
                                      val thenCode =
                                         pattCode(appliedTo, newActive plus activeDefaults, nextMatch, tupleNo)
                                 in
-                                    (PattCodeDatatype(constructor, polyVars), thenCode) :: rest
+                                    (PattCodeDatatype constructor, thenCode) :: rest
                                end 
                             end
                         val pattList = foldl doConstr [] cl
@@ -945,15 +942,15 @@ struct
     (* Turn the decision tree into real code. *)
     local
         (* Guard and inversion code for constructors *)
-        fun constructorCode(PattCodeDatatype(cons, polyVars), arg, {level, typeVarMap, ...}) =
+        fun constructorCode(PattCodeDatatype cons, arg, {level, ...}) =
                 (
-                    makeGuard (cons, polyVars, arg, level, typeVarMap),
-                    makeInverse (cons, polyVars, arg, level, typeVarMap)
+                    makeGuard (cons, arg, level),
+                    makeInverse (cons, arg, level)
                 )
-        |   constructorCode(PattCodeException cons, arg, {level, typeVarMap, ...}) =
+        |   constructorCode(PattCodeException cons, arg, {level, ...}) =
                 (
-                    makeGuard (cons, [], arg, level, typeVarMap),
-                    makeInverse (cons, [], arg, level, typeVarMap)
+                    makeGuard (cons, arg, level),
+                    makeInverse (cons, arg, level)
                 )
         |   constructorCode(PattCodeSpecial(eqFun, cval), arg, _) =
                 let
@@ -1020,8 +1017,7 @@ struct
             end
     in
         
-        fun codeGenerateMatch(patCode, arg, firePatt,
-                context: matchContext as {level, typeVarMap,  ...}) =
+        fun codeGenerateMatch(patCode, arg, firePatt, context: matchContext as {level, ...}) =
         let
             fun codeMatch({ leafSet, vars, code, ...}, arg, tupleMap) =
             let
@@ -1050,12 +1046,12 @@ struct
 
                     |   PattCodeConstructors { nConstrs, patterns, default } =>
                         let
-                            fun doPattern((PattCodeDatatype(cons, polyVars), code) :: rest, 1) =
+                            fun doPattern((PattCodeDatatype cons, code) :: rest, 1) =
                                 (* This is the last pattern and we have done all the others.
                                    We don't need to test this one and we don't use the default. *)
                                 let
                                     val _ = null rest orelse raise InternalError "doPattern: not at end"
-                                    val invertCode = makeInverse (cons, polyVars, declLoad, level, typeVarMap)
+                                    val invertCode = makeInverse (cons, declLoad, level)
                                 in
                                     codeMatch(code, invertCode, tupleMap)
                                 end
@@ -1187,7 +1183,6 @@ struct
     structure Sharing =
     struct
         type parsetree = parsetree
-        type typeVarMap = typeVarMap
         type level = level
         type codetree = codetree
         type matchtree = matchtree

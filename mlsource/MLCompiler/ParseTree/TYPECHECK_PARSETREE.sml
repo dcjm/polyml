@@ -2369,7 +2369,6 @@ struct
         and  labelRecEntry=labelRecEntry
         and  ptProperties = ptProperties
         and  matchtree   = matchtree
-        and  typeVarMap = typeVarMap
         and  level = level
     end
 

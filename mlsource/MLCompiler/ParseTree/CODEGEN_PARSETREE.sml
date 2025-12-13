@@ -243,10 +243,10 @@ struct
         List.app (reportUnreferencedValue lex) valList
     end
 
-    fun makeDebugEntries (vars: values list, {debugEnv, level, typeVarMap, lex, mkAddr, ...}: cgContext) =
+    fun makeDebugEntries (vars: values list, {debugEnv, level, lex, mkAddr, ...}: cgContext) =
     let
         val (code, newDebug) =
-            DEBUGGER.makeValDebugEntries(vars, debugEnv, level, lex, mkAddr, typeVarMap)
+            DEBUGGER.makeValDebugEntries(vars, debugEnv, level, lex, mkAddr)
     in
         (code, newDebug)
     end
@@ -295,7 +295,7 @@ struct
     |   getVariablesInPatt(_, varl) = varl (* constants and error cases. *);
 
     fun codeMatch(near, alt : matchtree list, arg,
-                  isHandlerMatch, matchContext as { level, mkAddr, lex, typeVarMap, ...}): codetree =
+                  isHandlerMatch, matchContext as { level, mkAddr, lex, ...}): codetree =
     let
         val noOfPats  = length alt
         (* Check for unreferenced variables. *)
@@ -375,8 +375,7 @@ struct
         (* Generate the code and also check for redundancy
            and exhaustiveness. *)
         local
-            val cmContext =
-                { mkAddr = mkAddr, level = level, typeVarMap = typeVarMap, lex = lex }
+            val cmContext = { mkAddr = mkAddr, level = level, lex = lex }
         in
             val (matchCode, exhaustive) =
                 codeMatchPatterns(alt, loadExpCode, isHandlerMatch, lineNo, codePatternExpression, cmContext)
@@ -470,11 +469,11 @@ struct
        debug context.  This is needed to record the last location that was set in the
        thread data. *)
     and codeGenerate(Ident {value = ref (v as Value{class = Exception, ...}), location, ...},
-                     { level, typeVarMap, lex, debugEnv, ...}) = (* Exception identifier *)
-        (codeExFunction (v, level, typeVarMap, [], lex, location), debugEnv)
+                     { level, lex, debugEnv, ...}) = (* Exception identifier *)
+        (codeExFunction (v, level, [], lex, location), debugEnv)
 
     |   codeGenerate(Ident {value = ref (v as Value{class = Constructor _, ...}), location, ...},
-                     { level, typeVarMap, lex, debugEnv, ...}) = (* Constructor identifier *)
+                     { level, lex, debugEnv, ...}) = (* Constructor identifier *)
         let
             (* The instance type is not necessarily the same as the type
                of the value of the identifier. e.g. in the expression
@@ -482,15 +481,15 @@ struct
                int * list int -> list int but the type of "::" is
                'a * 'a list -> 'a list. *)
             (* When using the constructor as a value we just want the second word. *)
-            val code = ValueConstructor.extractInjection(codeVal (v, level, typeVarMap, [], lex, location))
+            val code = ValueConstructor.extractInjection(codeVal (v, level, [], lex, location))
         in
             (code, debugEnv)
         end
 
     |   codeGenerate(Ident {value = ref v, expType=ref(_, instanceVars), location, ...},
-                     { level, typeVarMap, lex, debugEnv, ...}) = (* Value identifier *)
+                     { level, lex, debugEnv, ...}) = (* Value identifier *)
         let
-            val code = codeVal (v, level, typeVarMap, instanceVars, lex, location)
+            val code = codeVal (v, level, instanceVars, lex, location)
         in
             (code, debugEnv)
         end
@@ -502,12 +501,12 @@ struct
               | NONE    => (CodeZero, debugEnv)
         )
 
-    |   codeGenerate(Applic {f = Ident {value = ref function, expType=ref(_, instanceVars), ...}, arg, location, ...}, context as { level, typeVarMap, lex, ...}) =
+    |   codeGenerate(Applic {f = Ident {value = ref function, expType=ref(_, instanceVars), ...}, arg, location, ...}, context as { level, lex, ...}) =
         (* Some functions are special e.g. overloaded and type-specific functions.
            These need to picked out and processed by applyFunction. *)
         let
             val (argCode, argEnv) = codeGenerate (arg, context)
-            val code = applyFunction (function, argCode, level, typeVarMap, instanceVars, lex, location)
+            val code = applyFunction (function, argCode, level, instanceVars, lex, location)
         in
             (code, argEnv)
         end
@@ -602,17 +601,17 @@ struct
     |   codeGenerate(Unit _, { debugEnv, ...}) = (* Use zero.  It is possible to have () = (). *)
             (CodeZero, debugEnv)
 
-    |   codeGenerate(List{elements, location, ...}, context as { level, typeVarMap, lex, debugEnv, ...}) =
+    |   codeGenerate(List{elements, location, ...}, context as { level, lex, debugEnv, ...}) =
             let (* Construct a list.  We need to apply the constructors appropriate to the type. *)
                 fun consList [] = (* "nil" *)
                         ValueConstructor.extractInjection(
-                            codeVal (nilConstructor, level, typeVarMap, [], lex, location))
+                            codeVal (nilConstructor, level, [], lex, location))
                 |   consList (h::t) =
                     let (* :: *)
                         val H = codegen (h, context) and T = consList t
                         val polyVars = []
                     in
-                        applyFunction (consConstructor, mkTuple [H,T], level, typeVarMap, polyVars, lex, location)
+                        applyFunction (consConstructor, mkTuple [H,T], level, polyVars, lex, location)
                     end
             in
                 (consList elements, debugEnv)
@@ -914,7 +913,7 @@ struct
         end
 
     |   codeSequence ((ExDeclaration(tlist, _), _) :: pTail, leading,
-                      codeSeqContext as {mkAddr, level, typeVarMap, lex, ...}, processBody) =
+                      codeSeqContext as {mkAddr, level, lex, ...}, processBody) =
         let
             fun codeEx (ExBind{value=ref exval, previous, ... }) =
             let
@@ -943,11 +942,11 @@ struct
                            copy of it. It contains a function to print values
                            of the type so when we raise the exception we can print
                            the exception packet without knowing the type. *)
-                        mkExIden (exType, level, typeVarMap)
+                        mkExIden (exType, level)
                   | Ident{value=ref prevVal, location, ...} =>
                           (* Copy the previous value. N.B. We want the exception
                            identifier here so we can't call codegen. *)
-                        codeVal (prevVal, level, typeVarMap, [], lex, location)
+                        codeVal (prevVal, level, [], lex, location)
                   | _ => raise InternalError "codeEx"
                  )
             end  (* codeEx *);
@@ -1523,7 +1522,7 @@ struct
                 (* Generate the code and also check for redundancy and exhaustiveness. *)
                 local
                     val cmContext =
-                        { mkAddr = mkAddr, level = level, typeVarMap = typeVarMap, lex = lex }
+                        { mkAddr = mkAddr, level = level, lex = lex }
                 in
                     val (bindCode, exhaustive) =
                         codeBindingPattern(vbDec, #load decCode level, line, cmContext)

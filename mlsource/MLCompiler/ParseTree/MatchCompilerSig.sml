@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,7 +18,6 @@
 signature MatchCompilerSig =
 sig
     type parsetree
-    type typeVarMap
     type level
     type codetree
     type matchtree
@@ -28,8 +27,7 @@ sig
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
           endLine: FixedInt.int, endPosition: FixedInt.int }
-    and matchContext =
-        { mkAddr: int->int, level: level, typeVarMap: typeVarMap, lex: lexan }
+    and matchContext = { mkAddr: int->int, level: level, lex: lexan }
 
     val codeMatchPatterns:
         matchtree list * codetree * bool * location * (int -> codetree) * matchContext -> codetree * bool
@@ -39,7 +37,6 @@ sig
     structure Sharing:
     sig
         type parsetree = parsetree
-        type typeVarMap = typeVarMap
         type level = level
         type codetree = codetree
         type matchtree = matchtree

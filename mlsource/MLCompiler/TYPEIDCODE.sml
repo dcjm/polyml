@@ -152,16 +152,6 @@ struct
         fun extendBoundTypeVarMap (tvMap: tvIndex->(level->codetree) option, mkAddr, level, typeVarMap) =
             {entryType = TypeBoundVarEntry tvMap, cache = ref [], mkAddr=mkAddr, level=level} :: typeVarMap
 
-        (* Check to see if a type constructor is in the "stopper" set and return the level
-           if it is. *)
-        fun checkTypeConstructor(_, []) = ~1 (* Not there. *)
-        |   checkTypeConstructor(tyCons as TypeConstrs {identifier=consId,...}, {entryType=TypeConstrListEntry tConstrs, ...} :: rest) =
-                if List.exists(fn (TypeConstrs {identifier,...}) => sameTypeId(identifier, consId)) tConstrs
-                then List.length rest + 1
-                else checkTypeConstructor(tyCons, rest)
-        |   checkTypeConstructor(tyCons, _ :: rest) =
-                checkTypeConstructor(tyCons, rest: typeVarMap)
-
         local
             open TypeValue
 (*            local
@@ -458,6 +448,13 @@ struct
                             end
 
                         |   _ =>  (* Just a bound type variable. *) printCode(tvValue tyVar, level)
+                    )
+
+                |   BoundTypeVar _ =>
+                    (
+                        case findCachedTypeCode(argTypes, typ) of
+                            SOME (code, _) => TypeValue.extractPrinter(code level)
+                        |   NONE => raise InternalError "printerForType: should already have been handled"
                     )
 
                 |   TypeConstruction { constr=typConstr as TypeConstrs {identifier,...}, args, name, ...} =>
@@ -1219,8 +1216,9 @@ struct
 
     (* Exported function.  Returns a function from an ML pair of values to bool.
        N.B. This differs from the functions in the typeID which take a Poly pair. *)
-    fun equalityForType(ty: types, level: level, typeVarMap: typeVarMap): codetree =
+    fun equalityForType(ty: types, level: level): codetree =
     let
+        val typeVarMap = defaultTypeVarMap(fn _ => raise InternalError "equalityForType", level)
         val nLevel = newLevel level
         (* The final result function must take a single argument. *)
         val resultCode =
@@ -1230,6 +1228,10 @@ struct
         mkInlproc(mkEval(resultCode, [mkInd(0, arg1), mkInd(1, arg1)]),
                   1, "equality", getClosure nLevel, 0)
     end
+
+    val printerForType =
+        fn (ty, baseLevel) =>
+            printerForType(ty, baseLevel, defaultTypeVarMap(fn _ => raise InternalError "printerForType", baseLevel))
 
     (* This code is used when the type checker has to construct a unique monotype
        because a type variable has escaped to the top level.

@@ -38,9 +38,9 @@ sig
     val codeForUniqueId: unit->codetree
 
     (* Generate a function of the form t*int->pretty for values of type t. *)
-    val printerForType: types * level * typeVarMap -> codetree
+    val printerForType: types * level -> codetree
     (* Generate a function of the form (t,t) -> bool. *)
-    val equalityForType: types * level * typeVarMap -> codetree
+    val equalityForType: types * level  -> codetree
     
     structure TypeVarMap:
     sig

@@ -33,7 +33,6 @@ sig
     type lexan
     type codeBinding
     type codetree
-    type typeVarMap
     type environEntry
     type valueType
  
@@ -50,7 +49,7 @@ sig
     val initialDebuggerStatus: debuggerStatus
 
     val makeValDebugEntries:
-        values list * debuggerStatus * level * lexan * (int -> int) * typeVarMap -> codeBinding list * debuggerStatus
+        values list * debuggerStatus * level * lexan * (int -> int) -> codeBinding list * debuggerStatus
     val makeTypeConstrDebugEntries:  typeConstrSet list * debuggerStatus * level * lexan * (int -> int) -> codeBinding list * debuggerStatus
     val makeStructDebugEntries: structVals list * debuggerStatus * level * lexan * (int->int) ->
         codeBinding list * debuggerStatus
@@ -100,7 +99,6 @@ sig
         type lexan          = lexan
         type codeBinding    = codeBinding
         type codetree       = codetree
-        type typeVarMap     = typeVarMap
         type debuggerStatus = debuggerStatus
         type valueType      = valueType
     end

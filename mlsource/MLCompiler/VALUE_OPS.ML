@@ -332,7 +332,7 @@ struct
         val polyCode = mkConst value
         val printerCode =
             mkEval(
-                printerForType(types, baseLevel, typeVarMap),
+                printerForType(types, baseLevel),
                 [mkTuple[polyCode, mkConst(toMachineWord depth)]])
         val pretty =
             RunCall.unsafeCast(
@@ -724,36 +724,26 @@ struct
                             ]),
                     context = SOME (moreInfo ())
                }
-            end;
-
-    (* This is applied to the instance variables if it is polymorphic and bound by
-       a val or fun binding or is a datatype constructor. *)
-    fun applyToInstanceType(_, _, level, _, code) = code level
+            end
 
     val arg1     = mkLoadArgument 0 (* saves a lot of garbage *)
 
- (* Code-generate an identifier matched to a value.  N.B. If the value is a
-    constructor it returns the pair or triple representing the functions on the
-    constructor. *)
- fun codeVal (Value{access = Global code, class, ...}, level: level, typeVarMap, instance: types list, _, _) =
-            applyToInstanceType(instance, class, level, typeVarMap, fn _ => code)
+    (* Code-generate an identifier matched to a value.  N.B. If the value is a
+       constructor it returns the pair or triple representing the functions on the
+       constructor. *)
+    fun codeVal (Value{access = Global code, ...}, _, _, _, _) = code
 
-  |  codeVal (Value{access = Local{addr=ref locAddr, level=ref locLevel}, class, ...},
-                    level, typeVarMap, instance, _, _) =
-    let
-        fun loadVar level = mkLoad (locAddr, level, locLevel) (* Argument or local *)
-    in
-        applyToInstanceType(instance, class, level, typeVarMap, loadVar)
-    end
+    |   codeVal (Value{access = Local{addr=ref locAddr, level=ref locLevel}, ...}, level, _, _, _) =
+            mkLoad (locAddr, level, locLevel) (* Argument or local *)
 
-  |  codeVal (Value{access = Selected{addr, base}, class, ...}, level: level, typeVarMap, instance, _, _) =
-       (* Select from a structure. *)
-       applyToInstanceType(instance, class, level, typeVarMap, fn level => mkInd (addr, codeAccess (base, level)))
+    |   codeVal (Value{access = Selected{addr, base}, ...}, level: level, _, _, _) =
+            (* Select from a structure. *)
+            mkInd (addr, codeAccess (base, level))
 
-  |  codeVal (Value{access = Formal _, ...}, _, _, _, _, _) =
-          raise InternalError "codeVal - Formal"
+    |   codeVal (Value{access = Formal _, ...}, _, _, _, _) =
+            raise InternalError "codeVal - Formal"
 
-  |  codeVal (Value{access = Overloaded Print, ...}, _, _, [], lex, _) =
+    |   codeVal (Value{access = Overloaded Print, ...}, _, [], lex, _) =
         (* If this appears in a structure return a null printer function.
            It has to have the polymorphic form with an extra lambda outside. *)
         let
@@ -780,7 +770,7 @@ struct
             printFun
         end
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level: level, typeVarMap, [argType], lex, _) =
+    |   codeVal (Value{access = Overloaded Print, ...}, level: level, [argType], lex, _) =
         let 
             (* We should have a single entry for the type. *)
             open DEBUG
@@ -801,7 +791,7 @@ struct
                                 mkConst(toMachineWord prettyOut),
                                 [
                                     mkEval(
-                                        printerForType(argType, nLevel, typeVarMap),
+                                        printerForType(argType, nLevel),
                                         [
                                             mkTuple[arg1,
                                                 mkEval(mkConst(toMachineWord printDepthFun), [CodeZero])]
@@ -814,14 +804,14 @@ struct
                 1, "print()", getClosure nLevel, 0)
         end
 
-  |  codeVal (Value{access = Overloaded Print, ...}, _, _, _, _, _) =
-        raise InternalError "Overloaded Print - wrong instance type"
+    |   codeVal (Value{access = Overloaded Print, ...}, _, _, _, _) =
+            raise InternalError "Overloaded Print - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, [], _, _) =
+    |   codeVal (Value{access = Overloaded MakeString, ...}, _, [], _, _) =
         (* If this appears in a structure produce a default version. *)
             mkProc(mkConst(toMachineWord "?"), 1, "makestring()", [], 0)
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level: level, typeVarMap, [argType], _, _) =
+    |   codeVal (Value{access = Overloaded MakeString, ...}, level: level, [argType], _, _) =
         let
             val nLevel = newLevel level
         in
@@ -831,7 +821,7 @@ struct
                     mkConst(toMachineWord uglyPrint),
                     [
                         mkEval(
-                            printerForType(argType, nLevel, typeVarMap),
+                            printerForType(argType, nLevel),
                             [
                                 mkTuple[arg1, mkConst(toMachineWord 10000)]
                             ])
@@ -839,29 +829,29 @@ struct
                 1, "makestring()", getClosure nLevel, 0)
         end
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, _, _, _) =
-        raise InternalError "Overloaded MakeString - wrong instance type"
+    |   codeVal (Value{access = Overloaded MakeString, ...}, _, _, _, _) =
+            raise InternalError "Overloaded MakeString - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, [], _, _) =
+    |   codeVal (Value{access = Overloaded GetPretty, ...}, level, [], _, _) =
         let
             val nLevel = newLevel level
         in
             (* If this appears in a structure return a default function. *)
-            mkProc(printerForType(badType, nLevel, typeVarMap), 1, "getPretty", getClosure nLevel, 0)
+            mkProc(printerForType(badType, nLevel), 1, "getPretty", getClosure nLevel, 0)
         end
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, level: level, typeVarMap, [argType], _, _) =
+    |  codeVal (Value{access = Overloaded GetPretty, ...}, level: level, [argType], _, _) =
        (* Get the pretty code for the specified argument. *)
-            printerForType(argType, level, typeVarMap)
+            printerForType(argType, level)
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, _, _, _, _, _) =
-        raise InternalError "Overloaded GetPretty - wrong instance type"
+    |   codeVal (Value{access = Overloaded GetPretty, ...}, _, _, _, _) =
+            raise InternalError "Overloaded GetPretty - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, [], _, _) =
+    |   codeVal (Value{access = Overloaded AddPretty, ...}, _, [], _, _) =
             (* If this appears in a structure create a function that raises an exception if run. *)
-        mkConst (toMachineWord (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
+            mkConst (toMachineWord (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, level: level, _, [installType, argPrints], lex, loc) =
+    |   codeVal (Value{access = Overloaded AddPretty, ...}, level: level, [installType, argPrints], lex, loc) =
         let 
          (* "instance" should be (int-> 'a -> 'b -> pretty) -> unit.
              We need to get the 'a and 'b.  This function installs a
@@ -990,10 +980,10 @@ struct
                         (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
         end
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, _, _, _) =
+    |   codeVal (Value{access = Overloaded AddPretty, ...}, _, _, _, _) =
         raise InternalError "Overloaded AddPretty - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded GetLocation, ...}, _, _, _, _, _) =
+    |  codeVal (Value{access = Overloaded GetLocation, ...}, _, _, _, _) =
         (* This can't be used a value: It must be called immediately. *)
         let
             fun getLoc() =
@@ -1002,167 +992,166 @@ struct
             mkConst (toMachineWord getLoc)
         end
 
-  |  codeVal (value as Value{access = Overloaded _, ...}, level: level, typeVarMap, instance, lex, lineno) =
+    |   codeVal (value as Value{access = Overloaded _, ...}, level: level, instance, lex, lineno) =
         let
             val nLevel = newLevel level
         in
             (* AddOverload, Equal, NotEqual, TypeDep *)
-            mkProc(applyFunction (value, arg1, nLevel, typeVarMap, instance, lex, lineno), 1, "", getClosure nLevel, 0)
+            mkProc(applyFunction (value, arg1, nLevel, instance, lex, lineno), 1, "", getClosure nLevel, 0)
         end
 
- (* Some of these have a more efficient way of calling them as functions. *)
- and applyFunction (value as Value{class=Exception, ...}, argument, level, typeVarMap, instance: types list, lex, lineno) =
-     let
-       (* If we are applying it as a function we cannot be after the
+    (* Some of these have a more efficient way of calling them as functions. *)
+    and applyFunction (value as Value{class=Exception, ...}, argument, level, instance: types list, lex, lineno) =
+        let
+        (* If we are applying it as a function we cannot be after the
           exception id, we must be constructing an exception packet. *)
-       (* Get the exception id, put it in the packet with the exception name
+        (* Get the exception id, put it in the packet with the exception name
           the argument and, currently, an empty location as the exception location. *)
-         val exIden = codeVal (value, level, typeVarMap, instance, lex, lineno);
-        fun valName (Value{name, ...}) = name
-     in
-         mkTuple (exIden :: mkStr (valName value) :: argument :: [mkConst(toMachineWord NoLocation)])
-     end
+            val exIden = codeVal (value, level, instance, lex, lineno);
+            fun valName (Value{name, ...}) = name
+        in
+            mkTuple (exIden :: mkStr (valName value) :: argument :: [mkConst(toMachineWord NoLocation)])
+        end
 
-  | applyFunction(value as Value{class=Constructor _, ...},
-                    argument, level, typeVarMap, argVars, lex, lineno) =
-    let
-        (* If this is a value constructor we need to get the construction
-           function and use that. *)
-        val polyConstr = ValueConstructor.extractInjection(codeVal (value, level, typeVarMap, [], lex, lineno))
-    in
-         (* Don't apply this "early".  It might be the ref constructor and that
-           must not be applied until run-time.  The optimiser should take care
-           of any other cases. *)
-        mkEval (polyConstr, [argument])
-    end
+    |   applyFunction(value as Value{class=Constructor _, ...}, argument, level, _, lex, lineno) =
+        let
+            (* If this is a value constructor we need to get the construction
+               function and use that. *)
+            val polyConstr = ValueConstructor.extractInjection(codeVal (value, level, [], lex, lineno))
+        in
+             (* Don't apply this "early".  It might be the ref constructor and that
+               must not be applied until run-time.  The optimiser should take care
+               of any other cases. *)
+            mkEval (polyConstr, [argument])
+        end
 
-  | applyFunction (value as Value{access = Overloaded oper, name = valName, ...},
-                     argument, level, typeVarMap, instance, lex, lineno) =
-     (
-       case oper of
-            Equal => (* Get the equality function for the type. *)
-            let
-                (* We should have a single entry for the type. *)
-                val argType =
-                    case instance of
-                        [value] => value
-                    |   _ => raise InternalError "Overload Equal"
-                (* The instance type is a function so we have to get the first argument. *)
-                val code = equalityForType(argType, level, typeVarMap)
-            in
-                mkEval (code, [argument])
-            end
-        
-        | NotEqual =>
-            let
-                (* We should have a single entry for the type. *)
-                val argType =
-                    case instance of
-                        [value] => value
-                    |   _ => raise InternalError "Overload NotEqual"
-                (* Use the "=" function to provide inequality as well as equality. *)
-                val code = equalityForType(argType, level, typeVarMap)
-                val isEqual = mkEval (code, [argument])
-            in
-                mkNot isEqual
-            end
-       
-        | TypeDep =>
-           let
-                val argType =
-                    case instance of
-                        [value] => value
-                    |   _ => raise InternalError "Overload TypeDep"
-             val (code, _) = getOverloadInstance(valName, argType, false)
-           in
-             mkEval (code, [argument])
-           end
-
-       | AddOverload =>
-            (* AddOverload is only intended for use by writers of library modules.
-               It only does limited checking and should be regarded as "unsafe". *)
-            let
-            fun rmvars (TypeVar tv) = rmvars(tvValue tv)
-            |   rmvars t = t
-            (* instance should be ('a->'b) -> string -> unit.  For overloadings
-               on most functions (e.g. abs and +) we are looking for the 'a, which
-               may be a pair, but in the case of conversion functions we want the 'b. *)
-            val (resultType, argType) =
-                case instance of
-                    [alpha, beta] => (rmvars alpha, rmvars beta)
-                |   _ => (badType, badType)
-
-            fun followTypes(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = Free _, ...},...}, ...}) = constr
- 
-            |   followTypes(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
-                    followTypes (makeEquivalent (constr, args))
-
-            |   followTypes(TypeConstruction{constr = TypeConstrs {identifier = TypeId{idKind = Bound _, ...},...}, ...}) =
-                   raise Fail "Cannot install an overload within a structure or functor"
-
-            |   followTypes _ = raise Fail "Invalid type (not a type construction) (addOverload)"
-
-            fun addOverloading (argCode: codetree) (name: string) =
+    |   applyFunction (value as Value{access = Overloaded oper, name = valName, ...},
+                     argument, level, instance, lex, lineno) =
+        (
+            case oper of
+                Equal => (* Get the equality function for the type. *)
                 let
-                    val typeToUse =
-                        if size name > 4 andalso
-                            String.substring(name, 0, 4) = "conv"
-                        (* For conversion functions it's the result type we're interested in.
-                           For everything else it's the argument type.  This will be a pair
-                           for functions such as "+" and a single argument for "abs". *)
-                        then resultType
-                        else case argType of
-                            LabelledType{recList=[{typeof, ...}, _], ...} => rmvars typeof
-                        |   argType => argType
-                            
-                    val tcons = followTypes typeToUse
+                    (* We should have a single entry for the type. *)
+                    val argType =
+                        case instance of
+                            [value] => value
+                        |   _ => raise InternalError "Overload Equal"
+                    (* The instance type is a function so we have to get the first argument. *)
+                    val code = equalityForType(argType, level)
                 in
-                    Overloads.addOverload(name, tcons, argCode)
+                    mkEval (code, [argument])
+                end
+        
+            |   NotEqual =>
+                let
+                    (* We should have a single entry for the type. *)
+                    val argType =
+                        case instance of
+                            [value] => value
+                        |   _ => raise InternalError "Overload NotEqual"
+                    (* Use the "=" function to provide inequality as well as equality. *)
+                    val code = equalityForType(argType, level)
+                    val isEqual = mkEval (code, [argument])
+                in
+                    mkNot isEqual
+                end
+       
+            |   TypeDep =>
+                let (* Overloaded functions e.g +,*,abs *)
+                    val argType =
+                        case instance of
+                            [value] => value
+                        |   _ => raise InternalError "Overload TypeDep"
+                    val (code, _) = getOverloadInstance(valName, argType, false)
+                in
+                    mkEval (code, [argument])
                 end
 
-            (* This function is used if we can't get the codetree at
-               compile time. *)
-            fun addOverloadGeneral (arg: machineWord) =
-                addOverloading(mkConst arg)
-        in
-        (* This is messy but necessary for efficiency.  If we simply treat
-           addOverload as a function we would be able to pick up the
-           additional overloading as a pointer to a function.  Most overloads
-           are small functions or wrapped calls to built-in functions and so
-           we need to get the inline code for them. *)
-                (* evalue raises an exception if "argument" is not a constant,
-                  or more usefully, a global value containing a constant and
-                  possibly a piece of codetree to inline. *)
-          case evalue(argument) of
-            SOME _ => mkConst (toMachineWord (addOverloading argument))
-          | NONE => mkEval (mkConst (toMachineWord addOverloadGeneral), [argument])
-        end
+            |   AddOverload =>
+                (* AddOverload is only intended for use by writers of library modules.
+                   It only does limited checking and should be regarded as "unsafe". *)
+                let
+                    fun rmvars (TypeVar tv) = rmvars(tvValue tv)
+                    |   rmvars t = t
+                    (* instance should be ('a->'b) -> string -> unit.  For overloadings
+                       on most functions (e.g. abs and +) we are looking for the 'a, which
+                       may be a pair, but in the case of conversion functions we want the 'b. *)
+                    val (resultType, argType) =
+                        case instance of
+                            [alpha, beta] => (rmvars alpha, rmvars beta)
+                        |   _ => (badType, badType)
 
-      | GetLocation => (* Return the current location. *) mkConst(toMachineWord lineno)
+                    fun followTypes(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = Free _, ...},...}, ...}) = constr
+ 
+                    |   followTypes(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
+                            followTypes (makeEquivalent (constr, args))
+
+                    |   followTypes(TypeConstruction{constr = TypeConstrs {identifier = TypeId{idKind = Bound _, ...},...}, ...}) =
+                           raise Fail "Cannot install an overload within a structure or functor"
+
+                    |   followTypes _ = raise Fail "Invalid type (not a type construction) (addOverload)"
+
+                    fun addOverloading (argCode: codetree) (name: string) =
+                        let
+                            val typeToUse =
+                                if size name > 4 andalso
+                                    String.substring(name, 0, 4) = "conv"
+                                (* For conversion functions it's the result type we're interested in.
+                                   For everything else it's the argument type.  This will be a pair
+                                   for functions such as "+" and a single argument for "abs". *)
+                                then resultType
+                                else case argType of
+                                    LabelledType{recList=[{typeof, ...}, _], ...} => rmvars typeof
+                                |   argType => argType
+                            
+                            val tcons = followTypes typeToUse
+                        in
+                            Overloads.addOverload(name, tcons, argCode)
+                        end
+
+                    (* This function is used if we can't get the codetree at
+                       compile time. *)
+                    fun addOverloadGeneral (arg: machineWord) =
+                        addOverloading(mkConst arg)
+                in
+                (* This is messy but necessary for efficiency.  If we simply treat
+                   addOverload as a function we would be able to pick up the
+                   additional overloading as a pointer to a function.  Most overloads
+                   are small functions or wrapped calls to built-in functions and so
+                   we need to get the inline code for them. *)
+                        (* evalue raises an exception if "argument" is not a constant,
+                          or more usefully, a global value containing a constant and
+                          possibly a piece of codetree to inline. *)
+                  case evalue(argument) of
+                    SOME _ => mkConst (toMachineWord (addOverloading argument))
+                  | NONE => mkEval (mkConst (toMachineWord addOverloadGeneral), [argument])
+                end
+
+        |   GetLocation => (* Return the current location. *) mkConst(toMachineWord lineno)
         
-      | _ => (* Print, MakeString, InstallPP *)
-         (* Just call as functions. *) (* not early *)
-            mkEval (codeVal (value, level, typeVarMap, instance, lex, lineno), [argument])
+        |   _ => (* Print, MakeString, InstallPP *)
+            (* Just call as functions. *)
+                mkEval (codeVal (value, level, instance, lex, lineno), [argument])
             
-     ) (* overloaded *)
+        ) (* overloaded *)
      
-  | applyFunction (value, argument, level, typeVarMap, instance, lex, lineno) =
-        mkEval (codeVal (value, level, typeVarMap, instance, lex, lineno), [argument])
+    |   applyFunction (value, argument, level, instance, lex, lineno) =
+            mkEval (codeVal (value, level, instance, lex, lineno), [argument])
     (* end applyFunction *)
 
   (* If the exception is being used as a value we want an exception packet
      or a function to make a packet. If it is a nullary constructor make
      an exception packet now, otherwise generate a function to construct
      an exception packet. *)
-    fun codeExFunction (value as Value{typeOf=ValueType(typeOf, _), ...}, level, typeVarMap, instance, lex, lineno) =
+    fun codeExFunction (value as Value{typeOf=ValueType(typeOf, _), ...}, level, instance, lex, lineno) =
     case getFnArgType typeOf of (* N.B. Not "instance" *)
-        NONE => applyFunction (value, CodeZero, level, typeVarMap, instance, lex, lineno)
+        NONE => applyFunction (value, CodeZero, level, instance, lex, lineno)
     |   SOME _ =>
             let
                 val nLevel = newLevel level
             in
                 mkProc 
-                  (applyFunction (value, arg1, nLevel, typeVarMap, instance, lex, lineno),
+                  (applyFunction (value, arg1, nLevel, instance, lex, lineno),
                     1, "", getClosure nLevel, 0)
             end
 
@@ -1175,36 +1164,35 @@ struct
        (N.B. that's different from having a parametric type) if we have a val binding.
         e.g. val SOME x = SOME nil.  In that case we can choose an arbitrary type
         for the test and have to parameterise the result.     *)
-    fun makeGuard (value as Value{class=Constructor _, ...}, argVars, testing, level, typeVarMap) =
+    fun makeGuard (value as Value{class=Constructor _, ...}, testing, level) =
         let
-            val testCode = ValueConstructor.extractTest(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
+            val testCode = ValueConstructor.extractTest(codeVal (value, level, [], nullLex, location nullLex))
         in
             mkEval(testCode, [testing])
         end
 
-    |   makeGuard (value as Value{class=Exception, ...}, _, testing, level, typeVarMap) =
+    |   makeGuard (value as Value{class=Exception, ...}, testing, level) =
         (* Should only be an exception. Get the value of the exception identifier 
            and compare with the identifier in the exception packet. *)
         mkEqualPointerOrWord (mkInd (0, testing),
-                        codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
+                        codeVal (value, level, [], nullLex, location nullLex))
 
     |   makeGuard _ = raise InternalError "makeGuard"
 
     (* Code to invert a constructor. i.e. return the value originally used as the argument.
        Apply to any polymorphic variables and construct a result. *)
-    fun makeInverse(value as Value{class=Constructor{nullary=false, ...}, ...},
-                    argVars, arg, level, typeVarMap): codetree =
+    fun makeInverse(value as Value{class=Constructor{nullary=false, ...}, ...}, arg, level): codetree =
         let
-            val loadCode = ValueConstructor.extractProjection(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
+            val loadCode = ValueConstructor.extractProjection(codeVal (value, level, [], nullLex, location nullLex))
         in
             mkEval(loadCode, [arg])
         end
 
-    |  makeInverse(Value{class=Constructor{nullary=true, ...}, ...}, _, _, _, _): codetree =
+    |  makeInverse(Value{class=Constructor{nullary=true, ...}, ...}, _, _): codetree =
         (* makeInverse is called even on nullary constructors.  Return zero to keep the
            optimiser happy. *) CodeZero
 
-    |   makeInverse (Value{class=Exception, ...}, _, arg, _, _) =
+    |   makeInverse (Value{class=Exception, ...}, arg, _) =
             (* Exceptions. - Get the parameter from third word *)
             (* We have to use a VarField here even though this field is present in
                every exception.  The format of the value that is returned depends
@@ -1263,7 +1251,6 @@ struct
         type locationProp   = locationProp
         type typeId         = typeId
         type typeVarForm    = typeVarForm
-        type typeVarMap     = typeVarMap
         type level          = level
         type machineWord    = machineWord
         type valueType      = valueType

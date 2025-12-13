@@ -269,14 +269,14 @@ struct
         (newDecs, debugEnv)
     end
 
-    fun makeValDebugEntries (vars: values list, debugEnv: debuggerStatus, level, lex, mkAddr, typeVarMap) =
+    fun makeValDebugEntries (vars: values list, debugEnv: debuggerStatus, level, lex, mkAddr) =
     if getParameter debugTag (LEX.debugParams lex)
     then
         let
             fun loadVar (var, (decs, {staticEnv, dynEnv, lastLoc, ...})) =
                 let
                     val loadVal =
-                        codeVal (var, level, typeVarMap, [], lex, LEX.nullLocation)
+                        codeVal (var, level, [], lex, LEX.nullLocation)
                     val newEnv =
                     (* Create a new entry in the environment. *)
                           mkDatatype [ loadVal (* Value. *), dynEnv level ]
@@ -578,7 +578,6 @@ struct
         type lexan          = lexan
         type codeBinding    = codeBinding
         type codetree       = codetree
-        type typeVarMap     = typeVarMap
         type debuggerStatus = debuggerStatus
         type valueType      = valueType
     end

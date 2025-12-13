@@ -631,7 +631,7 @@ struct
 
     (* Construct an exception identifier - This is a ref (so we can uniquely
        identify it) containing a print function for the type. *)
-    fun mkExIden(ty, level, tvMap) =
+    fun mkExIden(ty, level) =
     let
         (* Get the constructor tuple, select the constructor operation, apply it to the type. *)
         fun vaGlobal   (Global   x) = x | vaGlobal   _ = raise Match
@@ -640,7 +640,7 @@ struct
         val printerCode =
             case ty of
                 FunctionType { arg, ...} =>
-                    mkEval(makeSome, [printerForType(arg, level, tvMap)])
+                    mkEval(makeSome, [printerForType(arg, level)])
             |   _ => makeNone
     in
         refApplyCode printerCode
@@ -654,7 +654,6 @@ struct
         type values         = values
         type typeConstrSet  = typeConstrSet
         type typeId         = typeId
-        type typeVarMap     = typeVarMap
         type level          = level
     end
 

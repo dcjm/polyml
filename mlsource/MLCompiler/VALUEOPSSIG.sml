@@ -39,7 +39,6 @@ sig
     type locationProp
     type typeId
     type typeVarForm
-    type typeVarMap
     type level
     type machineWord
     type valueType
@@ -69,14 +68,14 @@ sig
     val codeStruct:     structVals * level -> codetree
     val codeAccess:     valAccess  * level -> codetree
     val codeVal:
-        values * level * typeVarMap * types list * lexan * location -> codetree
-    val codeExFunction: values * level * typeVarMap * types list * lexan * location -> codetree
+        values * level * types list * lexan * location -> codetree
+    val codeExFunction: values * level  * types list * lexan * location -> codetree
     val applyFunction:
-        values * codetree * level * typeVarMap * types list *
+        values * codetree * level * types list *
             lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
-    val makeGuard:      values * types list * codetree * level * typeVarMap -> codetree 
-    val makeInverse:    values * types list * codetree * level * typeVarMap -> codetree
+    val makeGuard:      values * codetree * level -> codetree 
+    val makeInverse:    values * codetree * level -> codetree
                     
     val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                             string * (string -> unit) -> structVals option
@@ -118,7 +117,6 @@ sig
         type locationProp   = locationProp
         type typeId         = typeId
         type typeVarForm    = typeVarForm
-        type typeVarMap     = typeVarMap
         type level          = level
         type machineWord    = machineWord
         type valueType      = valueType
