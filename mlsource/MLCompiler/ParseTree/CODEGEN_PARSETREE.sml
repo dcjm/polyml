@@ -1437,8 +1437,8 @@ struct
  
                 fun mkFValBind(var as Value{typeOf=ValueType(typeOf, _), ...}) =
                 let
-                    val argType = mkTypeVar(generalisable, false, false, false)
-                    and resultType = mkTypeVar(generalisable, false, false, false)
+                    val argType = mkTypeVar(generalisable, false, false)
+                    and resultType = mkTypeVar(generalisable, false, false)
                     val () =
                         if isSome(unifyTypes(typeOf, mkFunctionType(argType, resultType)))
                         then raise InternalError "mkFValBind"

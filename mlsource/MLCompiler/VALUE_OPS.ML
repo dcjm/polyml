@@ -859,7 +859,7 @@ struct
              When the installed function is called it will be passed the
              appropriate argument functions which it can call to print the
              argument types.  *)
-            val pretty = mkTypeVar (generalisable, false, false, false); (* Temporary hack. *)
+            val pretty = mkTypeVar (generalisable, false, false) (* Temporary hack. *)
 
             (* Find the last type constructor in the chain. We have to install
                  this against the last in the chain because type constructors in
@@ -890,11 +890,10 @@ struct
                         (* Each entry should be a function of type 'a * int -> pretty *)
                         fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.fixedIntType], pretty)
                         (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
-                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (NotGeneralisable 0, false, true, false))
+                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (NotGeneralisable 0, false, true))
                         val tupleType =
                             case typeVars of
-                                [] => (* No arg so must have unit. *)
-				    unitType
+                                [] => (* No arg so must have unit. *) unitType
                             |   [arg] => mkFn arg (* Just a single function. *)
                             |   args => mkProductType(List.map mkFn args)
                         val addPPType = mkFunctionType(argPrints, mkFunctionType(installType, pretty))

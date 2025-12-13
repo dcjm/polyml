@@ -705,8 +705,7 @@ struct
             val nTypeVars = tcArity tyConstr
             val argTypes =
                 List.tabulate(tcArity tyConstr,
-                    fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
-                                 equality=false, printable=false})
+                    fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false, equality=false})
             val baseEqLevelP1 = newLevel baseEqLevel
 
             (* Argument type variables. *)

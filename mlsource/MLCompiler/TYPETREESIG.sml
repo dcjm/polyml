@@ -55,7 +55,7 @@ sig
           lookupStruct: string -> (structVals * (int->typeId) option) option}
     val emptyTypeEnv: printTypeEnv
 
-    val mkTypeVar:          tvLevel * bool * bool * bool -> types
+    val mkTypeVar:          tvLevel * bool * bool -> types
     val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
     val mkProductType:      types list -> types;
     val mkFunctionType:     types * types -> types;

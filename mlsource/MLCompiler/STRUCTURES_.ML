@@ -994,7 +994,7 @@ struct
         val targetName : string = tcName target;
 
         (* Create non-unifiable type variables as the arguments. *)
-        val tvars = List.tabulate(tcArity candid, fn _ => mkTypeVar(NotGeneralisable 0, false, true, false))
+        val tvars = List.tabulate(tcArity candid, fn _ => mkTypeVar(NotGeneralisable 0, false, true))
         
         (* If we get an error in the datatype itself print the full datatype. *)
         val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }

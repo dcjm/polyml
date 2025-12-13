@@ -75,8 +75,7 @@ sig
     and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
     (* Templates for type variables.  Normal type variables are TemplPlain; the others are special
-       cases.  equality means this is an equality type; printity is a Poly/ML extension and indicates
-       a polymorphic function that contains a call to PolyML.print.  The compiler adds equality
+       cases.  equality means this is an equality type.  The compiler adds equality
        functions to functions that contain an equality test and print functions to those that
        use PolyML.print.  Currently, with TypeIdCode.justForEqualityTypes set to true, only
        polymorphic functions that involve equality types will also print correctly with PolyML.print.
@@ -84,12 +83,12 @@ sig
        It can only be used for local functions. TemplOverload is used for the functions at
        the outer level that can be overloaded. *)
     and typeVarTemplate =
-        TemplPlain of { equality: bool, printity: bool }
+        TemplPlain of { equality: bool }
     |   TemplFree of typeVar
     |   TemplOverload of string
 
     (* Variables used in unification.  These are instantiated from generic type variables.
-       In addition to equality and printity described above there is also the nonunifiable
+       In addition to equality described above there is also the nonunifiable
        property.  This is set when type variables are entered explicitly and indicates that
        the type variable cannot be made less general.  e.g. (fn x => x+1): 'a->'a 
        is an error. *)
@@ -98,7 +97,6 @@ sig
         {
             link: (*typeVarLink*) types ref,
             equality: bool,
-            printity: bool,
             nonunifiable: bool,
             level: int
         }
@@ -281,15 +279,13 @@ sig
 
     val tvLevel:        typeVarForm -> tvLevel
     val tvEquality:     typeVarForm -> bool
-    val tvPrintity:     typeVarForm -> bool
     val tvNonUnifiable: typeVarForm -> bool
     val tvValue:        typeVarForm -> types
     val tvSetValue:     typeVarForm * types -> unit
 
     val sameTv: typeVarForm * typeVarForm -> bool
     
-    val makeTv:
-        {value: types, level: tvLevel, equality: bool, nonunifiable: bool, printable: bool } -> typeVarForm
+    val makeTv: {value: types, level: tvLevel, equality: bool, nonunifiable: bool } -> typeVarForm
 
     val generalisable: tvLevel (* Backwards compatibility. *)
 

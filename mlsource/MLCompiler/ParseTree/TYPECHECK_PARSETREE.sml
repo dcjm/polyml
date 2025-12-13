@@ -276,7 +276,7 @@ struct
                 )
             |   ef => (* Type variables etc. - Use general case. *)
                 let  (* Make arg->'a, and unify with the function. *)
-                    val resType  = mkTypeVar (generalisable, false, false, false)
+                    val resType  = mkTypeVar (generalisable, false, false)
                     val fType    = mkFunctionType (arg, resType)
       
                     (* This may involve more than just assigning the type to "ef". *)
@@ -398,7 +398,7 @@ struct
            types. Returns a type variable if the list is empty.
            This is used for lists, function values (fn .. => ...),
            handlers and case expressions. *)
-        fun assignList _ _ [] = mkTypeVar (generalisable, false, false, false)
+        fun assignList _ _ [] = mkTypeVar (generalisable, false, false)
         |   assignList (processValue: 'a->types, _, _) _ [single] = processValue single
 
         |   assignList (processValue: 'a->types, displayValue, typeMsg)
@@ -551,7 +551,7 @@ struct
                         let
                             val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
                             val var as Value{typeOf=ValueType(valTypeOf, _), ...} =
-                                mkVar(name, ValueType(mkTypeVar (NotGeneralisable level, false, false, false), []), props)
+                                mkVar(name, ValueType(mkTypeVar (NotGeneralisable level, false, false), []), props)
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -718,7 +718,7 @@ struct
 
             |   Unit _ => unitType
 
-            |   WildCard _ => mkTypeVar (generalisable, false, false, false)
+            |   WildCard _ => mkTypeVar (generalisable, false, false)
 
             |   Parenthesised(p, _) =>
                     processPattern(p, enterResult, level, notConst, mkVar, isRec)
@@ -784,15 +784,15 @@ struct
                 val () =
                     if nonExpansive v
                     then ()
-                    else (unifyTypes (funType, mkTypeVar(NotGeneralisable level, false, false, false)); ())
+                    else (unifyTypes (funType, mkTypeVar(NotGeneralisable level, false, false)); ())
                 (* Test to see if we have a function. *)
                 val fType =
                     case eventual funType of
                         FunctionType {arg, result} => SOME(arg, result)
                     |   _ => (* May be a simple type variable. *)
                         let
-                            val funResType = mkTypeVar (generalisable, false, false, false)
-                            val funArgType = mkTypeVar (generalisable, false, false, false)
+                            val funResType = mkTypeVar (generalisable, false, false)
+                            val funArgType = mkTypeVar (generalisable, false, false)
                             val fType    = mkFunctionType (funArgType, funResType)
                         in
                             case unifyTypes (fType, funType) of
@@ -1332,7 +1332,7 @@ struct
                             valTypeMessage (lex, typeEnv) ("Raise:", pt, exType),
                             unifyErrorReport (lex, typeEnv) report, lex, line, foundNear v);
                 (* Matches anything *)
-                mkTypeVar (generalisable, false, false, false)
+                mkTypeVar (generalisable, false, false)
             end
   
         | (aHandler as HandleTree {exp, hrules, location, ...}) =>
@@ -1676,7 +1676,7 @@ struct
                     (* Declare a new identifier with this name. *)
                     val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
                     val funVar =
-                        mkValVar (name, ValueType(mkTypeVar (NotGeneralisable funLevel, false, false, false), []), locations)
+                        mkValVar (name, ValueType(mkTypeVar (NotGeneralisable funLevel, false, false), []), locations)
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -1715,7 +1715,7 @@ struct
                        errors we can report them in the most appropriate place.
                        Build a type to be used for the function.  This will later be unified
                        with the type that we've already created for the function variable. *)
-                    val funType = mkTypeVar(generalisable, false, false, false)
+                    val funType = mkTypeVar(generalisable, false, false)
 
                     fun processClause (clause as FValClause {dec, exp, line, ...}) =
                     let
@@ -2020,7 +2020,7 @@ struct
                 val numOfConstrs = length constrs;
                 val typeVarsAsTypes = List.map getBoundTypeVar typeVars
                 (* Default template for each type variable. *)
-                val templates = List.map (fn _ => TemplPlain{ equality=false, printity=false }) typeVars
+                val templates = List.map (fn _ => TemplPlain{ equality=false }) typeVars
         
                 (* The new constructor applied to the type variables (if any) *)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]

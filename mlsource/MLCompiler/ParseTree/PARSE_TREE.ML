@@ -63,7 +63,7 @@ struct
     val emptyTree = EmptyTree;
 
     (* A general type variable for an expression.  This is used to record the type. *)
-    fun makeGeneralTypeVar() = mkTypeVar(generalisable, false, false, false)
+    fun makeGeneralTypeVar() = mkTypeVar(generalisable, false, false)
   
     fun mkIdent (name, loc) : parsetree = 
       Ident

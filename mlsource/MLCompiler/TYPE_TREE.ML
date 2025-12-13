@@ -90,9 +90,9 @@ struct
 
 (*************)
 
-    fun mkTypeVar (level, equality, nonunifiable, printable) = 
+    fun mkTypeVar (level, equality, nonunifiable) = 
         TypeVar (makeTv {value=emptyType, level=level, equality=equality,
-                         nonunifiable=nonunifiable, printable=printable});
+                         nonunifiable=nonunifiable });
 
     fun mkTypeConstruction (name, typc, args, locations) =
         TypeConstruction {name = name, constr = typc,
@@ -152,7 +152,7 @@ struct
     let
         (* Make a type variable and point this at the overload set
            so we can narrow down the overloading. *)
-        val var = mkTypeVar (generalisable, false, false, false)
+        val var = mkTypeVar (generalisable, false, false)
         val set = OverloadSet {typeset=constrs};
     in
         tvSetValue (typesTypeVar var, set);
@@ -173,7 +173,7 @@ struct
            (* Use a type variable so that the record can be expanded.
               This also provides a model (equality etc). for any fields that
               are added later. *)
-            val var = mkTypeVar (generalisable, false, false, false)
+            val var = mkTypeVar (generalisable, false, false)
             val () =
                 if isTypeVar var
                 then tvSetValue (typesTypeVar var, lab)
@@ -546,7 +546,7 @@ struct
                              unified with this instance.
                              The level is inherited from the instance since the generic
                              will always have level = generalisable.  Nonunifiable must be false. *)
-                            typeof = mkTypeVar (tvLevel tv, tvEquality tv, false, tvPrintity tv)}
+                            typeof = mkTypeVar (tvLevel tv, tvEquality tv, false)}
 
                 fun addToInstance([], []) = []
                 |   addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
@@ -745,7 +745,7 @@ struct
                         (* Make a unifiable type variable even if the original
                            is nonunifiable. *)
                         val n : types = 
-                            mkTypeVar (generalisable, tvEquality tyVar, false, tvPrintity tyVar)
+                            mkTypeVar (generalisable, tvEquality tyVar, false)
                     in
                         (* Set the new variable to have the same value as the
                            existing.  That is only really needed if we have an
@@ -788,13 +788,13 @@ struct
        are nonunifiable. This case occurs if we have a structure without an explicit signature.
        The signature is created from the structure but it might have had overloading or flex
        records that have only be resolved later. *)
-    fun createTypeVariable unifiable (TemplPlain{ equality, printity }) =
+    fun createTypeVariable unifiable (TemplPlain{ equality }) =
             makeTv {value=emptyType, level=generalisable, equality=equality,
-                         nonunifiable=not unifiable, printable=printity}
+                         nonunifiable=not unifiable}
     |   createTypeVariable _ (TemplFree tv) = tv
     |   createTypeVariable _ (TemplOverload s) =
             makeTv {value=OverloadSet{typeset=Overloads.getOverloadTypes s}, level=generalisable, equality=false,
-                         nonunifiable=false, printable=false}
+                         nonunifiable=false}
 
     (* Create a map for type variables.  Optimise the most common cases *)
     fun createTypeVariableMap _ [] = (fn _ => raise InternalError "createTypeVariableMap")
@@ -1834,7 +1834,7 @@ struct
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
-            TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true, printable=false})
+            TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true})
    
     |   typeFromTypeParse(ParseTypeBad) = BadType
     
@@ -1858,7 +1858,7 @@ struct
     (* Free type variables can appear at various places in an ML program and denote the same type
        variable at each occurrence.  *)
     fun makeParseTypeFreeVar(name, isEq) =
-        ParseTypeFreeVar{ name=name, typeVar = makeTv{value=emptyType, level=generalisable, equality=isEq, nonunifiable=true, printable=false} }
+        ParseTypeFreeVar{ name=name, typeVar = makeTv{value=emptyType, level=generalisable, equality=isEq, nonunifiable=true} }
 
     (* Bound type variables appear in type and datatype definitions. *)
     fun makeParseTypeBoundVar(name, index) =
@@ -1868,7 +1868,7 @@ struct
 
     fun getTypeVar(ParseTypeFreeVar{typeVar, ...}) = typeVar
     |   getTypeVar(ParseTypeBoundVar _) = raise InternalError "getTypeVar: bound"
-    |   getTypeVar ParseTypeError = makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}
+    |   getTypeVar ParseTypeError = makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=false}
 
     fun getBoundTypeVar(ParseTypeBoundVar{index=TVIndex i, ...}) = createBoundVar false i
     |   getBoundTypeVar ParseTypeError = BadType
@@ -2025,7 +2025,7 @@ struct
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar, ...}, ...}) = TypeVar typeVar
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
-                TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true, printable=false})
+                TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true})
 
         |   typeFromTypeParse(ParseTypeBad) = BadType
     in
@@ -2253,7 +2253,7 @@ struct
                                        case we have to save the record and put it on the new
                                        type variable.  We have to do this for the record itself so that new
                                        fields inherit the correct status and also for any existing fields. *)
-                                    val newTv = mkTypeVar (minLev, tvEquality tvar, false, tvPrintity tvar)
+                                    val newTv = mkTypeVar (minLev, tvEquality tvar, false)
                                 in
                                     tvSetValue (typesTypeVar newTv, oldValue);
                                     tvSetValue (tvar, newTv)
@@ -2360,7 +2360,7 @@ struct
                             fields in the flexible record admit equality and ALSO that any
                             additional fields we may add by unification with other records
                             also admit equality. *)
-                        val newTv = mkTypeVar (tvLevel tvar, true, false, tvPrintity tvar)
+                        val newTv = mkTypeVar (tvLevel tvar, true, false)
                         val oldValue = tvValue tvar
                     in
                         tvSetValue (tvar, newTv);
@@ -2408,33 +2408,6 @@ struct
                          At least then the type variable would be printed which would
                          be an equality type.
                          --- Adding the "Requires equality type" should improve things. *)
-                    else ();
-                    (* Propagate the "printity" status.  This is probably not complete
-                       but doesn't matter too much since this is a Poly extension. *)
-                    if tvPrintity var
-                    then
-                    let
-                        fun makePrintity(TypeVar tv) _ =
-                        (
-                            if tvPrintity tv then ()
-                            else case tvValue tv of
-                                (* If it's an overload set we don't need to do anything. This will
-                                   eventually be a monotype. *)
-                                OverloadSet _ => ()
-                            |   oldValue =>
-                                let (* Labelled record or unbound variable. *)
-                                    val newTv = mkTypeVar (tvLevel tv, tvEquality tv, tvNonUnifiable tv, true)
-                                in
-                                    tvSetValue(tv, newTv);
-                                    (* Put this on the chain if it's a labelled record. *)
-                                    tvSetValue (typesTypeVar newTv, oldValue)
-                                end
-                        )
-
-                        |   makePrintity _ _ = ()
-                    in
-                        foldType makePrintity finalType ()
-                    end
                     else ();
                     (* Actually make the assignment. It doesn't matter if var is 
                        a labelled record, because t will be either a fixed record
@@ -3118,7 +3091,7 @@ struct
                         val newRecord = { recList=List.rev copiedList, fullList=fullList }
                     in
                         (BoundFlexRecord(TVIndex(List.length resTempls), newRecord),
-                            TemplPlain { equality=tvEquality tvar, printity=tvPrintity tvar } :: resTempls)
+                            TemplPlain { equality=tvEquality tvar } :: resTempls)
                     end
 
                 |   _ =>
@@ -3138,7 +3111,7 @@ struct
                                     val () = typeVarMapList := (tvar, newIndex) :: (!typeVarMapList)
                                 in
                                     (BoundTypeVar("'a", newIndex),
-                                        TemplPlain { equality=tvEquality tvar, printity=tvPrintity tvar } :: templates)
+                                        TemplPlain { equality=tvEquality tvar } :: templates)
                                 end
                             |   SOME(_, index) => (BoundTypeVar("'a", index), templates)
                         )
@@ -3148,7 +3121,7 @@ struct
                             (* For the moment just return a new type variable. *)
                             val newTypeVar =
                                 makeTv {value=EmptyType, level=NotGeneralisable(level-1), equality=tvEquality tvar,
-                                        nonunifiable=tvNonUnifiable tvar, printable=tvPrintity tvar}
+                                        nonunifiable=tvNonUnifiable tvar}
                             val _ =
                                 (* If the type variable is non-unifiable and the expression is
                                    expansive and the type variable is local then we have an error since
@@ -3395,7 +3368,7 @@ struct
     let
         val tv = typesTypeVar (eventual(TypeVar typ)); (* Must be type var. *)
     in
-        tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, tvPrintity tv))
+        tvSetValue (tv, mkTypeVar (level, tvEquality tv, true))
     end;
 
     (* Construct the least general type from a list of types.  This is used after
@@ -3453,7 +3426,7 @@ struct
                    function that is only used inside another polymorphic function but isn't declared
                    inside it, if we use the caller's type variable here the call won't be recognised
                    as polymorphic. *)
-                (*if List.all sameTypeVar otherTypes then typ else*) mkTypeVar(generalisable, false, false, false)
+                (*if List.all sameTypeVar otherTypes then typ else*) mkTypeVar(generalisable, false, false)
             end
     
         |   TypeConstruction{ constr, args, name, locations, ...}  =>
@@ -3480,9 +3453,9 @@ struct
                         then TypeConstruction{constr=constr, name=name, locations=locations,
                                              args = leastArgs(args :: allArgs)}
                         else (* At least one of these wasn't the same type constructor. *)
-                            mkTypeVar(generalisable, false, false, false)
+                            mkTypeVar(generalisable, false, false)
                     end
-                |   _ => mkTypeVar(generalisable, false, false, false)
+                |   _ => mkTypeVar(generalisable, false, false)
             )
 
         |   FunctionType{ arg, result } =>
@@ -3499,7 +3472,7 @@ struct
                     FunctionType{arg=leastGeneral(arg::args), result = leastGeneral(result::results)}
                 end
                 else (* At least one of these wasn't a function. *)
-                    mkTypeVar(generalisable, false, false, false)
+                    mkTypeVar(generalisable, false, false)
             end
   
         |   LabelledType (r as {recList=firstRec, fullList}) =>
@@ -3526,14 +3499,14 @@ struct
                     LabelledType{recList=newList, fullList=fullList }
                 end
                 else (* At least one of these wasn't a record. *)
-                    mkTypeVar(generalisable, false, false, false)
+                    mkTypeVar(generalisable, false, false)
             end
             else (* At this stage the record should be frozen if the program is
                     correct but if it isn't we could have a flexible record which
                     we report elsewhere. *)
-                mkTypeVar(generalisable, false, false, false)
+                mkTypeVar(generalisable, false, false)
 
-        |   _ => (* May arise if there's been an error. *) mkTypeVar(generalisable, false, false, false)
+        |   _ => (* May arise if there's been an error. *) mkTypeVar(generalisable, false, false)
     end
 
     fun checkDiscard(t: types, lex: lexan): string option =

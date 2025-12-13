@@ -490,7 +490,7 @@ struct
             val alpha         = BoundTypeVar("'a", TVIndex 0)
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
             val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList)
-            val listTemplate  = [TemplPlain{equality=false, printity=false }]
+            val listTemplate  = [TemplPlain{equality=false }]
             val nilConstructor  =
                 makeValueConstr ("nil", ValueType(alphaList, listTemplate), true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
             val consConstructor =
@@ -516,7 +516,7 @@ struct
             val alpha         = BoundTypeVar("'a", TVIndex 0)
             val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
             val someType      = mkFunctionType (alpha, alphaOption)
-            val optionTemplate = [TemplPlain{equality=false, printity=false }]
+            val optionTemplate = [TemplPlain{equality=false }]
             val noneConstructor  =
                 makeValueConstr ("NONE", ValueType(alphaOption, optionTemplate), true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
             val someConstructor =

@@ -114,7 +114,7 @@ struct
             and tvE = BoundTypeVar("'e", TVIndex 4)
             and tvF = BoundTypeVar("'f", TVIndex 5)
 
-            val defaultTemplate = TemplPlain { equality=false, printity=false }
+            val defaultTemplate = TemplPlain { equality=false }
             fun templates n = List.tabulate(n, fn _ => defaultTemplate)
 
             (* Make some functions *)
@@ -241,10 +241,8 @@ struct
         val () = enterGlobalType  ("option", optionConstr);
 
         local
-            (* For the moment use the old format since this is a datatype. *)
-            val a = mkTypeVar (generalisable, false, false, false)
             val refCons =
-                    mkGconstr ("ref", ValueType(a ->> Ref a, templates 1),
+                    mkGconstr ("ref", ValueType(tvA ->> Ref tvA, templates 1),
                         createUnaryConstructor(RefForm, "ref"), false, 1, declInBasis)
         in
             val () = enterGlobalType  ("ref", TypeConstrSet(refConstr, [refCons]));
@@ -1249,7 +1247,7 @@ struct
 
         local
             val eqType = tvA ** tvA ->> Bool
-            val eqTempl = TemplPlain { equality=true, printity=false }
+            val eqTempl = TemplPlain { equality=true }
             val eqVal =
                 Value{ name = "=", typeOf = ValueType(eqType, [eqTempl]), access = Overloaded Equal,
                        class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
@@ -1468,14 +1466,14 @@ struct
 
         local
             val printVal =
-                mkSpecialFun("print", tvA ->> tvA, [TemplPlain{ equality=false, printity=true }], Print)
+                mkSpecialFun("print", tvA ->> tvA, templates 1, Print)
         in
             val () = enterPolyMLVal ("print", printVal)
         end;
 
         local
             val makeStringVal =
-                mkSpecialFun("makestring", tvA ->> String, [TemplPlain{ equality=false, printity=true }], MakeString)
+                mkSpecialFun("makestring", tvA ->> String, templates 1, MakeString)
         in
             val () = enterPolyMLVal ("makestring", makeStringVal)
         end;
@@ -1483,7 +1481,7 @@ struct
         local
             val prettyRepVal  =
                 mkSpecialFun("prettyRepresentation", tvA ** fixedIntType ->> PrettyType,
-                    [TemplPlain{ equality=false, printity=true }], GetPretty)
+                    templates 1, GetPretty)
         in
             val () = enterPolyMLVal ("prettyRepresentation", prettyRepVal)
         end;
