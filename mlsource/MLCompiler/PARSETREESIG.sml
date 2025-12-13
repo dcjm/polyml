@@ -59,23 +59,23 @@ sig
      occurence, i.e. the type of the identifier must be int * int -> bool,
      say, after all the unification has been done. *)
           
-  type parsetree and valbind and fvalbind and fvalclause and typebind
-  and datatypebind and exbind and labelRecEntry and matchtree; 
-   
-  val isIdent : parsetree -> bool;
+    type parsetree and valbind and fvalbind and fvalclause and typebind
+    and datatypebind and exbind and labelRecEntry and matchtree; 
 
-  val mkIdent  : string * location -> parsetree; 
-  val mkString : string * location -> parsetree;
-  val mkInt    : string * location -> parsetree;
-  val mkReal   : string * location -> parsetree;
-  val mkChar   : string * location -> parsetree; 
-  val mkWord   : string * location -> parsetree; 
-  val mkApplic : parsetree * parsetree * location * bool -> parsetree;
-  
-  val mkCond   : parsetree * parsetree * parsetree * location -> parsetree;
-  val mkTupleTree : parsetree list * location -> parsetree;
-  
-  val mkValDeclaration : 
+    val isIdent : parsetree -> bool;
+
+    val mkIdent  : string * location -> parsetree; 
+    val mkString : string * location -> parsetree;
+    val mkInt    : string * location -> parsetree;
+    val mkReal   : string * location -> parsetree;
+    val mkChar   : string * location -> parsetree; 
+    val mkWord   : string * location -> parsetree; 
+    val mkApplic : parsetree * parsetree * location * bool -> parsetree;
+
+    val mkCond   : parsetree * parsetree * parsetree * location -> parsetree;
+    val mkTupleTree : parsetree list * location -> parsetree;
+
+    val mkValDeclaration : 
        valbind list * 
        {
          lookup: string -> parseTypeVar option,
@@ -85,8 +85,8 @@ sig
          lookup: string -> parseTypeVar option,
          apply: (string * parseTypeVar -> unit) -> unit
        } * location ->  parsetree;
-  
-  val mkFunDeclaration : 
+
+    val mkFunDeclaration : 
        fvalbind list *
        {
          lookup: string -> parseTypeVar option,
@@ -96,53 +96,51 @@ sig
          lookup: string -> parseTypeVar option,
          apply: (string * parseTypeVar -> unit) -> unit
        } * location ->  parsetree;
-    
-  val mkOpenTree : structureIdentForm list * location -> parsetree;
-  val mkStructureIdent : string * location -> structureIdentForm;
-  val mkValBinding : parsetree * parsetree * bool * location -> valbind;
-  val mkClausal : fvalclause list * location -> fvalbind;
-  val mkClause : funpattern * parsetree * location -> fvalclause;
-  val mkFunPattern: parsetree * lexan -> funpattern * string * int
-  val mkList : parsetree list * location -> parsetree;
-  val mkConstraint : parsetree * typeParsetree * location -> parsetree; 
-  val mkLayered : parsetree * parsetree * location -> parsetree; 
-  val mkFn : matchtree list * location -> parsetree;
-  val mkMatchTree : parsetree * parsetree * location -> matchtree; 
-  val mkLocalDeclaration : parsetree list * parsetree list * location * bool -> parsetree;
-  val mkTypeDeclaration : typebind list * location -> parsetree;
-  val mkDatatypeDeclaration : datatypebind list * typebind list * location -> parsetree;
-  val mkDatatypeReplication :
+
+    val mkOpenTree : structureIdentForm list * location -> parsetree;
+    val mkStructureIdent : string * location -> structureIdentForm;
+    val mkValBinding : parsetree * parsetree * bool * location -> valbind;
+    val mkClausal : fvalclause list * location -> fvalbind;
+    val mkClause : funpattern * parsetree * location -> fvalclause;
+    val mkFunPattern: parsetree * lexan -> funpattern * string * int
+    val mkList : parsetree list * location -> parsetree;
+    val mkConstraint : parsetree * typeParsetree * location -> parsetree; 
+    val mkLayered : parsetree * parsetree * location -> parsetree; 
+    val mkFn : matchtree list * location -> parsetree;
+    val mkMatchTree : parsetree * parsetree * location -> matchtree; 
+    val mkLocalDeclaration : parsetree list * parsetree list * location * bool -> parsetree;
+    val mkTypeDeclaration : typebind list * location -> parsetree;
+    val mkDatatypeDeclaration : datatypebind list * typebind list * location -> parsetree;
+    val mkDatatypeReplication :
         { newType: string, oldType: string,
           newLoc: location, oldLoc: location, location: location } -> parsetree;
-  val mkAbstypeDeclaration :
+    val mkAbstypeDeclaration :
       datatypebind list * typebind list * parsetree list * location -> parsetree;
-  val mkTypeBinding : string * parseTypeVar list * typeParsetree option * bool * location * location -> typebind;
-  val mkDatatypeBinding : string * parseTypeVar list * valueConstr list * location * location -> datatypebind
-  val mkValueConstr : string * typeParsetree option * location -> valueConstr
-  val mkExBinding : string * parsetree * typeParsetree option * location * location -> exbind;
-  val mkLabelledTree : labelRecEntry list * bool * location -> parsetree;
-  val mkLabelRecEntry: string * location * parsetree * location -> labelRecEntry
-  val mkSelector : string * location -> parsetree;
-  val mkRaise : parsetree * location -> parsetree;
-  val mkHandleTree : parsetree * matchtree list * location * location -> parsetree; 
-  val mkWhile : parsetree * parsetree * location -> parsetree;
-  val mkCase : parsetree * matchtree list * location * location -> parsetree;
-  val mkAndalso : parsetree * parsetree * location -> parsetree;
-  val mkOrelse : parsetree * parsetree * location -> parsetree;
-  val mkDirective : string list * infixity * location -> parsetree; 
-  val mkExpseq : parsetree list * location -> parsetree;
-  val mkExDeclaration  : exbind list * location -> parsetree;
-  val mkParenthesised: parsetree * location -> parsetree
-  val unit      : location -> parsetree;
-  val wildCard  : location -> parsetree;
-  val emptyTree : parsetree;
+    val mkTypeBinding : string * parseTypeVar list * typeParsetree option * bool * location * location -> typebind;
+    val mkDatatypeBinding : string * parseTypeVar list * valueConstr list * location * location -> datatypebind
+    val mkValueConstr : string * typeParsetree option * location -> valueConstr
+    val mkExBinding : string * parsetree * typeParsetree option * location * location -> exbind;
+    val mkLabelledTree : labelRecEntry list * bool * location -> parsetree;
+    val mkLabelRecEntry: string * location * parsetree * location -> labelRecEntry
+    val mkSelector : string * location -> parsetree;
+    val mkRaise : parsetree * location -> parsetree;
+    val mkHandleTree : parsetree * matchtree list * location * location -> parsetree; 
+    val mkWhile : parsetree * parsetree * location -> parsetree;
+    val mkCase : parsetree * matchtree list * location * location -> parsetree;
+    val mkAndalso : parsetree * parsetree * location -> parsetree;
+    val mkOrelse : parsetree * parsetree * location -> parsetree;
+    val mkDirective : string list * infixity * location -> parsetree; 
+    val mkExpseq : parsetree list * location -> parsetree;
+    val mkExDeclaration  : exbind list * location -> parsetree;
+    val mkParenthesised: parsetree * location -> parsetree
+    val unit      : location -> parsetree;
+    val wildCard  : location -> parsetree;
+    val emptyTree : parsetree;
 
     val pass2:
         parsetree * (bool * bool * (parseTypeVar list * types) * typeIdDescription -> typeId) *
         env * lexan * (int -> bool) -> types
 
-    val setLeastGeneralTypes: parsetree * lexan -> unit
-    
     (* Inherited from PrintAndExportParsetree *)
     val displayParsetree: parsetree * FixedInt.int -> pretty;
     val getExportTree: navigation * parsetree -> exportTree

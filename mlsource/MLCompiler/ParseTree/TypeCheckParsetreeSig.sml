@@ -35,8 +35,6 @@ sig
         parsetree * (bool * bool * (parseTypeVar list * types) * typeIdDescription -> typeId) *
         env * lexan * (int -> bool) -> types
 
-    val setLeastGeneralTypes: parsetree * lexan -> unit
-    
     structure Sharing:
     sig
         type parsetree = parsetree

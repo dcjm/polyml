@@ -842,17 +842,6 @@ struct
         (t, typeVarList)
     end
 
-    (* Create a match type i.e. a type from a value but with explicit non-unifiable type
-       variables instead of unifiable variables.  In particular if the templates include
-       TemplFlexRecord and the record is now frozen this creates a fixed record. *)
-    fun createMatchType(atyp, templs) =
-    let
-        val freeTypeMap = TypeVar o (createTypeVariableMap false) templs
-        val (t, _) = generaliseTypes (atyp, freeTypeMap, fn _ => NONE)
-    in
-        t
-    end
-
     (* If we have a type construction which is an alias for another type
        we construct the alias by first instantiating all the type variables
        and then copying the type. *)
@@ -2048,17 +2037,6 @@ struct
     fun recordNotFrozen (TypeVar t) : bool = (* Follow the chain *) recordNotFrozen (tvValue t)
     |   recordNotFrozen (LabelledType r) = not(recordIsFrozen r)
     |   recordNotFrozen _ = false (* record or type alias *);
-
-    (* Return the original polymorphic type variables. *)
-    (* Backwards compatibility: if there are no templates it could be that it's the old form. *)
-    fun getPolyTypeVars((atyp, []), map) =
-        let
-            val (_, newMatch) = generaliseTypes (atyp, fn _ => raise InternalError "getPolyTypeVars", map)
-        in
-            List.map (fn(Matched{old, ...}) => old) newMatch
-        end
-
-    |   getPolyTypeVars((_, templates), _) = map (createTypeVariable true) templates
 
    (* Find the argument type which gives this result when the constructor
       is applied. If we have, for example, a value of type int list and

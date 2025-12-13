@@ -123,12 +123,6 @@ sig
        "hd", which has type 'a list -> 'a, can be separately bound to types. *)
     val generalise: types * typeVarTemplate list -> types * types list
 
-    (* Return the type variables that would be generalised at this point. *)
-    val getPolyTypeVars: (types * typeVarTemplate list) * (typeVar -> types option) -> typeVar list
-
-    (* Create a match type suitable for a signature from a structure. *)
-    val createMatchType: types * typeVarTemplate list -> types
-
     (* Release type variables at this nesting level.  Updates the type to the
        generalised version. *)
     val allowGeneralisation: types * int * bool *

@@ -117,7 +117,7 @@ struct
     (* Description of the actions to perform when a structure matches a signature. *)
     datatype valueMatching =
         ValueMatch of
-            { sourceValue: values, targetType: types * typeVarTemplate list, coercion: valueCoercions }
+            { sourceValue: values, coercion: valueCoercions }
     |   StructureMatch of
             { sourceStructure: structVals, contentsMatch: structureMatch}
     |   TypeIdMatch of
@@ -1189,9 +1189,9 @@ struct
                                    must also be present in the value environment so we check them there.
                                    Note: this means we actually pass the constructors twice, once in the value
                                    environment and also in the constructor set. *)
-                                fun matchConstructor(source as Value{typeOf=ValueType valTypeOf, ...}, Value{access=Formal addr, ...}, matches) =
+                                fun matchConstructor(source, Value{access=Formal addr, ...}, matches) =
                                         (addr,
-                                            ValueMatch { sourceValue = source, coercion = NoCoercion, targetType = valTypeOf }) :: matches
+                                            ValueMatch { sourceValue = source, coercion = NoCoercion }) :: matches
                                 |   matchConstructor(_, _, matches) = matches
                             in
                                 (* Now check that the types match. *)
@@ -1324,8 +1324,7 @@ struct
                                         case destAccess of
                                             Formal destAddr =>
                                                 (destAddr,
-                                                    ValueMatch { sourceValue = candid, coercion = coercion,
-                                                                 targetType = instanceType }) :: matches
+                                                    ValueMatch { sourceValue = candid, coercion = coercion  }) :: matches
                                         |   _ => matches (* This could be global. *)
                                     )
                                 |   MatchError error =>
@@ -1403,15 +1402,15 @@ struct
             val v = tagProject valueVar dVal
         in
             case v of
-                Value { access=Formal addr, typeOf=ValueType valTypeOf, ...} =>
-                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = valTypeOf }) :: matches
+                Value { access=Formal addr, ...} =>
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion }) :: matches
             |   _ => matches
         end
         else if tagIs typeConstrVar dVal
         then
         let
-            fun matchConstructor(v as Value{access=Formal addr, typeOf=ValueType valTypeOf, ...}, matches) =
-                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = valTypeOf }) :: matches
+            fun matchConstructor(v as Value{access=Formal addr, ...}, matches) =
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion }) :: matches
             |   matchConstructor(_, matches) = matches
             val TypeConstrSet(_, tconstrs) = tagProject typeConstrVar dVal
         in
@@ -1639,7 +1638,7 @@ struct
                            hidden by later declarations.  We still need the whole value environment in
                            case of datatype replication. *)
                         fun convertConstructor(
-                                valVal as Value{class, typeOf as ValueType valTypeOf, locations, references, name, instanceTypes, ...},
+                                valVal as Value{class, typeOf, locations, references, name, instanceTypes, ...},
                                 (otherConstrs, (addrs, matches))) =
                         let
                             val formalValue =
@@ -1649,7 +1648,7 @@ struct
                             (formalValue :: otherConstrs,
                                 (addrs + 1,
                                     (addrs,
-                                        ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=valTypeOf}) :: matches))
+                                        ValueMatch { sourceValue = valVal, coercion = NoCoercion }) :: matches))
                         end
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
                         val newConstructor =
@@ -1689,7 +1688,7 @@ struct
                             #enterVal finalEnv (dName, value);
                             (addrs, matches)
                         )
-                    |   Value{class, typeOf as ValueType valTypeOf, locations, references, instanceTypes, ...} =>
+                    |   Value{class, typeOf, locations, references, instanceTypes, ...} =>
                         let
                             val formalValue =
                                 Value{class=class, name=dName, typeOf=typeOf, access=Formal addrs,
@@ -1699,7 +1698,7 @@ struct
                             #enterVal finalEnv (dName, formalValue);
                             (addrs + 1,
                                 (addrs,
-                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=valTypeOf}) :: matches)
+                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion }) :: matches)
                         end
                 end
                 else (addrs, matches)
@@ -2477,48 +2476,6 @@ struct
       so that "pass4" can find them. *)
     fun gencodeStructs ((strs, _), lex) =
     let
-        (* Before code-generation perform an extra pass through the tree to remove
-           unnecessary polymorphism.  The type-checking computes a most general
-           type for a value, typically a function, but it is frequently used in
-           situations where a less general type would suffice. *)
-        local
-            fun leastGenStructDec(StructureDec { bindings, ... }) =
-                    (* Declarations are independent so can be processed in order. *)
-                    List.app (leastGenStructValue o #value) bindings
-
-            |   leastGenStructDec(CoreLang{dec, ...}) = setLeastGeneralTypes(dec, lex)
-
-            |   leastGenStructDec(Localdec{decs, body, ...}) =
-                (
-                    (* Process the body in reverse order then the declaration in reverse. *)
-                    List.foldr (fn (d, ()) => leastGenStructDec d) () body;
-                    List.foldr (fn (d, ()) => leastGenStructDec d) () decs
-                )
-
-            and leastGenStructValue(StructureIdent _) = ()
-
-            |   leastGenStructValue(StructDec {alist, ...}) =
-                    (* Declarations in reverse order. *)
-                    List.foldr (fn (d, ()) => leastGenStructDec d) () alist
-
-            |   leastGenStructValue(FunctorAppl {arg, ...}) = leastGenStructValue arg
-
-            |   leastGenStructValue(LetDec {decs, body, ...}) =
-                (
-                    (* First the body then the declarations in reverse. *)
-                    leastGenStructValue body;
-                    List.foldr (fn (d, ()) => leastGenStructDec d) () decs
-                )
-
-            |   leastGenStructValue(SigConstraint {str, ...}) = leastGenStructValue str
-
-            fun leastGenTopDec(StrDec(aStruct, _)) = leastGenStructDec aStruct
-            |   leastGenTopDec(FunctorDec(fbinds, _)) = List.app(fn{body, ...} => leastGenStructValue body) fbinds
-            |   leastGenTopDec(SignatureDec _) = ()
-        in
-            val () = (* These are independent so can be processed in order. *)
-                List.app leastGenTopDec strs
-        end
     
     (* Apply a function which returns a pair of codelists to a list of structs.
        This now threads the debugging environment through the functions so
@@ -2587,7 +2544,7 @@ struct
 
             |   applyAction
                 ((destAddr,
-                    ValueMatch { sourceValue as Value{typeOf=ValueType((sourceTypeOf, _)), name, ...}, coercion, targetType }),
+                    ValueMatch { sourceValue as Value{typeOf=ValueType((sourceTypeOf, _)), name, ...}, coercion }),
                  (otherCode, allSame)) =
                 let
                     (* If the entry is from a signature select from the code.  Apply any coercion from
