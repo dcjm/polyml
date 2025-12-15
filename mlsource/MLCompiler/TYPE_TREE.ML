@@ -1394,7 +1394,7 @@ struct
     let
         fun createFreeTypeVariables([], _) = []
         |   createFreeTypeVariables(TemplPlain{ equality } :: templs, n) =
-                FreeTypeVar{ name = makeTypeVariableName(n, equality), equality=equality, level=1, uid=makeUniqueId() } ::
+                FreeTypeVar{ name = makeTypeVariableName(n, equality), equality=equality, level=0, uid=makeUniqueId() } ::
                         createFreeTypeVariables(templs, n+1)
         |   createFreeTypeVariables _ = raise InternalError "createNonGeneralisableInstance: template"
         
@@ -2380,6 +2380,10 @@ struct
                 else if occursCheckFails finalType false
                 then cantMatch (Atype, Btype, "(Type variable to be unified occurs in type)")
 
+                (* If we're matching a structure to a signature we can't make non-generalisable type variables polymorphic. *)
+                else if (case (tvLevel var, t) of (NotGeneralisable _, FreeTypeVar{level=0, ...}) => true | _ => false)
+                then cantMatch (Atype, Btype, "(Type variable is free at top level)")
+
                 else
                 let (* Occurs check succeeded. *)
                     fun canMkEqTv (tvar : typeVarForm) : tri = 
@@ -2596,11 +2600,6 @@ struct
                           | typB => match (tA, typB)
                         )
                 )
-
-                (* Temporary - this can occur when matching a signature. Need to use free variables there. *)
-            |   (BoundTypeVar (_, TVIndex iA), BoundTypeVar (_, TVIndex iB)) =>
-                    (* For the moment just do this. *)
-                    if iA = iB then () else cantMatch (tA, tB, "(Different bound type variables)")
 
             |   (BoundTypeVar _, _) => raise InternalError "match: bound variable in type"
 
