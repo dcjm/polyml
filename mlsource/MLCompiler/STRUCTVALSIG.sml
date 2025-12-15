@@ -121,6 +121,16 @@ sig
         (* Bound type variable. This is an index into a table or list of types.  The name is just for printing. *)
     |   BoundTypeVar of string * tvIndex
 
+        (* Free type variable.  These are used where a type variable has been introduced explicitly.
+           They can only be generalised in a scope less than "level". *)
+    |   FreeTypeVar of
+        {
+            name: string,
+            equality: bool,
+            level: int,
+            uid: uniqueId
+        }
+
     |   TypeConstruction of
         {
             name:  string,

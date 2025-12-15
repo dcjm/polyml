@@ -1009,9 +1009,7 @@ struct
 
             (* Process the entries in the signature and allocate an address
                to each. *)
-            fun processSig (signat: specs, offset : int, lno : LEX.location) : int =
-              case signat of
-                StructureSig (structList : structSigBind list, _) =>
+            fun processSig (StructureSig (structList : structSigBind list, _), offset, lno) : int =
                 let
                   (* Each element in the list should be a structure binding. *)
                   fun pStruct [] offset = offset
@@ -1055,11 +1053,11 @@ struct
                   pStruct structList offset
                 end
                 
-              | ValSig {name=(name, nameLoc), typeof, line, ...} =>
+           |    processSig (signat as ValSig {name=(name, nameLoc), typeof, line, ...}, offset, _) =
                 let
-                  val errorFn = giveSpecError (signat, line, lex);
+                    val errorFn = giveSpecError (signat, line, lex)
                 
-                  fun lookup(s, locn) =
+                    fun lookup(s, locn) =
                     lookupTyp
                       ({
                         lookupType   =
@@ -1069,25 +1067,27 @@ struct
                        },
                      s,
                      giveSpecError (signat, locn, lex));
-                  (* Check for rebinding of built-ins.  "it" is allowed here. *)
-                  val () = if name = "true" orelse name = "false" orelse name = "nil"
+                    (* Check for rebinding of built-ins.  "it" is allowed here. *)
+                    val () = if name = "true" orelse name = "false" orelse name = "nil"
                             orelse name = "::" orelse name = "ref"
                         then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
                         else ();
-                  val typeof = assignTypes (typeof, lookup, lex)
+                    val typeof = assignTypes (typeof, lookup, lex)
                     val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                    
+                    (* Turn free variables into bound variables.  *)
+                    val valType = allowGeneralisation(typeof, 0, false, fn _ => ())
 
                 in  (* If the type is not found give an error. *)
-                  (* The type is copied before being entered in the environment.
-                     This isn't logically necessary but has the effect of removing
+                    (* The type is copied before being entered in the environment.
+                        This isn't logically necessary but has the effect of removing
                      ref we put in for type constructions. *)
-                  #enterVal structEnv (name,
-                    mkFormal (name, ValBound,
-                        ValueType(copyType (typeof, fn _ => NONE, fn x => x, fn x => x), []), offset, locations));
-                  (offset + 1)
+                    #enterVal structEnv (name,
+                        mkFormal (name, ValBound, ValueType valType, offset, locations));
+                    (offset + 1)
                 end
                
-              | ExSig {name=(name, nameLoc), typeof, line, ...} =>
+           |    processSig (signat as ExSig {name=(name, nameLoc), typeof, line, ...}, offset, _) =
                 let
                   val errorFn = giveSpecError (signat, line, lex);
                 
@@ -1117,7 +1117,7 @@ struct
                   (offset + 1)
                 end
                
-              | IncludeSig (structList : sigs list, _) =>
+           |    processSig (IncludeSig (structList : sigs list, _), offset, lno) =
                 let
                     (* include sigid ... sigid or include sigexp.  For
                        simplicity we handle the slightly more general case
@@ -1201,7 +1201,7 @@ struct
                     List.foldl includeSigExp offset structList
                 end
 
-              | Sharing (share : shareConstraint) =>
+           |    processSig (Sharing (share : shareConstraint), offset, _) =
                   (* Sharing constraint. *)
                   let
                      (* In ML90 it was possible to share with any identifier
@@ -1213,7 +1213,7 @@ struct
                      offset (* No entry *)
                   end
                 
-              | CoreType {dec, ...} =>
+           |    processSig (CoreType {dec, ...}, offset, _) =
               let (* datatype or type binding(s) *)
                 (* This pass puts the data constructors into the environment. *)
                 val addrs = ref offset
@@ -1368,7 +1368,7 @@ struct
                         |   copyId _ = NONE
                                     
                         val copiedEquiv =
-                            copyType(equiv, fn _ => NONE, fn x => x,
+                            copyType(equiv, fn _ => NONE, fn x => x, fn x => x,
                                 fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
                         (* For the moment always use a Free ID here. *)
                         val copiedId = makeTypeFunction(arity, copiedEquiv, description)

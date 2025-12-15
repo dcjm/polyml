@@ -123,49 +123,6 @@ struct
 
     and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
-    (* Core types.  *)
-    and coreType =
-        (* A type variable is an index.  For each instance the index maps onto a type variable.  *)
-        CTTypeVar of tvIndex
-        
-        (* The use of a type constructor, possibly applied to type arguments. *)
-    |   CTTypeConstruction of
-        {
-            name:  string,
-            constr: typeConstrs,
-            args:  coreType list,
-            locations: locationProp list
-        }
-
-        (* Function type. *)
-    |   CTFunctionType of
-        { 
-            arg:    coreType,
-            result: coreType
-        }
-
-        (* Tuples and fixed labelled records. *)
-    |   CTLabelledRecord of { name: string, typeof: coreType } list
-
-        (* Flexible records.  Flexible records can only appear in the types of local functions;
-           they must be frozen at the outer level.  Instances of flexible records can be created and
-           have different instance types for type variables in the fields (#typeof fields) but every
-           instance has the same list of field names.  This list starts with the fields that are
-           actually used (#name fields) but can grow if this is unified with other records.
-           Unifying with a fixed record freezes the list.  Generally we don't care about unused fields
-           except if the original function compared the record for equality in which case only equality
-           types can be used for any field. *)
-    |   CTFlexibleRecord of
-        {
-            fields: { name: string, typeof: coreType } list,
-            frozen: bool ref,
-            equality: bool,
-            fieldNames: string list ref
-        }
-
-        (* Error cases. *)
-    |   CTBadType
-
     (* Templates for type variables.  Normal type variables are TemplPlain; the others are special
        cases.  equality means this is an equality type.  The compiler adds equality
        functions to functions that contain an equality test and print functions to those that
@@ -209,6 +166,16 @@ struct
 
         (* Bound type variable. This is an index into a table or list of types.  The name is just for printing. *)
     |   BoundTypeVar of string * tvIndex
+
+        (* Free type variable.  These are used where a type variable has been introduced explicitly.
+           They can only be generalised in a scope less than "level". *)
+    |   FreeTypeVar of
+        {
+            name: string,
+            equality: bool,
+            level: int,
+            uid: uniqueId
+        }
 
     |   TypeConstruction of
         {
@@ -650,7 +617,6 @@ struct
         and  level      = level
         and  tvLevel    = tvLevel
         and  typeFnEq   = typeFnEq
-        and  coreType   = coreType
         and  typeVarTemplate = typeVarTemplate
         and  typeVar    = typeVar
         and  typeVarLink = typeVarLink

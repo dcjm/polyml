@@ -961,22 +961,13 @@ struct
 
     (* Check that two types match.  Returns either an error result or the set
        of polymorphic variables for the source and the target. *)
-    fun matchTypes ((candidate, candidTempls), (target, targetTempls), targMap: int -> typeId option, _) =
+    fun matchTypes (candidValType, targetValType as (_, targetTempls), targMap: int -> typeId option, _) =
     let
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = targMap offset
         |   copyId _ = NONE
-        fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn x => x, fn s => s)
-        fun copyTarget t = (* Leave type variables. *)
-            copyType (t, fn _ => NONE, fn x => x, copyATypeConstr);
-        val copiedTarget = copyTarget target
-        (* Do the match to a version of the candidate with copies of the
-           type variables so that we can instantiate them.  We could do
-           this by passing in a mapping function but the problem is that
-           if we have a type variable that gets unified to another variable
-           we will not map it properly if it occurs again (we call "eventual"
-           and get the second tv before calling the map function so we get a
-           second copy and not the first copy). *)
-        val (copiedCandidate : types, _) = generalise(candidate, candidTempls)
+        (* The *)
+        val copiedTarget = createNonGeneralisableInstance(targetValType, copyId)
+        val (copiedCandidate : types, _) = generalise candidValType
     in
         case unifyTypes (copiedCandidate, copiedTarget) of
             NONE => (* Succeeded. Return the unified type.  Either will do. *)
@@ -3022,7 +3013,7 @@ struct
                 |   copyId _ = NONE
                 fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn x => x, fn s => s)
             in
-                copyType(t, fn _ => NONE, fn tv=>tv, replaceTypeConstrs)
+                copyType(t, fn _ => NONE, fn tv=>tv, fn x => x, replaceTypeConstrs)
             end
 
             fun makeDecs (CoreValue(Value{class, name, typeOf=ValueType(typeOf, templates), locations, access, ...}),

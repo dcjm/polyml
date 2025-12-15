@@ -247,11 +247,6 @@ struct
      mkTagTest which can be converted into an indexed case.  This can't be
      used for ShortForm because the values for the datatype include addresses. 
 *)
-    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
-    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
-    |   tcIsAbbreviation _ = false
-
-  
   datatype constructorKind =
     Nullary             (* a nullary constructor *)
   | UnaryGeneric        (* a normal unary constructor *)
@@ -259,45 +254,20 @@ struct
   | UnaryTupled of int  (* a unary constructor applied to a tuple of size n  *)
   ;
 
-    fun getTupleKind t =
-      case t of
+    fun getTupleKind(LabelledType {recList = [{typeof, ...}], ...}) =
         (* We cannot have flexible records here.   All the fields must be listed. *)
-        LabelledType {recList = [{typeof=t', ...}], ...} =>
             (* Singleton records are always represented simply by the value. *)
-          getTupleKind t'
+          getTupleKind typeof
       
-      | LabelledType {recList, ...} =>
-          UnaryTupled (length recList)
+    |   getTupleKind(LabelledType {recList, ...}) = UnaryTupled (length recList)
       
-      | FunctionType _ => 
-          UnaryFunction
+    |   getTupleKind(FunctionType _) =  UnaryFunction
     
-      | TypeConstruction {constr, args, ...} =>
-        (
-            (* We may have a type equivalence or this may be a datatype. *)
-            if tcIsAbbreviation constr
-            then getTupleKind (makeEquivalent(constr, args))
-            else if sameTypeId (tcIdentifier constr, tcIdentifier refConstr)
-            then UnaryGeneric (* A tuple ref is NOT the same as the tuple. *)
-            else (* Datatype.  For the moment we only consider datatypes with a
-                    single constructor since we want to find the width of the
-                    tuple.  At present we simply return UnaryGeneric for all
-                    other cases but it might be helpful to return a special
-                    result when we have a datatype which we know will always
-                    be boxed. *)
-           (*     case tcConstructors constr of
-                    [Value{typeOf, class=Constructor{nullary=false, ...}, ...}] =>
-                        (* This may be a polymorphic datatype in which case
-                           we have to invert the constructor to find the base type.
-                           e.g. we may have an instance (int*int) t where t was
-                           declared as datatype 'a t = X of 'a .*)
-                        getTupleKind(constructorResult(typeOf, args))
-                |    _ => UnaryGeneric
-           *)  UnaryGeneric
-        )
+    |   getTupleKind(TypeConstruction {constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
+            (* Type function *)
+            getTupleKind (makeEquivalent(constr, args))
     
-      | _ =>
-          UnaryGeneric
+    |   getTupleKind _ = UnaryGeneric  (* Anything else *)
 
     (* This now creates the functions as well as choosing the representation. *)
     (* N.B. The representation for the "context" and "pretty" datatypes is defined in Pretty.sml.

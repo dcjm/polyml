@@ -178,10 +178,12 @@ struct
             Value{ name, typeOf=ValueType(typeOf, templates), access, class, locations, ... },
             baseStruct as Struct{signat=Signatures { typeIdMap, ...}, name=baseName, ...}) =
     let
+        (* This is copied to instantiate bound type constructor IDs in the signature to the actual IDs
+           used in this particular structure instance. *)
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(typeIdMap offset)
         |   copyId _ = NONE
         val copiedType =
-            copyType (typeOf, fn _ => NONE, fn x => x,
+            copyType (typeOf, fn _ => NONE, fn x => x, fn x => x,
                 fn tcon =>
                     copyTypeConstr (tcon, copyId, fn x => x, fn s => baseName^"."^s))                            
         val baseLoc =
@@ -673,7 +675,8 @@ struct
        word, string or char for conversion functions.) *)
     fun getOverloadInstance(name, instance, isConv): codetree * string =
     let
-        val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload(instance, isConv)
+        val constr = typeConstrFromOverload(instance, isConv)
+        val tcName = case constr of TypeConstrs {name,...}  => name
         open Overloads
     in
         (getOverloadCode(name, constr), tcName)
@@ -882,8 +885,7 @@ struct
             
             val () =
                 case constrId of
-                    NONE => ()
-                |   SOME (_, constr as TypeConstrs {name=tcName,...}, arity) =>
+                    SOME (_, constr as TypeConstrs {name=tcName,...}, arity) =>
                     let
                         (* Check that the function tuple matches the arguments of the type
                            we're installing for. *)
@@ -905,7 +907,8 @@ struct
                         checkPPType(addPPType, testType, "addPrettyPrint", lex, loc,
                             fn () =>
                                 PrettyString "addPrettyPrint element functions must have type 'a * int -> pretty, 'b * int -> pretty, ... with one function for each type parameter")
-                    end;
+                    end
+                |   _ => ()
 
             (* Only report the error when the function is run.  Because addPrettyPrint is
                contained in the PolyML structure we may compile a reference to a polymorphic

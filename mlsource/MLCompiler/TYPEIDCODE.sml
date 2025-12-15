@@ -588,7 +588,7 @@ struct
     and makeEq(ty, level: level, getTypeValueForID, typeVarMap): codetree =
     let
  
-        fun equalityForConstruction(TypeConstrs {identifier=iden,...}, args): codetree =
+        fun equalityForConstruction(tyConstr as TypeConstrs {identifier=iden,...}, args): codetree =
         (* Generate an equality function for a datatype construction. *)
         let
             (* Get argument types parameters for polytypes.  There's a special case
@@ -618,7 +618,7 @@ struct
                 (* Special case: If this is ref, Array.array or Array2.array we must use
                    pointer equality and not attempt to create equality functions for
                    the argument.  It may not be an equality type. *)
-                if isPointerEqType iden
+                if isPointerEqType tyConstr
                 then equalPointerOrWordFn
                 else
                 let

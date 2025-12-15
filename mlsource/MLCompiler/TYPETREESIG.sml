@@ -77,10 +77,6 @@ sig
 
     (* Test for function type and return function argument. *)
     val getFnArgType:   types -> types option
-   
-    (* Unify two type variables which would otherwise be non-unifiable. *)
-    val linkTypeVars: typeVar * typeVar -> unit;
-    val setTvarLevel: typeVar * tvLevel -> unit
 
     (* Copy a type constructor. *)
     val copyTypeConstr:
@@ -90,7 +86,7 @@ sig
         (string -> string) * typeConstrs list -> typeConstrs
 
     (* Copy a type. *)
-    val copyType: types * (tvIndex -> types option) * (types -> types) * (typeConstrs -> typeConstrs) -> types;
+    val copyType: types * (tvIndex -> types option) * (types -> types) * (types -> types) * (typeConstrs -> typeConstrs) -> types;
 
     (* Compose two typeId maps. *)
     val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)
@@ -122,12 +118,17 @@ sig
        non-local values or constructors so that, for example, each occurence of
        "hd", which has type 'a list -> 'a, can be separately bound to types. *)
     val generalise: types * typeVarTemplate list -> types * types list
+ 
+    (* Similar to generalise but with the bound variables replaced by non-unifiable
+       free variables.  This is used in signature matching.  A polymorphic function
+       in a structure will match a similar monomorphic function but not the other way
+       round. *)
+    val createNonGeneralisableInstance: (types * typeVarTemplate list) * (typeId -> typeId option) -> types
 
     (* Release type variables at this nesting level.  Updates the type to the
        generalised version.  Returns a type with bound variables for those which are
        generic along with templates for each bound variable. *)
-    val allowGeneralisation: types * int * lexan * location * (unit -> pretty) * printTypeEnv ->
-        types * typeVarTemplate list
+    val allowGeneralisation: types * int * bool * (string->unit) -> types * typeVarTemplate list
 
     (* See if the type contains non-unifiable i.e. explicit type variables but it's an
        expansive context. *)
@@ -161,7 +162,7 @@ sig
     val byteArrayConstr: typeConstrs;
     val unitConstr:   typeConstrs;
     val exnConstr:    typeConstrs;
-    val undefConstr:  typeConstrs;
+    val undefConstr:  typeConstrs
 
     val boolType:       types
     val fixedIntType:   types
@@ -169,8 +170,7 @@ sig
     val unitType:       types
     val exnType:        types
     
-    val isPointerEqType: typeId -> bool
-
+    val isPointerEqType: typeConstrs -> bool
     val isUndefinedTypeConstr: typeConstrs -> bool
     val isBadType:  types -> bool
 
@@ -193,12 +193,13 @@ sig
     val makeParseTypeFreeVar: string * bool -> parseTypeVar
     val makeParseTypeBoundVar: string * tvIndex -> parseTypeVar
     val parseTypeVarError: parseTypeVar
-    val getTypeVar: parseTypeVar -> typeVar
+    (* Set a free type variable to either an outer one or to the current level. *)
+    val setParseTypeVar: parseTypeVar * parseTypeVar option * int -> unit
     val getBoundTypeVar: parseTypeVar -> types
     val unitTree: location -> typeParsetree
     val displayTypeParse: typeParsetree * FixedInt.int * printTypeEnv -> pretty;
     (* A list of type variables. *)
-    val displayTypeVariables: parseTypeVar list * FixedInt.int -> pretty list;
+    val displayTypeVariables: parseTypeVar list * FixedInt.int -> pretty list
 
     (* Fill in the values of type variables and make checks. *)
     val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;

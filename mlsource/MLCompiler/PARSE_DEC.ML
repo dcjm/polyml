@@ -2,7 +2,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further Development Copyright 2009, 2016 David C.J. Matthews.
+    Further Development Copyright 2009, 2016, 2025 David C.J. Matthews.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1648,7 +1648,6 @@ struct
  (* Sequence of "specs" *)
  and signatureSpec (fsys : symset) (lex : lexan) (env as {lookupTvar, ...}) : specs list =
  let
-   val signatureTvars = makeTypeVarEnv();
 
    fun parseSigEntries () : specs list =
    let
@@ -1700,14 +1699,16 @@ struct
          |  ValSy =>
             let
                 val () = insymbol lex
-             
                 fun doVal () =
                 let
                     val idAndLoc as (_, idLoc)  = getShortId (declarableVarSys, fsys ++ colon, lex);
                     val () = getsym (SYMBOLS.Colon, lex);
+                    (* Type variables are local to the val spec. *)
+                    val signatureTvars = makeTypeVarEnv()
                     val (ty, tyLoc)  = 
                         parseType (fsys ++ startSigEndAndSy, lex, 
-                            {lookupTvar = #lookupTvar signatureTvars});
+                            {lookupTvar = #lookupTvar signatureTvars})
+                    val _ = #apply signatureTvars(fn (_, tVar) => setParseTypeVar(tVar, NONE, 1))
                     val locs = locSpan(idLoc, tyLoc)
                in
                     (mkValSig (idAndLoc, ty, locs), locs, ())

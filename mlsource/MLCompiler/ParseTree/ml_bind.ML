@@ -63,6 +63,7 @@ local
             structure PRETTY     = Pretty
             structure COPIER     = CopierStruct
             structure DATATYPEREP = DatatypeRep
+            structure DEBUG      = Debug
         )
 
     structure MatchCompiler =

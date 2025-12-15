@@ -80,6 +80,8 @@ sig
     val lookupDefault :  ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end
 
+structure DEBUG: DEBUG
+
 sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
        = VALUEOPS.Sharing = UTILITIES.Sharing = PRETTY.Sharing
        = CODETREE.Sharing = DATATYPEREP.Sharing
@@ -1093,7 +1095,7 @@ struct
                                 then newTypeCons
                                 else tcon;
                             fun copyTyp (t : types) : types =
-                               copyType (t, fn _ => NONE, fn x => x, (* Don't bother with type variables. *)
+                               copyType (t, fn _ => NONE, fn x => x, fn x => x, (* Don't bother with type variables. *)
                                    copyTypeCons);
                             val newType = copyTyp typeOf
                             val newAccess =
@@ -1492,15 +1494,14 @@ struct
             val newLevel = level + 1
       
             (* Set the scope of explicit type variables. *)
-            val () = #apply explicit(fn (_, tv) => setTvarLevel (getTypeVar tv, NotGeneralisable newLevel));
+            val () = #apply explicit(fn (_, tv) => setParseTypeVar (tv, NONE, newLevel))
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
-               scope. *)
+               scope.  The outer occurrence can be textually later. *)
             val () = 
                 #apply implicit
-                    (fn (name, tv: parseTypeVar) =>
-                        case #lookupTvars env name of SOME v => linkTypeVars(getTypeVar v, getTypeVar tv) | NONE => setTvarLevel (getTypeVar tv, NotGeneralisable newLevel));
+                    (fn (name, tv: parseTypeVar) => setParseTypeVar(tv, #lookupTvars env name, newLevel))
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1624,7 +1625,14 @@ struct
                        no references to explicit type variables. *)
                     val valType =
                         if nonExpansive exp
-                        then allowGeneralisation(typeOf, newLevel, lex, line, foundNear v, typeEnv)
+                        then
+                        let
+                            open DEBUG
+                            val parameters = debugParams lex
+                            val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
+                        in
+                            allowGeneralisation(typeOf, newLevel, checkOverloadFlex, giveError (v, lex, line))
+                        end
                         else
                         (
                             if containsLocalFreeVariables(typeOf, newLevel)
@@ -1652,15 +1660,13 @@ struct
       
             (* Set the scope of explicit type variables. *)
             val () =
-                #apply explicit(fn (_, tv) => setTvarLevel (getTypeVar tv, NotGeneralisable funLevel));
+                #apply explicit(fn (_, tv) => setParseTypeVar (tv, NONE, funLevel))
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
                scope. *)
             val () = 
-                #apply implicit
-                  (fn (name, tv) =>
-                      case #lookupTvars env name of SOME v => linkTypeVars(getTypeVar v, getTypeVar tv) | NONE => setTvarLevel (getTypeVar tv, NotGeneralisable funLevel));
+                #apply implicit (fn (name, tv) => setParseTypeVar(tv, #lookupTvars env name, funLevel))
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1919,10 +1925,13 @@ struct
             end
 
             fun generaliseAndDeclare(
-                    FValBind{functVar as ref(Value{typeOf=ValueType(typeOf, _), access, class, locations, name, references, ...}), ...}) =
+                    FValBind{functVar as ref(Value{typeOf=ValueType(typeOf, _), access, class, locations, name, references, ...}), location, ...}) =
             let
+                open DEBUG
+                val parameters = debugParams lex
+                val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
                 val valType =
-                    allowGeneralisation(typeOf, funLevel, lex, declaredAt locations, foundNear v, typeEnv)
+                    allowGeneralisation(typeOf, funLevel, checkOverloadFlex, giveError (v, lex, location))
                 val newValue =
                     Value{name=name, typeOf=ValueType valType, access=access, class=class, locations=locations,
                           references=references, instanceTypes=NONE}
