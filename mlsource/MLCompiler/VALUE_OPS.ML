@@ -862,7 +862,7 @@ struct
              When the installed function is called it will be passed the
              appropriate argument functions which it can call to print the
              argument types.  *)
-            val pretty = mkTypeVar (generalisable, false, false) (* Temporary hack. *)
+            val pretty = mkTypeVar (Generalisable, false)
 
             (* Find the last type constructor in the chain. We have to install
                  this against the last in the chain because type constructors in
@@ -892,7 +892,9 @@ struct
                         (* Each entry should be a function of type 'a * int -> pretty *)
                         fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.fixedIntType], pretty)
                         (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
-                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (NotGeneralisable 0, false, true))
+                        val typeVars =
+                            List.tabulate(arity,
+                                fn n => FreeTypeVar{ name = makeTypeVariableName(n, false), equality=false, level=NotGeneralisable 0, uid=makeUniqueId() })
                         val tupleType =
                             case typeVars of
                                 [] => (* No arg so must have unit. *) unitType
@@ -1245,7 +1247,6 @@ struct
         type pretty         = pretty
         type locationProp   = locationProp
         type typeId         = typeId
-        type typeVarForm    = typeVarForm
         type level          = level
         type machineWord    = machineWord
         type valueType      = valueType

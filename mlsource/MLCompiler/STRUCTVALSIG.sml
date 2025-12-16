@@ -74,17 +74,14 @@ sig
 
     and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
-    (* Templates for type variables.  Normal type variables are TemplPlain; the others are special
-       cases.  equality means this is an equality type.  The compiler adds equality
+    (* Templates for type variables.  Normal type variables are TemplPlain.
+       equality means this is an equality type.  The compiler adds equality
        functions to functions that contain an equality test and print functions to those that
        use PolyML.print.  Currently, with TypeIdCode.justForEqualityTypes set to true, only
        polymorphic functions that involve equality types will also print correctly with PolyML.print.
-       TemplFree is used for a type variable that is free in the current context.
-       It can only be used for local functions. TemplOverload is used for the functions at
-       the outer level that can be overloaded. *)
+       TemplOverload is used for the functions at the outer level that can be overloaded. *)
     and typeVarTemplate =
         TemplPlain of { equality: bool }
-    |   TemplFree of typeVar
     |   TemplOverload of string
 
     (* Variables used in unification.  These are instantiated from generic type variables.
@@ -95,10 +92,9 @@ sig
     and typeVar =
         TypeVariable of
         {
-            link: (*typeVarLink*) types ref,
+            link: types ref,
             equality: bool,
-            nonunifiable: bool,
-            level: int
+            level: tvLevel
         }
 
     (* A type variable can be set to one of these. TVLUnset is the initial state.  TVLCoreType is used
@@ -116,18 +112,20 @@ sig
 
         (* A type is the union of these different cases. *)
     and types = 
-        TypeVar of typeVarForm
+        TypeVar of typeVar
 
         (* Bound type variable. This is an index into a table or list of types.  The name is just for printing. *)
     |   BoundTypeVar of string * tvIndex
 
         (* Free type variable.  These are used where a type variable has been introduced explicitly.
-           They can only be generalised in a scope less than "level". *)
+           Normally they are NonGeneric and  can only be generalised in a scope less than "level".
+           Generic is used when matching a signature and ensures that the value in the matching
+           structure is fully polymorphic. *)
     |   FreeTypeVar of
         {
             name: string,
             equality: bool,
-            level: int,
+            level: tvLevel,
             uid: uniqueId
         }
 
@@ -253,6 +251,8 @@ sig
     |   StructureAt of location
     |   SequenceNo of FixedInt.int
 
+    and tvLevel = Generalisable | NotGeneralisable of int
+
     withtype labelledRec =
     {
         (* Fields actually present in this record.  If this was flexible at some
@@ -261,8 +261,6 @@ sig
         (* The names of all the fields including extra fields. *)
         fullList: labelFieldList
     }
-    
-    and typeVarForm = typeVar (* Backwards compatibility *)
 
     (* type identifiers. *)
     val isEquality:   typeId -> bool
@@ -285,19 +283,14 @@ sig
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
 
-    datatype tvLevel = Generalisable | NotGeneralisable of int
+    val tvLevel:        typeVar -> tvLevel
+    val tvEquality:     typeVar -> bool
+    val tvValue:        typeVar -> types
+    val tvSetValue:     typeVar * types -> unit
 
-    val tvLevel:        typeVarForm -> tvLevel
-    val tvEquality:     typeVarForm -> bool
-    val tvNonUnifiable: typeVarForm -> bool
-    val tvValue:        typeVarForm -> types
-    val tvSetValue:     typeVarForm * types -> unit
-
-    val sameTv: typeVarForm * typeVarForm -> bool
+    val sameTv: typeVar * typeVar -> bool
     
-    val makeTv: {value: types, level: tvLevel, equality: bool, nonunifiable: bool } -> typeVarForm
-
-    val generalisable: tvLevel (* Backwards compatibility. *)
+    val makeTv: {value: types, level: tvLevel, equality: bool } -> typeVar
 
     (* Access to values, structures etc. *)
     val makeLocal:    unit -> valAccess

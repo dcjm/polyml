@@ -503,7 +503,7 @@ struct
             let (* Generate suitable combinations of cons and nil.
                 e.g [1,2,3] becomes ::(1, ::(2, ::(3, nil))). *)
                 (* Get the base type. *)
-                val elementType = mkTypeVar (generalisable, false, false)
+                val elementType = mkTypeVar (Generalisable, false)
                 val TypeConstrSet(tsConstr, _) = listConstr
                 val listType = mkTypeConstruction ("list", tsConstr, [elementType], [DeclaredAt inBasis])
                 val _ = unifyTypes(listType, expType)

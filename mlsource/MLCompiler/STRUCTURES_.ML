@@ -975,22 +975,22 @@ struct
         |   SOME error => MatchError error
     end;
 
-    (* Check that a matching has succeeded, and check the value
-       constructors if they are datatypes. *)
-    fun checkTypeConstrs (candidSet as TypeConstrSet(candid, candidConstrs),
-                          targetSet as TypeConstrSet(target, targetConstrs),
+    (* Check that a matching has succeeded, and check the value constructors if they are datatypes. *)
+    fun checkTypeConstrs (candidSet as TypeConstrSet(candid as TypeConstrs{name=candidName, ...}, candidConstrs),
+                          targetSet as TypeConstrSet(target as TypeConstrs{name=targetName, ...}, targetConstrs),
                           targTypeMap: int -> typeId option, lex, near, lno, typeEnv, structPath) =
     let
-        val candidName : string = tcName candid;
-        val targetName : string = tcName target;
-
         (* Create non-unifiable type variables as the arguments. *)
-        val tvars = List.tabulate(tcArity candid, fn _ => mkTypeVar(NotGeneralisable 0, false, true))
+        val tvars =
+            List.tabulate(tcArity candid,
+                fn n => FreeTypeVar{ name = makeTypeVariableName(n, false), equality=false, 
+                                    level=NotGeneralisable 0, uid=makeUniqueId() })
         
         (* If we get an error in the datatype itself print the full datatype. *)
         val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
         val errorInDatatype =
             sigStructMatchMsg(lex, near, lno, structPath)(fn t => displayTypeConstrs(t, errorDepth lex, printTypeEnv))
+        (* It isn't clear what this achieves that simply comparing the IDs for the type constructors doesn't. *)
     in
         if tcArity candid <> tcArity target
         then () (* Have already given the error message. *)
@@ -3228,7 +3228,6 @@ struct
         type formalArgStruct= formalArgStruct
         type ptProperties   = ptProperties
         type structSigBind  = structSigBind
-        type typeVarForm    = typeVarForm
         type sigs           = sigs
     end
 end;

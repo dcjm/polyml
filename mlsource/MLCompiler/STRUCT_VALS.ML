@@ -123,27 +123,24 @@ struct
 
     and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
-    (* Templates for type variables.  Normal type variables are TemplPlain; the others are special
-       cases.  equality means this is an equality type.  The compiler adds equality
+
+    (* Templates for type variables.  Normal type variables are TemplPlain.
+       equality means this is an equality type.  The compiler adds equality
        functions to functions that contain an equality test and print functions to those that
        use PolyML.print.  Currently, with TypeIdCode.justForEqualityTypes set to true, only
        polymorphic functions that involve equality types will also print correctly with PolyML.print.
-       TemplFree is used for a type variable that is free in the current context.
-       It can only be used for local functions. TemplOverload is used for the functions at
-       the outer level that can be overloaded. *)
+       TemplOverload is used for the functions at the outer level that can be overloaded. *)
     and typeVarTemplate =
         TemplPlain of { equality: bool }
-    |   TemplFree of typeVar
     |   TemplOverload of string
 
     (* Variables used in unification.  These are instantiated from generic type variables. *)
     and typeVar =
         TypeVariable of
         {
-            link: (*typeVarLink*) types ref,
+            link: types ref,
             equality: bool,
-            nonunifiable: bool,
-            level: int
+            level: tvLevel
         }
 
     (* A type variable can be set to one of these. TVLUnset is the initial state.  TVLCoreType is used
@@ -162,18 +159,20 @@ struct
     (* Old type structure. *)
     (* A type is the union of these different cases. *)
     and types = 
-        TypeVar          of typeVarForm
+        TypeVar          of typeVar
 
         (* Bound type variable. This is an index into a table or list of types.  The name is just for printing. *)
     |   BoundTypeVar of string * tvIndex
 
         (* Free type variable.  These are used where a type variable has been introduced explicitly.
-           They can only be generalised in a scope less than "level". *)
+           Normally they are NonGeneric and  can only be generalised in a scope less than "level".
+           Generic is used when matching a signature and ensures that the value in the matching
+           structure is fully polymorphic. *)
     |   FreeTypeVar of
         {
             name: string,
             equality: bool,
-            level: int,
+            level: tvLevel,
             uid: uniqueId
         }
 
@@ -456,20 +455,13 @@ struct
 
     fun sameTv (TypeVariable{link=aLink, ...}, TypeVariable{link=bLink, ...})  = aLink = bLink
 
-    fun makeTv {value : types, level, equality, nonunifiable } =
-    let
-        val tvLevel = case level of Generalisable => ~1 | NotGeneralisable i => i
-    in
-        TypeVariable{ link = ref value, level= tvLevel, equality = equality, nonunifiable = nonunifiable }
-    end
+    fun makeTv {value : types, level, equality } =
+        TypeVariable{ link = ref value, level= level, equality = equality }
     
     and tvSetValue (TypeVariable{ link, ...} : typeVarForm, t : types) = link := t
     and tvValue (TypeVariable{link = ref v, ...} : typeVarForm) : types = v
-    and tvLevel (TypeVariable{level, ...} : typeVarForm) : tvLevel  = if level < 0 then Generalisable else NotGeneralisable level
+    and tvLevel (TypeVariable{level, ...} : typeVarForm) : tvLevel  = level
     and tvEquality (TypeVariable{equality, ...} : typeVarForm)     = equality
-    and tvNonUnifiable (TypeVariable{nonunifiable, ...} : typeVarForm) = nonunifiable
-    
-    val generalisable = Generalisable
 
   (* Type constructors are identifiers which take zero or more types and yield a
      type as result. Their main property is that two type constructors can be 

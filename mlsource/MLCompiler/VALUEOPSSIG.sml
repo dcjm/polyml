@@ -38,7 +38,6 @@ sig
           endLine: FixedInt.int, endPosition: FixedInt.int }
     type locationProp
     type typeId
-    type typeVarForm
     type level
     type machineWord
     type valueType
@@ -116,7 +115,6 @@ sig
         type pretty         = pretty
         type locationProp   = locationProp
         type typeId         = typeId
-        type typeVarForm    = typeVarForm
         type level          = level
         type machineWord    = machineWord
         type valueType      = valueType

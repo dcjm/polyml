@@ -32,8 +32,7 @@ sig
     type lexan;
     type pretty;
     type values;
-    type typeConstrSet;
-    type typeVarForm
+    type typeConstrSet
     type codetree;
     type signatures;
     type functors;
@@ -115,7 +114,6 @@ sig
         type typeParsetree  = typeParsetree
         type formalArgStruct= formalArgStruct
         type ptProperties   = ptProperties
-        type typeVarForm    = typeVarForm
         type sigs           = sigs
     end
 end;

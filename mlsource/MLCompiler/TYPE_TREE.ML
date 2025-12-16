@@ -90,9 +90,8 @@ struct
 
 (*************)
 
-    fun mkTypeVar (level, equality, nonunifiable) = 
-        TypeVar (makeTv {value=emptyType, level=level, equality=equality,
-                         nonunifiable=nonunifiable });
+    fun mkTypeVar (level, equality) = 
+        TypeVar (makeTv {value=emptyType, level=level, equality=equality})
 
     fun mkTypeConstruction (name, typc, args, locations) =
         TypeConstruction {name = name, constr = typc,
@@ -146,7 +145,7 @@ struct
     let
         (* Make a type variable and point this at the overload set
            so we can narrow down the overloading. *)
-        val var = mkTypeVar (generalisable, false, false)
+        val var = mkTypeVar (Generalisable, false)
         val set = OverloadSet {typeset=constrs};
     in
         tvSetValue (typesTypeVar var, set);
@@ -167,7 +166,7 @@ struct
            (* Use a type variable so that the record can be expanded.
               This also provides a model (equality etc). for any fields that
               are added later. *)
-            val var = mkTypeVar (generalisable, false, false)
+            val var = mkTypeVar (Generalisable, false)
             val () =
                 if isTypeVar var
                 then tvSetValue (typesTypeVar var, lab)
@@ -540,8 +539,8 @@ struct
                              as if we had first generalised it from the generic and then
                              unified with this instance.
                              The level is inherited from the instance since the generic
-                             will always have level = generalisable.  Nonunifiable must be false. *)
-                            typeof = mkTypeVar (tvLevel tv, tvEquality tv, false)}
+                             will always have level = generalisable. *)
+                            typeof = mkTypeVar (tvLevel tv, tvEquality tv)}
 
                 fun addToInstance([], []) = []
                 |   addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
@@ -720,13 +719,13 @@ struct
 
     end (* copyType *)
 
-    datatype generalMatch = Matched of {old: typeVarForm, new: types};
+    datatype generalMatch = Matched of {old: typeVar, new: types};
 
     (* Copies the type replacing any generalisable type variables with new type variables.
        checkTv is backwards compatibility.
        This is used to create the instance of a polymorphic type.  It should actually
        be removed and replaced with mapping. *)
-    fun generaliseTypes (atyp : types, lookupBound, checkTv: typeVarForm->types option) = 
+    fun generaliseTypes (atyp : types, lookupBound, checkTv: typeVar->types option) = 
     let
         val madeList = ref [] (* List of tyVars. *);
 
@@ -744,8 +743,7 @@ struct
                     let  (* Not on the list - make a new name *)
                         (* Make a unifiable type variable even if the original
                            is nonunifiable. *)
-                        val n : types = 
-                            mkTypeVar (generalisable, tvEquality tyVar, false)
+                        val n : types =  mkTypeVar (Generalisable, tvEquality tyVar)
                     in
                         (* Set the new variable to have the same value as the
                            existing.  That is only really needed if we have an
@@ -759,10 +757,8 @@ struct
 
         fun copyFreeTypeVar atyp = atyp
 
-        fun copyTypeVar (atyp as TypeVar tyVar) =
-            if tvLevel tyVar <> generalisable
-            then atyp (* Not generalisable. *)
-            else (* Unbound, overload set or flexible record *)
+        fun copyTypeVar (atyp as TypeVar (tyVar as TypeVariable{level=Generalisable, ...})) =
+            (* Unbound, overload set or flexible record *)
             let
                 val newTv = tvs atyp
             in
@@ -790,44 +786,41 @@ struct
        are nonunifiable. This case occurs if we have a structure without an explicit signature.
        The signature is created from the structure but it might have had overloading or flex
        records that have only be resolved later. *)
-    fun createTypeVariable unifiable (TemplPlain{ equality }) =
-            makeTv {value=emptyType, level=generalisable, equality=equality,
-                         nonunifiable=not unifiable}
-    |   createTypeVariable _ (TemplFree tv) = tv
-    |   createTypeVariable _ (TemplOverload s) =
-            makeTv {value=OverloadSet{typeset=Overloads.getOverloadTypes s}, level=generalisable, equality=false,
-                         nonunifiable=false}
+    fun createTypeVariable (TemplPlain{ equality }) =
+            makeTv {value=emptyType, level=Generalisable, equality=equality}
+    |   createTypeVariable (TemplOverload s) =
+            makeTv {value=OverloadSet{typeset=Overloads.getOverloadTypes s}, level=Generalisable, equality=false}
 
     (* Create a map for type variables.  Optimise the most common cases *)
-    fun createTypeVariableMap _ [] = (fn _ => raise InternalError "createTypeVariableMap")
+    fun createTypeVariableMap [] = (fn _ => raise InternalError "createTypeVariableMap")
 
-    |   createTypeVariableMap unifiable [a] =
+    |   createTypeVariableMap [a] =
         let
-            val tv = createTypeVariable unifiable a
+            val tv = createTypeVariable a
         in
             fn TVIndex 0 => tv | _ => raise InternalError "createTypeVariableMap"
         end
 
-    |   createTypeVariableMap unifiable [a, b] =
+    |   createTypeVariableMap [a, b] =
         let
-            val tvA = createTypeVariable unifiable a
-            and tvB = createTypeVariable unifiable b
+            val tvA = createTypeVariable a
+            and tvB = createTypeVariable b
         in
             fn TVIndex 0 => tvA | TVIndex 1 => tvB | _ => raise InternalError "createTypeVariableMap"
         end
 
-    |   createTypeVariableMap unifiable [a, b, c] =
+    |   createTypeVariableMap [a, b, c] =
         let
-            val tvA = createTypeVariable unifiable a
-            and tvB = createTypeVariable unifiable b
-            and tvC = createTypeVariable unifiable c
+            val tvA = createTypeVariable a
+            and tvB = createTypeVariable b
+            and tvC = createTypeVariable c
         in
             fn TVIndex 0 => tvA | TVIndex 1 => tvB | TVIndex 2 => tvC | _ => raise InternalError "createTypeVariableMap"
         end
 
-    |   createTypeVariableMap unifiable templs =
+    |   createTypeVariableMap templs =
         let
-            val tvs = map (createTypeVariable unifiable) templs
+            val tvs = map createTypeVariable templs
             val tvVector = Vector.fromList tvs
         in
             fn TVIndex n => Vector.sub(tvVector, n)
@@ -837,7 +830,7 @@ struct
     fun generalise(atyp, templs) =
     let
         (* Create free type variables for each template. *)
-        val freeTypeMap = TypeVar o (createTypeVariableMap true) templs
+        val freeTypeMap = TypeVar o createTypeVariableMap templs
         val (t, _) = generaliseTypes (atyp, freeTypeMap, fn _ => NONE)
         val typeVarList = List.tabulate(List.length templs, fn n => freeTypeMap(TVIndex n))
     in
@@ -1394,7 +1387,9 @@ struct
     let
         fun createFreeTypeVariables([], _) = []
         |   createFreeTypeVariables(TemplPlain{ equality } :: templs, n) =
-                FreeTypeVar{ name = makeTypeVariableName(n, equality), equality=equality, level=0, uid=makeUniqueId() } ::
+                (* The variables are created as Generalisable which means they can only be matched by Generalisable type
+                   variables in the structure. *)
+                FreeTypeVar{ name = makeTypeVariableName(n, equality), equality=equality, level=Generalisable, uid=makeUniqueId() } ::
                         createFreeTypeVariables(templs, n+1)
         |   createFreeTypeVariables _ = raise InternalError "createNonGeneralisableInstance: template"
         
@@ -1430,7 +1425,7 @@ struct
     end
 
     (* prints a block of items *)
-    fun tDisp (t : types, depth : FixedInt.int, typeVarName : typeVarForm -> string, env: printTypeEnv,
+    fun tDisp (t : types, depth : FixedInt.int, typeVarName : typeVar -> string, env: printTypeEnv,
                sigMap: (int->typeId)option) : pretty =
     let
         (* prints a block of items *)
@@ -1734,12 +1729,12 @@ struct
 
   (* Generate unique type-variable names. *)
 
-    fun varNameSequence () : typeVarForm -> string = 
+    fun varNameSequence () : typeVar -> string = 
     (* We need to ensure that every distinct type variable has a distinct name.
        Each new type variable is given a name starting at "'a" and going on
        through the alphabet. *)
     let
-        datatype names = Names of {name: string, entry: typeVarForm}
+        datatype names = Names of {name: string, entry: typeVar}
         val nameNum    = ref ~1
         val gNameList  = ref [] (* List of names *)
     in
@@ -1859,7 +1854,7 @@ struct
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
-            TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true})
+            TypeVar(makeTv{value=emptyType, level=Generalisable, equality=false})
    
     |   typeFromTypeParse(ParseTypeBad) = BadType
     
@@ -1904,7 +1899,7 @@ struct
                 case other of
                     SOME(ParseTypeFreeVar{typeVar=ref (otherTv as FreeTypeVar _), ...}) => otherTv
                 |   SOME _ => raise InternalError "setParseTypeVar: other not free"
-                |   NONE => FreeTypeVar {name=name, equality=equality, level=level, uid=makeUniqueId()}
+                |   NONE => FreeTypeVar {name=name, equality=equality, level=NotGeneralisable level, uid=makeUniqueId()}
         in
             typeVar := toSet
         end
@@ -2060,7 +2055,7 @@ struct
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref typ, ...}, ...}) = typ
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
-                TypeVar(makeTv{value=emptyType, level=generalisable, equality=false, nonunifiable=true})
+                TypeVar(makeTv{value=emptyType, level=Generalisable, equality=false})
 
         |   typeFromTypeParse(ParseTypeBad) = BadType
     in
@@ -2278,17 +2273,14 @@ struct
                                 val oldValue = tvValue tvar
                             in
                                 if tvLevel tvar <> minLev
-                                then (* If it is nonunifiable we cannot make its level larger. *)
-                                    if tvNonUnifiable tvar
-                                then cantMatch (Atype, Btype, "(Type variable is free in surrounding scope)")
-                                else
+                                then
                                 let
                                     (* Must make a new type var with the right properties *)
                                     (* This type variable may be a flexible record, in which
                                        case we have to save the record and put it on the new
                                        type variable.  We have to do this for the record itself so that new
                                        fields inherit the correct status and also for any existing fields. *)
-                                    val newTv = mkTypeVar (minLev, tvEquality tvar, false)
+                                    val newTv = mkTypeVar (minLev, tvEquality tvar)
                                 in
                                     tvSetValue (typesTypeVar newTv, oldValue);
                                     tvSetValue (tvar, newTv)
@@ -2371,31 +2363,23 @@ struct
                 if reallyTheSame
                 then () (* Don't apply the occurs check or check for non-unifiable. *)
 
-                (* If this type variable was put in explicitly then it can't be
-                   assigned to something else. (We have already checked for the
-                   type variables being the same). *)
-                else if tvNonUnifiable var
-                then cantMatch (Atype, Btype, "(Cannot unify with explicit type variable)")
-
                 else if occursCheckFails finalType false
                 then cantMatch (Atype, Btype, "(Type variable to be unified occurs in type)")
 
-                (* If we're matching a structure to a signature we can't make a non-generalisable type variable polymorphic.
-                   level=0 is used for type variables in a signature. *)
-                else if (case (tvLevel var, t) of (NotGeneralisable _, FreeTypeVar{level=0, ...}) => true | _ => false)
+                (* If we're matching a structure to a signature we can't make a non-generalisable type variable polymorphic. *)
+                else if (case (tvLevel var, t) of (NotGeneralisable _, FreeTypeVar{level=Generalisable, ...}) => true | _ => false)
                 then cantMatch (Atype, Btype, "(Type variable is free at top level)")
 
                 (* A type variable with a wider scope can't be unified with a more local explicit type variable.  *)
-                else if (case (tvLevel var, t) of (NotGeneralisable tvLevel, FreeTypeVar{level, ...}) => tvLevel < level | _ => false)
+                else if (case (tvLevel var, t) of
+                                (NotGeneralisable tvLevel, FreeTypeVar{level=NotGeneralisable level, ...}) => tvLevel < level | _ => false)
                 then cantMatch (Atype, Btype, "(Type variable is free in surrounding scope)")
 
                 else
                 let (* Occurs check succeeded. *)
-                    fun canMkEqTv (tvar : typeVarForm) : tri = 
+                    fun canMkEqTv (tvar : typeVar) : tri = 
                     (* Turn it into an equality type var. *)
                     if tvEquality tvar then Yes 
-                    (* If it is nonunifiable we cannot make it into an equality type var. *)
-                    else if tvNonUnifiable tvar then No
                     else (* Must make a new type var with the right properties *)
                     let  (* This type variable may be a flexible record or an overload set,
                             in which case we have to save the record and put it on the
@@ -2404,7 +2388,7 @@ struct
                             fields in the flexible record admit equality and ALSO that any
                             additional fields we may add by unification with other records
                             also admit equality. *)
-                        val newTv = mkTypeVar (tvLevel tvar, true, false)
+                        val newTv = mkTypeVar (tvLevel tvar, true)
                         val oldValue = tvValue tvar
                     in
                         tvSetValue (tvar, newTv);
@@ -2498,12 +2482,6 @@ struct
                     if sameTv (typeAVar, typeBVar) (* same type variable? *)
                     then ()
                     else (* no - assign one to the other *)
-                        if tvNonUnifiable typeAVar
-                        (* If we have a nonunifiable type variable we want to assign
-                           the typeB to  it. If the typeB is nonunifiable as well we
-                           will get an error message. *)
-                    then assign (typeBVar, tA)
-                    else
                     let 
                         (* If they are both flexible records we first set the typeB
                            to the union of the records, and then set the typeA to
@@ -2565,7 +2543,7 @@ struct
                     (* Be careful if this is a non-unifiable type variable being matched to
                        the special case of the identity type-construction. *)
                 (
-                    if tvNonUnifiable typeAVar orelse (case tvValue typeAVar of OverloadSet _ => true | _ => false)
+                    if (case tvValue typeAVar of OverloadSet _ => true | _ => false)
                     then
                     (
                         case tB of
@@ -2579,7 +2557,7 @@ struct
             |   (_, TypeVar typeBVar) => (* and typeA is not *)
                 (
                     (* We have to check for the special case of the identity type-construction. *)
-                    if tvNonUnifiable typeBVar orelse (case tvValue typeBVar of OverloadSet _ => true | _ => false)
+                    if (case tvValue typeBVar of OverloadSet _ => true | _ => false)
                     then
                         (
                         case tA of
@@ -3085,7 +3063,7 @@ struct
                     )
             )
 
-        |   typ as FreeTypeVar{name, equality, level=fLevel, uid, ...} =>
+        |   typ as FreeTypeVar{name, equality, level=NotGeneralisable fLevel, uid, ...} =>
                 (* If this is defined at an outer level it's not generalisable here. *)
                 if fLevel < level then (typ, templates)
                 else
@@ -3100,8 +3078,9 @@ struct
                             (BoundTypeVar(name, newIndex), TemplPlain { equality=equality } :: templates)
                         end
                     |   SOME(_, index) => (BoundTypeVar(name, index), templates)
-                )            
-
+                )  
+         
+        |   FreeTypeVar{level=Generalisable, ...} => raise InternalError "createGeneric: generalisable free"
         |   BoundTypeVar _ => raise InternalError "createGeneric: already bound"
         |   BoundFlexRecord _ => raise InternalError "createGeneric: already bound"
 
@@ -3159,14 +3138,11 @@ struct
             val t = eventual typ
         in
             case t of
-                TypeVar tvar =>
-                    (* Explicit type variables at outer levels are allowed but not at this level. *)
-                    if v then true
-                    else if (case tvLevel tvar of NotGeneralisable v => v < level | Generalisable => false) then false
-                    else tvNonUnifiable tvar
+                TypeVar _ => v
 
                 (* Explicit type variables at outer levels are allowed but not at this level. *)
-            |   FreeTypeVar{level=fLev, ...} => v orelse fLev >= level
+            |   FreeTypeVar{level=NotGeneralisable fLev, ...} => v orelse fLev >= level
+            |   FreeTypeVar{level=Generalisable, ...} => v (* Shouldn't occur *) 
 
                 (* If this is a type function we mustn't check type variables that aren't actually used. *)
             |   TypeConstruction {args, constr=TypeConstrs{identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, ...} =>

@@ -1823,13 +1823,13 @@ struct
                     TYPETREE.display(ty, depth, makeTypeEnv nameSpace)
                 and exportedDisplayValues(valu, depth, nameSpace: nameSpace option) =
                         displayValues(valu, depth, makeTypeEnv nameSpace)
-                and propsForValue (Value {locations, typeOf=ValueType(typeOf, templates), ...}) = PTtype typeOf :: mapLocationProps locations
+                and propsForValue (Value {locations, typeOf=ValueType(typeOf, _), ...}) = PTtype typeOf :: mapLocationProps locations
 
                 fun isException (Value{class = Exception, ...}) = true
                 |   isException _ = false
 
                 fun valName (Value{name, ...}) = name
-                fun valTypeOf (Value{typeOf=ValueType(typeOf, templates), ...}) = typeOf
+                fun valTypeOf (Value{typeOf=ValueType(typeOf, _), ...}) = typeOf
 
                 fun isConstructor (Value{class=Constructor _, ...}) = true
                 |   isConstructor (Value{class=Exception, ...})     = true

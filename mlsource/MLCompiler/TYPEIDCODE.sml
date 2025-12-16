@@ -120,7 +120,7 @@ struct
     struct
         (* Entries are either type var maps or "stoppers". *)
         datatype typeVarMapEntry =
-            TypeVarFormEntry of (typeVarForm * (level->codetree)) list
+            TypeVarFormEntry of (typeVar * (level->codetree)) list
         |   TypeBoundVarEntry of tvIndex -> (level->codetree) option
         |   TypeConstrListEntry of typeConstrs list
 
@@ -146,7 +146,7 @@ struct
         |   getCachedTypeValues _ = raise Misc.InternalError "getCachedTypeValues"
 
         (* Extend a type variable environment with a new map of type variables to load functions. *)
-        fun extendTypeVarMap (tvMap: (typeVarForm * (level->codetree)) list, mkAddr, level, typeVarMap) =
+        fun extendTypeVarMap (tvMap: (typeVar * (level->codetree)) list, mkAddr, level, typeVarMap) =
             {entryType = TypeVarFormEntry tvMap, cache = ref [], mkAddr=mkAddr, level=level} :: typeVarMap
 
         fun extendBoundTypeVarMap (tvMap: tvIndex->(level->codetree) option, mkAddr, level, typeVarMap) =
@@ -705,7 +705,7 @@ struct
             val nTypeVars = tcArity tyConstr
             val argTypes =
                 List.tabulate(tcArity tyConstr,
-                    fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false, equality=false})
+                    fn _ => makeTv{value=EmptyType, level=Generalisable, equality=false})
             val baseEqLevelP1 = newLevel baseEqLevel
 
             (* Argument type variables. *)

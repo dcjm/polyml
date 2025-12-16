@@ -47,15 +47,13 @@ sig
     type tvIndex
     type typeVarTemplate
     type argumentType
-    
-    type typeVarForm = typeVar
 
     type printTypeEnv =
         { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
           lookupStruct: string -> (structVals * (int->typeId) option) option}
     val emptyTypeEnv: printTypeEnv
 
-    val mkTypeVar:          tvLevel * bool * bool -> types
+    val mkTypeVar:          tvLevel * bool -> types
     val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
     val mkProductType:      types list -> types;
     val mkFunctionType:     types * types -> types;
@@ -175,6 +173,9 @@ sig
     val isBadType:  types -> bool
 
     val sameTypeVar : types * types -> bool;
+
+    (* Create a name for a type variable 'a, 'b or ''a, ''b etc. *)
+    val makeTypeVariableName: int * bool -> string
 
     (* If this is simply giving a new name to a type constructor returns the
        type identifier of the constructor that is being rebound. *)
