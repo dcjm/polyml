@@ -2380,9 +2380,14 @@ struct
                 else if occursCheckFails finalType false
                 then cantMatch (Atype, Btype, "(Type variable to be unified occurs in type)")
 
-                (* If we're matching a structure to a signature we can't make non-generalisable type variables polymorphic. *)
+                (* If we're matching a structure to a signature we can't make a non-generalisable type variable polymorphic.
+                   level=0 is used for type variables in a signature. *)
                 else if (case (tvLevel var, t) of (NotGeneralisable _, FreeTypeVar{level=0, ...}) => true | _ => false)
                 then cantMatch (Atype, Btype, "(Type variable is free at top level)")
+
+                (* A type variable with a wider scope can't be unified with a more local explicit type variable.  *)
+                else if (case (tvLevel var, t) of (NotGeneralisable tvLevel, FreeTypeVar{level, ...}) => tvLevel < level | _ => false)
+                then cantMatch (Atype, Btype, "(Type variable is free in surrounding scope)")
 
                 else
                 let (* Occurs check succeeded. *)
