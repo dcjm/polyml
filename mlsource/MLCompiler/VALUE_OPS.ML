@@ -673,9 +673,9 @@ struct
        overloading has not resolved to a single type it finds the preferred
        type if possible (i.e. int for most overloadings, but possibly real,
        word, string or char for conversion functions.) *)
-    fun getOverloadInstance(name, instance, isConv): codetree * string =
+    fun getOverloadInstance(name, instance): codetree * string =
     let
-        val constr = typeConstrFromOverload(instance, isConv)
+        val constr = typeConstrFromOverload instance
         val tcName = case constr of TypeConstrs {name,...}  => name
         open Overloads
     in
@@ -1059,7 +1059,7 @@ struct
                         case instance of
                             [value] => value
                         |   _ => raise InternalError "Overload TypeDep"
-                    val (code, _) = getOverloadInstance(valName, argType, false)
+                    val (code, _) = getOverloadInstance(valName, argType)
                 in
                     mkEval (code, [argument])
                 end
@@ -1204,7 +1204,7 @@ struct
         let
             fun valName (Value{name, ...}) = name
             val (conv, name) =
-                 getOverloadInstance(valName converter, instance, true)
+                 getOverloadInstance(valName converter, instance)
         in
             SOME(RunCall.unsafeCast(valOf(evalue conv)) literal)
                 handle Match => NONE (* Overload error *)

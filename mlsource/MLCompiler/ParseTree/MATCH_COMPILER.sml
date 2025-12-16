@@ -547,7 +547,7 @@ struct
                    for this type to plug into the code.  Literals are overloaded
                    so this may require first resolving the overload to the
                    preferred type. *)
-                val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload(expType, true)
+                val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload expType
                 val equality =
                     equalityForType(mkTypeConstruction(tcName, constr, [], []), level)
                 val litValue: machineWord option =

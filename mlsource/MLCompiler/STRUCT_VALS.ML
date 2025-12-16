@@ -153,6 +153,9 @@ struct
     |   TVLLink of typeVar
     |   TVLOverload of typeConstrs list
 
+    (* Reference chain.  Any entry may be chained onto this. *)
+    and 'a refChain = ChainRef of 'a refChain ref | ChainEnd of 'a
+
     (* Index for type variables.  This is simply to make the use clearer. *)
     and tvIndex = TVIndex of int
 
@@ -197,10 +200,12 @@ struct
            variable stands in for the unspecified fields. *)
     |   BoundFlexRecord of tvIndex * labelledRec
 
-    |   OverloadSet   of
-        {
-            typeset: typeConstrs list
-        }
+        (* An overload set.  This is constructed from a TemplOverload template along with the current
+           set of overloads for the identifier.  e.g. for "+" that might be FixedInt.int, LargeInt.int,
+           Word.word etc.  As unification proceeds the set may reduce to a single type.
+           These are chained so that if two sets are unified they become linked and subsequent
+           use of either affects both. *)
+    |   OverloadSetVar of typeConstrs list refChain ref
 
     |   BadType
 

@@ -113,7 +113,6 @@ struct
 
     (* Helper functions copied from STRUCT_VALS.  Not exported.   These should
        generally be replaced by the direct pattern matching. *)
-    fun tcName (TypeConstrs {name,...})       = name
 
     fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
@@ -122,6 +121,13 @@ struct
     fun makeTypeConstructor (name, uid, locations) = TypeConstrs { name = name, identifier = uid, locations = locations }
 
     fun tsConstr(TypeConstrSet(ts, _)) = ts
+
+    (* Return the last reference in a chain.  It should always have at least *)
+    fun followRefChainToRef(v as ref(ChainEnd final)) = (v, final)
+    |   followRefChainToRef(ref(ChainRef c)) = followRefChainToRef c
+    
+    fun followRefChainToEnd(ChainRef(ref v)) = followRefChainToEnd v
+    |   followRefChainToEnd(ChainEnd e) = e
 
     local
         fun follow (FlexibleList(ref r)) = follow r
@@ -134,23 +140,7 @@ struct
     end
 
 
-  fun mkFunctionType (arg, result) = 
-      FunctionType {arg = arg, result = result};
-
-  fun mkOverloadSet [constr] =
-    (* If there is just a single constructor in the set we make
-       a type construction from it. *)
-        mkTypeConstruction(tcName constr, constr, nil, [])
-   | mkOverloadSet constrs = 
-    let
-        (* Make a type variable and point this at the overload set
-           so we can narrow down the overloading. *)
-        val var = mkTypeVar (Generalisable, false)
-        val set = OverloadSet {typeset=constrs};
-    in
-        tvSetValue (typesTypeVar var, set);
-        var
-    end
+    fun mkFunctionType (arg, result) = FunctionType {arg = arg, result = result};
 
     fun mkLabelled (l, frozen) = 
     let
@@ -478,13 +468,14 @@ struct
         val overloadTable: (typeConstrs * codetree) list hash =
             hashMake(nOverloads*3 div 2) (* Add some extra to avoid having to extend the table. *)
 
-        (* Add to the overload list.  Since this is intended only for the bootstrap there's
-           no need to remove duplicates. *)
+        (* Add to the overload list, removing any duplicates.  During the bootstrap process the overloads
+           for literal converters are replaced. *)
         fun addOverload (n, cons, code) =
         let
             val existing = getOpt(hashSub(overloadTable, n), [])
+            val filtered = List.filter(fn (c, _) => not(isSameTypeIdAs(c, cons))) existing
         in
-            hashSet(overloadTable, n, (cons, code) :: existing)
+            hashSet(overloadTable, n, (cons, code) :: filtered)
         end
 
         (* Return all the overloads for a particular identifier.  This is used to populate
@@ -563,8 +554,6 @@ struct
                 tvSetValue(tv, newRecord);
                 if recordIsFrozen r then newRecord else t
             end
- 
-        |   OverloadSet _ => t (* Return the set of types. *)
 
         |   _ => newVal (* Return the type it is bound to *)
     end
@@ -602,17 +591,39 @@ struct
          
             |   EmptyType => res
           
-            |   OverloadSet _ => res
+            |   OverloadSetVar _ => res
         end
     in
         foldT
     end
+
     (* See if the types are the same. This is a bit of a fudge, but saves carrying
        around a flag saying whether the structures were copied. This is only an
        optimisation. If the values are different it will not go wrong. *)
     val identical : types * types -> bool = PolyML.pointerEq
     and identicalConstr : typeConstrs * typeConstrs -> bool = PolyML.pointerEq
     and identicalList : 'a list * 'a list -> bool = PolyML.pointerEq
+
+    (* Test to see is a type constructor is in an overload set. *)
+    fun isInSet(tcons, tyConlist) = List.exists(fn h => isSameTypeIdAs(tcons, h)) tyConlist
+
+    val prefInt = ref fixedIntConstr
+
+    (* Returns the preferred overload if there is one. *)
+    fun preferredOverload typeset =
+        if isInSet(!prefInt, typeset)
+        then SOME(!prefInt)
+        else if isInSet(realConstr, typeset)
+        then SOME realConstr
+        else if isInSet(wordConstr, typeset)
+        then SOME wordConstr
+        else if isInSet(charConstr, typeset)
+        then SOME charConstr
+        else if isInSet(stringConstr, typeset)
+        then SOME stringConstr
+        else NONE
+
+    fun setPreferredInt c = prefInt := c
 
     (* Copy a type, avoiding copying type structures unnecessarily.
        Used to make new type variables for all distinct type variables when
@@ -645,9 +656,8 @@ struct
         val atyp = eventual at
     in
         case atyp of
-            TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
-                copyTypeVar atyp
-    
+            TypeVar _ => copyTypeVar atyp (* Unbound type variable or flexible record. *)
+
         |   BoundTypeVar(_, index) =>
                 (* Instantiate the type variable if there is a map.  Currently this can also be called when
                    processing signatures so allow for the look-up to fail and return the original. *)
@@ -658,12 +668,11 @@ struct
         |   TypeConstruction {constr, args, locations, ...} => 
             let
                 val copiedArgs   = copyList args;
-                val copiedConstr = copyTypeConstr constr;
+                val copiedConstr  as TypeConstrs {name=copiedName,...} = copyTypeConstr constr;
                 (* Use the name from the copied constructor.  This will normally
                    be the same as the original EXCEPT in the case where we are
                    using copyType to generate copies of the value constructors of
                    replicated datatypes. *)
-                val copiedName = tcName copiedConstr
             in
                 if identicalList (copiedArgs, args) andalso identicalConstr (copiedConstr, constr)
                 then atyp 
@@ -709,13 +718,17 @@ struct
                 |   NONE => BoundFlexRecord(index, {recList=copyRecordList recList, fullList=fullList})
             )
 
+            (* Overload.  Return the type constructor if it's been resolved. *)
+        |   typ as OverloadSetVar(ref c) =>
+            (
+                case followRefChainToEnd c of
+                    [tcons as TypeConstrs{name, ...}] => mkTypeConstruction (name, tcons,[], [])
+                |   _ => typ
+            )
+
         |   EmptyType => EmptyType
 
-        |   BadType =>
-                BadType
-        
-        |   OverloadSet _ =>
-                raise InternalError "copyType: OverloadSet found"
+        |   BadType => BadType
 
     end (* copyType *)
 
@@ -787,9 +800,8 @@ struct
        The signature is created from the structure but it might have had overloading or flex
        records that have only be resolved later. *)
     fun createTypeVariable (TemplPlain{ equality }) =
-            makeTv {value=emptyType, level=Generalisable, equality=equality}
-    |   createTypeVariable (TemplOverload s) =
-            makeTv {value=OverloadSet{typeset=Overloads.getOverloadTypes s}, level=Generalisable, equality=false}
+            TypeVar(makeTv {value=emptyType, level=Generalisable, equality=equality})
+    |   createTypeVariable (TemplOverload s) = OverloadSetVar(ref(ChainEnd(Overloads.getOverloadTypes s)))
 
     (* Create a map for type variables.  Optimise the most common cases *)
     fun createTypeVariableMap [] = (fn _ => raise InternalError "createTypeVariableMap")
@@ -830,7 +842,7 @@ struct
     fun generalise(atyp, templs) =
     let
         (* Create free type variables for each template. *)
-        val freeTypeMap = TypeVar o createTypeVariableMap templs
+        val freeTypeMap = createTypeVariableMap templs
         val (t, _) = generaliseTypes (atyp, freeTypeMap, fn _ => NONE)
         val typeVarList = List.tabulate(List.length templs, fn n => freeTypeMap(TVIndex n))
     in
@@ -891,17 +903,18 @@ struct
              | Yes   => eqForList (xs, soFar);
     in
         case eventual ty of
-            TypeVar tyVar => (* The type variable may point to a flexible record or
-                          an overload set or it may be the end of the chain.
-                          If this is a labelled record we have to make sure that
-                          any fields we add also admit equality.
-                          lookupTypeVar makes the type variable an equality type
-                          so that any new fields are checked for equality but
-                          we also have to call "equality" to check the existing
-                          fields. *)
+            TypeVar tyVar =>
+            (* The type variable may point to a flexible record or
+                  it may be the end of the chain.
+                  If this is a labelled record we have to make sure that
+                  any fields we add also admit equality.
+                  lookupTypeVar makes the type variable an equality type
+                  so that any new fields are checked for equality but
+                  we also have to call "equality" to check the existing
+                  fields. *)
                 if tvEquality tyVar then Yes
                 else
-                    (
+                (
                     case tvValue tyVar of
                         lab as LabelledType _ =>
                             (
@@ -910,7 +923,7 @@ struct
                               | _ => computeEquality (lab, lookupTypId, lookupTypeVar, lookupBTV)
                             )
                      | _ => lookupTypeVar tyVar
-                    )
+                 )
 
         |   BoundTypeVar(_, index) => lookupBTV index
         
@@ -962,15 +975,21 @@ struct
          
         |   LabelledType {recList, ...} => (* Record equality if all subtypes are (ignore frozen!) *)
                 (* TODO: Avoid copying the list? *)
-                eqForList (map (fn{typeof, ...}=>typeof) recList, Yes)
+                eqForList (map (fn{typeof, ...} => typeof) recList, Yes)
 
         |   BoundFlexRecord _ => raise InternalError "computeEquality: BoundFlexRecord"
 
-
-        |   OverloadSet _ =>
-                (* This should not happen because all overload sets should be pointed
-                   to by type variables and so should be handled in the TypeVar case. *)
-                raise InternalError "equality - Overloadset found"
+        |   OverloadSetVar rchain =>
+            (* This will only occur when testing equality in unification. Reduce the list
+               to those that admit equality if possible. *)
+            let
+                val (final, typeset) = followRefChainToRef rchain
+                fun tcEquality(TypeConstrs{identifier, ...}) = isEquality identifier
+            in
+                case List.filter tcEquality typeset of
+                    [] => No (* And leave it unchanged so it can be reported as an error. *)
+                |   newset => ( final := ChainEnd newset; Yes )
+            end
 
         |   BadType => No
 
@@ -1230,29 +1249,6 @@ struct
     | isProductType _ = false;
 
 
-    (* Test to see is a type constructor is in an overload set. *)
-    fun isInSet(tcons, (H::T): typeConstrs list) =
-            isSameTypeIdAs (tcons, H) orelse isInSet(tcons, T)
-    |   isInSet(_, []: typeConstrs list) = false
-
-    val prefInt = ref fixedIntConstr
-
-    (* Returns the preferred overload if there is one. *)
-    fun preferredOverload typeset =
-        if isInSet(!prefInt, typeset)
-        then SOME(!prefInt)
-        else if isInSet(realConstr, typeset)
-        then SOME realConstr
-        else if isInSet(wordConstr, typeset)
-        then SOME wordConstr
-        else if isInSet(charConstr, typeset)
-        then SOME charConstr
-        else if isInSet(stringConstr, typeset)
-        then SOME stringConstr
-        else NONE
-
-    fun setPreferredInt c = prefInt := c
-
     fun equalTypeIds(x, y) =
     let
         (* True if two types are equal. *)
@@ -1295,7 +1291,7 @@ struct
 
     (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
        function copies that as well. Does not copy value constructors. *)
-    fun copyTypeConstrWithCache (tcon as TypeConstrs{identifier=tcId, locations, ...}, typeMap, _, mungeName, cache) =
+    fun copyTypeConstrWithCache (tcon as TypeConstrs{identifier=tcId, locations, name=tcName, ...}, typeMap, _, mungeName, cache) =
         case tcId of
             TypeId{idKind = TypeFn{arity, resType=equiv, ...}, description, access, ...} =>
             let
@@ -1307,7 +1303,7 @@ struct
                 if identical (equiv, copiedEquiv)
                 then tcon (* Type is identical and we don't want to change the name. *)
                 else (* How do we find a type function? *)
-                    makeTypeConstructor (mungeName(tcName tcon),
+                    makeTypeConstructor (mungeName tcName,
                         makeGeneralTypeFunction(arity, copiedEquiv, description, access),
                             locations)
             end
@@ -1322,7 +1318,7 @@ struct
                     )
                 |   SOME newId =>
                     let
-                        val name = #second(splitString (tcName tcon))
+                        val name = #second(splitString tcName)
                         (* We must only match here if they're really the same. *)
                         fun cacheMatch (TypeConstrs{identifier, name=tcName, ...}) =
                             equalTypeIds(identifier, newId)
@@ -1343,7 +1339,7 @@ struct
                                We will return SOME newId but we don't have a
                                cache so return NONE for List.find. *)
                             let
-                                val newName = mungeName(tcName tcon)
+                                val newName = mungeName tcName
                             in
                                 (*print(concat[tcName tcon, " not cached\n"]);*)
                                 makeTypeConstructor(newName, newId, locations)
@@ -1687,36 +1683,39 @@ struct
 
             |   BoundFlexRecord(_, reclist) => dispP (LabelledType reclist, depth)
 
-            |   OverloadSet {typeset = []} => PrettyString "no type"
-
-            |   OverloadSet {typeset = tconslist} =>
+            |   OverloadSetVar(ref chain) =>
                 (* This typically arises when printing error messages in the second pass because
                    the third pass will select a single type e.g. int where possible.  To
                    simplify the messages select a single type if possible. *)
                 (
-                    case preferredOverload tconslist of
-                        SOME tcons => dispP(mkTypeConstruction (tcName tcons, tcons,[], []), depth)
-                    |   NONE =>
-                      (* Just print the type constructors separated by / *)
-                    let
-                        fun constrLocation(TypeConstrs{locations, ...}) =
-                        (
-                            case List.find(fn DeclaredAt _ => true | _ => false) locations of
-                                SOME(DeclaredAt loc) => [ContextLocation loc]
-                            |   _ => []
-                        )
-                        (* Type constructor with context. *)
-                        fun tconsItem tcons =
-                            PrettyBlock(0, false, constrLocation tcons, [PrettyString(tcName tcons)])
+                    case followRefChainToEnd chain of
+                        [] => PrettyString "no type"
+                    |   tconslist => 
+                    (
+                        case preferredOverload tconslist of
+                            SOME(tcons as TypeConstrs {name,...})  => dispP(mkTypeConstruction (name, tcons,[], []), depth)
+                        |   NONE =>
+                          (* Just print the type constructors separated by / *)
+                        let
+                            fun constrLocation(TypeConstrs{locations, ...}) =
+                            (
+                                case List.find(fn DeclaredAt _ => true | _ => false) locations of
+                                    SOME(DeclaredAt loc) => [ContextLocation loc]
+                                |   _ => []
+                            )
+                            (* Type constructor with context. *)
+                            fun tconsItem(tcons as TypeConstrs {name,...}) =
+                                PrettyBlock(0, false, constrLocation tcons, [PrettyString name])
 
-                        fun printTCcons [] = []
-                          | printTCcons [tcons] = [tconsItem tcons]
-                          | printTCcons (tcons::rest) =
-                                tconsItem tcons :: PrettyBreak (0, 0) ::
-                                PrettyString "/" :: printTCcons rest
-                    in
-                        PrettyBlock (0, false, [], printTCcons tconslist)
-                    end
+                            fun printTCcons [] = []
+                              | printTCcons [tcons] = [tconsItem tcons]
+                              | printTCcons (tcons::rest) =
+                                    tconsItem tcons :: PrettyBreak (0, 0) ::
+                                    PrettyString "/" :: printTCcons rest
+                        in
+                            PrettyBlock (0, false, [], printTCcons tconslist)
+                        end
+                    )
                 )
 
             |   EmptyType => PrettyString "no type"
@@ -2097,12 +2096,12 @@ struct
     let
         fun checkTypes (typ: types) (ok: bool) : bool =
         case typ of
-            TypeConstruction {constr as TypeConstrs
-                {identifier=TypeId{access=Local{addr, ...}, ...}, ...}, ...} =>
+            TypeConstruction {constr=TypeConstrs
+                {identifier=TypeId{access=Local{addr, ...}, ...}, name, ...}, ...} =>
                 if ok andalso !addr < 0
                 then 
                 (
-                    errorFn("Type of expression contains local datatype (" ^ tcName constr
+                    errorFn("Type of expression contains local datatype (" ^ name
                             ^") outside its definition.");
                     false
                 )
@@ -2352,12 +2351,6 @@ struct
                     LabelledType _ =>
                     (* Flexible record. Check that the records are compatible. *)
                         match (varVal, finalType)
-                |   OverloadSet _ =>
-                     (* OverloadSet.  Check that the sets match.  This is only in the
-                        case where t is something other than an overload set since
-                        we remove the overload set from a variable when unifying two
-                        sets. *)
-                        match (varVal, finalType)
                 |   _ => ();
  
                 if reallyTheSame
@@ -2381,7 +2374,7 @@ struct
                     (* Turn it into an equality type var. *)
                     if tvEquality tvar then Yes 
                     else (* Must make a new type var with the right properties *)
-                    let  (* This type variable may be a flexible record or an overload set,
+                    let  (* This type variable may be a flexible record
                             in which case we have to save the record and put it on the
                             new type variable.
                             We have to do both because we have to ensure that the existing
@@ -2392,38 +2385,9 @@ struct
                         val oldValue = tvValue tvar
                     in
                         tvSetValue (tvar, newTv);
-                        (* If this is an overloaded type we must remove any types that
-                           don't admit equality. *)
-                        case oldValue of
-                            OverloadSet{typeset} =>
-                            let
-                                fun tcEquality(TypeConstrs{identifier, ...}) = isEquality identifier
-                            (* Remove any types which do not admit equality. *)
-                               fun filter [] = []
-                               |    filter (h::t) =
-                                        if tcEquality h then h :: filter t else filter t
-                            in
-                                case filter typeset of
-                                    [] => No
-                                |   [constr] =>
-                                    ( (* Turn a singleton into a type construction. *)
-                                        tvSetValue (typesTypeVar newTv,
-                                            mkTypeConstruction(tcName constr, constr, nil, []));
-                                        Yes
-                                    )
-                                |   newset =>
-                                    (
-                                        tvSetValue (typesTypeVar newTv, OverloadSet{typeset=newset});
-                                        Yes
-                                    )
-                            end
-                        |   _ => (* Labelled record or unbound variable. *)
-                            (
-                                tvSetValue (typesTypeVar newTv, oldValue);
-                                Yes
-                            )
+                        tvSetValue (typesTypeVar newTv, oldValue);
+                        Yes
                     end
-      
                 in
                     (* If we are unifying a type with an equality type variable
                        we must ensure that equality is allowed for that type. This
@@ -2502,33 +2466,6 @@ struct
                                       unifyRecords (recA, recB, typeAVal, typBVal));
                                 assign (typeAVar, tB)
                             )
-                        |   (OverloadSet{typeset=setA}, OverloadSet{typeset=setB}) =>
-                            let
-                                (* The lists aren't ordered so we just have to go
-                                   through by hand. *)
-                                fun intersect(_, []) = []
-                                |   intersect(a, H::T) =
-                                        if isInSet(H, a) then H::intersect(a, T) else intersect(a, T)
-                                val newSet = intersect(setA, setB)
-                            in
-                                case newSet of
-                                    [] => cantMatch (Atype, Btype, "(Incompatible overloadings)")
-                                |   _ =>
-                                    (
-                                        tvSetValue (typeBVar, emptyType);
-                                        tvSetValue (typeAVar, emptyType);
-                                        (* I've changed this from OverloadSet{typeset=newset}
-                                         to use mkOverloadSet.  The main reason was that it
-                                         fixed a bug which resulted from a violation of the
-                                         assumption that "equality" would not be passed an
-                                         overload set except when pointed to by a type variable.
-                                         It also removed the need for a separate test for
-                                         singleton sets since mkOverloadSet deals with them.
-                                         DCJM 1/9/00. *)
-                                        assign (typeBVar, mkOverloadSet newSet);
-                                        assign (typeAVar, tB)
-                                    )
-                            end
                         |   (EmptyType, _) => (* A is not a record or an overload set. *)
                                 assign (typeAVar, tB)
                         |   (_, EmptyType) => (* A is a record but B isn't *)
@@ -2538,51 +2475,9 @@ struct
                     end
                 end
 
-            |   (TypeVar typeAVar, _) =>
-                    (* typeB is not a type variable so set typeA to typeB.*)
-                    (* Be careful if this is a non-unifiable type variable being matched to
-                       the special case of the identity type-construction. *)
-                (
-                    if (case tvValue typeAVar of OverloadSet _ => true | _ => false)
-                    then
-                    (
-                        case tB of
-                            TypeConstruction {constr as TypeConstrs{identifier=TypeId{idKind = TypeFn _, ...}, ...}, args, ...} =>
-                                match(tA, eventual (makeEquivalent (constr, args)))
-                        |  _ => assign (typeAVar, tB)
-                    )
-                    else assign (typeAVar, tB)
-                )
-     
-            |   (_, TypeVar typeBVar) => (* and typeA is not *)
-                (
-                    (* We have to check for the special case of the identity type-construction. *)
-                    if (case tvValue typeBVar of OverloadSet _ => true | _ => false)
-                    then
-                        (
-                        case tA of
-                            TypeConstruction {constr as TypeConstrs{identifier=TypeId{idKind = TypeFn _, ...}, ...}, args, ...} =>
-                                match(eventual (makeEquivalent (constr, args)), tB)
-                        |  _ =>
-                            (
-                            case tB of
-                                TypeVar tv =>
-                                  (* This will fail if we are matching a signature because the
-                                     typeB will be non-unifiable. *)
-                                    assign (tv, tA) (* set typeB to typeA *)
-                              | typB => match (tA, typB)
-                            )
-                        )
-                    else
-                        (
-                        case tB of
-                            TypeVar tv =>
-                              (* This will fail if we are matching a signature because the
-                                 typeB will be non-unifiable. *)
-                                assign (tv, tA) (* set typeB to typeA *)
-                          | typB => match (tA, typB)
-                        )
-                )
+            |   (TypeVar typeAVar, _) => assign (typeAVar, tB)
+
+            |   (_, TypeVar typeBVar) => (* and typeA is not *) assign (typeBVar, tA) (* set typeB to typeA *)
 
             |   (BoundTypeVar _, _) => raise InternalError "match: bound variable in type"
 
@@ -2641,48 +2536,79 @@ struct
                     else matchError(TypeConstructorError(tA, tB, tACons, tBCons))
                 )
 
-            |   (OverloadSet {typeset}, TypeConstruction {constr=tBCons, args=tBargs, ...}) =>
+            |   (OverloadSetVar chain, TypeConstruction {constr=tBCons, args=tBargs, ...}) =>
                 (* The candidate is an overloaded type and the target is a type
                    construction. *)
-                (
+                let
+                    val (typeset, currentSet) = followRefChainToRef chain
+                in
                     (* See if the target type is among those in the overload set. *)
-                        if null tBargs (* Must be a nullary type constructor. *)
-                            andalso isInSet(tBCons, typeset)
-                    then () (* ok. *)
+                    if null tBargs (* Must be a nullary type constructor. *)
+                            andalso isInSet(tBCons, currentSet)
+                    then typeset := ChainEnd[tBCons] (* ok. *)
                         (* Overload sets arise primarily with literals such as "1" and it's
                            most likely that the error is a mismatch between int and another
                            type rather than that the user assumed that the literal was
                            overloaded on a type it actually wasn't. *)
                     else
-                    case preferredOverload typeset of
-                        NONE => cantMatch (tA, tB, "(Different type constructors)")
-                    |   SOME prefType =>
-                        matchError(
-                            TypeConstructorError(
-                                mkTypeConstruction (tcName prefType, prefType,[], []),
-                                tB, prefType, tBCons))
-                )
+                    (
+                        case preferredOverload currentSet of
+                            NONE => cantMatch (tA, tB, "(Different type constructors)")
+                        |   SOME(prefType as TypeConstrs {name,...}) =>
+                            matchError(
+                                TypeConstructorError(
+                                    mkTypeConstruction (name, prefType,[], []),
+                                    tB, prefType, tBCons))
+                    )
+                end
 
-            |   (TypeConstruction {constr=tACons, args=tAargs, ...}, OverloadSet {typeset}) =>
-                (
+            |   (TypeConstruction {constr=tACons, args=tAargs, ...}, OverloadSetVar chain) =>
+                let
+                    val (typeset, currentSet) = followRefChainToRef chain
+                in
                     (* We should never find an overload set as the target for a signature
                        match but it is perfectly possible for tB to be an overload set
                        when unifying two types.  *)
-                    if null tAargs andalso isInSet(tACons, typeset)
-                    then () (* ok. *)
+                    if null tAargs andalso isInSet(tACons, currentSet)
+                    then typeset := ChainEnd[tACons] (* ok. *)
                     else
-                    case preferredOverload typeset of
-                        NONE => cantMatch (tA, tB, "(Different type constructors)")
-                    |   SOME prefType =>
-                        matchError(
-                            TypeConstructorError(
-                                tA, mkTypeConstruction (tcName prefType, prefType,[], []),
-                                tACons, prefType))
-                )
+                    (
+                        case preferredOverload currentSet of
+                            NONE => cantMatch (tA, tB, "(Different type constructors)")
+                        |   SOME(prefType as TypeConstrs {name,...}) =>
+                            matchError(
+                                TypeConstructorError(
+                                    tA, mkTypeConstruction (name, prefType,[], []),
+                                    tACons, prefType))
+                    )
+                end
 
-            |   (OverloadSet _ , OverloadSet _) => raise InternalError "Unification: OverloadSet/OverloadSet"
-                (* (OverloadSet , OverloadSet) should not occur because that should be
-                 handled in the (TypeVar, TypeVar) case. *)
+            |   (OverloadSetVar chainA, OverloadSetVar chainB) =>
+                let
+                    val (finalA, currentSetA) = followRefChainToRef chainA
+                    val (finalB, currentSetB) = followRefChainToRef chainB
+                in
+                    if finalA = finalB (* Same reference? *)
+                    then () (* If they're already linked don't do anything. *)
+                    else
+                    let
+                        (* The lists aren't ordered so we just have to go
+                           through by hand. *)
+                        fun intersect(_, []) = []
+                        |   intersect(a, H::T) =
+                                if isInSet(H, a) then H::intersect(a, T) else intersect(a, T)
+                        val newSet = intersect(currentSetA, currentSetB)
+                    in
+                        case newSet of
+                            [] => cantMatch (Atype, Btype, "(Incompatible overloadings)")
+                        |   _ =>
+                        (
+                            (* These have to be linked so that any subsequent unification affects all. *)
+                            finalB := ChainEnd newSet; (* Either way round *)
+                            finalA := ChainRef finalB
+                        )
+                    end
+                end
 
             |   (TypeConstruction _, _) =>
                     cantMatch (tA, tB, "(Incompatible types)")
@@ -2751,7 +2677,7 @@ struct
 
         |   reportError(TypeConstructorError(alpha: types, beta: types, alphaCons, betaCons)) =
             let
-                fun expandedTypeConstr(ty, tyEnv, tyCons as TypeConstrs{identifier=TypeId { description, ...}, ...}) =
+                fun expandedTypeConstr(ty, tyEnv, TypeConstrs{identifier=TypeId { description, ...}, name=tcName, ...}) =
                 let
                     fun lastPart name = #second(splitString name)
 
@@ -2760,7 +2686,7 @@ struct
                     fun printWithDesc{ location, name, description } =
                         PrettyBlock(3, false, [],
                             [ display (ty, 1000, tyEnv) ]
-                            @ (if lastPart name = lastPart(tcName tyCons) then []
+                            @ (if lastPart name = lastPart tcName then []
                                else
                                 [
                                     PrettyBreak(1, 0),
@@ -2838,7 +2764,7 @@ struct
                 )
         end
 
-    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{identifier, ...}, [] (* No constructors *)), depth, _, _) =
+    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{identifier, name, ...}, [] (* No constructors *)), depth, _, _) =
         (* Abstract type or type in a signature. *)
         if depth <= 0 
         then PrettyString "..."
@@ -2847,10 +2773,10 @@ struct
                 if isEquality identifier then "eqtype" else "type") ::
             PrettyBreak (1, 0) ::
             printTypeVars (List.tabulate(tcArity tCons,  createBoundVar false), depth, varNameSequence ()) @
-            [PrettyString (#second(splitString(tcName tCons)))]
+            [PrettyString (#second(splitString name))]
             )
 
-    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{name, locations, ...}, tcConstructors), depth, typeEnv, sigMap) =
+    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{name=tcName, locations, ...}, tcConstructors), depth, typeEnv, sigMap) =
             (* It has constructors - datatype declaration *)
         if depth <= 0 
         then PrettyString "..."
@@ -2860,7 +2786,7 @@ struct
             (* Construct a ('a, 'b, 'c) tyCons construction for the result types
                of each of the constructors. *)
             val typeVars = List.tabulate(tcArity tCons,  createBoundVar false)
-            val typeResult = mkTypeConstruction(name, tCons, typeVars, locations)
+            val typeResult = mkTypeConstruction(tcName, tCons, typeVars, locations)
 
             (* Print a single constructor (blocked) *)
             fun pValConstr (first, name, typeOf, depth) =
@@ -2931,7 +2857,7 @@ struct
                                 PrettyString "datatype" ::
                                 PrettyBreak (1, 2) ::
                                 printTypeVars (typeVars, depth, typeV) @
-                                [ PrettyString(#second(splitString(tcName tCons))), PrettyBreak(1, 0), PrettyString "=" ]
+                                [ PrettyString(#second(splitString tcName)), PrettyBreak(1, 0), PrettyString "=" ]
                         ),
                         pValConstrList (tcConstructors, depth - 1)
                     ]
@@ -2946,40 +2872,28 @@ struct
        it returns the "best".  This is called in the third pass so it
        should never be called if there is not at least one type that
        is possible. *)
-    fun typeConstrFromOverload(f, _) =
+    fun typeConstrFromOverload overloadedFn =
     let
-    fun prefType(TypeVar tvar) =
-            ( (* If we still have an overload set that's because it has
-                 not reduced to a single type.  In ML 97 we default to
-                 int, real, word, char or string in that order.  This
-                 works correctly for overloading literals so long as
-                 the literal conversion functions are correctly installed. *)
-            case tvValue tvar of
-                OverloadSet{typeset} =>
-                    let
-                        (* If we accept this type we have to freeze the
-                            overloading to this type.
-                            I'm not happy about doing this here but it
-                            seems the easiest solution. *)
-                        fun freezeType tcons =
-                            (
-                            tvSetValue(tvar,
-                                mkTypeConstruction(tcName tcons, tcons, [], []));
-                            tcons
-                            )
-                    in
-                        case preferredOverload typeset of
-                            SOME tycons => freezeType tycons
-                        |   NONE => raise InternalError "typeConstrFromOverload: No matching type"
-                    end
-              | _ => raise InternalError "typeConstrFromOverload: No matching type" (* Unbound or flexible record. *)
+        fun prefType(OverloadSetVar(ref typeset)) =
+            (
+                case followRefChainToEnd typeset of
+                    [tycons] => tycons
+                |   types =>
+                (
+                    case preferredOverload types of
+                        SOME tycons => tycons
+                    |   NONE => raise InternalError "typeConstrFromOverload: No matching type"
+                )
             )
-     |  prefType(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
-            prefType (makeEquivalent (constr, args))
-     |  prefType(TypeConstruction{constr, ...}) = constr
-     |  prefType _ = raise InternalError "typeConstrFromOverload: No matching type"
+
+        |   prefType(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
+                prefType (makeEquivalent (constr, args))
+
+        |   prefType(TypeConstruction{constr, ...}) = constr
+
+        |   prefType _ = raise InternalError "typeConstrFromOverload: No matching type"
     in
-        prefType(firstArg(eventual f))
+        prefType(firstArg(eventual overloadedFn))
     end;
 
     (* Return the result type of a function.  Also used to test if the value is
@@ -3008,21 +2922,7 @@ struct
             typ as TypeVar tvar =>
             (
                 case tvValue tvar of
-                    OverloadSet {typeset, ...} =>
-                    if checkOverloadFlex
-                    then (* Narrow context for overloading: select "preferred" type. *)
-                    (
-                        case preferredOverload typeset of
-                            SOME (constr as TypeConstrs {name, locations, ...}) =>
-                                (TypeConstruction{constr=constr, args=[], locations=locations, name=name}, templates)
-
-                        |   NONE => raise InternalError "general: No matching type"
-                    )
-                    else (* Normal setting: find overloading from full context. For the moment just return this type
-                            variable containing the current overload set. *)
-                        (typ, templates)
-
-                |   LabelledType{recList, fullList} => (* Unresolved flexible record. *)
+                    LabelledType{recList, fullList} => (* Unresolved flexible record. *)
                     let
                         (* If we're using the narrow context it should have been resolved. *)
                         val () = if checkOverloadFlex then giveError("Type is an unresolved flexible record") else ()
@@ -3084,6 +2984,24 @@ struct
         |   BoundTypeVar _ => raise InternalError "createGeneric: already bound"
         |   BoundFlexRecord _ => raise InternalError "createGeneric: already bound"
 
+        |   typ as OverloadSetVar typeSetVar =>
+            if checkOverloadFlex
+            then (* Narrow context for overloading: select "preferred" type. *)
+            let
+                val (v, typeset) = followRefChainToRef typeSetVar
+            in
+                case preferredOverload typeset of
+                    SOME (constr as TypeConstrs {name, locations, ...}) =>
+                    (
+                        v := ChainEnd[constr];
+                        (TypeConstruction{constr=constr, args=[], locations=locations, name=name}, templates)
+                    )
+
+                |   NONE => raise InternalError "general: No matching type"
+            end
+            else (* Normal setting: find overloading from full context. Return the current overload set. *)
+                (typ, templates)
+
         |   TypeConstruction {constr, args, locations, name} =>
             let
                 fun copyEntry(ty, (resList, templs: typeVarTemplate list, n)) =
@@ -3123,8 +3041,6 @@ struct
 
         |   BadType => (BadType, templates)
 
-        |   OverloadSet _ => raise InternalError "createGeneric: OverloadSet"
-
         val (newType, newTemplates) = createGeneric(t, [])
     in
         (newType, List.rev newTemplates)
@@ -3162,7 +3078,7 @@ struct
             |   BoundTypeVar _ => v
             |   BadType => v
             |   EmptyType => v
-            |   OverloadSet _ => v
+            |   OverloadSetVar _ => v
         end
     in
         checkFree t false
@@ -3295,11 +3211,14 @@ struct
 
         |   getCodetreeType (TypeConstruction{constr, args=[], ...}) = [isFloatId constr]
 
-        |   getCodetreeType(OverloadSet {typeset, ...}) =
+        |   getCodetreeType(OverloadSetVar(ref typeset)) =
             (
-                case preferredOverload typeset of
-                    SOME t => [isFloatId t] (* real only.  float is never preferred. *)
-                |   NONE => [GeneralType]
+                case followRefChainToEnd typeset of
+                    [single] =>  [isFloatId single]
+                |   multiple =>
+                    case preferredOverload multiple of
+                        SOME t => [isFloatId t] (* real only.  float is never preferred. *)
+                    |   NONE => [GeneralType]
             )
 
         |   getCodetreeType _ = [GeneralType]

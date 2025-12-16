@@ -59,7 +59,6 @@ sig
     val mkFunctionType:     types * types -> types;
     val mkLabelled:         {name: string, typeof: types } list * bool -> types;
     val mkLabelEntry:       string * types -> {name: string, typeof: types };
-    val mkOverloadSet:      typeConstrs list -> types;
     val sortLabels:         {name: string, typeof: types } list -> {name: string, typeof: types } list;
     val entryNumber:        string * types -> int;
     val recordNotFrozen:    types -> bool;
@@ -98,7 +97,7 @@ sig
     val displayTypeConstrsWithMap: typeConstrSet * FixedInt.int * printTypeEnv * (int->typeId) option -> pretty;
 
     (* Returns the preferred type constructor from an overload. *)
-    val typeConstrFromOverload: types * bool -> typeConstrs;
+    val typeConstrFromOverload: types -> typeConstrs;
 
     (* Check a set of mutually recursive datatypes to see which admit equality. *)
     val computeDatatypeEqualities: typeConstrSet list * (int -> bool) -> unit;

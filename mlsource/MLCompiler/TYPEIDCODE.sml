@@ -373,13 +373,6 @@ struct
                             SOME(findCodeFromTypeVar(typeVarMap, tyVar))
                         end
 
-                    |   OverloadSet _ =>
-                        let
-                            val constr as TypeConstrs {name,...} = typeConstrFromOverload(typ, false)
-                        in
-                            findCachedTypeCode(typeVarMap, mkTypeConstruction(name, constr, [], []))
-                        end
-
                     |   ty => findCachedTypeCode(typeVarMap, ty)
                 )
 
@@ -418,6 +411,13 @@ struct
 
             |   FunctionType _ => SOME(fn _ => functionCode, ~1) (* Every function has the same code. *)
 
+            |   OverloadSetVar _ =>
+                let
+                    val constr as TypeConstrs {name,...} = typeConstrFromOverload typ
+                in
+                    findCachedTypeCode(typeVarMap, mkTypeConstruction(name, constr, [], []))
+                end
+
             |   _ => findCodeFromCache(typeVarMap, typ)
         end
 
@@ -439,13 +439,6 @@ struct
                                     SOME (code, _) => TypeValue.extractPrinter(code level)
                                 |   NONE => raise InternalError "printerForType: should already have been handled"
                             )
-
-                        |   OverloadSet _ =>
-                            let
-                                val constr as TypeConstrs {name,...} = typeConstrFromOverload(typ, false)
-                            in
-                                printCode(mkTypeConstruction(name, constr, [], []), level)
-                            end
 
                         |   _ =>  (* Just a bound type variable. *) printCode(tvValue tyVar, level)
                     )
@@ -579,6 +572,13 @@ struct
 
                 |   FunctionType _ => mkProc(codePrettyString "fn", 1, "print-function", [], 0)
 
+                |   OverloadSetVar _ =>
+                    let
+                        val constr as TypeConstrs {name,...} = typeConstrFromOverload typ
+                    in
+                        printCode(mkTypeConstruction(name, constr, [], []), level)
+                    end
+
                 |   _ => mkProc(codePrettyString "<empty>", 1, "print-empty", [], 0)
             )
     in
@@ -638,11 +638,7 @@ struct
             TypeVar tyVar =>
             (
                 case tvValue tyVar of
-                    OverloadSet _ =>
-                         (* This seems to occur if there are what amount to indirect references to literals. *)
-                        equalityForConstruction(typeConstrFromOverload(ty, false), [])
-
-                |   EmptyType =>
+                    EmptyType =>
                     (
                         case findCachedTypeCode(typeVarMap, ty) of
                             SOME (code, _) => TypeValue.extractEquality(code level)
@@ -688,6 +684,9 @@ struct
              in
                 mkProc(tupleCode, 2, "eq{...}(2)", getClosure nLevel, 0)
             end
+
+        |   OverloadSetVar _ => (* Should have been resolved. *)
+                equalityForConstruction(typeConstrFromOverload ty, [])
 
         |   _ => raise InternalError "Equality for function"
     end

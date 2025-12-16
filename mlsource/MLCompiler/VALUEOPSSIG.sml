@@ -72,7 +72,6 @@ sig
     val applyFunction:
         values * codetree * level * types list *
             lexan * location -> codetree
-    val getOverloadInstance: string * types * bool -> codetree*string
     val makeGuard:      values * codetree * level -> codetree 
     val makeInverse:    values * codetree * level -> codetree
                     
