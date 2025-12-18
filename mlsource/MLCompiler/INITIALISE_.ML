@@ -1287,7 +1287,7 @@ struct
             val functorVal = makeAndDeclareOpaqueType("functorVal", "PolyML.NameSpace.Functors.functorVal", functsEnv)
 
             (* nameSpace type.  Labelled record. *)
-            fun createFields(name, vType): { name: string, typeof: types} list =
+            fun createFields(name, vType): { name: string, typeOf: types} list =
             let
                 val enterFun = String ** vType ->> Unit
                 val lookupFun = String ->> Option vType

@@ -193,12 +193,31 @@ struct
             result: types
         }
 
-    |   LabelledType  of labelledRec
+        (* A normal tuple or labelled record.  Tuples are labelled records with fields #1, #2 etc. *)
+    |   LabelledRecord of {typeOf: types, name: string} list
 
-        (* A flexible record i.e. one derived from "{a, ...}". This can only occur with
-           local values since the record must be frozen at the top level.  The bound
-           variable stands in for the unspecified fields. *)
-    |   BoundFlexRecord of tvIndex * labelledRec
+        (* Flexible records i.e. derived from "{a, ...}". These can only occur with
+           local values since the record must be frozen at the top level.
+           The first is a variable, similar to TypeVar, that can be updated.
+           A flexible record consists of the list of fields with their types which can be
+           extended during unification.  The full list holds the field names.  Every
+           instance has the same list of names.  When "frozen" is true the list cannot be
+           extended. "properties" is used when new fields need to be added. *)
+    |   FlexibleRecordVar of
+        {
+            recList: {typeOf: types, name: string} list refChain ref,
+            fullList: {names: string list, frozen: bool} refChain ref,
+            equality: bool refChain ref,
+            level: tvLevel refChain ref
+        }
+
+        (* The bound variable stands in for the unspecified fields. *)
+    |   BoundFlexRecord of
+        {
+            boundVar: tvIndex,
+            recList: {typeOf: types, name: string} list,
+            fullList: {names: string list, frozen: bool}  refChain ref
+        }
 
         (* An overload set.  This is constructed from a TemplOverload template along with the current
            set of overloads for the identifier.  e.g. for "+" that might be FixedInt.int, LargeInt.int,
@@ -221,10 +240,6 @@ struct
 
     and typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
-
-    and labelFieldList =
-        FieldList of string list * bool (* True if this is frozen *)
-    |   FlexibleList of labelFieldList ref
 
     (* Access to a value, structure or functor. *)
     and valAccess =
@@ -345,16 +360,6 @@ struct
            need but also because it allows us to create a unique Id. *)
 
     and typeVarForm = typeVar (* Backwards compatibility *)
-
-    and labelledRec =
-    {
-        (* Fields actually present in this record.  If this was flexible at some
-           stage there may be extra fields listed in the full field list. *)
-        recList: { name: string, typeof: types } list,
-        (* The names of all the fields including extra fields. *)
-        fullList: labelFieldList
-    }
-
     
   (* A set of type contructors.  This is used only during the
      compilation process and represents the set of possible types
@@ -373,6 +378,15 @@ struct
     {
         typeset: typeConstrs list
     }
+
+    (* Reference chains.  These are used when unification between two entries
+       makes a permanent link between all of them. *)
+    (* Return the last reference in a chain. *)
+    fun followRefChainToRef(v as ref(ChainEnd final)) = (v, final)
+    |   followRefChainToRef(ref(ChainRef c)) = followRefChainToRef c
+    
+    fun followRefChainToEnd(ChainRef(ref v)) = followRefChainToEnd v
+    |   followRefChainToEnd(ChainEnd e) = e
 
     (* Identifiers *)
     fun makeFreeId(arity, access, eq, desc) =
@@ -451,12 +465,7 @@ struct
      level. Actually ``level'' is not actually changed - instead the type
      variable is assigned to a new variable with the correct level, since
      only the last variable in a sequence is looked at.
-     ``equality'' is true if this is an equality variable e.g. ''a.
-     ``nonunifiable'' is true for type variables introduced explicitly
-     or type variables in signatures. Such type variables can have their
-     level changed but cannot be unified with other types, with other
-     nonunifiable type variables or with equality variables (unless it
-     is already an equality variable). *)
+     ``equality'' is true if this is an equality variable e.g. ''a. *)
 
     fun sameTv (TypeVariable{link=aLink, ...}, TypeVariable{link=bLink, ...})  = aLink = bLink
 

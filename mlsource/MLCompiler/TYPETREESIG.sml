@@ -57,9 +57,9 @@ sig
     val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
     val mkProductType:      types list -> types;
     val mkFunctionType:     types * types -> types;
-    val mkLabelled:         {name: string, typeof: types } list * bool -> types;
-    val mkLabelEntry:       string * types -> {name: string, typeof: types };
-    val sortLabels:         {name: string, typeof: types } list -> {name: string, typeof: types } list;
+    val mkLabelled:         {name: string, typeOf: types } list * bool -> types;
+    val mkLabelEntry:       string * types -> {name: string, typeOf: types };
+    val sortLabels:         {name: string, typeOf: types } list -> {name: string, typeOf: types } list;
     val entryNumber:        string * types -> int;
     val recordNotFrozen:    types -> bool;
     val recordWidth:        types -> int;
@@ -211,6 +211,9 @@ sig
     val typeExportTree: navigation * typeParsetree -> exportTree
     
     val setPreferredInt: typeConstrs -> unit
+
+    (* Is this a labelled record with fields #1, #2 etc.?  Used for printing. *)
+    val isProductType: types -> bool
 
     structure TypeValue:
     sig

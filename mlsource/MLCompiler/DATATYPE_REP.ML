@@ -254,12 +254,11 @@ struct
   | UnaryTupled of int  (* a unary constructor applied to a tuple of size n  *)
   ;
 
-    fun getTupleKind(LabelledType {recList = [{typeof, ...}], ...}) =
-        (* We cannot have flexible records here.   All the fields must be listed. *)
+    fun getTupleKind(LabelledRecord [{typeOf, ...}]) =
             (* Singleton records are always represented simply by the value. *)
-          getTupleKind typeof
+          getTupleKind typeOf
       
-    |   getTupleKind(LabelledType {recList, ...}) = UnaryTupled (length recList)
+    |   getTupleKind(LabelledRecord recList) = UnaryTupled (length recList)
       
     |   getTupleKind(FunctionType _) =  UnaryFunction
     

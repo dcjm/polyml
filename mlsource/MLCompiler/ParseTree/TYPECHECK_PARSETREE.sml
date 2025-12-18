@@ -874,7 +874,7 @@ struct
                     val ty = assValues v valOrPat
                 in
                     expType := ty;
-                    {name = name, typeof = ty }
+                    {name = name, typeOf = ty }
                 end
             
               val expressionType =

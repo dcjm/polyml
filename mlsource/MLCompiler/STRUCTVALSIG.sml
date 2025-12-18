@@ -146,12 +146,31 @@ sig
             result: types
         }
 
-    |   LabelledType  of labelledRec
+        (* A normal tuple or labelled record.  Tuples are labelled records with fields #1, #2 etc. *)
+    |   LabelledRecord of {typeOf: types, name: string} list
 
-        (* A flexible record i.e. one derived from "{a, ...}". This can only occur with
-           local values since the record must be frozen at the top level.  The bound
-           variable stands in for the unspecified fields. *)
-    |   BoundFlexRecord of tvIndex * labelledRec
+        (* Flexible records i.e. derived from "{a, ...}". These can only occur with
+           local values since the record must be frozen at the top level.
+           The first is a variable, similar to TypeVar, that can be updated.
+           A flexible record consists of the list of fields with their types which can be
+           extended during unification.  The full list holds the field names.  Every
+           instance has the same list of names.  When "frozen" is true the list cannot be
+           extended. "properties" is used when new fields need to be added. *)
+    |   FlexibleRecordVar of
+        {
+            recList: {typeOf: types, name: string} list refChain ref,
+            fullList: {names: string list, frozen: bool} refChain ref,
+            equality: bool refChain ref,
+            level: tvLevel refChain ref
+        }
+
+        (* The bound variable stands in for the unspecified fields. *)
+    |   BoundFlexRecord of
+        {
+            boundVar: tvIndex,
+            recList: {typeOf: types, name: string} list,
+            fullList: {names: string list, frozen: bool} refChain ref
+        }
 
         (* An overload set.  This is constructed from a TemplOverload template along with the current
            set of overloads for the identifier.  e.g. for "+" that might be FixedInt.int, LargeInt.int,
@@ -171,10 +190,6 @@ sig
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
-
-    and labelFieldList =
-        FieldList of string list * bool (* True if this is frozen *)
-    |   FlexibleList of labelFieldList ref
 
     and valAccess =
         Global   of codetree
@@ -258,14 +273,10 @@ sig
 
     and tvLevel = Generalisable | NotGeneralisable of int
 
-    withtype labelledRec =
-    {
-        (* Fields actually present in this record.  If this was flexible at some
-           stage there may be extra fields listed in the full field list. *)
-        recList: { name: string, typeof: types } list,
-        (* The names of all the fields including extra fields. *)
-        fullList: labelFieldList
-    }
+    (* Reference chains.  These are used when unification between two entries
+       makes a permanent link between all of them. *)
+    val followRefChainToRef: 'a refChain ref -> 'a refChain ref * 'a
+    val followRefChainToEnd: 'a refChain -> 'a
 
     (* type identifiers. *)
     val isEquality:   typeId -> bool

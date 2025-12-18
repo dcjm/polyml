@@ -127,30 +127,22 @@ struct
         type typeVarMap =
         {
             entryType: typeVarMapEntry, (* Either the type var map or a "stopper". *)
-            cache: (* Cache of new type values. *)
-                {typeOf: types, address: int, decCode: codeBinding} list ref,
             mkAddr: int->int, (* Make new addresses at this level. *)
             level: level (* Function nesting level. *)
         } list
 
         (* Default map. *)
-        fun defaultTypeVarMap (mkAddr, level) = [{entryType=TypeConstrListEntry[], cache=ref [], mkAddr=mkAddr, level=level}]
+        fun defaultTypeVarMap (mkAddr, level) = [{entryType=TypeConstrListEntry[], mkAddr=mkAddr, level=level}]
 
         fun markTypeConstructors(typConstrs, mkAddr, level, tvs) =
-                {entryType = TypeConstrListEntry typConstrs, cache = ref [], mkAddr=mkAddr, level=level} :: tvs
-
-        fun getCachedTypeValues(({cache=ref cached, ...}) ::_): codeBinding list =
-                (* Extract the values from the list.  The later values may refer to earlier
-                   so the list must be reversed. *)
-                List.rev (List.map (fn{decCode, ...} => decCode) cached)
-        |   getCachedTypeValues _ = raise Misc.InternalError "getCachedTypeValues"
+                {entryType = TypeConstrListEntry typConstrs, mkAddr=mkAddr, level=level} :: tvs
 
         (* Extend a type variable environment with a new map of type variables to load functions. *)
         fun extendTypeVarMap (tvMap: (typeVar * (level->codetree)) list, mkAddr, level, typeVarMap) =
-            {entryType = TypeVarFormEntry tvMap, cache = ref [], mkAddr=mkAddr, level=level} :: typeVarMap
+            {entryType = TypeVarFormEntry tvMap, mkAddr=mkAddr, level=level} :: typeVarMap
 
         fun extendBoundTypeVarMap (tvMap: tvIndex->(level->codetree) option, mkAddr, level, typeVarMap) =
-            {entryType = TypeBoundVarEntry tvMap, cache = ref [], mkAddr=mkAddr, level=level} :: typeVarMap
+            {entryType = TypeBoundVarEntry tvMap, mkAddr=mkAddr, level=level} :: typeVarMap
 
         local
             open TypeValue
@@ -316,38 +308,6 @@ struct
 
         fun findCachedTypeCode(typeVarMap: typeVarMap, typ): ((level->codetree) * int) option =
         let
-            (* Test if we have the same type as the cached type. *)
-            fun sameType (t1, t2) =
-                case (eventual t1, eventual t2) of
-                    (TypeVar tv1, TypeVar tv2) =>
-                    (
-                        case (tvValue tv1, tvValue tv2) of
-                            (EmptyType, EmptyType) => sameTv(tv1, tv2)
-                        |   _ => false
-                    )
-                |   (FunctionType{arg=arg1, result=result1}, FunctionType{arg=arg2, result=result2}) =>
-                        sameType(arg1, arg2) andalso sameType(result1, result2)
-
-                |   (LabelledType{recList=list1, ...}, LabelledType{recList=list2, ...}) =>
-                        ListPair.allEq(
-                            fn({name=n1, typeof=t1}, {name=n2, typeof=t2}) => n1 = n2 andalso sameType(t1, t2))
-                            (list1, list2)
-                
-                |   (TypeConstruction{constr=c1, args=a1, ...}, TypeConstruction{constr=c2, args=a2, ...}) =>
-                        sameTypeConstr(c1, c2) andalso ListPair.allEq sameType (a1, a2)
-
-                |   _ => false
-
-            and sameTypeConstr(TypeConstrs {identifier=tc1Id,...}, TypeConstrs {identifier=tc2Id,...}) = sameTypeId(tc1Id, tc2Id)
-
-
-            fun findCodeFromCache([], _) = NONE
-            |   findCodeFromCache(({cache=ref cache, level, ...} :: rest): typeVarMap, ty) =
-                (
-                    case List.find(fn {typeOf, ...} => sameType(typeOf, ty)) cache of
-                        NONE => findCodeFromCache(rest, ty)
-                    |   SOME{address, ...} => SOME(fn l => mkLoad(address, l, level), List.length rest +1)
-                )
         in
             case typ of
                 TypeVar tyVar =>
@@ -405,8 +365,8 @@ struct
                         then (* Check the permanently cached monotypes. *)
                             case List.find(fn (t, _) => sameTypeConstr(t, constr)) cachedCode of
                                 SOME (_, c) => SOME ((fn _ => c), ~1)
-                            |   NONE => findCodeFromCache(typeVarMap, typ)
-                        else findCodeFromCache(typeVarMap, typ)
+                            |   NONE => NONE
+                        else NONE
                     end
 
             |   FunctionType _ => SOME(fn _ => functionCode, ~1) (* Every function has the same code. *)
@@ -418,7 +378,7 @@ struct
                     findCachedTypeCode(typeVarMap, mkTypeConstruction(name, constr, [], []))
                 end
 
-            |   _ => findCodeFromCache(typeVarMap, typ)
+            |   _ => NONE
         end
 
     end
@@ -487,14 +447,14 @@ struct
                                         1, "print-"^name, getClosure nLevel, 0)
                         end
 
-                |   LabelledType { recList=[], ...} =>
+                |   LabelledRecord [] =>
                         (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled", [], 0)
 
 
-                |   LabelledType {recList=[{name, typeof}], ...} =>
+                |   LabelledRecord [{name, typeOf}] =>
                     let (* Optimised unary record *)
                         val localLevel = newLevel level
-                        val entryCode = mkEval(printCode(typeof, localLevel), [arg1])
+                        val entryCode = mkEval(printCode(typeOf, localLevel), [arg1])
                         val printItem =
                             codeList([codePrettyString(name^" ="), codePrettyBreak(1, 0), entryCode, codePrettyString "}"], CodeZero)
                     in
@@ -504,73 +464,21 @@ struct
                             1, "print-labelled", getClosure localLevel, 0)
                     end
 
-                |   LabelledType { recList, fullList, ...} =>
-                    let
-                        (* See if this has fields numbered 1=, 2= etc.   N.B.  If it has only one field
-                           we need to print 1= since we don't have singleton tuples. *)
-                        fun isRec([], _) = true
-                        |   isRec({name, ...} :: l, n) = name = Int.toString n andalso isRec(l, n+1)
-                        
-                        fun recordIsFrozen (FlexibleList(ref r)) = recordIsFrozen r
-                        |   recordIsFrozen (FieldList (_, b)) = b
-
-                        val isTuple = recordIsFrozen fullList andalso isRec(recList, 1) andalso List.length recList >= 2
-                        val localLevel = newLevel level
-                        val valToPrint = mkInd(0, arg1) and depthCode = mkInd(1, arg1)
-                        val fields = List.tabulate(List.length recList, fn n => n)
-                        val items = ListPair.zipEq(recList, fields)
-                        (* The ordering on fields is designed to allow mixing of tuples and
-                           records (e.g. #1).  It puts shorter names before longer so that
-                           #11 comes after #2 and before #100.  For named records it does
-                           not make for easy reading so we sort those alphabetically when
-                           printing. *)
-                        val printItems =
-                            if isTuple then items
-                            else Misc.quickSort(fn ({name = a, ...}, _) => fn ({name = b, ...}, _) => a <= b) items
-
-                        fun asRecord([], _) = raise Empty (* Shouldn't happen. *)
-
-                        |   asRecord([({name, typeof, ...}, offset)], _) =
-                            let
-                                val entryCode =
-                                    (* Last field: no separator. *)
-                                    mkEval(printCode(typeof, localLevel),
-                                                [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]])
-                                val (start, terminator) =
-                                    if isTuple then ([], ")")
-                                    else ([codePrettyString(name^" ="), codePrettyBreak(1, 0)], "}")
-                            in
-                                codeList(start @ [entryCode, codePrettyString terminator], CodeZero)
-                            end
-
-                        |   asRecord(({name, typeof, ...}, offset) :: fields, depth) =
-                            let
-                                val (start, terminator) =
-                                    if isTuple then ([], ")")
-                                    else ([codePrettyString(name^" ="), codePrettyBreak(1, 0)], "}")
-                            in
-                                checkDepth(depthCode, depth,
-                                    codeList(
-                                        start @
-                                        [
-                                            mkEval(
-                                                printCode(typeof, localLevel),
-                                                [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]]),
-                                            codePrettyString ",",
-                                            codePrettyBreak (1, 0)
-                                        ],
-                                        asRecord(fields, depth+1)),
-                                    codeList([codePrettyString ("..." ^ terminator)], CodeZero)
-                                )
-                            end
-                    in
-                        mkProc(
-                            codePrettyBlock(1, false, [],
-                                mkTuple[codePrettyString (if isTuple then "(" else "{"), asRecord(printItems, 0)]),
-                            1, "print-labelled", getClosure localLevel, 0)
-                    end
+                |   typ as LabelledRecord recList =>
+                        printRecord(recList, isProductType typ andalso List.length recList >= 2, false, level)
 
                 |   FunctionType _ => mkProc(codePrettyString "fn", 1, "print-function", [], 0)
+
+                |   FlexibleRecordVar{recList=ref recl, fullList=ref full, ...} =>
+                    let
+                        (* The record should be frozen at this point but this instance
+                           may not have all the fields.  There's no point in adding them
+                           because they will be type variables that will print as "?". *)
+                        val {names, ...} = followRefChainToEnd full
+                        val recList = followRefChainToEnd recl
+                    in
+                        printRecord(recList, false, List.length names = List.length recList, level)
+                    end
 
                 |   OverloadSetVar _ =>
                     let
@@ -581,6 +489,63 @@ struct
 
                 |   _ => mkProc(codePrettyString "<empty>", 1, "print-empty", [], 0)
             )
+
+        and printRecord(recList, isTuple, isFrozen, level) =
+        let
+            val localLevel = newLevel level
+            val valToPrint = mkInd(0, arg1) and depthCode = mkInd(1, arg1)
+            val fields = List.tabulate(List.length recList, fn n => n)
+            val items = ListPair.zipEq(recList, fields)
+            (* The ordering on fields is designed to allow mixing of tuples and
+               records (e.g. #1).  It puts shorter names before longer so that
+               #11 comes after #2 and before #100.  For named records it does
+               not make for easy reading so we sort those alphabetically when
+               printing. *)
+            val printItems =
+                if isTuple then items
+                else Misc.quickSort(fn ({name = a, ...}, _) => fn ({name = b, ...}, _) => a <= b) items
+
+            fun asRecord([], _) = raise Empty (* Shouldn't happen. *)
+
+            |   asRecord([({name, typeOf, ...}, offset)], _) =
+                let
+                    val entryCode =
+                        (* Last field: no separator. *)
+                        mkEval(printCode(typeOf, localLevel),
+                                    [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]])
+                    val (start, terminator) =
+                        if isTuple then ([], ")")
+                        else ([codePrettyString(name^" ="), codePrettyBreak(1, 0)], if isFrozen then "}" else ", ...}")
+                in
+                    codeList(start @ [entryCode, codePrettyString terminator], CodeZero)
+                end
+
+            |   asRecord(({name, typeOf, ...}, offset) :: fields, depth) =
+                let
+                    val (start, terminator) =
+                        if isTuple then ([], ")")
+                        else ([codePrettyString(name^" ="), codePrettyBreak(1, 0)], if isFrozen then "}" else ", ...}")
+                in
+                    checkDepth(depthCode, depth,
+                        codeList(
+                            start @
+                            [
+                                mkEval(
+                                    printCode(typeOf, localLevel),
+                                    [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]]),
+                                codePrettyString ",",
+                                codePrettyBreak (1, 0)
+                            ],
+                            asRecord(fields, depth+1)),
+                        codeList([codePrettyString ("..." ^ terminator)], CodeZero)
+                    )
+                end
+        in
+            mkProc(
+                codePrettyBlock(1, false, [],
+                    mkTuple[codePrettyString (if isTuple then "(" else "{"), asRecord(printItems, 0)]),
+                1, "print-labelled", getClosure localLevel, 0)
+        end
     in
         printCode(ty, baseLevel)
     end
@@ -660,21 +625,21 @@ struct
                 then makeEq (makeEquivalent (constr, args), level, getTypeValueForID, typeVarMap)
                 else equalityForConstruction(constr, args)
 
-        |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
+        |   LabelledRecord [{typeOf=singleton, ...}] =>
                 (* Unary tuples are optimised - no indirection. *)
                 makeEq(singleton, level, getTypeValueForID, typeVarMap)
 
-        |   LabelledType {recList, ...} =>
+        |   LabelledRecord recList =>
             (* Combine the entries.
                 fun eq(a,b) = #1 a = #1 b andalso #2 a = #2 b ... *)
             let
                 (* Have to turn this into a new function. *)
                 val nLevel = newLevel level
                 fun combineEntries ([], _) = CodeTrue
-                |   combineEntries ({typeof, ...} :: t, n) =
+                |   combineEntries ({typeOf, ...} :: t, n) =
                     let
                         val compareElements =
-                            makeEq(typeof, nLevel, getTypeValueForID, typeVarMap)
+                            makeEq(typeOf, nLevel, getTypeValueForID, typeVarMap)
                     in
                         mkCand(
                             mkEval(compareElements, [mkInd(n, arg1), mkInd(n, arg2)]),
@@ -687,6 +652,11 @@ struct
 
         |   OverloadSetVar _ => (* Should have been resolved. *)
                 equalityForConstruction(typeConstrFromOverload ty, [])
+
+        |   FlexibleRecordVar{recList=ref recl, fullList=ref full, ...} =>
+                (* TODO: If we have all the fields treat it as a labelled record otherwise fall back to
+                   structure equality. *)
+                TypeValue.extractEquality defaultTypeCode
 
         |   _ => raise InternalError "Equality for function"
     end
@@ -828,7 +798,7 @@ struct
                                    getClosure nnLevel, 0),
                             nArgs, "eq-" ^ tcName ^ "(2)(P)", getClosure nLevel, 0)) ::
                 (addr+1,
-                    mkProc(mkEnv(getCachedTypeValues argTypeMap, eqCode), 2+nTypeVars,
+                    mkProc(eqCode, 2+nTypeVars,
                            "eq-" ^ tcName ^ "()", getClosure baseEqLevelP1, 0)) ::
                 otherFns
             end
@@ -1029,8 +999,7 @@ struct
         (* Wrap this in the functions for the base types. *)
         if constrArity = 0
         then mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0)
-        else mkProc(mkEnv(getCachedTypeValues newTypeVarMap,
-                            mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0)),
+        else mkProc(mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0),
                     constrArity, "print"^name^"()", getClosure nLevel, 0)
     end    
 
@@ -1055,14 +1024,12 @@ struct
             val printCode =
                 printerForType(resType, level, typeVarMap)
         in
-            mkEnv(
-                TypeVarMap.getCachedTypeValues typeVarMap,
-                createTypeValue {
-                    eqCode = eqCode,
-                    printCode =
-                    mkAllocateWordMemory(
-                        mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printCode)
-                })
+            createTypeValue {
+                eqCode = eqCode,
+                printCode =
+                mkAllocateWordMemory(
+                    mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printCode)
+            }
         end
 
     |   codeGenerativeId{source=TypeId{idKind=TypeFn{arity, resType, ...}, ...}, isEq, mkAddr, level, ...} =
@@ -1082,7 +1049,7 @@ struct
                     val argTypeMap = extendBoundTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap)
                     val innerFnCode = makeCode(nLevel, argTypeMap)
                 in
-                    mkProc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, name, getClosure nLevel, !addrs)
+                    mkProc(innerFnCode, nArgs, name, getClosure nLevel, !addrs)
                 end
 
             open TypeValue
@@ -1095,15 +1062,13 @@ struct
                 else createCode(fn(nLevel, argTypeMap) =>
                         makeEq(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), argTypeMap), "equality()")
         in
-            mkEnv(
-                TypeVarMap.getCachedTypeValues typeVarMap,
-                createTypeValue {
-                    eqCode = eqCode,
-                    printCode =
-                    mkAllocateWordMemory(
-                        mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                        printCode)
-                })
+            createTypeValue {
+                eqCode = eqCode,
+                printCode =
+                mkAllocateWordMemory(
+                    mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                    printCode)
+            }
         end
 
     |   codeGenerativeId{source=sourceId, isDatatype, mkAddr, level, ...} =

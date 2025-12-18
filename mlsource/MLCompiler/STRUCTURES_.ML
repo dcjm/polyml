@@ -1033,6 +1033,8 @@ struct
     fun matchSigs(originalCandidate, originalTarget, near, lno, lex, typeIdEnv, typeEnv)
                         :(int -> typeId) * (int * valueMatching) list =
     let
+        (* TODO: This still copies the types in the candidate and target.  Why can't we just
+           compose the maps?  *)
         val candidate = (* The structure. *)
         let
             val Signatures { typeIdMap, firstBoundIndex, boundIds, ... } = originalCandidate

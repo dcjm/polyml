@@ -39,7 +39,6 @@ sig
     val printerForType: types * level -> codetree
     (* Generate a function of the form (t,t) -> bool. *)
     val equalityForType: types * level  -> codetree
-    val defaultTypeCode: codetree
 
     structure Sharing:
     sig

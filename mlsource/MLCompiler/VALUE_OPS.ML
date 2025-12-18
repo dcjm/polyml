@@ -1098,7 +1098,7 @@ struct
                                    for functions such as "+" and a single argument for "abs". *)
                                 then resultType
                                 else case argType of
-                                    LabelledType{recList=[{typeof, ...}, _], ...} => rmvars typeof
+                                    LabelledRecord[{typeOf, ...}, _] => rmvars typeOf
                                 |   argType => argType
                             
                             val tcons = followTypes typeToUse
