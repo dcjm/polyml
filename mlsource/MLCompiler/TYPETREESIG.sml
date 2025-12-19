@@ -83,7 +83,7 @@ sig
         (string -> string) * typeConstrs list -> typeConstrs
 
     (* Copy a type. *)
-    val copyType: types * (tvIndex -> types option) * (types -> types) * (types -> types) * (typeConstrs -> typeConstrs) -> types;
+    val copyType: types * (tvIndex -> types option) * (typeConstrs -> typeConstrs) -> types;
 
     (* Compose two typeId maps. *)
     val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)

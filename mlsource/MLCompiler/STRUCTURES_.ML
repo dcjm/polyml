@@ -3015,7 +3015,7 @@ struct
                 |   copyId _ = NONE
                 fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn x => x, fn s => s)
             in
-                copyType(t, fn _ => NONE, fn tv=>tv, fn x => x, replaceTypeConstrs)
+                copyType(t, fn _ => NONE, replaceTypeConstrs)
             end
 
             fun makeDecs (CoreValue(Value{class, name, typeOf=ValueType(typeOf, templates), locations, access, ...}),

@@ -587,12 +587,12 @@ struct
        Used to make new type variables for all distinct type variables when
        generalising polymorphic functions, and to make new type stamps for
        type constructors when generalising signatures. *)
-    fun copyType (at, indexBTV, copyTypeVar, copyFreeTypeVar, copyTypeConstr) =
+    fun copyType (at, indexBTV, copyTypeConstr) =
     let
         fun copyList [] = []
         |   copyList (l as (h :: t)) =
         let
-            val h' = copyType (h, indexBTV, copyTypeVar, copyFreeTypeVar, copyTypeConstr);
+            val h' = copyType (h, indexBTV, copyTypeConstr);
             val t' = copyList t;
         in
             if identical (h', h) andalso identicalList (t', t)
@@ -603,7 +603,7 @@ struct
         fun copyRecordList [] = []
         |   copyRecordList (l as ({name, typeOf} :: t)) =
         let
-            val typeOf' = copyType (typeOf, indexBTV, copyTypeVar, copyFreeTypeVar, copyTypeConstr);
+            val typeOf' = copyType (typeOf, indexBTV, copyTypeConstr);
             val t' = copyRecordList t;
         in
             if identical (typeOf', typeOf) andalso identicalList (t', t)
@@ -614,14 +614,14 @@ struct
         val atyp = eventual at
     in
         case atyp of
-            TypeVar _ => copyTypeVar atyp (* Unbound type variable. *)
+            TypeVar _ => atyp (* Unbound type variable. *)
 
         |   BoundTypeVar(_, index) =>
                 (* Instantiate the type variable if there is a map.  Currently this can also be called when
                    processing signatures so allow for the look-up to fail and return the original. *)
                 getOpt(indexBTV index, atyp)
 
-        |   FreeTypeVar _ => copyFreeTypeVar atyp
+        |   FreeTypeVar _ => atyp
 
         |   TypeConstruction {constr, args, locations, ...} => 
             let
@@ -640,8 +640,8 @@ struct
            
         |   FunctionType {arg, result} => 
             let
-                val copiedArg  = copyType (arg,    indexBTV, copyTypeVar, copyFreeTypeVar, copyTypeConstr)
-                val copiedRes  = copyType (result, indexBTV, copyTypeVar, copyFreeTypeVar, copyTypeConstr)
+                val copiedArg  = copyType (arg,    indexBTV, copyTypeConstr)
+                val copiedRes  = copyType (result, indexBTV, copyTypeConstr)
             in
                 if identical (copiedArg, arg) andalso identical (copiedRes, result)
                 then atyp 
@@ -709,7 +709,7 @@ struct
     let
         val copied =
             (* Only process type variables. Return type constructors unchanged. *)
-            copyType (atyp, SOME o lookupBound, fn x => x, fn x => x, fn t => t (*copyTCons*))
+            copyType (atyp, SOME o lookupBound, fn t => t (*copyTCons*))
     in
         copied
     end (* generaliseTypes *)
@@ -1173,7 +1173,7 @@ struct
             TypeId{idKind = TypeFn{arity, resType=equiv, ...}, description, access, ...} =>
             let
                 val copiedEquiv =
-                    copyType(equiv, fn _ => NONE, fn x => x, fn x => x,
+                    copyType(equiv, fn _ => NONE,
                         fn tcon =>
                             copyTypeConstrWithCache (tcon, typeMap, fn x => x, mungeName, cache))
             in
@@ -1243,7 +1243,7 @@ struct
                 (* If it's a type function e.g. this was a "where type" we have to apply the
                    map to any type identifiers in the type. *)
                 val copiedEquiv =
-                    copyType(equiv, fn _ => NONE, fn x => x, fn x => x,
+                    copyType(equiv, fn _ => NONE,
                         fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
             in
                 makeGeneralTypeFunction(arity, copiedEquiv, description, access)
@@ -1269,8 +1269,7 @@ struct
         val freeVars = createFreeTypeVariables(templs, 0)
         fun boundVarMap(TVIndex n) = SOME(List.nth(freeVars, n))
         fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn x => x, fn s => s)
-        fun copyTarget t = (* Leave type variables. *)
-            copyType (t, boundVarMap, fn x => x, fn x => x, copyATypeConstr);
+        fun copyTarget t = copyType (t, boundVarMap, copyATypeConstr);
         val copiedTarget = copyTarget atyp
     in
         copiedTarget
