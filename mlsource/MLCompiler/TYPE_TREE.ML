@@ -456,6 +456,32 @@ struct
 
       end
 
+    (* Expand the field list of a flexible record to include all the fields that
+       have been added to the generic instance since this record was created. *)
+    fun expandFlexRecord(currentFields, names, level, equality) =
+    let
+        fun createNewField name = { name = name, typeOf = mkTypeVar(level, equality)}
+
+        fun addToInstance([], []) = []
+        |   addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
+        |   addToInstance([], instance) = instance
+                (* This case can occur if we are producing an error message because of
+                   a type-incorrect program so we just ignore it. *)
+        |   addToInstance(generic :: geRest, inst as instance :: iRest) =
+            (
+                case compareLabels (generic, #name instance) of
+                    EQUAL => instance :: addToInstance(geRest, iRest)
+                |   LESS => createNewField generic :: addToInstance(geRest, inst)
+                |   GREATER => (* This is another case that can occur with type-incorrect code. *)
+                        instance :: addToInstance(generic :: geRest, iRest)
+            )
+    in
+        if List.length names = List.length currentFields
+        then currentFields(* All the generic fields are present so we don't need to do anything. *)
+        else addToInstance(names, currentFields)
+    end
+
+
   (* Chains down a list of type variables returning the type they are
      bound to. As a side-effect it also points all the type variables
      at this type to reduce the need for future chaining and to free
@@ -481,27 +507,7 @@ struct
             and (recListVar, currentFields) = followRefChainToRef recList
             val equality = followRefChainToEnd eql
             val level = followRefChainToEnd lvl
-
-            fun createNewField name =
-                { name = name, typeOf = mkTypeVar (level, equality)}
-
-            fun addToInstance([], []) = []
-            |   addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
-            |   addToInstance([], instance) = instance
-                    (* This case can occur if we are producing an error message because of
-                       a type-incorrect program so we just ignore it. *)
-            |   addToInstance(generic :: geRest, inst as instance :: iRest) =
-                (
-                    case compareLabels (generic, #name instance) of
-                        EQUAL => instance :: addToInstance(geRest, iRest)
-                    |   LESS => createNewField generic :: addToInstance(geRest, inst)
-                    |   GREATER => (* This is another case that can occur with type-incorrect code. *)
-                            instance :: addToInstance(generic :: geRest, iRest)
-                )
-            val newFieldList =
-                if List.length names = List.length currentFields
-                then currentFields(* All the generic fields are present so we don't need to do anything. *)
-                else addToInstance(names, currentFields)
+            val newFieldList = expandFlexRecord(currentFields, names, level, equality)
         in
             if frozen (* Return a fixed record *)
             then LabelledRecord newFieldList
@@ -661,29 +667,29 @@ struct
             end
 
         |   BoundFlexRecord{boundVar, recList, fullList as ref full} =>
-            let
-                val {frozen, ...} = followRefChainToEnd full
-                (* TODO: The record may be frozen but not with all the fields in recList.
-                   "equivalent" adds the extra fields so leave it for the moment. *)
-            in
-                (*if frozen
-                then LabelledRecord(copyRecordList recList)
-                else *)case indexBTV boundVar of
-                    SOME typeVar =>
+            (
+                case indexBTV boundVar of
+                    NONE =>
+                    (* This can occur if we are processing a flexible record inside a structure.  We create a "signature"
+                       and then copy it.  It is possible that the record has not been frozen at that point but is frozen
+                       by another declaration in the same topdec.  See Tests/Succeed/Test076. *)
+                        BoundFlexRecord{boundVar=boundVar, recList=copyRecordList recList, fullList=fullList}
+                |   SOME typeVar =>
                     let
                         val TypeVariable{equality=ref eq, level=ref lvl, ...} =
                             case typeVar of TypeVar tv => tv | _ => raise InternalError "copyType: BoundFlexRecord not variable"
-                        val copiedList = copyRecordList recList
-                        val equality = followRefChainToEnd eq
+                        val {names, frozen} = followRefChainToEnd full
+                        and equality = followRefChainToEnd eq
                         and level = followRefChainToEnd lvl
+                        (* Add any new fields.  Each field has to be a new type variable modelled on the generic but distinct. *)
+                        val copiedList = expandFlexRecord(copyRecordList recList, names, level, equality)
                     in
-                        FlexibleRecordVar{recList=ref(ChainEnd copiedList), fullList=fullList,
-                            equality = ref(ChainEnd equality), level = ref(ChainEnd level)}
+                        if frozen
+                        then LabelledRecord copiedList
+                        else FlexibleRecordVar{recList=ref(ChainEnd(copyRecordList recList)), fullList=fullList,
+                                equality = ref(ChainEnd equality), level = ref(ChainEnd level)}
                     end
-                    (* This can occur if we are processing a flexible record inside a structure.
-                       Currently we copy the "signature". *)
-                |   NONE => BoundFlexRecord{boundVar=boundVar, recList=copyRecordList recList, fullList=fullList}
-            end
+            )
 
             (* Overload.  Return the type constructor if it's been resolved. *)
         |   typ as OverloadSetVar(ref c) =>
