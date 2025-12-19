@@ -782,7 +782,7 @@ struct
                    variables to be monomorphic.  The reason for this is that if there are polymorphic
                    type variables remaining in identifiers in the next pass we treat the identifier as
                    polymorphic and wrap a function round it. *)
-                (* TODO: This needs to be looked at because this really only applies if *)
+                (* TODO: This needs to be looked at since it no longer applies *)
                 val () =
                     if nonExpansive v
                     then ()

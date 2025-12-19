@@ -92,9 +92,9 @@ sig
     and typeVar =
         TypeVariable of
         {
-            link: types ref,
-            equality: bool,
-            level: tvLevel
+            link: types refChain ref,
+            equality: bool refChain ref,
+            level: tvLevel refChain ref
         }
 
     (* A type variable can be set to one of these. TVLUnset is the initial state.  TVLCoreType is used
@@ -298,13 +298,6 @@ sig
 
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
-
-    val tvLevel:        typeVar -> tvLevel
-    val tvEquality:     typeVar -> bool
-    val tvValue:        typeVar -> types
-    val tvSetValue:     typeVar * types -> unit
-
-    val sameTv: typeVar * typeVar -> bool
     
     val makeTv: {value: types, level: tvLevel, equality: bool } -> typeVar
 

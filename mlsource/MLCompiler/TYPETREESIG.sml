@@ -171,8 +171,6 @@ sig
     val isUndefinedTypeConstr: typeConstrs -> bool
     val isBadType:  types -> bool
 
-    val sameTypeVar : types * types -> bool;
-
     (* Create a name for a type variable 'a, 'b or ''a, ''b etc. *)
     val makeTypeVariableName: int * bool -> string
 

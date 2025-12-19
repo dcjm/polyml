@@ -873,9 +873,9 @@ struct
                     followTypes (makeEquivalent (constr, args))
             |   followTypes (TypeConstruction{constr as TypeConstrs {identifier,...}, args, ...}) =
                     SOME(identifier, constr, List.length args)
-            |   followTypes (TypeVar tv) =
+            |   followTypes (TypeVar(TypeVariable{link=ref l, ...})) =
                 (
-                    case tvValue tv of
+                    case followRefChainToEnd l of
                         EmptyType => NONE (* Unbound type variable *)
                     |   t => followTypes t
                 )
@@ -1068,7 +1068,7 @@ struct
                 (* AddOverload is only intended for use by writers of library modules.
                    It only does limited checking and should be regarded as "unsafe". *)
                 let
-                    fun rmvars (TypeVar tv) = rmvars(tvValue tv)
+                    fun rmvars (TypeVar(TypeVariable{link=ref l, ...})) = rmvars(followRefChainToEnd l)
                     |   rmvars t = t
                     (* instance should be ('a->'b) -> string -> unit.  For overloadings
                        on most functions (e.g. abs and +) we are looking for the 'a, which

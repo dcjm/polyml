@@ -308,11 +308,18 @@ struct
 
         fun findCachedTypeCode(typeVarMap: typeVarMap, typ): ((level->codetree) * int) option =
         let
+            fun sameTv(TypeVariable{link=lA, ...}, TypeVariable{link=lB, ...}) =
+            let
+                val (refA, _) = followRefChainToRef lA
+                and (refB, _) = followRefChainToRef lB
+            in
+                refA = refB
+            end 
         in
             case typ of
-                TypeVar tyVar =>
+                TypeVar(tyVar as TypeVariable{link=ref l, ...}) =>
                 (
-                    case tvValue tyVar of
+                    case followRefChainToEnd l of
                         EmptyType =>
                         let (* If it's a type var it is either in the type var list or we return the
                                default.  It isn't in the cache. *)
@@ -390,9 +397,9 @@ struct
         fun printCode(typ, level: level) =
             (
                 case typ of
-                    typ as TypeVar tyVar =>
+                    typ as TypeVar(TypeVariable{link=ref l, ...}) =>
                     (
-                        case tvValue tyVar of
+                        case followRefChainToEnd l of
                             EmptyType =>
                             (
                                 case findCachedTypeCode(argTypes, typ) of
@@ -400,7 +407,7 @@ struct
                                 |   NONE => raise InternalError "printerForType: should already have been handled"
                             )
 
-                        |   _ =>  (* Just a bound type variable. *) printCode(tvValue tyVar, level)
+                        |   final => printCode(final, level)
                     )
 
                 |   BoundTypeVar _ =>
@@ -558,10 +565,11 @@ struct
         let
             (* Get argument types parameters for polytypes.  There's a special case
                here for type vars, essentially the type arguments to the datatype, to avoid taking
-               apart the type value record and then building it again. *)
+               apart the type value record and then building it again.
+               Is this correct any longer? *)
             fun getArg ty =
-                if (case ty of TypeVar tyVar =>
-                        (case tvValue tyVar of EmptyType => true | _ => false) | _ => false)
+                if (case ty of TypeVar(TypeVariable{link=ref l, ...}) =>
+                        (case followRefChainToEnd l of EmptyType => true | _ => false) | _ => false)
                 then
                 (
                     case findCachedTypeCode(typeVarMap, ty) of
@@ -600,9 +608,9 @@ struct
         end
     in
         case ty of
-            TypeVar tyVar =>
+            TypeVar(TypeVariable{link=ref l, ...}) =>
             (
-                case tvValue tyVar of
+                case followRefChainToEnd l of
                     EmptyType =>
                     (
                         case findCachedTypeCode(typeVarMap, ty) of

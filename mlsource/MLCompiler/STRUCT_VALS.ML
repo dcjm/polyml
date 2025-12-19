@@ -138,9 +138,9 @@ struct
     and typeVar =
         TypeVariable of
         {
-            link: types ref,
-            equality: bool,
-            level: tvLevel
+            link: types refChain ref,
+            equality: bool refChain ref,
+            level: tvLevel refChain ref
         }
 
     (* A type variable can be set to one of these. TVLUnset is the initial state.  TVLCoreType is used
@@ -358,8 +358,6 @@ struct
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
            need but also because it allows us to create a unique Id. *)
-
-    and typeVarForm = typeVar (* Backwards compatibility *)
     
   (* A set of type contructors.  This is used only during the
      compilation process and represents the set of possible types
@@ -467,16 +465,9 @@ struct
      only the last variable in a sequence is looked at.
      ``equality'' is true if this is an equality variable e.g. ''a. *)
 
-    fun sameTv (TypeVariable{link=aLink, ...}, TypeVariable{link=bLink, ...})  = aLink = bLink
-
     fun makeTv {value : types, level, equality } =
-        TypeVariable{ link = ref value, level= level, equality = equality }
-    
-    and tvSetValue (TypeVariable{ link, ...} : typeVarForm, t : types) = link := t
-    and tvValue (TypeVariable{link = ref v, ...} : typeVarForm) : types = v
-    and tvLevel (TypeVariable{level, ...} : typeVarForm) : tvLevel  = level
-    and tvEquality (TypeVariable{equality, ...} : typeVarForm)     = equality
-
+        TypeVariable{ link = ref (ChainEnd value), level= ref (ChainEnd level), equality = ref (ChainEnd equality) }
+ 
   (* Type constructors are identifiers which take zero or more types and yield a
      type as result. Their main property is that two type constructors can be 
      unified iff they are the same constructor. Another use for
