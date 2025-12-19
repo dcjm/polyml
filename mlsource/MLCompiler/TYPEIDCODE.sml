@@ -116,13 +116,10 @@ struct
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
-    structure TypeVarMap =
-    struct
+
         (* Entries are either type var maps or "stoppers". *)
         datatype typeVarMapEntry =
-            TypeVarFormEntry of (typeVar * (level->codetree)) list
-        |   TypeBoundVarEntry of tvIndex -> (level->codetree) option
-        |   TypeConstrListEntry of typeConstrs list
+            TypeBoundVarEntry of tvIndex -> (level->codetree) option
 
         type typeVarMap =
         {
@@ -130,16 +127,6 @@ struct
             mkAddr: int->int, (* Make new addresses at this level. *)
             level: level (* Function nesting level. *)
         } list
-
-        (* Default map. *)
-        fun defaultTypeVarMap (mkAddr, level) = [{entryType=TypeConstrListEntry[], mkAddr=mkAddr, level=level}]
-
-        fun markTypeConstructors(typConstrs, mkAddr, level, tvs) =
-                {entryType = TypeConstrListEntry typConstrs, mkAddr=mkAddr, level=level} :: tvs
-
-        (* Extend a type variable environment with a new map of type variables to load functions. *)
-        fun extendTypeVarMap (tvMap: (typeVar * (level->codetree)) list, mkAddr, level, typeVarMap) =
-            {entryType = TypeVarFormEntry tvMap, mkAddr=mkAddr, level=level} :: typeVarMap
 
         fun extendBoundTypeVarMap (tvMap: tvIndex->(level->codetree) option, mkAddr, level, typeVarMap) =
             {entryType = TypeBoundVarEntry tvMap, mkAddr=mkAddr, level=level} :: typeVarMap
@@ -262,160 +249,48 @@ struct
                             ),
                         2, "structureEq", [], nLocals)
             end
-            val errorFunction2 = mkProc(CodeZero, 2, "errorCode2", [], 0)
-            val codeFn = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
-
-            local
-                fun typeValForMonotype (TypeConstrs {name=tcName, identifier,...}) =
-                let
-                    val codedId = codeId(identifier, baseLevel)
-                    val printerRefAddress = extractPrinter codedId
-                    val printFn = (* Create a function to load the printer ref and apply to the args. *)
-                        mkProc(
-                            mkEval(
-                                mkLoadOperation(LoadStoreMLWord{isImmutable=false}, printerRefAddress, CodeZero),
-                                [arg1]),
-                            1, "print-" ^ tcName, [], 0)
-                in
-                    createTypeValue{eqCode=extractEquality codedId, printCode=printFn}
-                end
-            in
-                (* A few common types.  These are effectively always cached. *)
-                val fixedIntCode = typeValForMonotype fixedIntConstr
-                and intInfCode = typeValForMonotype intInfConstr
-                and boolCode   = typeValForMonotype boolConstr
-                and stringCode = typeValForMonotype stringConstr
-                and charCode   = typeValForMonotype charConstr
-            end
 
             (* Code generate this now so we only get one entry. *)
             val codeTuple =
                 mkTuple[
-                    createTypeValue{ (* Unused type variable. *) eqCode=defaultEquality, printCode=codePrintDefault},
-                    createTypeValue{ (* Function. *) eqCode=errorFunction2, printCode=codeFn},
-                    fixedIntCode, intInfCode, boolCode, stringCode, charCode
+                    createTypeValue{ (* Unused type variable. *) eqCode=defaultEquality, printCode=codePrintDefault}
                 ]
             val code = genCode(codeTuple, [], 0)()
         in
             (* Default code used for a type variable that is not referenced but
                needs to be provided to satisfy the type. *)
             val defaultTypeCode = mkInd(0, code)
-            val functionCode = mkInd(1, code)
-            val cachedCode = [(fixedIntConstr, mkInd(2, code)), (intInfConstr, mkInd(3, code)),
-                              (boolConstr, mkInd(4, code)), (stringConstr, mkInd(5, code)),
-                              (charConstr, mkInd(6, code))]
         end
 
-        fun findCachedTypeCode(typeVarMap: typeVarMap, typ): ((level->codetree) * int) option =
-        let
-            fun sameTv(TypeVariable{link=lA, ...}, TypeVariable{link=lB, ...}) =
-            let
-                val (refA, _) = followRefChainToRef lA
-                and (refB, _) = followRefChainToRef lB
-            in
-                refA = refB
-            end 
-        in
-            case typ of
-                TypeVar(tyVar as TypeVariable{link=ref l, ...}) =>
-                (
-                    case followRefChainToEnd l of
-                        EmptyType =>
-                        let (* If it's a type var it is either in the type var list or we return the
-                               default.  It isn't in the cache. *)
-                            fun findCodeFromTypeVar([], _) = ((fn _ => defaultTypeCode), 0)
-                                (* Return default code for a missing type variable.  This can occur
-                                   if we have unreferenced type variables that need to be supplied but
-                                   are treated as "don't care". *)
-
-                            |   findCodeFromTypeVar({entryType=TypeVarFormEntry typeVarMap, ...} :: rest, tyVar) =
-                                (
-                                case List.find(fn(t, _) => sameTv(t, tyVar)) typeVarMap of
-                                    SOME(_, codeFn) => (codeFn, List.length rest+1)
-                                |   NONE => findCodeFromTypeVar(rest, tyVar)
-                                )
-
-                            |   findCodeFromTypeVar(_ :: rest, tyVar) = findCodeFromTypeVar(rest, tyVar)
-                        in
-                            SOME(findCodeFromTypeVar(typeVarMap, tyVar))
-                        end
-
-                    |   ty => findCachedTypeCode(typeVarMap, ty)
-                )
-
-            |   BoundTypeVar(_, index) =>
-                let
-                    fun findCodeFromTypeVar [] = ((fn _ => defaultTypeCode), 0)
-                        (* Return default code for a missing type variable.  This can occur
-                           if we have unreferenced type variables that need to be supplied but
-                           are treated as "don't care". *)
-
-                    |   findCodeFromTypeVar({entryType=TypeBoundVarEntry typeVarMap, ...} :: rest) =
-                        (
-                            case typeVarMap index of
-                                SOME codeFn => (codeFn, List.length rest+1)
-                            |   NONE => findCodeFromTypeVar rest
-                        )
-
-                    |   findCodeFromTypeVar(_ :: rest) = findCodeFromTypeVar rest
-                in
-                    SOME(findCodeFromTypeVar typeVarMap)
-                end
-
-            |   TypeConstruction { constr, args, ...} =>
-                    let
-                        fun sameTypeConstr(TypeConstrs {identifier=tc1d,...}, TypeConstrs {identifier=tc2d,...}) = sameTypeId(tc1d, tc2d)
-                    in
-                        if tcIsAbbreviation constr (* Type abbreviation *)
-                        then findCachedTypeCode(typeVarMap, makeEquivalent (constr, args))
-                        else if null args
-                        then (* Check the permanently cached monotypes. *)
-                            case List.find(fn (t, _) => sameTypeConstr(t, constr)) cachedCode of
-                                SOME (_, c) => SOME ((fn _ => c), ~1)
-                            |   NONE => NONE
-                        else NONE
-                    end
-
-            |   FunctionType _ => SOME(fn _ => functionCode, ~1) (* Every function has the same code. *)
-
-            |   OverloadSetVar _ =>
-                let
-                    val constr as TypeConstrs {name,...} = typeConstrFromOverload typ
-                in
-                    findCachedTypeCode(typeVarMap, mkTypeConstruction(name, constr, [], []))
-                end
-
-            |   _ => NONE
-        end
-
-    end
-
-    open TypeVarMap
- 
     fun printerForType(ty, baseLevel, argTypes: typeVarMap) =
     let
         fun printCode(typ, level: level) =
             (
                 case typ of
-                    typ as TypeVar(TypeVariable{link=ref l, ...}) =>
+                    TypeVar(TypeVariable{link=ref l, ...}) =>
                     (
                         case followRefChainToEnd l of
-                            EmptyType =>
-                            (
-                                case findCachedTypeCode(argTypes, typ) of
-                                    SOME (code, _) => TypeValue.extractPrinter(code level)
-                                |   NONE => raise InternalError "printerForType: should already have been handled"
-                            )
-
+                            EmptyType => TypeValue.extractPrinter defaultTypeCode
                         |   final => printCode(final, level)
                     )
 
-                |   BoundTypeVar _ =>
-                    (
-                        case findCachedTypeCode(argTypes, typ) of
-                            SOME (code, _) => TypeValue.extractPrinter(code level)
-                        |   NONE => raise InternalError "printerForType: should already have been handled"
-                    )
+                |   BoundTypeVar(_, index) =>
+                    let
+                        fun findCodeFromTypeVar [] = (fn _ => defaultTypeCode)
+                            (* Return default code for a missing type variable.  This can occur
+                               if we have unreferenced type variables that need to be supplied but
+                               are treated as "don't care". *)
+
+                        |   findCodeFromTypeVar({entryType=TypeBoundVarEntry typeVarMap, ...} :: rest) =
+                            (
+                                case typeVarMap index of
+                                    SOME codeFn => codeFn
+                                |   NONE => findCodeFromTypeVar rest
+                            )
+                        val code = findCodeFromTypeVar argTypes
+                    in
+                        TypeValue.extractPrinter(code level)
+                    end
 
                 |   TypeConstruction { constr=typConstr as TypeConstrs {identifier,...}, args, name, ...} =>
                         if tcIsAbbreviation typConstr (* Handle type abbreviations directly *)
@@ -567,23 +442,18 @@ struct
                here for type vars, essentially the type arguments to the datatype, to avoid taking
                apart the type value record and then building it again.
                Is this correct any longer? *)
-            fun getArg ty =
-                if (case ty of TypeVar(TypeVariable{link=ref l, ...}) =>
-                        (case followRefChainToEnd l of EmptyType => true | _ => false) | _ => false)
-                then
+            fun getArg(TypeVar(TypeVariable{link=ref l, ...})) =
                 (
-                    case findCachedTypeCode(typeVarMap, ty) of
-                        SOME (code, _) => code level
-                    |   NONE => raise InternalError "getArg"
+                    case followRefChainToEnd l of
+                        EmptyType => defaultTypeCode
+                    |   ty => getArg ty
                 )
-            else
+            |   getArg ty =
                 let
                     val eqFun = makeEq(ty, level, getTypeValueForID, typeVarMap)
                     open TypeValue
                 in
-                    (* We need a type value here.  The equality function will be used to compare
-                       the argument type and the boxedness and size parameters may be needed for
-                       the constructors. *)
+                    (* We need a type value here.  The equality function will be used to compare *)
                     createTypeValue{eqCode=eqFun, printCode=CodeZero}
                 end
 
@@ -611,22 +481,27 @@ struct
             TypeVar(TypeVariable{link=ref l, ...}) =>
             (
                 case followRefChainToEnd l of
-                    EmptyType =>
-                    (
-                        case findCachedTypeCode(typeVarMap, ty) of
-                            SOME (code, _) => TypeValue.extractEquality(code level)
-                        |   NONE => raise InternalError "makeEq: should already have been handled"
-                    )
-
+                    EmptyType => TypeValue.extractEquality defaultTypeCode
                 |   tyVal => makeEq(tyVal, level, getTypeValueForID, typeVarMap)
             )
 
-        |   BoundTypeVar _ =>
-            (
-                case findCachedTypeCode(typeVarMap, ty) of
-                    SOME (code, _) => TypeValue.extractEquality(code level)
-                |   NONE => raise InternalError "makeEq: should already have been handled"
-            )
+        |   BoundTypeVar(_, index) =>
+            let
+                fun findCodeFromTypeVar [] = (fn _ => defaultTypeCode)
+                    (* Return default code for a missing type variable.  This can occur
+                       if we have unreferenced type variables that need to be supplied but
+                       are treated as "don't care". *)
+
+                |   findCodeFromTypeVar({entryType=TypeBoundVarEntry typeVarMap, ...} :: rest) =
+                    (
+                        case typeVarMap index of
+                            SOME codeFn => codeFn
+                        |   NONE => findCodeFromTypeVar rest
+                    )
+                val code = findCodeFromTypeVar typeVarMap
+            in
+                TypeValue.extractEquality(code level)
+            end
 
         |   TypeConstruction{constr, args, ...} =>
                 if tcIsAbbreviation constr  (* May be an alias *)
@@ -1018,10 +893,10 @@ struct
        the implementation. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId{source=TypeId{idKind=TypeFn{arity=0, resType, ...}, ...}, isEq, mkAddr, level, ...} =
+    fun codeGenerativeId{source=TypeId{idKind=TypeFn{arity=0, resType, ...}, ...}, isEq, level, ...} =
         let (* Monotype abbreviation. *)
             (* Create a new type value cache. *)
-            val typeVarMap = defaultTypeVarMap(mkAddr, level)
+            val typeVarMap = []
 
             open TypeValue
 
@@ -1040,11 +915,11 @@ struct
             }
         end
 
-    |   codeGenerativeId{source=TypeId{idKind=TypeFn{arity, resType, ...}, ...}, isEq, mkAddr, level, ...} =
+    |   codeGenerativeId{source=TypeId{idKind=TypeFn{arity, resType, ...}, ...}, isEq, level, ...} =
         let (* Polytype abbreviation: All the entries in the tuple are functions that must
                be applied to the base type values when the type constructor is used. *)
             (* Create a new type value cache. *)
-            val typeVarMap = defaultTypeVarMap(mkAddr, level)
+            val typeVarMap = []
             val nArgs = arity
 
             fun createCode(makeCode, name) =
@@ -1116,7 +991,7 @@ struct
             typeDatalist: {typeConstr: typeConstrSet, eqStatus: bool} list,
             mkAddr, level, makePrintFunction) =
     let
-        val typeVarMap = defaultTypeVarMap(fn _ => raise InternalError "createDatatypeFunctions", level)
+        val typeVarMap = []
         (* Each entry has an equality function and a ref to a print function.
            The print functions for each type needs to indirect through the refs
            when printing other types so that if a pretty printer is later
@@ -1190,7 +1065,7 @@ struct
        N.B. This differs from the functions in the typeID which take a Poly pair. *)
     fun equalityForType(ty: types, level: level): codetree =
     let
-        val typeVarMap = defaultTypeVarMap(fn _ => raise InternalError "equalityForType", level)
+        val typeVarMap = []
         val nLevel = newLevel level
         (* The final result function must take a single argument. *)
         val resultCode =
@@ -1202,8 +1077,7 @@ struct
     end
 
     val printerForType =
-        fn (ty, baseLevel) =>
-            printerForType(ty, baseLevel, defaultTypeVarMap(fn _ => raise InternalError "printerForType", baseLevel))
+        fn (ty, baseLevel) => printerForType(ty, baseLevel, [])
 
     (* This code is used when the type checker has to construct a unique monotype
        because a type variable has escaped to the top level.
