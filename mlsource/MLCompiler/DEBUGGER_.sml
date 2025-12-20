@@ -208,7 +208,7 @@ struct
             |   copyId id = SOME(searchType state id)
         in
             ValueType(copyType (ty, fn _ => NONE,
-                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s)), templates)
+                    fn tcon => copyTypeConstr (tcon, copyId, fn s => s)), templates)
         end
 
         fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) : values =

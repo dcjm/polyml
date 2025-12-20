@@ -184,7 +184,7 @@ struct
         |   copyId _ = NONE
         val copiedType =
             copyType (typeOf, fn _ => NONE,
-                fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => baseName^"."^s))                            
+                fn tcon => copyTypeConstr (tcon, copyId, fn s => baseName^"."^s))                            
         val baseLoc =
             case List.find (fn DeclaredAt _ => true | _ => false) locations of
                 SOME (DeclaredAt loc) => [StructureAt loc]
@@ -872,7 +872,7 @@ struct
                     followTypes (makeEquivalent (constr, args))
             |   followTypes (TypeConstruction{constr as TypeConstrs {identifier,...}, args, ...}) =
                     SOME(identifier, constr, List.length args)
-            |   followTypes (TypeVar(TypeVariable{link=ref l, ...})) = Option.composePartial(followTypes, followRefChainToEnd) l
+            |   followTypes (TypeVar(TypeVariable{link=ref l, ...})) = Option.composePartial(followTypes o instanceToType, followRefChainToEnd) l
             |   followTypes _ = NONE;
 
             val constrId = followTypes installType
@@ -1063,7 +1063,7 @@ struct
                    It only does limited checking and should be regarded as "unsafe". *)
                 let
                     fun rmvars (TypeVar(TypeVariable{link=ref l, ...})) =
-                            (case followRefChainToEnd l of NONE => BadType | SOME t => rmvars t)
+                            (case followRefChainToEnd l of NONE => BadType | SOME t => rmvars(instanceToType t))
                     |   rmvars t = t
                     (* instance should be ('a->'b) -> string -> unit.  For overloadings
                        on most functions (e.g. abs and +) we are looking for the 'a, which

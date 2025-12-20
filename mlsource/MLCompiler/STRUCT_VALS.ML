@@ -138,7 +138,7 @@ struct
     and typeVar =
         TypeVariable of
         {
-            link: types option refChain ref,
+            link: instanceType option refChain ref,
             equality: bool refChain ref,
             level: tvLevel refChain ref
         }
@@ -239,6 +239,10 @@ struct
 
     and typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
+
+    (* Instance types.  A type plus maps for bound type variables and type IDs. *)
+    and instanceType =
+        Instance of types * (tvIndex -> types option) * (typeId -> typeId option)
 
     (* Access to a value, structure or functor. *)
     and valAccess =
@@ -456,14 +460,14 @@ struct
        fn a => let val x = a in x end      and
        fn a => let val x = hd a in x end
      The level is set to "generalisable" at the end of the block with that
-     level. Actually ``level'' is not actually changed - instead the type
-     variable is assigned to a new variable with the correct level, since
-     only the last variable in a sequence is looked at.
+     level.
      ``equality'' is true if this is an equality variable e.g. ''a. *)
 
     fun makeTv {value, level, equality } =
         TypeVariable{ link = ref (ChainEnd value), level= ref (ChainEnd level), equality = ref (ChainEnd equality) }
- 
+
+    fun typeToInstance ty = Instance(ty, fn _ => NONE, fn _ => NONE)
+
   (* Type constructors are identifiers which take zero or more types and yield a
      type as result. Their main property is that two type constructors can be 
      unified iff they are the same constructor. Another use for
@@ -615,5 +619,6 @@ struct
         and  typeVarLink = typeVarLink
         and  tvIndex    = tvIndex
         and  valueType  = valueType
+        and  instanceType = instanceType
     end
 end;

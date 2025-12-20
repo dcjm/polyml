@@ -271,7 +271,7 @@ struct
                     (
                         case followRefChainToEnd l of
                             NONE => TypeValue.extractPrinter defaultTypeCode
-                        |   SOME final => printCode(final, level)
+                        |   SOME final => printCode(instanceToType final, level)
                     )
 
                 |   BoundTypeVar(_, index) =>
@@ -446,7 +446,7 @@ struct
                 (
                     case followRefChainToEnd l of
                         NONE => defaultTypeCode
-                    |   SOME ty => getArg ty
+                    |   SOME ty => getArg(instanceToType ty)
                 )
             |   getArg ty =
                 let
@@ -482,7 +482,7 @@ struct
             (
                 case followRefChainToEnd l of
                     NONE => TypeValue.extractEquality defaultTypeCode
-                |   SOME tyVal => makeEq(tyVal, level, getTypeValueForID, typeVarMap)
+                |   SOME tyVal => makeEq(instanceToType tyVal, level, getTypeValueForID, typeVarMap)
             )
 
         |   BoundTypeVar(_, index) =>

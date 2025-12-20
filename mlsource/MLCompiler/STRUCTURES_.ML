@@ -3013,7 +3013,7 @@ struct
             let
                 fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeIds offset)
                 |   copyId _ = NONE
-                fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn x => x, fn s => s)
+                fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn s => s)
             in
                 copyType(t, fn _ => NONE, replaceTypeConstrs)
             end

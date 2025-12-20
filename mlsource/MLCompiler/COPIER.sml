@@ -124,7 +124,7 @@ struct
                         val copiedEquiv =
                             copyType(equiv, fn _ => NONE,
                                 fn tcon =>
-                                    copyTypeConstrWithCache(tcon, copyId, fn x => x, makeName, initialCache))
+                                    copyTypeConstrWithCache(tcon, copyId, makeName, initialCache))
                         val copiedId =
                             makeGeneralTypeFunction(arity, copiedEquiv, description, access)
                     in
@@ -162,7 +162,7 @@ struct
             fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
             |   copyId _ = NONE
         in
-            copyTypeConstrWithCache (tcon, copyId, fn x => x, fn s => strName ^ s, typeCache)
+            copyTypeConstrWithCache (tcon, copyId, fn s => strName ^ s, typeCache)
         end
 
         fun copyTyp (t : types) : types = copyType (t, fn _ => NONE, copyTypeCons)

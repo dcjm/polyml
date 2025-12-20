@@ -47,6 +47,7 @@ sig
     type tvIndex
     type typeVarTemplate
     type argumentType
+    type instanceType
 
     type printTypeEnv =
         { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
@@ -77,13 +78,17 @@ sig
 
     (* Copy a type constructor. *)
     val copyTypeConstr:
-        typeConstrs * (typeId -> typeId option) * (types -> types) * (string -> string) -> typeConstrs
+        typeConstrs * (typeId -> typeId option) * (string -> string) -> typeConstrs
+
     val copyTypeConstrWithCache:
-        typeConstrs * (typeId -> typeId option) * (types -> types) *
+        typeConstrs * (typeId -> typeId option) *
         (string -> string) * typeConstrs list -> typeConstrs
 
     (* Copy a type. *)
     val copyType: types * (tvIndex -> types option) * (typeConstrs -> typeConstrs) -> types;
+
+    (* Copy the type if necessary to instantiate the bound variables. *)
+    val instanceToType: instanceType -> types
 
     (* Compose two typeId maps. *)
     val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)
@@ -261,6 +266,7 @@ sig
         and  tvIndex = tvIndex
         and  typeVarTemplate = typeVarTemplate
         and  argumentType = argumentType
+        and  instanceType = instanceType
     end
 
 end;

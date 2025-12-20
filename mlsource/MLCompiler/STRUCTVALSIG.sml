@@ -92,7 +92,7 @@ sig
     and typeVar =
         TypeVariable of
         {
-            link: types option refChain ref,
+            link: instanceType option refChain ref,
             equality: bool refChain ref,
             level: tvLevel refChain ref
         }
@@ -189,6 +189,13 @@ sig
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
+
+    and typeConstrSet = (* A type constructor with its, possible, value constructors. *)
+        TypeConstrSet of typeConstrs * values list
+
+    (* Instance types.  A type plus maps for bound type variables and type IDs. *)
+    and instanceType =
+        Instance of types * (tvIndex -> types option) * (typeId -> typeId option)
 
     and valAccess =
         Global   of codetree
@@ -291,11 +298,10 @@ sig
     
     val makeUniqueId: unit -> uniqueId
 
-    (* Types *)
-    datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
-        TypeConstrSet of typeConstrs * values list
-    
-    val makeTv: {value: types option, level: tvLevel, equality: bool } -> typeVar
+    (* Types *)    
+    val makeTv: {value: instanceType option, level: tvLevel, equality: bool } -> typeVar
+
+    val typeToInstance: types -> instanceType
 
     (* Access to values, structures etc. *)
     val makeLocal:    unit -> valAccess
@@ -381,6 +387,7 @@ sig
         and  typeVarLink = typeVarLink
         and  tvIndex    = tvIndex
         and  valueType  = valueType
+        and  instanceType = instanceType
     end
 end;
 
