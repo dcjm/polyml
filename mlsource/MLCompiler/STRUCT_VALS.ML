@@ -138,7 +138,7 @@ struct
     and typeVar =
         TypeVariable of
         {
-            link: types refChain ref,
+            link: types option refChain ref,
             equality: bool refChain ref,
             level: tvLevel refChain ref
         }
@@ -226,9 +226,8 @@ struct
            use of either affects both. *)
     |   OverloadSetVar of typeConstrs list refChain ref
 
+        (* For when there has been a type error or an undefined identifier *)
     |   BadType
-
-    |   EmptyType
 
     and typeConstrs = 
         TypeConstrs of
@@ -444,9 +443,6 @@ struct
                locations = locations  }
     
   (* Types. *)
-    
-    val emptyType            = EmptyType
-    val badType              = BadType
 
   (* A type variable is implemented as a true variable i.e. it can
      be assigned a particular type when it is unified. Initially it is
@@ -465,7 +461,7 @@ struct
      only the last variable in a sequence is looked at.
      ``equality'' is true if this is an equality variable e.g. ''a. *)
 
-    fun makeTv {value : types, level, equality } =
+    fun makeTv {value, level, equality } =
         TypeVariable{ link = ref (ChainEnd value), level= ref (ChainEnd level), equality = ref (ChainEnd equality) }
  
   (* Type constructors are identifiers which take zero or more types and yield a

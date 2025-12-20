@@ -832,7 +832,7 @@ struct
             val nLevel = newLevel level
         in
             (* If this appears in a structure return a default function. *)
-            mkProc(printerForType(badType, nLevel), 1, "getPretty", getClosure nLevel, 0)
+            mkProc(printerForType(BadType, nLevel), 1, "getPretty", getClosure nLevel, 0)
         end
 
     |  codeVal (Value{access = Overloaded GetPretty, ...}, level: level, [argType], _, _) =
@@ -872,12 +872,7 @@ struct
                     followTypes (makeEquivalent (constr, args))
             |   followTypes (TypeConstruction{constr as TypeConstrs {identifier,...}, args, ...}) =
                     SOME(identifier, constr, List.length args)
-            |   followTypes (TypeVar(TypeVariable{link=ref l, ...})) =
-                (
-                    case followRefChainToEnd l of
-                        EmptyType => NONE (* Unbound type variable *)
-                    |   t => followTypes t
-                )
+            |   followTypes (TypeVar(TypeVariable{link=ref l, ...})) = Option.composePartial(followTypes, followRefChainToEnd) l
             |   followTypes _ = NONE;
 
             val constrId = followTypes installType
@@ -1067,7 +1062,8 @@ struct
                 (* AddOverload is only intended for use by writers of library modules.
                    It only does limited checking and should be regarded as "unsafe". *)
                 let
-                    fun rmvars (TypeVar(TypeVariable{link=ref l, ...})) = rmvars(followRefChainToEnd l)
+                    fun rmvars (TypeVar(TypeVariable{link=ref l, ...})) =
+                            (case followRefChainToEnd l of NONE => BadType | SOME t => rmvars t)
                     |   rmvars t = t
                     (* instance should be ('a->'b) -> string -> unit.  For overloadings
                        on most functions (e.g. abs and +) we are looking for the 'a, which
@@ -1075,7 +1071,7 @@ struct
                     val (resultType, argType) =
                         case instance of
                             [alpha, beta] => (rmvars alpha, rmvars beta)
-                        |   _ => (badType, badType)
+                        |   _ => (BadType, BadType)
 
                     fun followTypes(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = Free _, ...},...}, ...}) = constr
  

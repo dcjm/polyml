@@ -70,22 +70,20 @@ struct
         refA = refB
     end 
      
-  fun isFunctionType     (FunctionType     _) = true
-    | isFunctionType     _ = false;
+    fun isFunctionType     (FunctionType     _) = true
+    |   isFunctionType     _ = false;
     
-  fun isBadType           BadType             = true
-    | isBadType          _ = false;
+    fun isBadType           BadType             = true
+    |   isBadType          _ = false;
 
-  val emptyType            = EmptyType;
-    
-  fun typesFunctionType     (FunctionType     x) = x
-     | typesFunctionType     _ = raise Match;
+    fun typesFunctionType     (FunctionType     x) = x
+    |   typesFunctionType     _ = raise Match;
 
 
 (*************)
 
     fun mkTypeVar (level, equality) = 
-        TypeVar (makeTv {value=emptyType, level=level, equality=equality})
+        TypeVar (makeTv {value=NONE, level=level, equality=equality})
 
     fun mkTypeConstruction (name, typc, args, locations) =
         TypeConstruction {name = name, constr = typc,
@@ -494,9 +492,9 @@ struct
     fun eventual (t as (TypeVar(TypeVariable{link=ref l, ...}))) =
         (
             (* Get the last entry in the chain and see if it has been set. *)
-            case eventual(followRefChainToEnd l) of
-                EmptyType => t (* Not bound to anything - return the type variable *)
-            |   newVal => newVal (* Return the type it is bound to *)
+            case followRefChainToEnd l of
+                NONE => t (* Not bound to anything - return the type variable *)
+            |   SOME newVal => eventual newVal (* Return the type it is bound to *)
         )
     
     |   eventual(t as FlexibleRecordVar{recList, fullList=ref fullList, equality=ref eql, level=ref lvl}) =
@@ -552,8 +550,6 @@ struct
             |   FreeTypeVar _ => res
 
             |   BadType => res
-         
-            |   EmptyType => res
           
             |   OverloadSetVar _ => res
         end
@@ -699,8 +695,6 @@ struct
                 |   _ => typ
             )
 
-        |   EmptyType => EmptyType
-
         |   BadType => BadType
 
     end (* copyType *)
@@ -727,7 +721,7 @@ struct
        The signature is created from the structure but it might have had overloading or flex
        records that have only be resolved later. *)
     fun createTypeVariable (TemplPlain{ equality }) =
-            TypeVar(makeTv {value=emptyType, level=Generalisable, equality=equality})
+            TypeVar(makeTv {value=NONE, level=Generalisable, equality=equality})
     |   createTypeVariable (TemplOverload s) = OverloadSetVar(ref(ChainEnd(Overloads.getOverloadTypes s)))
 
     (* Create a map for type variables.  Optimise the most common cases *)
@@ -916,8 +910,6 @@ struct
             end
 
         |   BadType => No
-
-        |   EmptyType => No (* shouldn't occur *)
     end
 
     (* Can this be used to set an eqtype? Used in "where type" constructions in signatures. *)
@@ -1609,8 +1601,6 @@ struct
                     )
                 )
 
-            |   EmptyType => PrettyString "no type"
-            
             |   BadType => PrettyString "bad"
         end (* dispP *)
     in
@@ -1711,7 +1701,7 @@ struct
     |   ParseTypeBad (* Place holder for errors. *)
 
     and parseTypeVar =
-        ParseTypeFreeVar of { name: string, equality: bool, typeVar: types ref }
+        ParseTypeFreeVar of { name: string, equality: bool, typeVar: types option ref }
     |   ParseTypeBoundVar of { name: string, index: tvIndex }
     |   ParseTypeError (* Error case *)
 
@@ -1737,14 +1727,14 @@ struct
             mkLabelled(sortLabels(List.map makeField fields), frozen)
         end
 
-    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref(typ as FreeTypeVar _), ...}, ...}) = typ
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref(SOME(typ as FreeTypeVar _)), ...}, ...}) = typ
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar _, ...}) = raise InternalError "typeFromTypeParse: Not set"
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
-            TypeVar(makeTv{value=emptyType, level=Generalisable, equality=false})
+            TypeVar(makeTv{value=NONE, level=Generalisable, equality=false})
    
     |   typeFromTypeParse(ParseTypeBad) = BadType
     
@@ -1768,7 +1758,7 @@ struct
     (* Free type variables can appear at various places in an ML program and denote the same type
        variable at each occurrence.  *)
     fun makeParseTypeFreeVar(name, isEq) =
-        ParseTypeFreeVar{ name=name, typeVar = ref EmptyType, equality=isEq }
+        ParseTypeFreeVar{ name=name, typeVar = ref NONE, equality=isEq }
 
     (* Bound type variables appear in type and datatype definitions. *)
     fun makeParseTypeBoundVar(name, index) =
@@ -1784,14 +1774,14 @@ struct
     fun setParseTypeVar(ParseTypeFreeVar{name, typeVar, equality, ...}, other, level) =
         let
             (* Should not have been previously set. *)
-            val _ = case !typeVar of EmptyType => () | _ => raise InternalError "setParseTypeVar: already set"
+            val _ = case !typeVar of NONE => () | _ => raise InternalError "setParseTypeVar: already set"
             val toSet =
                 case other of
-                    SOME(ParseTypeFreeVar{typeVar=ref (otherTv as FreeTypeVar _), ...}) => otherTv
+                    SOME(ParseTypeFreeVar{typeVar=ref (SOME(otherTv as FreeTypeVar _)), ...}) => otherTv
                 |   SOME _ => raise InternalError "setParseTypeVar: other not free"
                 |   NONE => FreeTypeVar {name=name, equality=equality, level=NotGeneralisable level, uid=makeUniqueId()}
         in
-            typeVar := toSet
+            typeVar := SOME toSet
         end
 
     |   setParseTypeVar _ = raise InternalError "setParseTypeVar: not free"
@@ -1941,11 +1931,11 @@ struct
                 mkLabelled(sortLabels(List.map makeField fields), frozen)
             end
 
-        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref EmptyType, ...}, ...}) = raise InternalError "assignTypes: free type not set"
-        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref typ, ...}, ...}) = typ
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref NONE, ...}, ...}) = raise InternalError "assignTypes: free type not set"
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref(SOME typ), ...}, ...}) = typ
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
         |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
-                TypeVar(makeTv{value=emptyType, level=Generalisable, equality=false})
+                TypeVar(makeTv{value=NONE, level=Generalisable, equality=false})
 
         |   typeFromTypeParse(ParseTypeBad) = BadType
     in
@@ -1954,7 +1944,7 @@ struct
 
     (* When we have finished processing a list of patterns we need to check
        that the record is now frozen. *)
-    fun recordNotFrozen (TypeVar(TypeVariable{link=ref l, ...})) = recordNotFrozen (followRefChainToEnd l)
+    fun recordNotFrozen (TypeVar(TypeVariable{link=ref l, ...})) = (case followRefChainToEnd l of NONE => false | SOME t => recordNotFrozen t)
     |   recordNotFrozen (FlexibleRecordVar{fullList=ref full, ...}) = not(#frozen(followRefChainToEnd full))
     |   recordNotFrozen _ = false (* record or type alias *);
 
@@ -2186,7 +2176,7 @@ struct
                        it could prevent us producing useful error information and it could
                        also result in unnecessary consequential errors. *)
                     case !matchResult of
-                        NONE => if reallyTheSame then () else varLinkVar := ChainEnd finalType
+                        NONE => if reallyTheSame then () else varLinkVar := ChainEnd(SOME finalType)
                     |   SOME _ => ()
                 end
             end (* assign *);
@@ -2387,9 +2377,6 @@ struct
 
             |   (_, FreeTypeVar _) =>
                     cantMatch (Atype, Btype, "(Type contains an explicit type variable)")
-
-            |   (EmptyType, EmptyType) => ()
-                    (* This occurs only with exceptions - empty means no argument *)
 
             |   (LabelledRecord recA, LabelledRecord recB) =>
                     (* Unify the records, but discard the result. *)
@@ -2917,8 +2904,6 @@ struct
                 end
             end
 
-        |   EmptyType => raise InternalError "createGeneric: EmptyType"
-
         |   BadType => (BadType, templates)
 
         val (newType, newTemplates) = createGeneric(t, [])
@@ -2958,7 +2943,6 @@ struct
             |   BoundFlexRecord _ => raise InternalError "containsLocalFreeVariables: boundflexvar"
             |   BoundTypeVar _ => raise InternalError "containsLocalFreeVariables: boundvar"
             |   BadType => v
-            |   EmptyType => v
             |   OverloadSetVar _ => v
         end
     in
@@ -2997,7 +2981,7 @@ struct
                     warningMessage(lex, location lex, 
                         concat["The type of (", valName,
                             ") contains a free type variable. Setting it to a unique monotype."]);
-                    refVal := ChainEnd newVal
+                    refVal := ChainEnd(SOME newVal)
                 end
             else ()
         |  checkTypes _ () = ()
@@ -3032,7 +3016,7 @@ struct
         (* We have to use the full list; not all fields may be in recList. *)
         fun getFieldList(LabelledRecord rcrd) = map #name rcrd
         |   getFieldList(FlexibleRecordVar{fullList=ref full, ...}) = #names(followRefChainToEnd full)
-        |   getFieldList(TypeVar(TypeVariable{link=ref l, ...})) = getFieldList(followRefChainToEnd l)
+        |   getFieldList(TypeVar(TypeVariable{link=ref l, ...})) = getFieldList(valOf(followRefChainToEnd l))
         |   getFieldList(TypeConstruction{
                     constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...}, args, ...}) =
                 getFieldList(makeEquivalent(constr, args)) (* Type function *)
@@ -3073,7 +3057,8 @@ struct
                 List.map getType recList
             end
 
-        |   getCodetreeType (TypeVar(TypeVariable{link=ref l, ...})) = getCodetreeType (followRefChainToEnd l)
+        |   getCodetreeType (TypeVar(TypeVariable{link=ref l, ...})) =
+                (case followRefChainToEnd l of NONE => [GeneralType] | SOME t => getCodetreeType t)
 
         |   getCodetreeType (TypeConstruction{
                     constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...}, args, ...}) =

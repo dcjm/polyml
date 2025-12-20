@@ -1380,21 +1380,21 @@ struct
             val environEntryType =
                 mkTypeConstruction ("environEntry", environEntryConstr, [], declInBasis)
             val constrs = (* Order is significant. *)
-               [ ("EnvEndFunction",     mkProductType[String, Location, localType]),
-                 ("EnvException",       mkProductType[String, localType, locationPropList]),
-                 ("EnvStartFunction",   mkProductType[String, Location, localType]),
-                 ("EnvStructure",       mkProductType[String, localSig, locationPropList]),
-                 ("EnvTConstr",         String ** localTypeConstr),
-                 ("EnvTypeid",          typeId ** typeId),
-                 ("EnvVConstr",         mkProductType[String, localType, Bool, Int, locationPropList]),
-                 ("EnvValue",           mkProductType[String, localType, locationPropList])
+               [ ("EnvEndFunction",     SOME(mkProductType[String, Location, localType])),
+                 ("EnvException",       SOME(mkProductType[String, localType, locationPropList])),
+                 ("EnvStartFunction",   SOME(mkProductType[String, Location, localType])),
+                 ("EnvStructure",       SOME(mkProductType[String, localSig, locationPropList])),
+                 ("EnvTConstr",         SOME(String ** localTypeConstr)),
+                 ("EnvTypeid",          SOME(typeId ** typeId)),
+                 ("EnvVConstr",         SOME(mkProductType[String, localType, Bool, Int, locationPropList])),
+                 ("EnvValue",           SOME(mkProductType[String, localType, locationPropList]))
                  ]
             (* This representation must match the representation defined in DEBUGGER_.sml. *)
             val numConstrs = List.length constrs
             val {constrs=constrReps, ...} = chooseConstrRepr(constrs, 0)
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, ValueType(t ->> environEntryType, []), code, false, numConstrs, declInBasis))
+                    mkGconstr(s, ValueType(valOf t ->> environEntryType, []), code, false, numConstrs, declInBasis))
                         (constrs, constrReps)
             fun valName (Value{name, ...}) = name
             val () = List.app (fn c => #enterVal debuggerEnv(valName c, c)) constructors
@@ -1598,20 +1598,20 @@ struct
             val () = #enterType polyMLEnv ("parseTree", TypeConstrSet(parseTreeConstr, []));
 
             val constrs = (* Order is significant. *)
-               [ ("PTbreakPoint",       Ref Bool),
-                 ("PTcompletions",      List String),
-                 ("PTdeclaredAt",       Location),
-                 ("PTdefId",            fixedIntType),
-                 ("PTfirstChild",       Unit ->> ParseTree),
-                 ("PTnextSibling",      Unit ->> ParseTree),
-                 ("PTopenedAt",         Location),
-                 ("PTparent",           Unit ->> ParseTree),
-                 ("PTpreviousSibling",  Unit ->> ParseTree),
-                 ("PTprint",            fixedIntType ->> PrettyType),
-                 ("PTreferences",       Bool ** List Location),
-                 ("PTrefId",            fixedIntType),
-                 ("PTstructureAt",      Location),
-                 ("PTtype",             Types)
+               [ ("PTbreakPoint",       SOME(Ref Bool)),
+                 ("PTcompletions",      SOME(List String)),
+                 ("PTdeclaredAt",       SOME Location),
+                 ("PTdefId",            SOME fixedIntType),
+                 ("PTfirstChild",       SOME(Unit ->> ParseTree)),
+                 ("PTnextSibling",      SOME(Unit ->> ParseTree)),
+                 ("PTopenedAt",         SOME Location),
+                 ("PTparent",           SOME(Unit ->> ParseTree)),
+                 ("PTpreviousSibling",  SOME(Unit ->> ParseTree)),
+                 ("PTprint",            SOME(fixedIntType ->> PrettyType)),
+                 ("PTreferences",       SOME(Bool ** List Location)),
+                 ("PTrefId",            SOME fixedIntType),
+                 ("PTstructureAt",      SOME Location),
+                 ("PTtype",             SOME Types)
                  ];
             (* This representation must match the representation defined in ExportTree.sml. *)
             val numConstrs = List.length constrs
@@ -1619,7 +1619,7 @@ struct
             fun valName (Value{name, ...}) = name
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, ValueType(t ->> PtProperties, []), code, false, numConstrs, declInBasis))
+                    mkGconstr(s, ValueType(valOf t ->> PtProperties, []), code, false, numConstrs, declInBasis))
                         (constrs, constrReps)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)

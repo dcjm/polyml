@@ -975,8 +975,8 @@ struct
                 let
                     val arity = List.length typeVars
                     (* Get the argument types or EmptyType if this is nullary. *)
-                    fun getConstrType(Value{typeOf=ValueType(FunctionType{arg, ...}, _), name, ...}) = (name, arg)
-                    |   getConstrType(Value{name, ...}) = (name, EmptyType)
+                    fun getConstrType(Value{typeOf=ValueType(FunctionType{arg, ...}, _), name, ...}) = (name, SOME arg)
+                    |   getConstrType(Value{name, ...}) = (name, NONE)
                     val constrTypesAndNames = List.map getConstrType constrs
                     val {constrs} = chooseConstrRepr(constrTypesAndNames, arity)
                 in
@@ -1181,11 +1181,11 @@ struct
                         {
                             vars =
                                 if numOfPats = 1 then hd args
-                                else TupleTree{fields=args, location=line, expType=ref EmptyType},
+                                else TupleTree{fields=args, location=line, expType=ref BadType},
                             exp  = exp,
                             location = line,
-                            argType = ref badType,
-                            resType = ref badType,
+                            argType = ref BadType,
+                            resType = ref BadType,
                             breakPoint = breakPoint
                         }
                     val matches = map clauseToTree clauses
@@ -1427,7 +1427,7 @@ struct
                 fun matchTreeToClause(MatchTree{vars, exp, location, breakPoint, ...}) =
                 let
                     val dec =
-                        { ident = { name="", expType=ref EmptyType, location=location},
+                        { ident = { name="", expType=ref BadType, location=location},
                             isInfix = false, args=[vars], constraint=NONE}
                 in
                     FValClause{dec = dec, exp=exp, line=location, breakPoint = breakPoint }

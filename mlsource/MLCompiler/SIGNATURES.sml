@@ -1253,10 +1253,10 @@ struct
                   allStructNames = #allStructNames structEnv
                  };
 
-                fun makeId (eq, isdt, (args, EmptyType), loc) =
+                fun makeId (eq, isdt, (args, NONE), loc) =
                     makeVariableId(length args, eq, isdt, true, loc, structPath)
 
-                |   makeId (_, _, (typeVars, decType), { location, name, description }) =
+                |   makeId (_, _, (typeVars, SOME decType), { location, name, description }) =
                         makeTypeFunction(List.length typeVars, decType, { location = location, name = structPath ^ name, description = description })
 
                 (* We need a map to look up types.  This is only used in one place:

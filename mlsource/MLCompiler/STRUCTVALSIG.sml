@@ -92,7 +92,7 @@ sig
     and typeVar =
         TypeVariable of
         {
-            link: types refChain ref,
+            link: types option refChain ref,
             equality: bool refChain ref,
             level: tvLevel refChain ref
         }
@@ -179,9 +179,8 @@ sig
            use of either affects both. *)
     |   OverloadSetVar of typeConstrs list refChain ref
 
+        (* For when there has been a type error or an undefined identifier *)
     |   BadType
-  
-    |   EmptyType
 
     and typeConstrs = 
         TypeConstrs of
@@ -293,13 +292,10 @@ sig
     val makeUniqueId: unit -> uniqueId
 
     (* Types *)
-    val badType:   types
-    val emptyType: types
-
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
     
-    val makeTv: {value: types, level: tvLevel, equality: bool } -> typeVar
+    val makeTv: {value: types option, level: tvLevel, equality: bool } -> typeVar
 
     (* Access to values, structures etc. *)
     val makeLocal:    unit -> valAccess

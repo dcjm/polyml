@@ -132,9 +132,6 @@ struct
     open BASEPARSETREE
     open PRINTTREE
     open EXPORTTREE
-  
-    val emptyType            = EmptyType
-    val badType              = BadType
 
    (* Second pass of ML parse tree. *)
    
@@ -335,7 +332,7 @@ struct
                     applyList expT t
                 end
         in
-            applyList badType l
+            applyList BadType l
         end
 
         fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
@@ -462,7 +459,7 @@ struct
                                     unifyErrorReport(lex, typeEnv) report, lex, location, foundNear near);
                                 (* Continue with "bad" which suppresses further error messages
                                    and return "bad" as the result. *)
-                                applyList(badType, n+1, t)
+                                applyList(BadType, n+1, t)
                             end
                     end
             in
@@ -526,7 +523,7 @@ struct
                         (
                             errorNear (lex, true, pat, location,
                                     "Identifier before `as' must not be a constructor.");
-                            badType
+                            BadType
                         )
                         else
                         (* Must be a nullary constructor otherwise it should
@@ -544,7 +541,7 @@ struct
                             (
                                 errorNear (lex, true, pat, location,
                                             "Constructor must be applied to an argument pattern.");
-                                badType
+                                BadType
                             )
                         end
       
@@ -613,7 +610,7 @@ struct
                                 (
                                     if isUndefinedValue constrVal then ()
                                     else errorNear (lex, true, pat, location, name ^ " is not a constructor");
-                                    badType
+                                    BadType
                                 )
                             end
         
@@ -621,7 +618,7 @@ struct
                             (
                                 errorNear (lex, true, pat, location,
                                     "Constructor in a pattern was not an identifier");
-                                badType
+                                BadType
                             )
     
                     val patType = processPattern(arg, enterResult, level, notConst, mkVar, isRec);
@@ -673,7 +670,7 @@ struct
                             ("Elements in a list have different types.", "Item", ",", location, aList) elements
                     val resType =
                         if isBadType elementType
-                        then badType
+                        then BadType
                         else mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
                 in
                     expType := resType;
@@ -726,7 +723,7 @@ struct
                     processPattern(p, enterResult, level, notConst, mkVar, isRec)
 
             |   _ => (* not a legal pattern *)
-                    badType
+                    BadType
 
         end (* processPattern *)
 
@@ -813,7 +810,7 @@ struct
 
             in
                 case fType of
-                    NONE => badType (* Not a function *)
+                    NONE => BadType (* Not a function *)
                 |   SOME (fArg, fResult) =>
                     (
                         case unifyTypes (fArg, argType) of
@@ -852,7 +849,7 @@ struct
                             valTypeMessage (lex, typeEnv) ("Then:", thenpt, thenType),
                             valTypeMessage (lex, typeEnv) ("Else:", elsept, elseType),
                             unifyErrorReport (lex, typeEnv) report, lex, location, foundNear v);
-                        badType
+                        BadType
                     )
             end
 
@@ -889,10 +886,10 @@ struct
               typeof (* Already made. *)
 
           | ValDeclaration {dec, explicit, implicit, ...} =>
-                (assValDeclaration (dec, explicit, implicit); badType (* Should never be used. *))
+                (assValDeclaration (dec, explicit, implicit); BadType (* Should never be used. *))
 
           | FunDeclaration fund =>
-                (assFunDeclaration fund; badType (* Should never be used. *))
+                (assFunDeclaration fund; BadType (* Should never be used. *))
 
           | OpenDec{decs=ptl, variables, structures, typeconstrs, ...} =>
                 let
@@ -990,7 +987,7 @@ struct
                     variables := HashTable.fold (fn (_, v, t) => v :: t) [] valTable;
                     structures := HashTable.fold (fn (_, v, t) => v :: t) [] structTable;
                     typeconstrs := HashTable.fold (fn (_, v, t) => v :: t) [] typeTable;
-                    badType (* Does not return a type *)
+                    BadType (* Does not return a type *)
                 end
     
           | TypeDeclaration(tlist, _) =>
@@ -1003,8 +1000,8 @@ struct
                 val newEnv = noDuplicates messFn;
               
                 (* First match all the types on the right-hand sides. *)
-                fun processTypeBody (TypeBind {decType = SOME decType, ...}) = ptAssignTypes(decType, v)
-                |   processTypeBody _ = emptyType (* Specification. *)
+                fun processTypeBody (TypeBind {decType = SOME decType, ...}) = SOME(ptAssignTypes(decType, v))
+                |   processTypeBody _ = NONE (* Specification. *)
                 
                 val resTypes = List.map processTypeBody tlist;
               
@@ -1020,16 +1017,16 @@ struct
 
                     val tcon =
                         case decType of
-                            EmptyType => (* Type specification *)
+                            NONE => (* Type specification *)
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
                                 makeTypeConstructor (name,
-                                    makeTypeId(isEqtype, false, (tvcVars, EmptyType), description), props)
+                                    makeTypeId(isEqtype, false, (tvcVars, NONE), description), props)
                             end
-                        |   _ =>
+                        |   SOME decT =>
                             (
-                                case typeNameRebinding(typeVars, decType) of
+                                case typeNameRebinding(typeVars, decT) of
                                     SOME typeId =>
                                         makeTypeConstructor (name, typeId, props)
                                 |   NONE =>
@@ -1049,7 +1046,7 @@ struct
                    
                 val () = ListPair.app processType (tlist, resTypes);
             in
-                badType (* Does not return a type *)
+                BadType (* Does not return a type *)
             end
         
           | AbsDatatypeDeclaration absData => assAbsData absData
@@ -1121,7 +1118,7 @@ struct
                 List.app (fn (c as Value{name, ...}) => (#enterVal env) (name, c)) newValConstrs;
                 (* Add this type constructor to the environment. *)
                 (#enterType env) (newType, newTypeCons);
-                badType (* Does not return a type *)
+                BadType (* Does not return a type *)
             end
 
           | (aList as List{elements, location, expType, ...}) =>
@@ -1131,7 +1128,7 @@ struct
                         ("Elements in a list have different types.", "Item", ",", location, aList) elements
                 val resType =
                     if isBadType elementType
-                    then badType
+                    then BadType
                     else mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
             in
                 expType := resType;
@@ -1317,7 +1314,7 @@ struct
   
                 val () = List.app processException tlist;
             in
-                badType
+                BadType
             end (* ExDeclaration *)
         
           | Raise (pt, line) =>
@@ -1385,7 +1382,7 @@ struct
           | anAndAlso as Andalso {first, second, location} =>
             let
                 (* Both parts must be bool and the result is bool. *)
-                fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
+                fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref BadType }
                 val pairArgs = mkTupleTree([first, second], location)
                 val argTypes  = assValues anAndAlso pairArgs;
                 val boolStarBool = mkProductType[boolType, boolType]
@@ -1403,7 +1400,7 @@ struct
           | anOrElse as Orelse {first, second, location} =>
             let
                 (* Both parts must be bool and the result is bool. *)
-                fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
+                fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref BadType }
                 val pairArgs = mkTupleTree([first, second], location)
                 val argTypes  = assValues anOrElse pairArgs;
                 val boolStarBool = mkProductType[boolType, boolType]
@@ -1423,7 +1420,7 @@ struct
                 (* Infix declarations have already been processed by the parser.  We include
                    them here merely so that we get all declarations in the correct order. *)
                 List.app (fn name => #enterFix env (name, FixStatus(name, fix))) tlist;
-                badType
+                BadType
                 )
 
           | WildCard _ => (* Should never occur in an expression. *)
@@ -1742,8 +1739,8 @@ struct
                                clauses    = clauses,
                                numOfPatts = ref 0,
                                functVar   = ref undefinedValue,
-                               argType    = ref badType,
-                               resultType = ref badType,
+                               argType    = ref BadType,
+                               resultType = ref BadType,
                                location   = location
                              }
     
@@ -1778,7 +1775,7 @@ struct
                         (* This list is used for the type of the helper function. *)
                         val () = argType :=
                             (case argTypeList of
-                                [] => badType (* error *)
+                                [] => BadType (* error *)
                             |   [single] => single
                             |   multiple => mkProductType multiple)
 
@@ -1902,7 +1899,7 @@ struct
                               Ident
                                 {
                                   name   = name,
-                                  expType = ref(EmptyType, []),
+                                  expType = ref(BadType, []),
                                   value  = ref undefinedValue,
                                   location = loc,
                                   possible = ref(fn () => [])
@@ -1973,7 +1970,7 @@ struct
             
                 val newId =
                     if letDepth = 0
-                    then makeTypeId(false, true, (typeVars, EmptyType), description)
+                    then makeTypeId(false, true, (typeVars, NONE), description)
                     else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val tc = makeTypeConstructor(name, newId, locations)
@@ -1998,8 +1995,8 @@ struct
             (* First match all the types on the right-hand sides using the
                datatypes and the existing bindings. *)
             local
-                fun processType (TypeBind {decType = SOME decType, ...}) = localAssignTypes decType
-                |   processType _ = emptyType
+                fun processType (TypeBind {decType = SOME decType, ...}) = SOME(localAssignTypes decType)
+                |   processType (TypeBind {decType = NONE, ...}) = NONE
             in
                 val decTypes = List.map processType withtypes
             end;
@@ -2172,7 +2169,7 @@ struct
                     ()
                 end;
         in
-            badType (* Does not return a type *)
+            BadType (* Does not return a type *)
         end (* assAbsData *)
     in 
         assValues near v

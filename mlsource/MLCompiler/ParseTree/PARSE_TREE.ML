@@ -69,7 +69,7 @@ struct
       Ident
         {
           name   = name,
-          expType = ref(EmptyType, []),
+          expType = ref(BadType, []),
           value  = ref undefinedValue,
           location = loc,
           possible = ref(fn () => [])
@@ -90,19 +90,19 @@ struct
     end;
 
     fun mkString(s: string, loc): parsetree =
-        Literal{converter=convString, literal=s, expType=ref EmptyType, location=loc};
+        Literal{converter=convString, literal=s, expType=ref BadType, location=loc};
     
     fun mkInt  (i : string, loc) : parsetree =
-        Literal{converter=convInt, literal=i, expType=ref EmptyType, location=loc};
+        Literal{converter=convInt, literal=i, expType=ref BadType, location=loc};
     
     fun mkReal (r : string, loc) : parsetree =
-        Literal{converter=convReal, literal=r, expType=ref EmptyType, location=loc};
+        Literal{converter=convReal, literal=r, expType=ref BadType, location=loc};
     
     fun mkChar (c : string, loc) : parsetree = 
-        Literal{converter=convChar, literal=c, expType=ref EmptyType, location=loc};
+        Literal{converter=convChar, literal=c, expType=ref BadType, location=loc};
 
     fun mkWord (w : string, loc) : parsetree =
-        Literal{converter=convWord, literal=w, expType=ref EmptyType, location=loc};
+        Literal{converter=convWord, literal=w, expType=ref BadType, location=loc};
     
     fun mkApplic (f, arg, loc, isInfix) : parsetree  =
       Applic
@@ -111,7 +111,7 @@ struct
           arg = arg,
           location = loc,
           isInfix = isInfix,
-          expType = ref EmptyType
+          expType = ref BadType
         };
     
     fun mkCond (test, thenpt, elsept, location) : parsetree  = 
@@ -125,7 +125,7 @@ struct
             elseBreak = ref NONE
         }
        
-    fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
+    fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref BadType }
     
     fun mkValDeclaration (dec, explicit, implicit, location) : parsetree = 
         ValDeclaration 
@@ -182,7 +182,7 @@ struct
     fun mkFunPattern (fPat, lex): funpattern * string * int =
     let
         fun makeId(name, loc) =
-            {name = name, expType = ref EmptyType, location = loc }
+            {name = name, expType = ref BadType, location = loc }
 
         fun unpick (Applic{ f, arg, isInfix, ... }) =
                 (* "Application" of function to a parameter. *)
@@ -208,13 +208,13 @@ struct
 
         |   unpick (Ident{ name, location, ...}) =
             {
-                ident={ name = name, location = location, expType = ref EmptyType},
+                ident={ name = name, location = location, expType = ref BadType},
                 isInfix=false, args = [], constraint = NONE
             }
 
         |   unpick (Parenthesised(Applic{ f = Ident { name, location, ...}, isInfix=true, arg, ... }, _)) =
             {
-                ident={ name = name, location = location, expType = ref EmptyType},
+                ident={ name = name, location = location, expType = ref BadType},
                 isInfix=true, args = [arg], constraint = NONE
             }
 
@@ -278,7 +278,7 @@ struct
           breakPoint = ref NONE
         }
 
-    fun mkList(elem, loc) = List{ elements = elem, location = loc, expType = ref EmptyType }
+    fun mkList(elem, loc) = List{ elements = elem, location = loc, expType = ref BadType }
     
     fun mkConstraint (value, given, location) : parsetree = 
       Constraint 
@@ -297,7 +297,7 @@ struct
         };
     
     fun mkFn(matches, location) =
-        Fn { matches = matches, location = location, expType = ref EmptyType }
+        Fn { matches = matches, location = location, expType = ref BadType }
     
     fun mkMatchTree (vars, exp, location) : matchtree = 
       MatchTree 
@@ -388,7 +388,7 @@ struct
        {
          recList = recList,
          frozen  = frozen,
-         expType  = ref EmptyType,
+         expType  = ref BadType,
          location = location
        };
        
@@ -398,7 +398,7 @@ struct
         nameLoc = nameLoc,
         valOrPat = valOrPat,
         fullLocation = fullLocation,
-        expType = ref EmptyType
+        expType = ref BadType
     }
 
     fun mkSelector(name, location) : parsetree =
@@ -445,7 +445,7 @@ struct
             match = match,
             location = location,
             listLocation = listLocation,
-            expType = ref EmptyType
+            expType = ref BadType
         };
       
     fun mkAndalso (first, second, location) : parsetree =

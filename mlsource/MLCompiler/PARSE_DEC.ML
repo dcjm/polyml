@@ -1668,7 +1668,7 @@ struct
                         (
                         errorMessage (lex, location lex, 
                                     name ^  " has not been declared in type declaration");
-                        badType
+                        BadType
                         )
                 }
             in

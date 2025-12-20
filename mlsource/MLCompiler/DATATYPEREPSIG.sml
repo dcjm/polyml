@@ -25,8 +25,7 @@ sig
     type typeId
     type level
 
-    val chooseConstrRepr :
-        (string*types) list * int -> { constrs: codetree list }
+    val chooseConstrRepr: (string * types option) list * int -> { constrs: codetree list }
 
     type representations
     val RefForm:   representations;

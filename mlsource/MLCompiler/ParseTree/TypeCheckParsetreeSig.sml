@@ -32,7 +32,7 @@ sig
     type typeIdDescription = { location: location, name: string, description: string }
 
     val pass2:
-        parsetree * (bool * bool * (parseTypeVar list * types) * typeIdDescription -> typeId) *
+        parsetree * (bool * bool * (parseTypeVar list * types option) * typeIdDescription -> typeId) *
         env * lexan * (int -> bool) -> types
 
     structure Sharing:

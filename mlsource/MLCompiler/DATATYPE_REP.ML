@@ -274,9 +274,9 @@ struct
        changes there as well. *)
     fun chooseConstrRepr(cs, arity) =
     let
-        fun checkArgKind (name, EmptyType) = (Nullary, name)
-        |   checkArgKind (name, argType) = (getTupleKind argType, name)
-        val kinds = map checkArgKind cs;
+        fun checkArgKind (name, NONE) = (Nullary, name)
+        |   checkArgKind (name, SOME argType) = (getTupleKind argType, name)
+        val kinds = map checkArgKind cs
 
         fun chooseRepr [(Nullary, name)]       = [createNullaryConstructor(UnitForm, name)]
         |  chooseRepr [(UnaryGeneric, name)]  = [createUnaryConstructor(OnlyOne, name)]
@@ -546,7 +546,7 @@ struct
                 fun makeCons(s,t) =
                     makeValueConstr(s, ValueType(mkFunctionType(t, contextType), []), false, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
-                val {constrs=constrCode} = chooseConstrRepr(constrs, 0)
+                val {constrs=constrCode} = chooseConstrRepr(map (fn (s, t) => (s, SOME t)) constrs, 0)
             in
                 ListPair.zipEq(List.map makeCons constrs, constrCode)
             end
@@ -565,19 +565,19 @@ struct
 
                 val constrs =
                    [ ("PrettyBlock",
-                        mkProductType[intTypeConstr, boolTypeConstr,
-                                      listConstruct contextType, listConstruct prettyType]),
-                     ("PrettyBreak", mkProductType[intTypeConstr, intTypeConstr]),
-                     ("PrettyLineBreak", EmptyType),
-                     ("PrettyString", stringTypeConstr),
-                     ("PrettyStringWithWidth", mkProductType[stringTypeConstr, intTypeConstr])];
+                        SOME(mkProductType[intTypeConstr, boolTypeConstr,
+                                      listConstruct contextType, listConstruct prettyType])),
+                     ("PrettyBreak", SOME(mkProductType[intTypeConstr, intTypeConstr])),
+                     ("PrettyLineBreak", NONE),
+                     ("PrettyString", SOME stringTypeConstr),
+                     ("PrettyStringWithWidth", SOME(mkProductType[stringTypeConstr, intTypeConstr]))];
                 (* The representation of this datatype is given in Pretty.sml and must be the same
                    as the representation that chooseConstrRepr will use. *)
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
                 let
                     val (ctype, nullary) =
-                        case t of EmptyType => (prettyType, true) | t => (mkFunctionType(t, prettyType), false)
+                        case t of NONE => (prettyType, true) | SOME t => (mkFunctionType(t, prettyType), false)
                 in
                     makeValueConstr(s, ValueType(ctype, []), nullary, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])

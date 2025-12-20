@@ -270,8 +270,8 @@ struct
                     TypeVar(TypeVariable{link=ref l, ...}) =>
                     (
                         case followRefChainToEnd l of
-                            EmptyType => TypeValue.extractPrinter defaultTypeCode
-                        |   final => printCode(final, level)
+                            NONE => TypeValue.extractPrinter defaultTypeCode
+                        |   SOME final => printCode(final, level)
                     )
 
                 |   BoundTypeVar(_, index) =>
@@ -445,8 +445,8 @@ struct
             fun getArg(TypeVar(TypeVariable{link=ref l, ...})) =
                 (
                     case followRefChainToEnd l of
-                        EmptyType => defaultTypeCode
-                    |   ty => getArg ty
+                        NONE => defaultTypeCode
+                    |   SOME ty => getArg ty
                 )
             |   getArg ty =
                 let
@@ -481,8 +481,8 @@ struct
             TypeVar(TypeVariable{link=ref l, ...}) =>
             (
                 case followRefChainToEnd l of
-                    EmptyType => TypeValue.extractEquality defaultTypeCode
-                |   tyVal => makeEq(tyVal, level, getTypeValueForID, typeVarMap)
+                    NONE => TypeValue.extractEquality defaultTypeCode
+                |   SOME tyVal => makeEq(tyVal, level, getTypeValueForID, typeVarMap)
             )
 
         |   BoundTypeVar(_, index) =>
@@ -557,13 +557,13 @@ struct
             val nTypeVars = tcArity tyConstr
             val argTypes =
                 List.tabulate(tcArity tyConstr,
-                    fn _ => makeTv{value=EmptyType, level=Generalisable, equality=false})
+                    fn _ => makeTv{value=NONE, level=Generalisable, equality=false})
             val baseEqLevelP1 = newLevel baseEqLevel
 
             (* Argument type variables. *)
             val (localArgList, argTypeMap) =
-                case argTypes of
-                    [] => ([], typeVarMap)
+                case nTypeVars of
+                    0 => ([], typeVarMap)
                 |   _ =>
                     let
                         (* Add the polymorphic variables after the ordinary ones. *)

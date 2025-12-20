@@ -1998,10 +1998,10 @@ struct
 
             (* Create a new type ID for each new datatype.  Add the structure path to the
                name. *)
-            fun makeId (eq, isdt, (args, EmptyType), { location, name, description }) =
+            fun makeId (eq, isdt, (args, NONE), { location, name, description }) =
                     makeLocalTypeId(List.length args, true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
-            |   makeId (_, _, (typeVars, decType), { location, name, description }) =
+            |   makeId (_, _, (typeVars, SOME decType), { location, name, description }) =
                     makeTypeFunction(List.length typeVars, decType,
                         { location = location, name = structPath ^ name, description = description })
 
