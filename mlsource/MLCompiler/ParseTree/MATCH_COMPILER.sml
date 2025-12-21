@@ -193,8 +193,7 @@ struct
         {
             constructor: values, (* The constructor itself. *)
             patts: patSet,       (* Patterns that use this constructor *)
-            appliedTo: aot,      (* Patterns this constructor was applied to. *)
-            polyVars: types list (* If this was polymorphic, the matched types. *)
+            appliedTo: aot      (* Patterns this constructor was applied to. *)
         }
 
     and exconsrec =
@@ -220,12 +219,11 @@ struct
             vars     = vars
         }
 
-    fun makeConsrec(constructor, patts, appliedTo, polyVars): consrec = 
+    fun makeConsrec(constructor, patts, appliedTo): consrec = 
         {
             constructor = constructor,
             patts       = patts, 
-            appliedTo   = appliedTo,
-            polyVars    = polyVars
+            appliedTo   = appliedTo
         }
 
     fun makeExconsrec(constructor, patts, appliedTo, exValue): exconsrec = 
@@ -261,8 +259,8 @@ struct
             
                 |   Cons(cl, width) =>
                     let
-                        fun addDefaultToConsrec {constructor, patts, appliedTo, polyVars} =
-                            makeConsrec(constructor, patts, addDefault appliedTo patNo, polyVars)
+                        fun addDefaultToConsrec {constructor, patts, appliedTo} =
+                            makeConsrec(constructor, patts, addDefault appliedTo patNo)
                     in
                         Cons (map addDefaultToConsrec cl, width)
                     end
@@ -284,24 +282,24 @@ struct
 
         (* Add a constructor to the tree.  It can only be added to a
            cons node or a wild card. *)
-        fun addConstr(cons, noOfConstrs, doArg, tree as Aot {patts = Wild, defaults, vars, ...}, patNo, polyVars) =
+        fun addConstr(cons, noOfConstrs, doArg, tree as Aot {patts = Wild, defaults, vars, ...}, patNo) =
             let (* Expand out the wildCard into a constructor node. *)          
                 val cr = 
-                    makeConsrec(cons, singleton patNo, (* Expand the argument *) doArg (wild tree), polyVars);
+                    makeConsrec(cons, singleton patNo, (* Expand the argument *) doArg (wild tree))
             in
                 makeAot(Cons([cr], noOfConstrs), defaults, vars)
             end
 
-        |   addConstr(cons as Value{name=consName, ...}, _, doArg, tree as Aot {patts = Cons(pl, width), defaults, vars}, patNo, polyVars) =
+        |   addConstr(cons as Value{name=consName, ...}, _, doArg, tree as Aot {patts = Cons(pl, width), defaults, vars}, patNo) =
             let
                 (* Merge this constructor with other occurences. *)
                 fun addClist [] = (* Not there - add this on the end. *)
-                    [makeConsrec(cons, singleton patNo, doArg (wild tree), polyVars)]
+                    [makeConsrec(cons, singleton patNo, doArg (wild tree))]
           
                 |   addClist ((ccl as {constructor=Value{name=cName, ...}, patts, appliedTo, ... })::ccls) =
                     if cName = consName
                     then (* Merge in. *)
-                        makeConsrec(cons, singleton patNo plus patts, doArg appliedTo, polyVars)
+                        makeConsrec(cons, singleton patNo plus patts, doArg appliedTo)
                             :: ccls
                     else (* Carry on looking. *) ccl :: addClist ccls;
             in
@@ -399,14 +397,13 @@ struct
         (* Take a pattern and merge it into an andOrTree. *)
         fun buildAot (Ident {value=ref ident, ... }, tree, patNo, line, context ) =
             let
-                val polyVars = []
                 fun doArg a = buildAot(WildCard nullLocation, a, patNo, line, context)
             in
                 case ident of
                     Value{class=Constructor {ofConstrs, ...}, ...} =>
                       (* Only nullary constructors. Constructors with arguments
                          will be dealt with by ``isApplic'. *)
-                        addConstr(ident, ofConstrs, doArg, tree, patNo, polyVars)
+                        addConstr(ident, ofConstrs, doArg, tree, patNo)
                 |    Value{class=Exception, ...} =>
                           addExconstr(ident, doArg, tree, patNo)
                 |   _ => (* variable - matches everything. Defaults here and pushes a var. *)
@@ -478,12 +475,11 @@ struct
         |   buildAot (Applic{f = Ident{value = ref applVal, ...}, arg, location, ...},
                       tree, patNo, _, context) =
             let
-                val polyVars = []
                 fun doArg atree = buildAot(arg, atree, patNo, location, context)
             in
                 case applVal of
                      Value{class=Constructor{ofConstrs, ...}, ...} =>
-                        addConstr(applVal, ofConstrs, doArg, tree, patNo, polyVars)
+                        addConstr(applVal, ofConstrs, doArg, tree, patNo)
 
                 |    Value{class=Exception, ...} => addExconstr(applVal, doArg, tree, patNo)
 
@@ -498,22 +494,15 @@ struct
       
         |   buildAot (WildCard _, tree, patNo, _, _) = addDefault tree patNo (* matches everything *)
       
-        |   buildAot (List{elements, location, expType=ref expType, ...},
-                      tree, patNo, _, context) =
+        |   buildAot (List{elements, location, ...}, tree, patNo, _, context) =
             let (* Generate suitable combinations of cons and nil.
                 e.g [1,2,3] becomes ::(1, ::(2, ::(3, nil))). *)
-                (* Get the base type. *)
-                val elementType = mkTypeVar (Generalisable, false)
-                val TypeConstrSet(tsConstr, _) = listConstr
-                val listType = mkTypeConstruction ("list", tsConstr, [elementType], [DeclaredAt inBasis])
-                val _ = unifyTypes(listType, expType)
-                val polyVars = [elementType]
 
                 fun processList [] tree = 
                     (* At the end put in a nil constructor. *)
                     addConstr(nilConstructor, 2,
-                        fn a => buildAot (WildCard nullLocation, a, patNo, location, context), tree, patNo, polyVars)
-                | processList (h :: t) tree = (* Cons node. *)
+                        fn a => buildAot (WildCard nullLocation, a, patNo, location, context), tree, patNo)
+                |   processList (h :: t) tree = (* Cons node. *)
                     let
                         fun mkConsPat (Aot {patts = TupleField [hPat, tPat], defaults, vars, ...}) =  
                             let   (* The argument is a pair consisting of the
@@ -533,7 +522,7 @@ struct
                         | mkConsPat _ = 
                             raise InternalError "mkConsPat: badly-formed parse-tree"
                     in
-                        addConstr(consConstructor, 2, mkConsPat, tree, patNo, polyVars)
+                        addConstr(consConstructor, 2, mkConsPat, tree, patNo)
                     end
                 (* end processList *);
             in
@@ -547,11 +536,11 @@ struct
                    for this type to plug into the code.  Literals are overloaded
                    so this may require first resolving the overload to the
                    preferred type. *)
-                val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload expType
+                val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload(instanceToType expType)
                 val equality =
                     equalityForType(mkTypeConstruction(tcName, constr, [], []), level)
                 val litValue: machineWord option =
-                    getLiteralValue(converter, literal, expType, fn s => errorNear(lex, true, vars, location, s))
+                    getLiteralValue(converter, literal, instanceToType expType, fn s => errorNear(lex, true, vars, location, s))
             in
                 addSconstr(equality, litValue, tree, patNo, lex)
              end

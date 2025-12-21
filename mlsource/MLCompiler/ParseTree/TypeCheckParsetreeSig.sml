@@ -24,6 +24,7 @@ sig
     type typeId
     type lexan
     type env
+    type instanceType
 
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
@@ -33,15 +34,16 @@ sig
 
     val pass2:
         parsetree * (bool * bool * (parseTypeVar list * types option) * typeIdDescription -> typeId) *
-        env * lexan * (int -> bool) -> types
+        env * lexan * (int -> bool) -> instanceType
 
     structure Sharing:
     sig
         type parsetree = parsetree
-        type types = types
-        type parseTypeVar = parseTypeVar
-        type typeId = typeId
-        type lexan = lexan
-        type env = env
+        and  types = types
+        and  parseTypeVar = parseTypeVar
+        and  typeId = typeId
+        and  lexan = lexan
+        and  env = env
+        and  instanceType = instanceType
     end
 end;

@@ -170,20 +170,20 @@ struct
                     |   SOME {exportedRef=ref exp, localRef=ref locals, recursiveRef=ref recs} =>
                             [PTreferences(exp, List.map #1 recs @ locals)]
             in
-                (location, PTtype expType :: decProp @ commonProps @ refProp @ possProp)
+                (location, PTtype(instanceToType expType) :: decProp @ commonProps @ refProp @ possProp)
             end
 
-        |   Literal {location, expType=ref expType, ...} => (location, PTtype expType :: commonProps)
+        |   Literal {location, expType=ref expType, ...} => (location, PTtype(instanceToType expType) :: commonProps)
 
             (* Infixed application.  For the purposes of navigation we treat this as
                three entries in order. *)
         |   Applic{location, f, arg = TupleTree{fields=[left, right], ...}, isInfix = true, expType=ref expType, ...} =>
                 (location,
-                    PTtype expType :: exportList(getExportTree, SOME asParent) [left, f, right] @ commonProps)
+                    PTtype(instanceToType expType) :: exportList(getExportTree, SOME asParent) [left, f, right] @ commonProps)
 
             (* Non-infixed application. *)
         |   Applic{location, f, arg, expType=ref expType, ...} =>
-                (location, PTtype expType :: exportList(getExportTree, SOME asParent) [f, arg] @ commonProps)
+                (location, PTtype(instanceToType expType) :: exportList(getExportTree, SOME asParent) [f, arg] @ commonProps)
 
         |   Cond{location, test, thenpt, elsept, thenBreak, elseBreak, ...} =>
                 (location,
@@ -344,8 +344,8 @@ struct
         |   Layered{location, var, pattern, ...} =>
                 (location, exportList(getExportTree, SOME asParent) [var, pattern] @ commonProps)
 
-        |   Fn {matches, location, expType = ref expType, ...} =>
-                (location, PTtype expType :: exportList(exportMatch, SOME asParent) matches @ commonProps)
+        |   Fn {matches, location, ...} =>
+                (location, exportList(exportMatch, SOME asParent) matches @ commonProps)
 
         |   Localdec{location, decs, body, ...} =>
                 (location, exportList(exportTreeWithBpt, SOME asParent) (decs @ body) @ commonProps)
@@ -438,7 +438,7 @@ struct
                     exportList(exportTreeWithBpt, SOME asParent)
                         [(test, ref NONE), (body, breakPoint)] @ commonProps)
 
-        |   Case{location, test, match, listLocation, expType=ref expType, ...}            =>
+        |   Case{location, test, match, listLocation, ...}            =>
             let
                 (* The first position is the expression, the second the matches *)
                 fun getExpr () = getExportTree({parent=SOME asParent, previous=NONE, next=SOME getMatches}, test)
@@ -447,7 +447,7 @@ struct
                         exportList(exportMatch, SOME getMatches) match @
                             exportNavigationProps{parent=SOME asParent, previous=SOME getExpr, next=NONE})
             in
-                (location, [PTfirstChild getExpr, PTtype expType] @ commonProps)
+                (location, [PTfirstChild getExpr] @ commonProps)
             end
 
         |   Andalso {location, first, second, ...} =>
@@ -492,9 +492,8 @@ struct
 
         |   Selector{location, typeof, ...} => (location, PTtype typeof :: commonProps)
 
-        |   List{elements, location, expType = ref expType, ...} =>
-                (location,
-                    PTtype expType :: exportList(getExportTree, SOME asParent) elements @ commonProps)
+        |   List{elements, location, ...} =>
+                (location, exportList(getExportTree, SOME asParent) elements @ commonProps)
 
         |   EmptyTree                      => (nullLocation, commonProps)
 

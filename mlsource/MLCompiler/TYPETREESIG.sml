@@ -88,14 +88,20 @@ sig
     val copyType: types * (tvIndex -> types option) * (typeConstrs -> typeConstrs) -> types;
 
     (* Copy the type if necessary to instantiate the bound variables. *)
+    val reduceToType: instanceType -> types
+    
+    (* Create a type from an instance without necessarily reducing it. *)
     val instanceToType: instanceType -> types
+
+    (* Extract the instance data from an instance or create one if necessary. *)
+    val getInstance: instanceType -> types * (tvIndex -> types option) * (typeId -> typeId option)
 
     (* Compose two typeId maps. *)
     val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)
 
     (* Print it out prettily *)
-    val display: types * FixedInt.int * printTypeEnv -> pretty;
-    val displayWithMap: types * FixedInt.int * printTypeEnv * (int->typeId) option -> pretty;
+    val display: instanceType * FixedInt.int * printTypeEnv -> pretty;
+    val displayWithMap: instanceType * FixedInt.int * printTypeEnv * (int->typeId) option -> pretty;
 
     (* Print out a type constructor. *)
     val displayTypeConstrs: typeConstrSet * FixedInt.int * printTypeEnv -> pretty;
@@ -108,7 +114,7 @@ sig
     val computeDatatypeEqualities: typeConstrSet list * (int -> bool) -> unit;
 
     (* Unify two type structures to give a unified type. *)
-    val unifyTypes: types * types -> matchResult option
+    val unifyTypes: instanceType * instanceType -> matchResult option
     
     (* Pretty print the error message. *)
     val unifyTypesErrorReport: lexan * printTypeEnv * printTypeEnv * string -> matchResult -> pretty
@@ -119,18 +125,18 @@ sig
     (* Generate new copies of all unbound type variables - this is used on all
        non-local values or constructors so that, for example, each occurence of
        "hd", which has type 'a list -> 'a, can be separately bound to types. *)
-    val generalise: types * typeVarTemplate list -> types * types list
+    val generalise: types * typeVarTemplate list -> instanceType * types list
  
     (* Similar to generalise but with the bound variables replaced by non-unifiable
        free variables.  This is used in signature matching.  A polymorphic function
        in a structure will match a similar monomorphic function but not the other way
        round. *)
-    val createNonGeneralisableInstance: (types * typeVarTemplate list) * (typeId -> typeId option) -> types
+    val createNonGeneralisableInstance: (types * typeVarTemplate list) * (typeId -> typeId option) -> instanceType
 
-    (* Release type variables at this nesting level.  Updates the type to the
-       generalised version.  Returns a type with bound variables for those which are
-       generic along with templates for each bound variable. *)
-    val allowGeneralisation: types * int * bool * (string->unit) -> types * typeVarTemplate list
+    (* Release type variables at this nesting level.  Returns a type with bound variables
+       for those which are  generic along with templates for each bound variable.  Free
+       type variables at lower levels are not affected. *)
+    val allowGeneralisation: instanceType * int * bool * (string->unit) -> types * typeVarTemplate list
 
     (* See if the type contains non-unifiable i.e. explicit type variables but it's an
        expansive context. *)
@@ -148,7 +154,7 @@ sig
 
     (* Get the codetree "types".  This is used during code-generation to see if
        a function arguments or results are a tuple or contain floating-point values. *)
-    val getCodetreeType: types -> argumentType list
+    val getCodetreeType: instanceType -> argumentType list
 
     val boolConstr:   typeConstrs;
     val fixedIntConstr:typeConstrs
@@ -209,7 +215,7 @@ sig
     
     (* Check the value we're discarding in an expression sequence or a let binding
        and return a string if it's not appropriate. *)
-    val checkDiscard: types * lexan -> string option
+    val checkDiscard: instanceType * lexan -> string option
 
     val typeExportTree: navigation * typeParsetree -> exportTree
     

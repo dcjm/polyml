@@ -219,8 +219,7 @@ struct
               access  = access,
               class   = Constructor { nullary = nullary, ofConstrs = constrs },
               locations = locations,
-              references = NONE,
-              instanceTypes = NONE
+              references = NONE
             }
     in
         fun makeValue state (name, ty, location, valu) =

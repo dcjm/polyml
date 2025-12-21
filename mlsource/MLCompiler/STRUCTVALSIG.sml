@@ -196,6 +196,7 @@ sig
     (* Instance types.  A type plus maps for bound type variables and type IDs. *)
     and instanceType =
         Instance of types * (tvIndex -> types option) * (typeId -> typeId option)
+    |   SimpleInstance of types
 
     and valAccess =
         Global   of codetree
@@ -255,8 +256,7 @@ sig
             access: valAccess,
             class: valueClass,
             locations: locationProp list,
-            references: references,
-            instanceTypes: types list ref option
+            references: references
         }
 
     (* The "type" of a value.  In general this is polymorphic and when an instance is created assignable type
@@ -300,8 +300,6 @@ sig
 
     (* Types *)    
     val makeTv: {value: instanceType option, level: tvLevel, equality: bool } -> typeVar
-
-    val typeToInstance: types -> instanceType
 
     (* Access to values, structures etc. *)
     val makeLocal:    unit -> valAccess

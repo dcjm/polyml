@@ -213,15 +213,14 @@ struct
                 (* Copy the value constructors for a datatype. *)
        
                 fun copyValueConstr(
-                        v as Value{name, typeOf=ValueType(typeOf, templates), class, access, locations, references, instanceTypes, ...}) =
+                        v as Value{name, typeOf=ValueType(typeOf, templates), class, access, locations, references, ...}) =
                 let
                     (* Copy its type and make a new constructor if the type has changed. *)
                     val newType = copyTyp typeOf
                 in
                     if not (identical (newType, typeOf))
                     then Value{name=name, typeOf=ValueType(newType, templates), class=class,
-                               access=access, locations = locations, references = references,
-                               instanceTypes=instanceTypes}
+                               access=access, locations = locations, references = references }
                     else v
                 end;
 
@@ -234,14 +233,14 @@ struct
             else if tagIs valueVar dVal
             then
             let
-                val v as Value {typeOf=ValueType(typeOf, templates), class, name, access, locations, references, instanceTypes, ...} =
+                val v as Value {typeOf=ValueType(typeOf, templates), class, name, access, locations, references, ...} =
                     tagProject valueVar dVal;
                 val newType = copyTyp typeOf
                 (* Can save creating a new object if the address and type
                    are the same as they were. *)
                 val res =
                     if not (identical (newType, typeOf))
-                    then Value {typeOf=ValueType(newType, templates), class=class, name=name, instanceTypes=instanceTypes,
+                    then Value {typeOf=ValueType(newType, templates), class=class, name=name,
                                     access=access,locations=locations, references = references}
                     else v
             in

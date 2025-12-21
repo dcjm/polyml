@@ -429,7 +429,7 @@ struct
         (* Get the value constructors out as globals. *)
         fun mkGlobal((Value{name, typeOf, class, locations,  ...}, _), (decs, offset)) =
             (decs @ [Value{name=name, typeOf=typeOf, class=class, locations=locations, references=NONE,
-                     instanceTypes=NONE, access=Global(mkInd(offset, globalCode))}], offset+1)
+                     access=Global(mkInd(offset, globalCode))}], offset+1)
         val (gConstrs, _) = List.foldl mkGlobal ([], 1 (* Offset 0 is the type ID *)) sortedConstrs
 
         (* Finally copy the datatype to put in the code. *)
@@ -446,8 +446,7 @@ struct
           access  = access,
           class   = Constructor { nullary = nullary, ofConstrs = constrs },
           locations = locations,
-          references = NONE,
-          instanceTypes = NONE
+          references = NONE
         }
 
 

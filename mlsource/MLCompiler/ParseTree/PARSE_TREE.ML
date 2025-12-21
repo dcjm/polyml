@@ -58,9 +58,10 @@ struct
   
     fun isIdent               (Ident _)               = true | isIdent _               = false;
   
-    val unit      = Unit;
-    val wildCard  = WildCard;
-    val emptyTree = EmptyTree;
+    val unit      = Unit
+    val wildCard  = WildCard
+    val emptyTree = EmptyTree
+    val badInstance = SimpleInstance BadType
 
     (* A general type variable for an expression.  This is used to record the type. *)
     fun makeGeneralTypeVar() = mkTypeVar(Generalisable, false)
@@ -69,7 +70,7 @@ struct
       Ident
         {
           name   = name,
-          expType = ref(BadType, []),
+          expType = ref(badInstance, []),
           value  = ref undefinedValue,
           location = loc,
           possible = ref(fn () => [])
@@ -80,7 +81,7 @@ struct
         val funType = mkFunctionType (stringType, BoundTypeVar("'a", TVIndex 0))
         fun mkOverloaded name  =
             Value{ name = name, typeOf = ValueType(funType, [TemplOverload name]), access = Overloaded TypeDep,
-                class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
+                class = ValBound, locations = [DeclaredAt inBasis], references = NONE}
     in
         val convString = mkOverloaded "convString"
         and convInt = mkOverloaded "convInt"
@@ -90,19 +91,19 @@ struct
     end;
 
     fun mkString(s: string, loc): parsetree =
-        Literal{converter=convString, literal=s, expType=ref BadType, location=loc};
+        Literal{converter=convString, literal=s, expType=ref badInstance, location=loc};
     
     fun mkInt  (i : string, loc) : parsetree =
-        Literal{converter=convInt, literal=i, expType=ref BadType, location=loc};
+        Literal{converter=convInt, literal=i, expType=ref badInstance, location=loc};
     
     fun mkReal (r : string, loc) : parsetree =
-        Literal{converter=convReal, literal=r, expType=ref BadType, location=loc};
+        Literal{converter=convReal, literal=r, expType=ref badInstance, location=loc};
     
     fun mkChar (c : string, loc) : parsetree = 
-        Literal{converter=convChar, literal=c, expType=ref BadType, location=loc};
+        Literal{converter=convChar, literal=c, expType=ref badInstance, location=loc};
 
     fun mkWord (w : string, loc) : parsetree =
-        Literal{converter=convWord, literal=w, expType=ref BadType, location=loc};
+        Literal{converter=convWord, literal=w, expType=ref badInstance, location=loc};
     
     fun mkApplic (f, arg, loc, isInfix) : parsetree  =
       Applic
@@ -111,8 +112,8 @@ struct
           arg = arg,
           location = loc,
           isInfix = isInfix,
-          expType = ref BadType
-        };
+          expType = ref badInstance
+        }
     
     fun mkCond (test, thenpt, elsept, location) : parsetree  = 
         Cond  
@@ -278,7 +279,7 @@ struct
           breakPoint = ref NONE
         }
 
-    fun mkList(elem, loc) = List{ elements = elem, location = loc, expType = ref BadType }
+    fun mkList(elem, loc) = List{ elements = elem, location = loc }
     
     fun mkConstraint (value, given, location) : parsetree = 
       Constraint 
@@ -296,8 +297,7 @@ struct
           location = location
         };
     
-    fun mkFn(matches, location) =
-        Fn { matches = matches, location = location, expType = ref BadType }
+    fun mkFn(matches, location) = Fn { matches = matches, location = location }
     
     fun mkMatchTree (vars, exp, location) : matchtree = 
       MatchTree 
@@ -444,9 +444,8 @@ struct
             test  = test,
             match = match,
             location = location,
-            listLocation = listLocation,
-            expType = ref BadType
-        };
+            listLocation = listLocation
+        }
       
     fun mkAndalso (first, second, location) : parsetree =
       Andalso
@@ -508,6 +507,7 @@ struct
         and  matchtree   = matchtree
         and  level = level
         and  debuggerStatus   = debuggerStatus
+        and  instanceType = instanceType
     end
 
 end (* PARSETREE *);

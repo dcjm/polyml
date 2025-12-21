@@ -453,7 +453,7 @@ struct
     (* Formal paramater to a functor - either value or exception. *)
     fun mkFormal (name : string, class, typ, addr, locations) =
         Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations,
-              references = NONE, instanceTypes=NONE}
+              references = NONE}
 
       (* Get the value from a signature-returning expression
          (either the name of a signature or sig ... end.
@@ -863,7 +863,7 @@ struct
                             PrettyBreak(1, 0),
                             PrettyString reason1,
                             PrettyBreak(1, 0),
-                            display(realisation, 1000, typeEnv),
+                            display(SimpleInstance realisation, 1000, typeEnv),
                             PrettyBreak(0, 0),
                             PrettyString reason2
                         ]))
@@ -1076,7 +1076,7 @@ struct
                     val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                     
                     (* Turn free variables into bound variables.  *)
-                    val valType = allowGeneralisation(typeof, 0, false, fn _ => ())
+                    val valType = allowGeneralisation(SimpleInstance typeof, 0, false, fn _ => ())
 
                 in  (* If the type is not found give an error. *)
                     (* The type is copied before being entered in the environment.
@@ -1164,8 +1164,7 @@ struct
                                any sharing *)
                             fun copyConstructor(Value { name, typeOf, access, class, locations, ... }) =
                                 Value{name=name, typeOf = typeOf, access=newAccess access,
-                                      class=class, locations=locations, references=NONE,
-                                      instanceTypes=NONE}
+                                      class=class, locations=locations, references=NONE }
                             val newType =
                                 case tcConstructors of
                                     [] => tySet (* Not a datatype. *)
@@ -1188,8 +1187,7 @@ struct
                         and enterVal(dName, Value { name, typeOf, access, class, locations, ... }) =
                             #enterVal structEnv (dName,
                                 Value{name=name, typeOf = typeOf, access=newAccess access,
-                                      class=class, locations=locations, references=NONE,
-                                      instanceTypes=NONE})
+                                      class=class, locations=locations, references=NONE })
 
                         val tsvEnv =
                             { enterType = enterType, enterStruct = enterStruct, enterVal = enterVal }
@@ -1224,7 +1222,7 @@ struct
                    declaration or from datatype replication. *)
                 fun convertValueConstr(Value{class=class, typeOf, locations, name, ...}) =
                     Value{class=class, typeOf=typeOf, access=Formal(!addrs before (addrs := !addrs+1)), name=name,
-                        locations=locations, references=NONE, instanceTypes=NONE}
+                        locations=locations, references=NONE}
                     
                 fun enterVal(name, v) = (#enterVal structEnv)(name, convertValueConstr v)
 
@@ -1276,7 +1274,7 @@ struct
                     |   VariableSlot { boundId, ...} => equalityForId boundId
                     |   _ => raise InternalError "internalMap: Not bound or Free"
 
-                val _ : types = pass2 (dec, makeId, Env newEnv, lex, findEquality);
+                val _ = pass2 (dec, makeId, Env newEnv, lex, findEquality);
                 (* Replace the constructor list for the datatype with a new set.
                    We need to have separate addresses for the constructors in the
                    datatype environment from those in the value environment.  This

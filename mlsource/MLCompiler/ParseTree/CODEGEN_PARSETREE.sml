@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015, 2020 David C.J. Matthews
+    Copyright (c) 2013-2015, 2020, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -140,12 +140,17 @@ struct
        not be correct. *)
     (* This now returns the argument type for each entry so returns a list rather
        than a number. *)
-    fun tupleWidth(TupleTree{expType=ref expType, ...}) = getCodetreeType expType
+    (* TODO: The codetree optimiser now handles tuples.  This is still needed for
+       floating point.  It seems that this is also needed for top-level
+       functions that return tuples since the optimiser looks at the use of the
+       tuple rather than how it is created.  This code deals with a lot of
+       cases because it is looking at the body to see if it creates a tuple. *)
+    fun tupleWidth(TupleTree{expType=ref expType, ...}) = getCodetreeType(SimpleInstance expType)
 
     |  tupleWidth(Labelled{expType=ref expType, ...}) =
        if recordNotFrozen expType (* An error, but reported elsewhere. *)
        then [GeneralType] (* Safe enough *)
-       else getCodetreeType expType
+       else getCodetreeType(SimpleInstance expType)
 
     |  tupleWidth(Cond{thenpt, elsept, ...}) =
         (
@@ -492,7 +497,7 @@ struct
  
     |   codeGenerate(c as Literal{converter, literal, expType=ref expType, location}, { lex, debugEnv, ...}) =
         (
-            case getLiteralValue(converter, literal, expType, fn s => errorNear(lex, true, c, location, s)) of
+            case getLiteralValue(converter, literal, instanceToType expType, fn s => errorNear(lex, true, c, location, s)) of
                 SOME w  => (mkConst w, debugEnv)
               | NONE    => (CodeZero, debugEnv)
         )
@@ -1440,7 +1445,7 @@ struct
                     val argType = mkTypeVar(Generalisable, false)
                     and resultType = mkTypeVar(Generalisable, false)
                     val () =
-                        if isSome(unifyTypes(typeOf, mkFunctionType(argType, resultType)))
+                        if isSome(unifyTypes(SimpleInstance typeOf, SimpleInstance(mkFunctionType(argType, resultType))))
                         then raise InternalError "mkFValBind"
                         else ()
                 in

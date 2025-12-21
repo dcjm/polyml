@@ -497,7 +497,7 @@ struct
                     Value{ name = name, typeOf = ValueType(TYPETREE.exnType, []),
                            access = Global(mkConst(toMachineWord id)),
                            class = Exception, locations = declInBasis,
-                           references = NONE, instanceTypes=NONE }
+                           references = NONE }
             in
                 #enterVal runCallEnv (name, exc)
             end
@@ -508,7 +508,7 @@ struct
                     Value{ name = name, typeOf = ValueType(exType ->> TYPETREE.exnType, []),
                            access = Global(mkConst(toMachineWord id)),
                            class = Exception, locations = declInBasis,
-                           references = NONE, instanceTypes=NONE }
+                           references = NONE }
             in
                 #enterVal runCallEnv (name, exc)
             end
@@ -992,7 +992,7 @@ struct
                     Value{ name = "Foreign", typeOf = ValueType(String ->> TYPETREE.exnType, []),
                            access = Global(mkConst(toMachineWord EXC_foreign)),
                            class = Exception, locations = declInBasis,
-                        references = NONE, instanceTypes=NONE }
+                        references = NONE }
             in
                 val () = #enterVal foreignEnv ("Foreign", foreignException)
             end
@@ -1250,10 +1250,10 @@ struct
             val eqTempl = TemplPlain { equality=true }
             val eqVal =
                 Value{ name = "=", typeOf = ValueType(eqType, [eqTempl]), access = Overloaded Equal,
-                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
+                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE}
             val neqVal =
                 Value{ name = "<>", typeOf = ValueType(eqType, [eqTempl]), access = Overloaded NotEqual,
-                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
+                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE}
         in
             val () = enterGlobalValue ("=", eqVal)
             val () = enterGlobalValue ("<>", neqVal)
@@ -1462,7 +1462,7 @@ struct
         (* Type-dependent functions. *)
         fun mkSpecialFun (name, typeof, templs, opn) =
             Value{ name = name, typeOf = ValueType(typeof, templs), access = Overloaded opn, class = ValBound,
-                   locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
+                   locations = [DeclaredAt inBasis], references = NONE}
 
         local
             val printVal =
@@ -1657,7 +1657,7 @@ struct
 
             fun mkOverloaded name typeof =
                 Value{ name = name, typeOf = ValueType(typeof, [TemplOverload name]), access = Overloaded TypeDep,
-                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE}
+                       class = ValBound, locations = [DeclaredAt inBasis], references = NONE}
         in
             val () = enterGlobalValue ("+", mkOverloaded "+"   addType);
             val () = enterGlobalValue ("-", mkOverloaded "-"   addType);
@@ -1820,7 +1820,7 @@ struct
                 fun codeForValue (Value{access = Global code, class = ValBound, ...}) = code
                 |   codeForValue _ = raise Fail "Not a global value"
                 and exportedDisplayTypeExp(ty, depth, nameSpace: nameSpace option) =
-                    TYPETREE.display(ty, depth, makeTypeEnv nameSpace)
+                    TYPETREE.display(SimpleInstance ty, depth, makeTypeEnv nameSpace)
                 and exportedDisplayValues(valu, depth, nameSpace: nameSpace option) =
                         displayValues(valu, depth, makeTypeEnv nameSpace)
                 and propsForValue (Value {locations, typeOf=ValueType(typeOf, _), ...}) = PTtype typeOf :: mapLocationProps locations

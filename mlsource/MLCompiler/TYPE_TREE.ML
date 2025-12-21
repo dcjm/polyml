@@ -634,8 +634,9 @@ struct
     end (* copyType *)
 
     (* Generate the instance by applying any copying necessary. *)
-    and instanceToType(Instance(typeOf, indexBTV, copyId)) =
+    and reduceToType(Instance(typeOf, indexBTV, copyId)) =
         copyType(typeOf, indexBTV, fn tcon => copyTypeConstr (tcon, copyId, fn s => s))
+    |   reduceToType(SimpleInstance t) = t
 
     (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
        function copies that as well. Does not copy value constructors. When copying a signature
@@ -885,20 +886,14 @@ struct
         |   BadType => No
     end
 
-  (* Chains down a list of type variables returning the type they are
-     bound to. As a side-effect it also points all the type variables
-     at this type to reduce the need for future chaining and to free
-     unused type variables. Normally a type variable points to at most
-     one other, which then points to "empty". However if we have unified
-     two type variables by pointing one at the other, there may be type
-     variables which pointed to the first and which cannot be found and
-     redirected at the second until they themselves are examined. *)
+    (* Gets the final type in a chain.  Extends flexible records by adding
+       extra fields if necessary. *)
     and eventual (t as (TypeVar(TypeVariable{link=ref l, ...}))) =
         (
             (* Get the last entry in the chain and see if it has been set. *)
             case followRefChainToEnd l of
                 NONE => t (* Not bound to anything - return the type variable *)
-            |   SOME newVal => eventual(instanceToType newVal) (* Return the type it is bound to *)
+            |   SOME newVal => eventual(reduceToType newVal) (* Return the type it is bound to *)
         )
     
     |   eventual(t as FlexibleRecordVar{recList, fullList=ref fullList, equality=ref eql, level=ref lvl}) =
@@ -921,8 +916,12 @@ struct
             )
         end
     
-    |   eventual t (* not a type variable *) = t;
+    |   eventual t (* not a type variable *) = t
 
+    val instanceToType = reduceToType (* For the moment *)
+    
+    fun getInstance(Instance i) = i
+    |   getInstance(SimpleInstance ty) = (ty, fn _ => NONE, fn _ => NONE)
 
     datatype generalMatch = Matched of {old: typeVar, new: types};
 
@@ -992,7 +991,7 @@ struct
         val t = generaliseTypes (atyp, freeTypeMap)
         val typeVarList = List.tabulate(List.length templs, fn n => freeTypeMap(TVIndex n))
     in
-        (t, typeVarList)
+        (SimpleInstance t, typeVarList)
     end
 
     (* If we have a type construction which is an alias for another type
@@ -1269,7 +1268,7 @@ struct
         fun copyTarget t = copyType (t, boundVarMap, copyATypeConstr);
         val copiedTarget = copyTarget atyp
     in
-        copiedTarget
+        SimpleInstance copiedTarget
     end
 
     (* Basic procedure to print a type structure. *)
@@ -1636,10 +1635,10 @@ struct
     end (* varNameSequence *)
 
     (* Print a type (as a block of items) *)
-    fun displayWithMap (t : types, depth : FixedInt.int, env, sigMap) =
-        tDisp (t, depth, varNameSequence (), env, sigMap)
-    and display (t : types, depth : FixedInt.int, env) =
-        tDisp (t, depth, varNameSequence (), env, NONE)
+    fun displayWithMap (t : instanceType, depth : FixedInt.int, env, sigMap) =
+        tDisp (instanceToType t, depth, varNameSequence (), env, sigMap)
+    and display (t : instanceType, depth : FixedInt.int, env) =
+        tDisp (instanceToType t, depth, varNameSequence (), env, NONE)
 
     (* Print out zero, one or more type variables (unblocked) *)
     fun printTypeVariables _ ([], _, _) = [] (* No type vars i.e. monotype *)
@@ -1794,7 +1793,7 @@ struct
 
         (* Common properties for navigation and printing. *)
         val commonProps =
-            PTprint(fn d => display(typeof, d, emptyTypeEnv)) ::
+            PTprint(fn d => display(SimpleInstance typeof, d, emptyTypeEnv)) ::
             PTtype typeof ::
             exportNavigationProps navigation
 
@@ -1876,7 +1875,7 @@ struct
                 (nullLocation, commonProps)
     end
 
-    fun displayTypeParse(types, depth, env) = display(typeFromTypeParse types, depth, env)
+    fun displayTypeParse(types, depth, env) = display(SimpleInstance(typeFromTypeParse types), depth, env)
 
     local
         fun printTypeVar(ParseTypeBoundVar{name, ...}, _, _) = PrettyString name
@@ -2013,7 +2012,7 @@ struct
     (* The mapping has now been moved out of here.  Instead when signature matching the
        target signature is copied before this is called which means that this
        process is now symmetric.  There may be some redundant tests left in here. *)
-    fun unifyTypes(Atype : types, Btype : types) : matchResult option =
+    fun unifyTypes(instanceA: instanceType, instanceB: instanceType) : matchResult option =
     let
         (* Get the result in here.  This isn't very ML-like but it greatly
            simplifies converting the code. *)
@@ -2176,7 +2175,7 @@ struct
                        it could prevent us producing useful error information and it could
                        also result in unnecessary consequential errors. *)
                     case !matchResult of
-                        NONE => if reallyTheSame then () else varLinkVar := ChainEnd(SOME(typeToInstance finalType))
+                        NONE => if reallyTheSame then () else varLinkVar := ChainEnd(SOME(SimpleInstance finalType))
                     |   SOME _ => ()
                 end
             end (* assign *);
@@ -2498,7 +2497,7 @@ struct
                     let
                         fun checkEquality{name, typeOf} =
                             case computeEquality (typeOf, fn _ => No, canMkEqTv, fn _ => raise InternalError "computeEq") of
-                                No => cantMatch (Atype, Btype, "(Field " ^ name ^ " requires an equality type)")
+                                No => cantMatch (typA, typB, "(Field " ^ name ^ " requires an equality type)")
                             |   _ => ()
                     in
                         (* Apply the appropriate equality checks. *)
@@ -2510,7 +2509,7 @@ struct
         end
 
     in
-        match (Atype, Btype);
+        match (instanceToType instanceA, instanceToType instanceB);
         ! matchResult
     end (* unifyTypes *)
 
@@ -2526,11 +2525,11 @@ struct
                 [
                     PrettyString ("Can't " ^ what (* "match" if a signature, "unify" if core lang. *)),
                     PrettyBreak (1, 0),
-                    display (alpha, 1000 (* As deep as necessary *), alphaTypeEnv),
+                    display (SimpleInstance alpha, 1000 (* As deep as necessary *), alphaTypeEnv),
                     PrettyBreak (1, 0),
                     PrettyString "to",
                     PrettyBreak (1, 0),
-                    display (beta, 1000 (* As deep as necessary *), betaTypeEnv),
+                    display (SimpleInstance beta, 1000 (* As deep as necessary *), betaTypeEnv),
                     PrettyBreak (1, 0),
                     PrettyString reason                        
                 ])
@@ -2572,11 +2571,11 @@ struct
                     [
                         PrettyString ("Can't " ^ what (* "match" if a signature, "unify" if core lang. *)),
                         PrettyBreak (1, 0),
-                        expandedTypeConstr(alpha, alphaTypeEnv, alphaCons),
+                        expandedTypeConstr(SimpleInstance alpha, alphaTypeEnv, alphaCons),
                         PrettyBreak (1, 0),
                         PrettyString (if what = "unify" then "with" else "to"),
                         PrettyBreak (1, 0),
-                        expandedTypeConstr(beta, betaTypeEnv, betaCons),
+                        expandedTypeConstr(SimpleInstance beta, betaTypeEnv, betaCons),
                         PrettyBreak (1, 0),
                         PrettyString "(Different type constructors)"                        
                     ])
@@ -2650,7 +2649,7 @@ struct
             (* Print a single constructor (blocked) *)
             fun pValConstr (first, name, typeOf, depth) =
             let
-                val (t, _) = generalise typeOf
+                val t = instanceToType(#1(generalise typeOf)) (* Why is this generalising? *)
                 val firstBreak = PrettyBreak (1, if first then 2 else 0)
             in
                 case t of
@@ -2660,7 +2659,7 @@ struct
                            We have to unify the result type of the function with the
                            ('a, 'b, 'c) tyCons type so that we get the correct type variables
                            in the argument.  We just print the argument of the function. *)
-                        val _ = unifyTypes(result, typeResult)
+                        val _ = unifyTypes(SimpleInstance result, SimpleInstance typeResult)
                     in
                         [
                             firstBreak,
@@ -2769,7 +2768,7 @@ struct
      The current version side-effects type variables by adding on a generalisable type
      variable at the end of the chain if the type variable can be generalised.
      *)
-    fun allowGeneralisation (t, level, checkOverloadFlex, giveError) =
+    fun allowGeneralisation (instance, level, checkOverloadFlex, giveError) =
     let
         (* Map from type variables to bound variables we have already made. *)
         val typeVarMapList: (typeVar * tvIndex) list ref = ref nil
@@ -2906,7 +2905,7 @@ struct
 
         |   BadType => (BadType, templates)
 
-        val (newType, newTemplates) = createGeneric(t, [])
+        val (newType, newTemplates) = createGeneric(instanceToType instance, [])
     in
         (newType, List.rev newTemplates)
     end (*  end allowGeneralisation *)
@@ -2981,7 +2980,7 @@ struct
                     warningMessage(lex, location lex, 
                         concat["The type of (", valName,
                             ") contains a free type variable. Setting it to a unique monotype."]);
-                    refVal := ChainEnd(SOME(typeToInstance newVal))
+                    refVal := ChainEnd(SOME(SimpleInstance newVal))
                 end
             else ()
         |  checkTypes _ () = ()
@@ -3077,9 +3076,11 @@ struct
             )
 
         |   getCodetreeType _ = [GeneralType]
+        
+        val getCodetreeType = getCodetreeType o instanceToType
     end
 
-    fun checkDiscard(t: types, lex: lexan): string option =
+    fun checkDiscard(t: instanceType, lex: lexan): string option =
     let
         open DEBUG
         val checkLevel = getParameter reportDiscardedValuesTag (debugParams lex)
@@ -3100,8 +3101,8 @@ struct
         |   isAFunction _ = false
     in
         case checkLevel of
-            1 => if isAFunction (eventual t) then SOME "A function value is being discarded." else NONE
-        |   2 => if isUnit (eventual t) then NONE else SOME "A non unit value is being discarded."
+            1 => if isAFunction (eventual(instanceToType t)) then SOME "A function value is being discarded." else NONE
+        |   2 => if isUnit (eventual(instanceToType t)) then NONE else SOME "A non unit value is being discarded."
         |   _ => NONE
     end
 

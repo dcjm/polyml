@@ -243,6 +243,7 @@ struct
     (* Instance types.  A type plus maps for bound type variables and type IDs. *)
     and instanceType =
         Instance of types * (tvIndex -> types option) * (typeId -> typeId option)
+    |   SimpleInstance of types
 
     (* Access to a value, structure or functor. *)
     and valAccess =
@@ -330,8 +331,7 @@ struct
             access: valAccess,
             class: valueClass,
             locations: locationProp list, (* Location of declaration *)
-            references: references,
-            instanceTypes: types list ref option (* Instance types for local variables. *)
+            references: references
         }
 
     (* The "type" of a value.  In general this is polymorphic and when an instance is created assignable type
@@ -466,8 +466,6 @@ struct
     fun makeTv {value, level, equality } =
         TypeVariable{ link = ref (ChainEnd value), level= ref (ChainEnd level), equality = ref (ChainEnd equality) }
 
-    fun typeToInstance ty = Instance(ty, fn _ => NONE, fn _ => NONE)
-
   (* Type constructors are identifiers which take zero or more types and yield a
      type as result. Their main property is that two type constructors can be 
      unified iff they are the same constructor. Another use for
@@ -529,7 +527,7 @@ struct
     (* Values. *)
     val undefinedValue    =
     Value{ name = "<undefined>", typeOf = ValueType(BadType, []), access = Global CodeZero, class = ValBound,
-           locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE };
+           locations = [DeclaredAt inBasis], references = NONE }
 
     fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
 

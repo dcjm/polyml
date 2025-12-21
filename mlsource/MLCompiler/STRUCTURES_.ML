@@ -955,24 +955,16 @@ struct
     fun matchErrorReport(lex, structTypeEnv, sigTypeEnv) =
         unifyTypesErrorReport(lex, structTypeEnv, sigTypeEnv, "match")
 
-    datatype matchTypeResult =
-        MatchError of matchResult
-    |   MatchSuccess of types * typeVarTemplate list
-
-    (* Check that two types match.  Returns either an error result or the set
-       of polymorphic variables for the source and the target. *)
-    fun matchTypes (candidValType, targetValType as (_, targetTempls), targMap: int -> typeId option, _) =
+    (* Check that two types match. *)
+    fun matchTypes (candidValType, targetValType, targMap: int -> typeId option) =
     let
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = targMap offset
         |   copyId _ = NONE
-        (* The *)
+
         val copiedTarget = createNonGeneralisableInstance(targetValType, copyId)
-        val (copiedCandidate : types, _) = generalise candidValType
+        val copiedCandidate = #1(generalise candidValType)
     in
-        case unifyTypes (copiedCandidate, copiedTarget) of
-            NONE => (* Succeeded. Return the unified type.  Either will do. *)
-                MatchSuccess(copiedTarget, targetTempls)
-        |   SOME error => MatchError error
+        unifyTypes (copiedCandidate, copiedTarget)
     end;
 
     (* Check that a matching has succeeded, and check the value constructors if they are datatypes. *)
@@ -998,10 +990,10 @@ struct
                 that the sharing constraints have been satisfied. *)
         case matchTypes ((mkTypeConstruction (candidName, candid, tvars, []), []),
                          (mkTypeConstruction (targetName, target, tvars, []), []), 
-                         targTypeMap, lex) of
-                MatchError error => (* Report the error. *)
+                         targTypeMap) of
+                SOME error => (* Report the error. *)
                     errorInDatatype(candidSet, targetSet, matchErrorReport(lex, typeEnv, typeEnv) error)
-            |   MatchSuccess _ =>
+            |   NONE =>
                 (* We have already checked for matching a type in the structure to a datatype in the signature.
                    In ML97 we can't rebind an identifier in a signature so each constructor for this datatype
                    must be present in the signature i.e. it can't be hidden by a constructor for another datatype.
@@ -1247,7 +1239,7 @@ struct
                     Value{class=Constructor _, ...} =>
                         (* When displaying the constructor show the function type.  We may have rebound
                            the constructor in the candidate structure so that it creates a different datatype. *)
-                        dispVal("constructor", typeOf)
+                        dispVal("constructor", SimpleInstance typeOf)
                 |   Value{class=Exception, ...} =>
                         PrettyBlock(0, false, [],
                                 PrettyString "exception" ::
@@ -1259,9 +1251,9 @@ struct
                                 |  SOME excType =>
                                     [
                                         PrettyBreak (1, 1), PrettyString "of",
-                                        PrettyBreak (1, 3), display (excType, errorDepth lex, typeEnv) ]
+                                        PrettyBreak (1, 3), display (SimpleInstance excType, errorDepth lex, typeEnv) ]
                             ))
-                |   _ => dispVal("val", typeOf)    
+                |   _ => dispVal("val", SimpleInstance typeOf)    
             end
 
             local
@@ -1297,22 +1289,13 @@ struct
                                         matches
                                     )
                             |   IsOK coercion =>
-                                case matchTypes (sourceValType, destValType, lookupType, lex) of
-                                    MatchSuccess instanceType =>
+                                case matchTypes (sourceValType, destValType, lookupType) of
+                                    NONE =>
                                     (
                                         (* If it matches an entry in the signature it counts as being exported
                                            and therefore referenced. *)
                                         case candid of
                                             Value { references=SOME{exportedRef, ...}, ...} => exportedRef := true
-                                        |   _ => ();
-                                        (* Add the instance type to the instance types. *)
-                                        case candid of
-                                            Value{ instanceTypes=SOME instanceRef, ...} =>
-                                                (* This has to be generalised before it is added here.
-                                                   Unlike normal unification when matching to a signature
-                                                   any polymorphic variables in the target will not have
-                                                   been generalised. *)
-                                                instanceRef := #1(generalise instanceType) :: !instanceRef
                                         |   _ => ();
                                         case destAccess of
                                             Formal destAddr =>
@@ -1320,7 +1303,7 @@ struct
                                                     ValueMatch { sourceValue = candid, coercion = coercion  }) :: matches
                                         |   _ => matches (* This could be global. *)
                                     )
-                                |   MatchError error =>
+                                |   SOME error =>
                                     (
                                         sigStructMatchMsg(lex, near, lno, structPath)
                                             displayValue (candid, destVal, matchErrorReport(lex, typeEnv, typeEnv) error);
@@ -1358,13 +1341,6 @@ struct
             case valu of
                 Value {references=SOME{exportedRef, ...}, ...} =>
                     exportedRef := true
-            |   _ => ();
-            (* If we have exported the value without a signature we use
-               the most general type and discard any, possibly less general,
-               references. *)
-            case valu of
-                Value{ typeOf=ValueType valType, instanceTypes=SOME instanceRef, ...} =>
-                    instanceRef := [#1(generalise valType)]
             |   _ => ()
         end
         else ()
@@ -1631,12 +1607,12 @@ struct
                            hidden by later declarations.  We still need the whole value environment in
                            case of datatype replication. *)
                         fun convertConstructor(
-                                valVal as Value{class, typeOf, locations, references, name, instanceTypes, ...},
+                                valVal as Value{class, typeOf, locations, references, name, ...},
                                 (otherConstrs, (addrs, matches))) =
                         let
                             val formalValue =
                                 Value{class=class, name=name, typeOf=typeOf, access=Formal addrs,
-                                      locations=locations, references=references, instanceTypes=instanceTypes}
+                                      locations=locations, references=references}
                         in
                             (formalValue :: otherConstrs,
                                 (addrs + 1,
@@ -1681,12 +1657,11 @@ struct
                             #enterVal finalEnv (dName, value);
                             (addrs, matches)
                         )
-                    |   Value{class, typeOf, locations, references, instanceTypes, ...} =>
+                    |   Value{class, typeOf, locations, references, ...} =>
                         let
                             val formalValue =
                                 Value{class=class, name=dName, typeOf=typeOf, access=Formal addrs,
-                                      locations=locations, references=references,
-                                      instanceTypes=instanceTypes}
+                                      locations=locations, references=references }
                         in
                             #enterVal finalEnv (dName, formalValue);
                             (addrs + 1,
@@ -2006,7 +1981,7 @@ struct
                         { location = location, name = structPath ^ name, description = description })
 
             (* Process the body and discard the type. *)
-            val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false)
+            val _ = pass2 (dec, makeId, Env newEnv, lex, fn _ => false)
        in
          ()
        end (* pass2Singleton *)
@@ -2439,7 +2414,7 @@ struct
         pass2TopDec(strs, []);
         (* Mark any exported values as referenced. *)
         #apply newValEnv
-            (fn (s: string, valu: values) =>
+            (fn (s, _) =>
                 (
                     (* If we have exported the value we need to mark it as a
                        reference.  But if the identifier has been rebound we
@@ -2448,13 +2423,6 @@ struct
                     case #lookup newValEnv s of
                         SOME(Value { references=SOME{exportedRef, ...}, ...}) =>
                             exportedRef := true
-                    |   _ => ();
-                    (* Since it's been exported the instance type is the most general type.
-                       We can discard any other instance type info since it cannot be
-                       more general. *)
-                    case valu of
-                        Value{ typeOf=ValueType valType, instanceTypes=SOME instanceRef, ...} =>
-                            instanceRef := [#1(generalise valType)]
                     |   _ => ()
                 )
             )
@@ -3030,7 +2998,7 @@ struct
                     (* Replace the typeIDs. *)
                     val newVal =
                         Value{class=class, name=name, typeOf=ValueType(replaceTypes typeOf, templates), access=newAccess,
-                              locations=locations, references = NONE, instanceTypes=NONE}
+                              locations=locations, references = NONE}
                 in
                     (addr+1, { fixes=fixes, values=(name, newVal) :: values, structures=structures,
                                signatures=signatures, functors=functors, types=types } )
@@ -3068,7 +3036,7 @@ struct
                         (* Don't bother replacing the type ID here.  fullCopyDatatype will do it. *)
                         val newConstr =
                             Value{class=class, name=name, typeOf=typeOf, access=newAccess,
-                                  locations=locations, references = NONE, instanceTypes=NONE}
+                                  locations=locations, references = NONE}
                     in
                         (addr+1, others @ [newConstr])
                     end

@@ -38,6 +38,7 @@ sig
     and  values
     and  infixity
     and  structVals
+    and  instanceType
 
     type typeParsetree
 
@@ -58,7 +59,7 @@ sig
          say, after all the unification has been done. *)
         {
             name: string,
-            expType: (types * types list) ref,
+            expType: (instanceType * types list) ref,
             value: values ref,
             location: location,
             possible: (unit -> string list) ref (* Used with the IDE. *)
@@ -68,11 +69,11 @@ sig
            (* Literal constants may be overloaded on more than one type. The
               types are specified by installing appropriate conversion functions:
               convInt, convReal, convChar, convString and convWord. *)
-            { converter: values, expType: types ref, literal: string, location: location }
+            { converter: values, expType: instanceType ref, literal: string, location: location }
 
     |   Applic              of
             (* Function application *)
-            { f: parsetree, arg: parsetree, location: location, isInfix: bool, expType: types ref }
+            { f: parsetree, arg: parsetree, location: location, isInfix: bool, expType: instanceType ref }
 
     |   Cond                of
             (* Conditional *)
@@ -129,8 +130,7 @@ sig
              variable is given the name of the object which is to be matched. *)
             { var: parsetree, pattern: parsetree, location: location }
 
-    |   Fn                  of
-            { matches: matchtree list, location: location, expType: types ref }
+    |   Fn of { matches: matchtree list, location: location }
 
     |   Localdec            of (* Local dec in dec and let dec in exp. *)
         {
@@ -184,7 +184,7 @@ sig
 
     |   Case                of
             (* Case-statement *)
-            { test: parsetree, match: matchtree list, location: location, listLocation: location, expType: types ref }
+            { test: parsetree, match: matchtree list, location: location, listLocation: location }
 
     |   Andalso             of { first: parsetree, second: parsetree, location: location } 
 
@@ -198,8 +198,7 @@ sig
     |   Selector            of
             { name: string, labType: types, typeof: types, location: location }
 
-    |   List                of
-            { elements: parsetree list, location: location, expType: types ref }
+    |   List of { elements: parsetree list, location: location }
     |   EmptyTree
     |   WildCard            of location
     |   Unit                of location
@@ -331,5 +330,6 @@ sig
         and  datatypebind = datatypebind
         and  exbind = exbind
         and  matchtree = matchtree
+        and  instanceType = instanceType
     end
 end;
