@@ -1278,20 +1278,6 @@ struct
 
     val emptyTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
 
-    (* Test whether two type constructors are the same after mapping.
-       This is used to try to find the correct "path" to a type constructor
-       when printing. *)
-    fun eqTypeConstrs(xTypeCons, xMap, yTypeCons, yMap) =
-    let
-        fun id x = x
-        fun copyId (SOME mapTypeId) (TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
-        |   copyId _ _ = NONE
-        val mappedX = copyTypeConstr(xTypeCons, copyId xMap, id)
-        and mappedY = copyTypeConstr(yTypeCons, copyId yMap, id)
-    in
-        isSameTypeIdAs(mappedX, mappedY)
-    end
-
     (* prints a block of items *)
     fun tDisp (t : types, depth : FixedInt.int, typeVarName : typeVar -> string, env: printTypeEnv,
                sigMap: (int->typeId)option) : pretty =
@@ -1407,14 +1393,30 @@ struct
                        current context. *)
                     fun findType (_, []) = NotFound
                     |   findType ({ lookupType, ... }, [typeName]) =
-                        (
+                        let
+                            (* Test whether two type constructors are the same after mapping.
+                               This is used to try to find the correct "path" to a type constructor
+                               when printing.  sameTypeId does not compare type functions. *)
+                            fun eqTypeConstrs(TypeConstrs{identifier=xId, ...}, xMap, TypeConstrs{identifier=yId, ...}, yMap) =
+                            let
+                                val mapIdX =
+                                    case (xId, xMap) of (TypeId{idKind=Bound{ offset, ...}, ...}, SOME map) => map offset | _ => xId
+                                val mapIdY =
+                                    case (yId, yMap) of (TypeId{idKind=Bound{ offset, ...}, ...}, SOME map) => map offset | _ => yId
+                            in
+                                case (mapIdX, mapIdY) of
+                                    (TypeId { idKind = TypeFn{uid = idX, ...}, ...}, TypeId { idKind = TypeFn{uid = idY, ...}, ...}) =>
+                                        idX = idY
+                                |   (mapIdX, mapIdY) => sameTypeId(mapIdX, mapIdY)
+                            end
+                        in
                             (* This must be the name of a type. *)
                             case lookupType typeName of
                                 SOME (t, map) =>
                                     if eqTypeConstrs(typeConstructor, sigMap, tsConstr t, map)
                                     then FoundMatch else FoundNotMatch
                             |   NONE => NotFound
-                        )
+                        end
                     |   findType ({ lookupStruct, ... }, structName :: tail) =
                         (
                             (* This must be the name of a structure.  Does it contain our type? *)
