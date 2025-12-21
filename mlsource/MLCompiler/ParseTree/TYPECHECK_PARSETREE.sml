@@ -757,43 +757,33 @@ struct
                 (* Apply the function to the argument and return the result. *)
                 val funType = assValues near f
                 val argType = assValues near arg
+                val funResType = mkTypeVar (Generalisable, false)
+                val funArgType = mkTypeVar (Generalisable, false)
+                val fType = mkFunctionType (funArgType, funResType)
                 (* Test to see if we have a function. *)
-                val fType =
-                    case eventual(instanceToType funType) of
-                        FunctionType {arg, result} => SOME(SimpleInstance arg, SimpleInstance result)
-                    |   _ => (* May be a simple type variable. *)
-                        let
-                            val funResType = mkTypeVar (Generalisable, false)
-                            val funArgType = mkTypeVar (Generalisable, false)
-                            val fType    = mkFunctionType (funArgType, funResType)
-                        in
-                            case unifyTypes (SimpleInstance fType, funType) of
-                                NONE => SOME(SimpleInstance funArgType, SimpleInstance funResType)
-                            |   SOME _ =>
-                                (
-                                    (* It's not a function. *)
-                                    typeMismatch("Type error in function application.",
-                                        valTypeMessage (lex, typeEnv) ("Function:", f, funType),
-                                        valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
-                                        PrettyString "Value being applied does not have a function type",
-                                        lex, location, foundNear near);
-                                    NONE
-                                )
-                        end
             in
-                case fType of
-                    NONE => badInstance (* Not a function *)
-                |   SOME (fArg, fResult) =>
+                case unifyTypes (SimpleInstance fType, funType) of
+                    SOME _ =>
                     (
-                        case unifyTypes (fArg, argType) of
+                        (* It's not a function. *)
+                        typeMismatch("Type error in function application.",
+                            valTypeMessage (lex, typeEnv) ("Function:", f, funType),
+                            valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
+                            PrettyString "Value being applied does not have a function type",
+                            lex, location, foundNear near);
+                        badInstance
+                    ) 
+                |   NONE =>
+                    (
+                        case unifyTypes (SimpleInstance funArgType, argType) of
                             NONE => ()
                         |   SOME report =>
                                 typeMismatch("Type error in function application.",
                                     valTypeMessage (lex, typeEnv) ("Function:", f, funType),
                                     valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
                                     unifyErrorReport (lex, typeEnv) report, lex, location, foundNear near);
-                        expType := fResult; (* Preserve for browsing. *)
-                        fResult
+                        expType := SimpleInstance funResType; (* Preserve for browsing. *)
+                        SimpleInstance funResType
                     )
             end
 
