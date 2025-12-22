@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2016 David C.J. Matthews
+    Copyright (c) 2013-2016, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -284,6 +284,30 @@ struct
             breakPoint: breakPoint option ref
         } 
 
+    (* Parse tree for types.  This is used to represent types in the source. *)
+    and typeParsetree =
+        ParseTypeConstruction of
+            { name: string, args: typeParsetree list,
+              location: location, nameLoc: location, argLoc: location,
+              (* foundConstructor is set to the constructor when it has been
+                 looked up.  This allows us to get the location where it was
+                 declared if we export the parse-tree. *)
+              foundConstructor: typeConstrs ref }
+    |   ParseTypeProduct of
+            { fields: typeParsetree list, location: location }
+    |   ParseTypeFunction of
+            { argType: typeParsetree, resultType: typeParsetree, location: location }
+    |   ParseTypeLabelled of
+            { fields: ((string * location) * typeParsetree * location) list,
+              frozen: bool, location: location }
+    |   ParseTypeId of { types: parseTypeVar, location: location }
+    |   ParseTypeBad (* Place holder for errors. *)
+
+    and parseTypeVar =
+        ParseTypeFreeVar of { name: string, equality: bool, typeVar: types option ref }
+    |   ParseTypeBoundVar of { name: string, index: tvIndex }
+    |   ParseTypeError (* Error case *)
+
     (* Name of a structure. Used only in an ``open'' declaration. *)
     withtype structureIdentForm = 
     {
@@ -327,6 +351,8 @@ struct
         and  exbind = exbind
         and  matchtree = matchtree
         and  instanceType = instanceType
+        and  typeConstrs = typeConstrs
+        and  tvIndex = tvIndex
     end
 
 end;

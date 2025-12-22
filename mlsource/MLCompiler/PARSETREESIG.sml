@@ -40,7 +40,9 @@ sig
     type valueConstr
     type parseTypeVar
     type instanceType
-  
+    type tvIndex
+    type typeConstrSet
+
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
           endLine: FixedInt.int, endPosition: FixedInt.int }
@@ -51,6 +53,9 @@ sig
          next: (unit -> exportTree) option,
          previous: (unit -> exportTree) option}
     type typeIdDescription = { location: location, name: string, description: string }
+    type printTypeEnv =
+        { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
+          lookupStruct: string -> (structVals * (int->typeId) option) option}
 
   (* An identifier is just a name. In the second pass it is associated
      with a particular declaration and the type is assigned into the
@@ -153,6 +158,28 @@ sig
             (codeBinding list * debuggerStatus -> codeBinding list * debuggerStatus)
             -> codeBinding list * debuggerStatus
 
+    val ParseTypeBad: typeParsetree
+    val makeParseTypeConstruction:
+        (string * location) * (typeParsetree list * location) * location -> typeParsetree
+    val makeParseTypeProduct: typeParsetree list * location -> typeParsetree
+    val makeParseTypeFunction: typeParsetree * typeParsetree * location -> typeParsetree
+    val makeParseTypeLabelled:
+        ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
+    val makeParseTypeId: parseTypeVar * location -> typeParsetree
+    val makeParseTypeFreeVar: string * bool -> parseTypeVar
+    val makeParseTypeBoundVar: string * tvIndex -> parseTypeVar
+    val parseTypeVarError: parseTypeVar
+    (* Set a free type variable to either an outer one or to the current level. *)
+    val setParseTypeVar: parseTypeVar * parseTypeVar option * int -> unit
+    val getBoundTypeVar: parseTypeVar -> types
+    val unitTree: location -> typeParsetree
+    val displayTypeParse: typeParsetree * FixedInt.int * printTypeEnv -> pretty
+    (* A list of type variables. *)
+    val displayTypeVariables: parseTypeVar list * FixedInt.int -> pretty list
+    val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;
+
+    val typeExportTree: navigation * typeParsetree -> exportTree
+
     (* Types that can be shared. *)
     structure Sharing:
     sig
@@ -184,5 +211,7 @@ sig
         and  level = level
         and  debuggerStatus    = debuggerStatus
         and  instanceType = instanceType
+        and  tvIndex = tvIndex
+        and  typeConstrSet = typeConstrSet
     end
 end (* PARSETREE export signature *);

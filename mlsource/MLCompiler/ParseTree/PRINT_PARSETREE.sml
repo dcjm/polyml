@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,6 +40,11 @@ functor PRINT_PARSETREE (
     structure VALUEOPS : VALUEOPSSIG;
     structure PRETTY : PRETTY
 
+    structure MISC :
+    sig
+        exception InternalError of string;
+    end;
+
     sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing
            = VALUEOPS.Sharing = PRETTY.Sharing
            = BASEPARSETREE.Sharing
@@ -53,6 +58,7 @@ struct
     open TYPETREE
     open PRETTY
     open BASEPARSETREE
+    open MISC
 
     fun isEmptyTree           EmptyTree               = true | isEmptyTree _           = false;
 
@@ -62,6 +68,50 @@ struct
      in VALUEOPS that is used to format values produced as
      a result of compiling and executing an expression or
      declaration. *) 
+
+    fun typeFromTypeParse(
+            ParseTypeConstruction{ args, name, location, foundConstructor = ref constr, ...}) =
+        let
+            val argTypes = List.map typeFromTypeParse args
+        in
+            TypeConstruction {name = name, constr = constr,
+                              args = argTypes, locations = [DeclaredAt location]}
+        end
+
+    |   typeFromTypeParse(ParseTypeProduct{ fields, ...}) =
+            mkProductType(List.map typeFromTypeParse fields)
+    
+    |   typeFromTypeParse(ParseTypeFunction{ argType, resultType, ...}) =
+            mkFunctionType(typeFromTypeParse argType, typeFromTypeParse resultType)
+    
+    |   typeFromTypeParse(ParseTypeLabelled{ fields, frozen, ...}) =
+        let
+            fun makeField((name, _), t, _) = mkLabelEntry(name, typeFromTypeParse t)        
+        in
+            mkLabelled(sortLabels(List.map makeField fields), frozen)
+        end
+
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref(SOME(typ as FreeTypeVar _)), ...}, ...}) = typ
+
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar _, ...}) = raise InternalError "typeFromTypeParse: Not set"
+
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
+
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
+            TypeVar(makeTv{value=NONE, level=Generalisable, equality=false})
+   
+    |   typeFromTypeParse(ParseTypeBad) = BadType
+
+    fun displayTypeParse(types, depth, env) = display(SimpleInstance(typeFromTypeParse types), depth, env)
+
+    local
+        fun printTypeVar(ParseTypeBoundVar{name, ...}, _, _) = PrettyString name
+        |   printTypeVar(ParseTypeFreeVar{name, ...}, _, _) = PrettyString name
+        |   printTypeVar(ParseTypeError, _, _) = PrettyString "'error"
+    in
+        fun displayTypeVariables (vars : parseTypeVar list, depth : FixedInt.int) =
+          printTypeVariables printTypeVar (vars, depth, varNameSequence ())
+    end
 
     fun printList (doPrint: 'a*FixedInt.int->pretty) (c: 'a list, separator, depth: FixedInt.int): pretty list =
         if depth <= 0 then [PrettyString "..."]
@@ -668,6 +718,12 @@ struct
         and  parsetree = parsetree
         and  matchtree = matchtree
         and  pretty = pretty
+        and  typeParsetree = typeParsetree
+        and  types = types
+        and  parseTypeVar = parseTypeVar
+        and  typeId = typeId
+        and  structVals = structVals
+        and  typeConstrSet = typeConstrSet
     end
 
 end;

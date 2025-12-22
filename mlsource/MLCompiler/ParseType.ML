@@ -23,7 +23,7 @@ structure ParseType =
       structure LEX        = Lex
       structure SYMSET     = SymSet
       structure SKIPS      = Skips
-      structure TYPETREE   = TypeTree
+      structure PARSETREE  = ParseTree
       structure SYMBOLS    = Symbols
       structure UTILITIES  = Utilities
     ) ;

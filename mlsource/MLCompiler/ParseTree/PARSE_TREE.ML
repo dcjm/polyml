@@ -476,6 +476,35 @@ struct
     val mkExDeclaration  : exbind list * location -> parsetree = ExDeclaration;  
     
     val mkParenthesised = Parenthesised
+    
+    fun makeParseTypeConstruction((constrName, nameLoc), (args, argLoc), location) =
+        ParseTypeConstruction{
+            name = constrName, nameLoc = nameLoc, args = args, argLoc = argLoc,
+            location = location, foundConstructor = ref undefConstr }
+
+    fun makeParseTypeProduct(recList, location) =
+        ParseTypeProduct{ fields = recList, location = location }
+
+    fun makeParseTypeFunction(arg, result, location) =
+        ParseTypeFunction{ argType = arg, resultType = result, location = location }
+
+    fun makeParseTypeLabelled(recList, frozen, location) =
+        ParseTypeLabelled{ fields = recList, frozen = frozen, location = location }
+
+    fun makeParseTypeId(types, location) =
+        ParseTypeId{ types = types, location = location }
+
+    (* Free type variables can appear at various places in an ML program and denote the same type
+       variable at each occurrence.  *)
+    fun makeParseTypeFreeVar(name, isEq) =
+        ParseTypeFreeVar{ name=name, typeVar = ref NONE, equality=isEq }
+
+    (* Bound type variables appear in type and datatype definitions. *)
+    fun makeParseTypeBoundVar(name, index) =
+        ParseTypeBoundVar{ name=name, index=index }
+    
+    val parseTypeVarError = ParseTypeError
+
 
     (* Types that can be shared. *)
     structure Sharing =
@@ -508,6 +537,8 @@ struct
         and  level = level
         and  debuggerStatus   = debuggerStatus
         and  instanceType = instanceType
+        and  tvIndex = tvIndex
+        and  typeConstrSet = typeConstrSet
     end
 
 end (* PARSETREE *);

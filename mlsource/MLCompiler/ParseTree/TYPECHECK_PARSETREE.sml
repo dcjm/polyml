@@ -138,6 +138,86 @@ struct
     and boolInstance = SimpleInstance boolType
     and boolStarBool = SimpleInstance(mkProductType[boolType, boolType])
     and unitInstance = SimpleInstance unitType
+    (* Associates type constructors from the environment with type identifiers
+       (NOT type variables) *)
+    fun assignTypes (tp : typeParsetree,  lookupType : string * location -> typeConstrSet, lex : lexan) =
+    let
+
+        fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
+        |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+        |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
+
+        fun typeFromTypeParse(ParseTypeConstruction{ args, name, location, foundConstructor, ...}) =
+            let
+                (* Assign constructor, then the parameters. *)
+                val TypeConstrSet(constructor, _) = lookupType (name, location)
+                val () =
+                    (* Check that it has the correct arity. *)
+                    case constructor of
+                        TypeConstrs{name=tcName, ...} =>
+                        let
+                            val arity = tcArity constructor
+                            val num = length args
+                        in
+                            if arity <> num
+                            then (* Give an error message *)
+                            errorMessage (lex, location,
+                                String.concat["Type constructor (", tcName,
+                                    ") requires ", Int.toString arity, " type(s) not ",
+                                    Int.toString num])
+                            else foundConstructor := constructor
+                        end
+                val argTypes = List.map typeFromTypeParse args
+            in
+                TypeConstruction {name = name, constr = constructor,
+                                  args = argTypes, locations = [DeclaredAt location]}
+            end
+
+        |   typeFromTypeParse(ParseTypeProduct{ fields, ...}) =
+                mkProductType(List.map typeFromTypeParse fields)
+    
+        |   typeFromTypeParse(ParseTypeFunction{ argType, resultType, ...}) =
+                mkFunctionType(typeFromTypeParse argType, typeFromTypeParse resultType)
+    
+        |   typeFromTypeParse(ParseTypeLabelled{ fields, frozen, ...}) =
+            let
+                fun makeField((name, _), t, _) = mkLabelEntry(name, typeFromTypeParse t)        
+            in
+                mkLabelled(sortLabels(List.map makeField fields), frozen)
+            end
+
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref NONE, ...}, ...}) = raise InternalError "assignTypes: free type not set"
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref(SOME typ), ...}, ...}) = typ
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
+                TypeVar(makeTv{value=NONE, level=Generalisable, equality=false})
+
+        |   typeFromTypeParse(ParseTypeBad) = BadType
+    in
+        typeFromTypeParse tp
+    end
+
+    fun getBoundTypeVar(ParseTypeBoundVar{index=TVIndex i, ...}) = createBoundVar false i
+    |   getBoundTypeVar ParseTypeError = BadType
+    |   getBoundTypeVar(ParseTypeFreeVar _) = raise InternalError "getBoundTypeVar: free"
+
+    (* Set a free type variable to either an outer one or to the current level. *)
+    fun setParseTypeVar(ParseTypeFreeVar{name, typeVar, equality, ...}, other, level) =
+        let
+            (* Should not have been previously set. *)
+            val _ = case !typeVar of NONE => () | _ => raise InternalError "setParseTypeVar: already set"
+            val toSet =
+                case other of
+                    SOME(ParseTypeFreeVar{typeVar=ref (SOME(otherTv as FreeTypeVar _)), ...}) => otherTv
+                |   SOME _ => raise InternalError "setParseTypeVar: other not free"
+                |   NONE => FreeTypeVar {name=name, equality=equality, level=NotGeneralisable level, uid=makeUniqueId()}
+        in
+            typeVar := SOME toSet
+        end
+
+    |   setParseTypeVar _ = raise InternalError "setParseTypeVar: not free"
+
+    fun unitTree location = ParseTypeLabelled{ fields = [], frozen = true, location = location }
 
    (* Second pass of ML parse tree. *)
    
@@ -2152,6 +2232,8 @@ struct
         and  lexan = lexan
         and  env = env
         and  instanceType = instanceType
+        and  typeParsetree = typeParsetree
+        and  typeConstrSet = typeConstrSet
     end
 
 end;

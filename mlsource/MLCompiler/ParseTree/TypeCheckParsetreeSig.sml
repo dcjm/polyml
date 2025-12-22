@@ -25,6 +25,8 @@ sig
     type lexan
     type env
     type instanceType
+    type typeParsetree
+    type typeConstrSet
 
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
@@ -36,6 +38,12 @@ sig
         parsetree * (bool * bool * (parseTypeVar list * types option) * typeIdDescription -> typeId) *
         env * lexan * (int -> bool) -> instanceType
 
+    (* Fill in the values of type variables and make checks. *)
+    val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;
+    val setParseTypeVar: parseTypeVar * parseTypeVar option * int -> unit
+    val getBoundTypeVar: parseTypeVar -> types
+    val unitTree: location -> typeParsetree
+
     structure Sharing:
     sig
         type parsetree = parsetree
@@ -45,5 +53,7 @@ sig
         and  lexan = lexan
         and  env = env
         and  instanceType = instanceType
+        and  typeParsetree = typeParsetree
+        and  typeConstrSet = typeConstrSet
     end
 end;

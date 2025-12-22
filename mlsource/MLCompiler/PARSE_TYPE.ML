@@ -37,13 +37,14 @@ functor PARSE_TYPE (
                              enter:  string * 'a -> unit,
                              lookup: string -> 'a option };
     end
-
-    structure TYPETREE : TYPETREESIG
+    
+    structure PARSETREE: PARSETREESIG
 
     sharing LEX.Sharing
     =   SKIPS.Sharing
     =   SYMBOLS.Sharing
     =   SKIPS.Sharing
+    =   PARSETREE.Sharing
  
     sharing type SYMBOLS.sys = SYMSET.sys
     sharing type SYMSET.symset = SKIPS.symset
@@ -51,12 +52,12 @@ functor PARSE_TYPE (
 ) :  PARSETYPESIG =
 
 struct
-    open TYPETREE
     open LEX
     open SYMSET
     open SKIPS
     open SYMBOLS  
     open UTILITIES
+    open PARSETREE
    
     infix 8 ++;
     infix 8 inside;

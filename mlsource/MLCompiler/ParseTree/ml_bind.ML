@@ -35,6 +35,7 @@ local
             structure TYPETREE   = TypeTree
             structure VALUEOPS   = ValueOps
             structure PRETTY     = Pretty
+            structure MISC          = Misc
          )
 
     structure ExportTree =

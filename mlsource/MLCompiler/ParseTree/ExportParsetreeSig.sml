@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -23,6 +23,7 @@ sig
     type matchtree
     type locationProp
     type ptProperties
+    type typeParsetree
 
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
@@ -36,6 +37,7 @@ sig
          previous: (unit -> exportTree) option}
 
     val getExportTree: navigation * parsetree -> exportTree
+    val typeExportTree: navigation * typeParsetree -> exportTree
 
     val getLocation: parsetree -> location
     val declaredAt: locationProp list -> location
@@ -47,5 +49,6 @@ sig
         and  matchtree = matchtree
         and  locationProp = locationProp
         and  ptProperties = ptProperties
+        and  typeParsetree = typeParsetree
     end
 end;

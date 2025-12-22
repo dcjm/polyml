@@ -106,6 +106,11 @@ sig
     (* Print out a type constructor. *)
     val displayTypeConstrs: typeConstrSet * FixedInt.int * printTypeEnv -> pretty;
     val displayTypeConstrsWithMap: typeConstrSet * FixedInt.int * printTypeEnv * (int->typeId) option -> pretty;
+    
+    (* Support for printing type variables. *)
+    val createBoundVar: bool -> int -> types
+    val printTypeVariables: ('a * int * 'b -> pretty) -> 'a list * int * 'b -> pretty list
+    val varNameSequence: unit -> typeVar -> string
 
     (* Returns the preferred type constructor from an overload. *)
     val typeConstrFromOverload: types -> typeConstrs;
@@ -188,36 +193,10 @@ sig
     (* If this is simply giving a new name to a type constructor returns the
        type identifier of the constructor that is being rebound. *)
     val typeNameRebinding: types list * types -> typeId option
-
-    (* Parse tree operations. *)
-    type typeParsetree and parseTypeVar
-    val ParseTypeBad: typeParsetree
-    val makeParseTypeConstruction:
-        (string * location) * (typeParsetree list * location) * location -> typeParsetree
-    val makeParseTypeProduct: typeParsetree list * location -> typeParsetree
-    val makeParseTypeFunction: typeParsetree * typeParsetree * location -> typeParsetree
-    val makeParseTypeLabelled:
-        ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
-    val makeParseTypeId: parseTypeVar * location -> typeParsetree
-    val makeParseTypeFreeVar: string * bool -> parseTypeVar
-    val makeParseTypeBoundVar: string * tvIndex -> parseTypeVar
-    val parseTypeVarError: parseTypeVar
-    (* Set a free type variable to either an outer one or to the current level. *)
-    val setParseTypeVar: parseTypeVar * parseTypeVar option * int -> unit
-    val getBoundTypeVar: parseTypeVar -> types
-    val unitTree: location -> typeParsetree
-    val displayTypeParse: typeParsetree * FixedInt.int * printTypeEnv -> pretty;
-    (* A list of type variables. *)
-    val displayTypeVariables: parseTypeVar list * FixedInt.int -> pretty list
-
-    (* Fill in the values of type variables and make checks. *)
-    val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;
     
     (* Check the value we're discarding in an expression sequence or a let binding
        and return a string if it's not appropriate. *)
     val checkDiscard: instanceType * lexan -> string option
-
-    val typeExportTree: navigation * typeParsetree -> exportTree
     
     val setPreferredInt: typeConstrs -> unit
 
@@ -258,8 +237,6 @@ sig
         and  structVals = structVals
         and  typeConstrs= typeConstrs
         and  typeConstrSet=typeConstrSet
-        and  typeParsetree = typeParsetree
-        and  parseTypeVar   = parseTypeVar
         and  locationProp = locationProp
         and  pretty     = pretty
         and  lexan      = lexan

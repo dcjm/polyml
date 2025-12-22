@@ -54,6 +54,95 @@ struct
     open BASEPARSETREE
     open PRINTTREE
 
+    (* Build an export tree from the parse tree. *)
+    fun typeExportTree(navigation, p: typeParsetree) =
+    let        
+        val typeof = typeFromTypeParse p
+
+        (* Common properties for navigation and printing. *)
+        val commonProps =
+            PTprint(fn d => display(SimpleInstance typeof, d, emptyTypeEnv)) ::
+            PTtype typeof ::
+            exportNavigationProps navigation
+
+        fun asParent () = typeExportTree(navigation, p)
+        
+    in
+        case p of
+            ParseTypeConstruction{ location, nameLoc, args, argLoc, ...} =>
+            let
+                (* If the constructor has been bound return the declaration location.
+                   We have to attach the declaration location in the right place if
+                   this is a polytype e.g. if we have "int list" here we will have
+                   the location for "list" which is the second item not the first. *)
+                val (name, decLoc) =
+                    case typeof of
+                        TypeConstruction { constr=TypeConstrs{locations, ...}, name, ...} =>
+                            (name, mapLocationProps locations)
+                    |   _ => ("", []) (* Error? *)
+                val navNameAndArgs =
+                (* Separate cases for nullary, unary and higher type constructions. *)
+                    case args of
+                        [] => decLoc (* Singleton e.g. int *)
+                    |   [oneArg] =>
+                        let (* Single arg e.g. int list. *)
+                            (* Navigate between the type constructor and the argument.
+                               Since the arguments come before the constructor we go there first. *)
+                            fun getArg () =
+                                typeExportTree({parent=SOME asParent, previous=NONE, next=SOME getName}, oneArg)
+                            and getName () =
+                                getStringAsTree({parent=SOME asParent, previous=SOME getArg, next=NONE},
+                                            name, nameLoc, decLoc)
+                        in
+                            [PTfirstChild getArg]
+                        end
+                    |   args =>
+                        let (* Multiple arguments e.g. (int, string) pair *)
+                            fun getArgs () =
+                                (argLoc,
+                                    exportList(typeExportTree, SOME getArgs) args @
+                                        exportNavigationProps{parent=SOME asParent, previous=NONE, next=SOME getName})
+                            and getName () =
+                                getStringAsTree({parent=SOME asParent, previous=SOME getArgs, next=NONE},
+                                            name, nameLoc, decLoc)
+                        in
+                            [PTfirstChild getArgs]
+                        end
+            in
+                (location, navNameAndArgs @ commonProps)
+            end
+
+        |   ParseTypeProduct{ location, fields, ...} =>
+                (location, exportList(typeExportTree, SOME asParent) fields @ commonProps)
+
+        |   ParseTypeFunction{ location, argType, resultType, ...} =>
+                (location, exportList(typeExportTree, SOME asParent) [argType, resultType] @ commonProps)
+
+        |   ParseTypeLabelled{ location, fields, ...} =>
+            let
+                fun exportField(navigation, label as ((name, nameLoc), t, fullLoc)) =
+                    let
+                        (* The first position is the label, the second the type *)
+                        fun asParent () = exportField (navigation, label)
+                        fun getLab () =
+                            getStringAsTree({parent=SOME asParent, next=SOME getType, previous=NONE},
+                                name, nameLoc, [PTtype(typeFromTypeParse t)])
+                        and getType () =
+                            typeExportTree({parent=SOME asParent, previous=SOME getLab, next=NONE}, t)
+                    in
+                        (fullLoc, PTfirstChild getLab :: exportNavigationProps navigation)
+                    end
+            in
+                (location, exportList(exportField, SOME asParent) fields @ commonProps)
+            end
+
+        |   ParseTypeId{ location, ...} =>
+                (location, commonProps)
+
+        |   ParseTypeBad =>
+                (nullLocation, commonProps)
+    end
+
     fun getExportTree(navigation, p: parsetree) =
     let
         (* Common properties for navigation and printing. *)
@@ -520,6 +609,7 @@ struct
         and  locationProp = locationProp
         and  pretty = pretty
         and  ptProperties = ptProperties
+        and  typeParsetree = typeParsetree
     end
 
 end;
