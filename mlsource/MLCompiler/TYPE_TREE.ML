@@ -1706,7 +1706,11 @@ struct
         in
             generaliseTypes(arg, fn(TVIndex n) => Vector.sub(argMap, n))
         end
-    | constructorResult _ = raise InternalError "Not a function type"
+    |   constructorResult _ = raise InternalError "Not a function type"
+
+    (* If this is a nullary constructor it returns NONE otherwise it returns the argument type. *)
+    fun exceptionArgType (FunctionType{arg, ...}) = SOME arg
+    |   exceptionArgType _ = NONE
 
     (* Look for the occurrence of locally declared datatypes in the type of a value.
        This works by looking to see if we have a reference to a local datatype whose
@@ -2493,15 +2497,7 @@ struct
         |   prefType _ = raise InternalError "typeConstrFromOverload: No matching type"
     in
         prefType(firstArg(eventual overloadedFn))
-    end;
-
-    (* Return the result type of a function.  Also used to test if the value is
-       a function type. *)
-    fun getFnArgType t =
-    case eventual t of
-        FunctionType {arg, ... } => SOME arg
-    |   _ => NONE
-    
+    end
 
   (* Called at the end of a val or fun binding.
      There are various actions here depending on whether the expression is non-expansive
@@ -2846,6 +2842,17 @@ struct
         |   2 => if isUnit (eventual(instanceToType t)) then NONE else SOME "A non unit value is being discarded."
         |   _ => NONE
     end
+
+    (* Returns true if this is the function that returns ref.  It is used when a constructor
+       application has been found.  In all other cases this would be non-expansive but if the
+       constructor is "ref" it has to be treated as expansive. *)
+    fun isRefFunction t =
+        case eventual t of
+            FunctionType{result, ...} =>
+                (case eventual result of
+                    TypeConstruction{constr, ...} => isSameTypeIdAs (constr, refConstr)
+                |   _ => false)
+        |   _ => false
 
     structure Sharing =
     struct

@@ -423,7 +423,7 @@ struct
         fun tsConstr(TypeConstrSet(ts, _)) = ts
 
         fun isConstructor (Value{class=Constructor _, ...}) = true
-        |   isConstructor (Value{class=Exception, ...})     = true
+        |   isConstructor (Value{class=Exception _, ...})     = true
         |   isConstructor _                                  = false;
 
         (* Variables, constructors and fn are non-expansive.
@@ -452,20 +452,7 @@ struct
         (* An application is non-expansive only if it is a, possibly
            constrained, constructor which is not ref. *)
         and isNonRefConstructor (Ident {value=ref(v as Value{typeOf=ValueType(typeOf, _), ...}), ...}) =
-            (* It is possible to rebind ref by way of datatype replication so we have
-               to check the type here. *)
-            let
-                fun isRefConstructor t =
-                    case eventual t of
-                        FunctionType{result, ...} =>
-                            (case eventual result of
-                                TypeConstruction{constr, ...} =>
-                                    sameTypeId (tcIdentifier constr, tcIdentifier refConstr)
-                            |   _ => false)
-                    |   _ => false
-            in
-                isConstructor v andalso not (isRefConstructor typeOf)
-            end
+                isConstructor v andalso not (isRefFunction typeOf)
         | isNonRefConstructor (Constraint {value, ...}) =
                 isNonRefConstructor value
         | isNonRefConstructor (Parenthesised(p, _)) =
@@ -572,7 +559,7 @@ struct
                      override constructor status.  If this is a recursive declaration
                      we don't check for constructor status. *)
                 val names   = splitString name;
-                val nameVal =
+                val nameVal as Value{class, ...} =
                     if isRec
                     then undefinedValue
                     else if #first names = ""
@@ -591,34 +578,37 @@ struct
 
                 val instanceType = 
                     (* If the result is a constructor use it. *)
-                    if isConstructor nameVal (* exceptions. *)
-                    then if notConst
+                    if (case class of Exception _ => true | Constructor _ => true | _ => false)
                     then
                     (
-                        errorNear (lex, true, pat, location,
-                                "Identifier before `as' must not be a constructor.");
-                        badInstance
-                    )
-                    else
-                    (* Must be a nullary constructor otherwise it should
-                       have been applied to something. *)
-                    let
-                        (* set this value in the record *)
-                        val () = value := nameVal;
-                        val isNullary =
-                            case nameVal of
-                                Value{class=Constructor{nullary, ...}, ...} => nullary
-                            |   Value{typeOf=ValueType(typeOf, _), ...} => (* exception *) not (isSome(getFnArgType typeOf))
-                    in
-                        if isNullary then #1 (instanceType nameVal)
-                        else
+                        if notConst
+                        then
                         (
                             errorNear (lex, true, pat, location,
-                                        "Constructor must be applied to an argument pattern.");
+                                    "Identifier before `as' must not be a constructor.");
                             badInstance
                         )
-                    end
-  
+                        else
+                        (* Must be a nullary constructor otherwise it should
+                           have been applied to something. *)
+                        let
+                            (* set this value in the record *)
+                            val () = value := nameVal
+                            val isNullary =
+                                case class of
+                                    Constructor{nullary, ...} => nullary
+                                |   Exception{nullary, ...} => nullary
+                                |   _ => true (* Should not happen *)
+                        in
+                            if isNullary then #1 (instanceType nameVal)
+                            else
+                            (
+                                errorNear (lex, true, pat, location,
+                                            "Constructor must be applied to an argument pattern.");
+                                badInstance
+                            )
+                        end
+                    )
                     (* If undefined or another variable, construct a new variable. *)
                     else
                     let
@@ -1300,15 +1290,15 @@ struct
                 let
                     (* Fill in any types.  If there was no type given the exception has type exn
                        otherwise it has type ty->exn. *)
-                    val oldType =
+                    val (oldType, nullary) =
                         case ofType of
-                            NONE => exnType
-                        |   SOME typeof => mkFunctionType(ptAssignTypes(typeof, v), exnType)
+                            NONE => (exnType, true)
+                        |   SOME typeof => (mkFunctionType(ptAssignTypes(typeof, v), exnType), false)
                     val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
     
                     val exValue = 
                         case previous of 
-                            EmptyTree => mkEx (name, ValueType(oldType, []), locations) (* Generative binding. *)
+                            EmptyTree => mkEx (name, ValueType(oldType, []), nullary, locations) (* Generative binding. *)
                                 
                         |   Ident {name = prevName, value = prevValue, location, expType, possible, ...} =>
                             let 
@@ -1321,16 +1311,17 @@ struct
                                             lookupStruct= #lookupStruct env},
                                             prevName,
                                             giveError (v, lex, location))
-                            in
-                                (* Check that it is an exception *)
+                                val nullary = (* Check that it is an exception *)
                                 case prev of
-                                    Value{class=Exception, ...} => ()
-                                |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
+                                    Value{class=Exception{nullary}, ...} => nullary
+                                |    _ => (errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception."); true)
+
+                            in
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
                                 expType := (SimpleInstance oldExcType, []); (* And remember the type. *)
                                 possible := (fn () => allValLongNamesWithPrefix prevName env);
                                 (* The result is an exception with the same type. *)
-                                mkEx (name, excType, locations)
+                                mkEx (name, excType, nullary, locations)
                             end
                         | _ =>
                             raise InternalError "processException: badly-formed parse-tree"

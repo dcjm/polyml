@@ -267,7 +267,7 @@ sig
     and valueClass =
         ValBound
     |   PattBound
-    |   Exception
+    |   Exception of { nullary: bool }
     |   Constructor of { nullary: bool, ofConstrs: int }
 
     (* Location properties.  A value may have some or all of these. *)

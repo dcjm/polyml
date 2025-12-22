@@ -404,7 +404,7 @@ struct
                       (* Only nullary constructors. Constructors with arguments
                          will be dealt with by ``isApplic'. *)
                         addConstr(ident, ofConstrs, doArg, tree, patNo)
-                |    Value{class=Exception, ...} =>
+                |    Value{class=Exception _, ...} =>
                           addExconstr(ident, doArg, tree, patNo)
                 |   _ => (* variable - matches everything. Defaults here and pushes a var. *)
                           addVar (addDefault tree patNo) ident
@@ -481,7 +481,7 @@ struct
                      Value{class=Constructor{ofConstrs, ...}, ...} =>
                         addConstr(applVal, ofConstrs, doArg, tree, patNo)
 
-                |    Value{class=Exception, ...} => addExconstr(applVal, doArg, tree, patNo)
+                |    Value{class=Exception _, ...} => addExconstr(applVal, doArg, tree, patNo)
 
                 |    _ => tree (* Only if error *)
             end

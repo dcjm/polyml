@@ -1367,9 +1367,9 @@ in
                         then SOME(makeValue state (name, ty, location, valu))
                         else lookupValues(ntl, vl) s
 
-                |   lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
+                |   lookupValues (EnvException(name, ty, nullary, location) :: ntl, valu :: vl) s =
                         if name = s
-                        then SOME(makeException state (name, ty, location, valu))
+                        then SOME(makeException state (name, ty, nullary, location, valu))
                         else lookupValues(ntl, vl) s
 
                 |   lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
@@ -1393,8 +1393,8 @@ in
                 fun allValues (EnvValue(name, ty, location) :: ntl, valu :: vl) =
                         (name, makeValue state (name, ty, location, valu)) :: allValues(ntl, vl)
 
-                |   allValues (EnvException(name, ty, location) :: ntl, valu :: vl) =
-                        (name, makeException state (name, ty, location, valu)) :: allValues(ntl, vl)
+                |   allValues (EnvException(name, ty, nullary, location) :: ntl, valu :: vl) =
+                        (name, makeException state (name, ty, nullary, location, valu)) :: allValues(ntl, vl)
 
                 |   allValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) =
                         (name, makeConstructor state (name, ty, nullary, count, location, valu)) :: allValues(ntl, vl)

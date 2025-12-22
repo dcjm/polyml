@@ -70,12 +70,6 @@ sig
     val makeGeneralTypeFunction:   int * types * typeIdDescription * valAccess -> typeId
     and makeTypeFunction:   int * types * typeIdDescription -> typeId
 
-    (* Follow a chain of unified type variables *)
-    val eventual:           types -> types
-
-    (* Test for function type and return function argument. *)
-    val getFnArgType:   types -> types option
-
     (* Copy a type constructor. *)
     val copyTypeConstr:
         typeConstrs * (typeId -> typeId option) * (string -> string) -> typeConstrs
@@ -153,7 +147,8 @@ sig
     (* Check for free type variables.  Added for ML97. *)
     val checkForFreeTypeVariables: string * types * lexan * (unit->codetree) -> unit;
 
-    val constructorResult: types * types list -> types;
+    val constructorResult: types * types list -> types
+    val exceptionArgType: types -> types option
 
     val identical:       types * types -> bool
 
@@ -186,6 +181,11 @@ sig
     val isPointerEqType: typeConstrs -> bool
     val isUndefinedTypeConstr: typeConstrs -> bool
     val isBadType:  types -> bool
+
+    (* Returns true if this is the function that returns ref.  It is used when a constructor
+       application has been found.  In all other cases this would be non-expansive but if the
+       constructor is "ref" it has to be treated as expansive. *)
+    val isRefFunction: types -> bool
 
     (* Create a name for a type variable 'a, 'b or ''a, ''b etc. *)
     val makeTypeVariableName: int * bool -> string

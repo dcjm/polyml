@@ -125,7 +125,7 @@ struct
  
     and valueCoercions = (* The coercions that may apply to a value. *)
         NoCoercion
-    |   ExceptionToValue    
+    |   ExceptionToValue of bool
     |   ConstructorToValue
 
     withtype structureMatch = (int * valueMatching) list
@@ -1240,13 +1240,13 @@ struct
                         (* When displaying the constructor show the function type.  We may have rebound
                            the constructor in the candidate structure so that it creates a different datatype. *)
                         dispVal("constructor", SimpleInstance typeOf)
-                |   Value{class=Exception, ...} =>
+                |   Value{class=Exception _, ...} =>
                         PrettyBlock(0, false, [],
                                 PrettyString "exception" ::
                                 PrettyBreak(1, 3) ::
                                 valName ::
                             (
-                                case getFnArgType typeOf of
+                                case exceptionArgType typeOf of
                                    NONE => []
                                 |  SOME excType =>
                                     [
@@ -1275,9 +1275,9 @@ struct
                                 case (destClass, sourceClass) of
                                     (Constructor _, Constructor _) => IsOK NoCoercion
                                 |   (Constructor _, _) => IsWrong(PrettyString "Value is not a constructor")
-                                |   (Exception, Exception) => IsOK NoCoercion
-                                |   (Exception, _) => IsWrong(PrettyString "Value is not an exception")
-                                |   (_, Exception) => IsOK ExceptionToValue
+                                |   (Exception _, Exception _) => IsOK NoCoercion
+                                |   (Exception _, _) => IsWrong(PrettyString "Value is not an exception")
+                                |   (_, Exception {nullary}) => IsOK (ExceptionToValue nullary)
                                 |   (_, Constructor _) => IsOK ConstructorToValue
                                 |   _ => IsOK NoCoercion
                         in
@@ -2505,7 +2505,7 @@ struct
 
             |   applyAction
                 ((destAddr,
-                    ValueMatch { sourceValue as Value{typeOf=ValueType((sourceTypeOf, _)), name, ...}, coercion }),
+                    ValueMatch { sourceValue as Value{name, ...}, coercion }),
                  (otherCode, allSame)) =
                 let
                     (* If the entry is from a signature select from the code.  Apply any coercion from
@@ -2517,22 +2517,23 @@ struct
                                 case coercion of
                                     NoCoercion => mkInd (svAddr, #load decs localLevel)
 
-                                |   ExceptionToValue =>
+                                |   ExceptionToValue true => (* nullary exception *)
                                     let
                                         fun loadEx l = mkInd (svAddr, #load decs l)
                                     in
-                                        case getFnArgType sourceTypeOf of
-                                            NONE => mkTuple [loadEx localLevel, mkStr name,
+                                        mkTuple [loadEx localLevel, mkStr name,
                                                      CodeZero, codeLocation nullLocation]
-                                        |   SOME _ =>
-                                            let
-                                                val nLevel = newLevel level
-                                            in
-                                                mkProc 
-                                                    (mkTuple[loadEx nLevel, mkStr name,
-                                                        mkLoadArgument 0, codeLocation nullLocation],
-                                                    1, "", getClosure nLevel, 0)
-                                            end
+                                    end
+
+                                |   ExceptionToValue false =>
+                                    let
+                                        fun loadEx l = mkInd (svAddr, #load decs l)
+                                        val nLevel = newLevel level
+                                    in
+                                        mkProc 
+                                            (mkTuple[loadEx nLevel, mkStr name,
+                                                mkLoadArgument 0, codeLocation nullLocation],
+                                            1, "", getClosure nLevel, 0)
                                     end
 
                                 |   ConstructorToValue =>
@@ -2545,8 +2546,8 @@ struct
                                 case coercion of
                                     NoCoercion =>
                                         codeVal (sourceValue, localLevel, [], lex, location nullLex)
-                                |   ExceptionToValue =>
-                                        codeExFunction(sourceValue, localLevel, [], lex, location nullLex)
+                                |   ExceptionToValue nullary =>
+                                        codeExFunction(sourceValue, localLevel, [], nullary, lex, location nullLex)
                                 |   ConstructorToValue =>
                                         mkInd(1, codeVal (sourceValue, localLevel, [], lex, location nullLex))
                             )

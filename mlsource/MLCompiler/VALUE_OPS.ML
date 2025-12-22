@@ -139,15 +139,15 @@ struct
     |   mkSelectedVar(selected, _, _) = selected (* Overloaded? *);
 
     (* Construct a global exception. *)
-    fun mkGex (name, typeof, code, locations) =
+    fun mkGex (name, typeof, nullary, code, locations) =
         Value{ name = name, typeOf = typeof, access = Global code,
-           class = Exception, locations = locations, references = NONE }
+           class = Exception{nullary=nullary}, locations = locations, references = NONE }
  
     (* Construct a local exception. *)
-    fun mkEx (name, typeof, locations) = 
+    fun mkEx (name, typeof, nullary, locations) = 
         Value{ name = name, typeOf = typeof,
            access = Local{addr = ref 0, level = ref baseLevel},
-           class = Exception, locations=locations, references = NONE }
+           class = Exception{nullary=nullary}, locations=locations, references = NONE }
 
     (* Locations in exception packets.  In order to have a defined ordering of the fields,
        when we put the location in an exception packet we use this datatype rather than
@@ -412,7 +412,7 @@ struct
                     start @ [ PrettyBreak (1, 0), displayWithMap (SimpleInstance typeOf, depth, typeEnv, sigMap) ])
             end
 
-        |    Exception => (* exceptions *)
+        |    Exception _ => (* exceptions *)
              PrettyBlock (0, false, [],
                 PrettyBlock (0, false, [],
                     [
@@ -423,7 +423,7 @@ struct
                 )
                 ::
                 (
-                    case getFnArgType typeOf of
+                    case exceptionArgType typeOf of
                        NONE => []
                     |  SOME excType =>
                         [ PrettyBreak (1, 1), PrettyString "of", PrettyBreak (1, 3), displayWithMap (SimpleInstance  excType, depth, typeEnv, sigMap) ]
@@ -987,7 +987,7 @@ struct
         end
 
     (* Some of these have a more efficient way of calling them as functions. *)
-    and applyFunction (value as Value{class=Exception, ...}, argument, level, instance: types list, lex, lineno) =
+    and applyFunction (value as Value{class=Exception _, ...}, argument, level, instance: types list, lex, lineno) =
         let
         (* If we are applying it as a function we cannot be after the
           exception id, we must be constructing an exception packet. *)
@@ -1130,17 +1130,17 @@ struct
      or a function to make a packet. If it is a nullary constructor make
      an exception packet now, otherwise generate a function to construct
      an exception packet. *)
-    fun codeExFunction (value as Value{typeOf=ValueType(typeOf, _), ...}, level, instance, lex, lineno) =
-    case getFnArgType typeOf of (* N.B. Not "instance" *)
-        NONE => applyFunction (value, CodeZero, level, instance, lex, lineno)
-    |   SOME _ =>
-            let
-                val nLevel = newLevel level
-            in
-                mkProc 
-                  (applyFunction (value, arg1, nLevel, instance, lex, lineno),
-                    1, "", getClosure nLevel, 0)
-            end
+    fun codeExFunction (value as Value{typeOf=ValueType(typeOf, _), ...}, level, instance, nullary, lex, lineno) =
+        if nullary
+        then applyFunction (value, CodeZero, level, instance, lex, lineno)
+        else
+        let
+            val nLevel = newLevel level
+        in
+            mkProc 
+              (applyFunction (value, arg1, nLevel, instance, lex, lineno),
+                1, "", getClosure nLevel, 0)
+        end
 
     (* Operations to compile code from the representation of a constructor. *)
     (* Code to test whether a value matches a constructor.
@@ -1158,7 +1158,7 @@ struct
             mkEval(testCode, [testing])
         end
 
-    |   makeGuard (value as Value{class=Exception, ...}, testing, level) =
+    |   makeGuard (value as Value{class=Exception _, ...}, testing, level) =
         (* Should only be an exception. Get the value of the exception identifier 
            and compare with the identifier in the exception packet. *)
         mkEqualPointerOrWord (mkInd (0, testing),
@@ -1179,7 +1179,7 @@ struct
         (* makeInverse is called even on nullary constructors.  Return zero to keep the
            optimiser happy. *) CodeZero
 
-    |   makeInverse (Value{class=Exception, ...}, arg, _) =
+    |   makeInverse (Value{class=Exception _, ...}, arg, _) =
             (* Exceptions. - Get the parameter from third word *)
             (* We have to use a VarField here even though this field is present in
                every exception.  The format of the value that is returned depends

@@ -1102,19 +1102,19 @@ struct
                      s,
                      errorFn);
 
-                    val exType =
+                    val (exType, nullary) =
                         case typeof of
-                            NONE => exnType
-                        |   SOME typeof => mkFunctionType (assignTypes (typeof, lookup, lex), exnType)
+                            NONE => (exnType, true)
+                        |   SOME typeof => (mkFunctionType (assignTypes (typeof, lookup, lex), exnType), false)
                     val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 in  (* If the type is not found give an error. *)
                   (* Check for rebinding of built-ins. "it" is not allowed. *)
                     if name = "true" orelse name = "false" orelse name = "nil"
-                  orelse name = "::" orelse name = "ref" orelse name = "it"
-                  then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
-                  else ();
-                  #enterVal structEnv (name, mkFormal (name, Exception, ValueType(exType, []), offset, locations));
-                  (offset + 1)
+                        orelse name = "::" orelse name = "ref" orelse name = "it"
+                    then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
+                    else ();
+                    #enterVal structEnv (name, mkFormal (name, Exception{nullary=nullary}, ValueType(exType, []), offset, locations));
+                    (offset + 1)
                 end
                
            |    processSig (IncludeSig (structList : sigs list, _), offset, lno) =

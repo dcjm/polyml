@@ -273,7 +273,7 @@ struct
         DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)*)
 
     fun isConstructor (Value{class=Constructor _, ...}) = true
-    |   isConstructor (Value{class=Exception, ...})     = true
+    |   isConstructor (Value{class=Exception _, ...})     = true
     |   isConstructor _                                  = false;
 
     (* Find all the variables declared by each pattern. *)
@@ -469,9 +469,9 @@ struct
     (* Code-generates a piece of tree.  Returns the code and also the, possibly updated,
        debug context.  This is needed to record the last location that was set in the
        thread data. *)
-    and codeGenerate(Ident {value = ref (v as Value{class = Exception, ...}), location, ...},
+    and codeGenerate(Ident {value = ref (v as Value{class = Exception{nullary}, ...}), location, ...},
                      { level, lex, debugEnv, ...}) = (* Exception identifier *)
-        (codeExFunction (v, level, [], lex, location), debugEnv)
+        (codeExFunction (v, level, [], nullary, lex, location), debugEnv)
 
     |   codeGenerate(Ident {value = ref (v as Value{class = Constructor _, ...}), location, ...},
                      { level, lex, debugEnv, ...}) = (* Constructor identifier *)

@@ -45,7 +45,7 @@ struct
     (* The static environment contains these kinds of entries. *)
     datatype environEntry =
         EnvValue of string * valueType * locationProp list
-    |   EnvException of string * valueType * locationProp list
+    |   EnvException of string * valueType * bool * locationProp list
     |   EnvVConstr of string * valueType * bool * int * locationProp list
     |   EnvTypeid of { original: typeId, freeId: typeId }
     |   EnvStructure of string * signatures * locationProp list
@@ -225,8 +225,8 @@ struct
         fun makeValue state (name, ty, location, valu) =
             mkGvar(name, runTimeType state ty, mkConst valu, location)
     
-        and makeException state (name, ty, location, valu) =
-            mkGex(name, runTimeType state ty, mkConst valu, location)
+        and makeException state (name, ty, nullary, location, valu) =
+            mkGex(name, runTimeType state ty, nullary, mkConst valu, location)
    
         and makeConstructor state (name, ty, nullary, count, location, valu) =
                 makeValueConstr(name, runTimeType state ty, nullary, count, Global(mkConst valu), location)
@@ -282,8 +282,8 @@ struct
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     val ctEntry =
                         case var of
-                            Value{class=Exception, name, typeOf, locations, ...} =>
-                                EnvException(name, typeOf, locations)
+                            Value{class=Exception{nullary}, name, typeOf, locations, ...} =>
+                                EnvException(name, typeOf, nullary, locations)
                         |   Value{class=Constructor{nullary, ofConstrs, ...}, name, typeOf, locations, ...} =>
                                 EnvVConstr(name, typeOf, nullary, ofConstrs, locations)
                         |   Value{name, typeOf, locations, ...} =>

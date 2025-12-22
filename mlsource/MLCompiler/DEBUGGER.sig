@@ -69,7 +69,7 @@ sig
     type debugState (* The run-time state. *)
 
     val makeValue: debugState -> string * valueType * locationProp list * machineWord -> values
-    and makeException: debugState -> string * valueType * locationProp list * machineWord -> values
+    and makeException: debugState -> string * valueType * bool * locationProp list * machineWord -> values
     and makeConstructor:
         debugState -> string * valueType * bool * int * locationProp list * machineWord -> values
     and makeAnonymousValue: debugState -> valueType * machineWord -> values

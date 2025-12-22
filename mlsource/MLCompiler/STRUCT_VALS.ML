@@ -343,7 +343,7 @@ struct
     and valueClass =
         ValBound
     |   PattBound
-    |   Exception
+    |   Exception of { nullary: bool }
     |   Constructor of
         {
             nullary: bool, (* True if this is a single value (e.g. "nil") rather than a function. *)

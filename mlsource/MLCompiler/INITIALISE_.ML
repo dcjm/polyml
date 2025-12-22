@@ -496,7 +496,7 @@ struct
                 val exc =
                     Value{ name = name, typeOf = ValueType(TYPETREE.exnType, []),
                            access = Global(mkConst(toMachineWord id)),
-                           class = Exception, locations = declInBasis,
+                           class = Exception{nullary=true}, locations = declInBasis,
                            references = NONE }
             in
                 #enterVal runCallEnv (name, exc)
@@ -507,7 +507,7 @@ struct
                 val exc =
                     Value{ name = name, typeOf = ValueType(exType ->> TYPETREE.exnType, []),
                            access = Global(mkConst(toMachineWord id)),
-                           class = Exception, locations = declInBasis,
+                           class = Exception{nullary=false}, locations = declInBasis,
                            references = NONE }
             in
                 #enterVal runCallEnv (name, exc)
@@ -991,7 +991,7 @@ struct
                 val foreignException =
                     Value{ name = "Foreign", typeOf = ValueType(String ->> TYPETREE.exnType, []),
                            access = Global(mkConst(toMachineWord EXC_foreign)),
-                           class = Exception, locations = declInBasis,
+                           class = Exception{nullary=false}, locations = declInBasis,
                         references = NONE }
             in
                 val () = #enterVal foreignEnv ("Foreign", foreignException)
@@ -1381,7 +1381,7 @@ struct
                 mkTypeConstruction ("environEntry", environEntryConstr, [], declInBasis)
             val constrs = (* Order is significant. *)
                [ ("EnvEndFunction",     SOME(mkProductType[String, Location, localType])),
-                 ("EnvException",       SOME(mkProductType[String, localType, locationPropList])),
+                 ("EnvException",       SOME(mkProductType[String, localType, Bool, locationPropList])),
                  ("EnvStartFunction",   SOME(mkProductType[String, Location, localType])),
                  ("EnvStructure",       SOME(mkProductType[String, localSig, locationPropList])),
                  ("EnvTConstr",         SOME(String ** localTypeConstr)),
@@ -1414,8 +1414,8 @@ struct
                         toMachineWord(makeValue: debugState -> string * valueType * locationProp list * machineWord -> values),
                         debugStateType ->> mkProductType[String, localType, locationPropList, machineWordType] ->> valueVal),
                     ("makeException",
-                        toMachineWord(makeException: debugState -> string * valueType * locationProp list * machineWord -> values),
-                        debugStateType ->> mkProductType[String, localType, locationPropList, machineWordType] ->> valueVal),
+                        toMachineWord(makeException: debugState -> string * valueType * bool * locationProp list * machineWord -> values),
+                        debugStateType ->> mkProductType[String, localType, Bool, locationPropList, machineWordType] ->> valueVal),
                     ("makeConstructor",
                         toMachineWord(makeConstructor: debugState -> string * valueType * bool * int * locationProp list * machineWord -> values),
                         debugStateType ->> mkProductType[String, localType, Bool, Int, locationPropList, machineWordType] ->> valueVal),
@@ -1825,14 +1825,14 @@ struct
                         displayValues(valu, depth, makeTypeEnv nameSpace)
                 and propsForValue (Value {locations, typeOf=ValueType(typeOf, _), ...}) = PTtype typeOf :: mapLocationProps locations
 
-                fun isException (Value{class = Exception, ...}) = true
+                fun isException (Value{class = Exception _, ...}) = true
                 |   isException _ = false
 
                 fun valName (Value{name, ...}) = name
                 fun valTypeOf (Value{typeOf=ValueType(typeOf, _), ...}) = typeOf
 
                 fun isConstructor (Value{class=Constructor _, ...}) = true
-                |   isConstructor (Value{class=Exception, ...})     = true
+                |   isConstructor (Value{class=Exception _, ...})     = true
                 |   isConstructor _                                  = false;
     
             in

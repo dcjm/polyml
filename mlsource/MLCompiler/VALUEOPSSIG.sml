@@ -48,8 +48,8 @@ sig
     val mkPattVar:     string * valueType * locationProp list -> values
     val mkSelectedVar: values * structVals * locationProp list -> values
     val mkGconstr:     string * valueType * codetree * bool * int * locationProp list -> values
-    val mkGex:         string * valueType * codetree * locationProp list -> values
-    val mkEx:          string * valueType * locationProp list -> values
+    val mkGex:         string * valueType * bool * codetree * locationProp list -> values
+    val mkEx:          string * valueType * bool * locationProp list -> values
 
 
     type printTypeEnv =
@@ -68,7 +68,7 @@ sig
     val codeAccess:     valAccess  * level -> codetree
     val codeVal:
         values * level * types list * lexan * location -> codetree
-    val codeExFunction: values * level  * types list * lexan * location -> codetree
+    val codeExFunction: values * level * types list * bool * lexan * location -> codetree
     val applyFunction:
         values * codetree * level * types list *
             lexan * location -> codetree
