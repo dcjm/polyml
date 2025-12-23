@@ -193,9 +193,9 @@ sig
     and typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
 
-    (* Instance types.  A type plus maps for bound type variables and type IDs. *)
+    (* Instance types.  A type plus a map for bound type variables. *)
     and instanceType =
-        Instance of types * (tvIndex -> types option) * (typeId -> typeId option)
+        Instance of types * (tvIndex -> types option)
     |   SimpleInstance of types
 
     and valAccess =

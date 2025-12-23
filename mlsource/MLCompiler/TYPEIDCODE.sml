@@ -53,12 +53,6 @@ struct
        where < > denotes multiple (poly-style) arguments rather than tuples.
        *)
 
-    (* If this is true we are just using additional arguments for equality type
-       variables.  If false we are using them for all type variables and every
-       polymorphic function is wrapped in a function that passes the type
-       information. *)
-    val justForEqualityTypes = true
-
     val arg1     = mkLoadArgument 0 (* Used frequently. *)
     val arg2     = mkLoadArgument 1
 
@@ -271,7 +265,7 @@ struct
                     (
                         case followRefChainToEnd l of
                             NONE => TypeValue.extractPrinter defaultTypeCode
-                        |   SOME final => printCode(instanceToType final, level)
+                        |   SOME final => printCode(reduceToType final, level)
                     )
 
                 |   BoundTypeVar(_, index) =>
@@ -446,7 +440,7 @@ struct
                 (
                     case followRefChainToEnd l of
                         NONE => defaultTypeCode
-                    |   SOME ty => getArg(instanceToType ty)
+                    |   SOME ty => getArg(reduceToType ty)
                 )
             |   getArg ty =
                 let
@@ -482,7 +476,7 @@ struct
             (
                 case followRefChainToEnd l of
                     NONE => TypeValue.extractEquality defaultTypeCode
-                |   SOME tyVal => makeEq(instanceToType tyVal, level, getTypeValueForID, typeVarMap)
+                |   SOME tyVal => makeEq(reduceToType tyVal, level, getTypeValueForID, typeVarMap)
             )
 
         |   BoundTypeVar(_, index) =>
@@ -554,29 +548,25 @@ struct
         if eqStatus
         then
         let
-            val nTypeVars = tcArity tyConstr
-            val argTypes =
-                List.tabulate(tcArity tyConstr,
-                    fn _ => makeTv{value=NONE, level=Generalisable, equality=false})
+            val constrArity = tcArity tyConstr
             val baseEqLevelP1 = newLevel baseEqLevel
 
             (* Argument type variables. *)
-            val (localArgList, argTypeMap) =
-                case nTypeVars of
-                    0 => ([], typeVarMap)
+            val argTypeMap =
+                case constrArity of
+                    0 => typeVarMap
                 |   _ =>
                     let
                         (* Add the polymorphic variables after the ordinary ones. *)
                         (* Create functions to load these if they are used in the map.  They may be non-local!!! *)
-                        val args = Vector.tabulate(nTypeVars, fn addr => fn l => mkLoadParam(addr+2, l, baseEqLevelP1))
+                        val args = Vector.tabulate(constrArity, fn addr => fn l => mkLoadParam(addr+2, l, baseEqLevelP1))
                         (* Put the outer args in the map *)
-                        fun varToArgMap(TVIndex n) = if n < nTypeVars then SOME(Vector.sub(args, n)) else NONE
+                        fun varToArgMap(TVIndex n) = if n < constrArity then SOME(Vector.sub(args, n)) else NONE
                         (* Load the local args to return. *)
-                        val localArgList = List.tabulate (nTypeVars, fn addr => mkLoadParam(addr+2, baseEqLevelP1, baseEqLevelP1))
                         val addrs = ref 0 (* Make local declarations for any type values. *)
                         fun mkAddr n = !addrs before (addrs := !addrs + n)
                     in
-                        (localArgList, extendBoundTypeVarMap(varToArgMap, mkAddr, baseEqLevelP1, typeVarMap))
+                        extendBoundTypeVarMap(varToArgMap, mkAddr, baseEqLevelP1, typeVarMap)
                     end
 
             (* If this is a reference to a datatype we're currently generating
@@ -606,11 +596,9 @@ struct
 
             |   processConstrs (Value{class, access, typeOf=ValueType(typeOf, _), ...} :: rest) =
                 let
-                    fun addPolymorphism c =
-                        if nTypeVars = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
                     val base = codeAccess(access, baseEqLevelP1)
                     open ValueConstructor
-                    fun matches arg = mkEval(addPolymorphism(extractTest base), [arg])
+                    fun matches arg = mkEval(extractTest base, [arg])
                 in
                     case class of
                         Constructor{nullary=true, ...} =>
@@ -624,7 +612,7 @@ struct
                                constant that represents the value).  We have to test
                                the tags if it is not short because we can't guarantee
                                that the constant tuple hasn't been duplicated. *)
-                            val isShort = mkIsShort(addPolymorphism(extractInjection base))
+                            val isShort = mkIsShort(extractInjection base)
                        in
                             mkIf(mkIf(isShort, CodeFalse, matches arg1), matches arg2, processConstrs rest)
                         end
@@ -635,11 +623,12 @@ struct
                                there's some uncertainty about whether we use the same type
                                variables for the constructors as for the datatype. (This only
                                applies for polytypes). *)
-                            val resType = constructorResult(typeOf, List.map TypeVar argTypes)
+                            val argTypes = List.tabulate(constrArity, fn n => BoundTypeVar("'a", TVIndex n))
+                            val resType = constructorResult(typeOf, argTypes)
 
                             (* Code to extract the value. *)
                             fun destruct argNo =
-                                mkEval(addPolymorphism(extractProjection(codeAccess(access, baseEqLevelP1))),
+                                mkEval(extractProjection(codeAccess(access, baseEqLevelP1)),
                                     [mkLoadParam(argNo, baseEqLevelP1, baseEqLevelP1)])
 
                             (* Test whether the values match. *)
@@ -664,24 +653,23 @@ struct
                 |   [_] => processConstrs vConstrs
                 |   _ => mkCor(mkEqualPointerOrWord(arg1, arg2), processConstrs vConstrs)
         in
-            if null argTypes
+            if constrArity = 0
             then (addr, mkProc(eqCode, 2, "eq-" ^ tcName ^ "(2)", getClosure baseEqLevelP1, 0)) :: otherFns
             else (* Polymorphic.  Add an extra inline functions. *)
             let
-                val nArgs = List.length argTypes
                 val nLevel = newLevel baseEqLevel
                 val nnLevel = newLevel nLevel
                 (* Call the second function with the values to be compared and the base types. *)
-                val polyArgs = List.tabulate(nArgs, fn i => mkLoadParam(i, nnLevel, nLevel))
+                val polyArgs = List.tabulate(constrArity, fn i => mkLoadParam(i, nnLevel, nLevel))
             in
                 (addr,
                     mkInlproc(
                         mkInlproc(
                             mkEval(mkLoad(addr+1, nnLevel, baseEqLevel), [arg1, arg2] @ polyArgs), 2, "eq-" ^ tcName ^ "(2)",
                                    getClosure nnLevel, 0),
-                            nArgs, "eq-" ^ tcName ^ "(2)(P)", getClosure nLevel, 0)) ::
+                            constrArity, "eq-" ^ tcName ^ "(2)(P)", getClosure nLevel, 0)) ::
                 (addr+1,
-                    mkProc(eqCode, 2+nTypeVars,
+                    mkProc(eqCode, 2+constrArity,
                            "eq-" ^ tcName ^ "()", getClosure baseEqLevelP1, 0)) ::
                 otherFns
             end
@@ -703,28 +691,25 @@ struct
         val nLevel = newLevel level
         val constrArity = tcArity typeCons
 
-        val (localArgList, innerLevel, newTypeVarMap) =
+        val (innerLevel, newTypeVarMap) =
             case constrArity of
-                0 => ([], nLevel, typeVarMap)
+                0 => (nLevel, typeVarMap)
             |   _ =>
                 let
                     val nnLevel = newLevel nLevel
                     local
-                        val level = nnLevel
-                        and oldLevel = nLevel
-                        val nArgs = constrArity
-                        val argAddrs = List.tabulate(nArgs, fn n => n)
+                        val oldLevel = nLevel
+                        val argAddrs = List.tabulate(constrArity, fn n => n)
                         val args = List.map(fn addr => fn l => mkLoadParam(addr, l, oldLevel)) argAddrs
                         val argVec = Vector.fromList args
                     in
                         fun varToArgMap(TVIndex n) = if n < constrArity then SOME(Vector.sub(argVec, n)) else NONE
-                        val localArgList = List.map (fn addr => mkLoadParam(addr, level, oldLevel)) argAddrs
                     end
 
                     val addrs = ref 1 (* Make local declarations for any type values. *)
                     fun mkAddr n = !addrs before (addrs := !addrs + n)
                 in
-                    (localArgList, nnLevel, extendBoundTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap))
+                    (nnLevel, extendBoundTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap))
                 end
 
         (* If we have an expression as the argument we parenthesise it unless it is
@@ -821,13 +806,6 @@ struct
                    the test code, the injection and the projection functions. *)
                 val constructorCode = codeAccess(access, innerLevel)
 
-                (* If this is a polytype the fields in the constructor tuple are functions that first
-                   have to be applied to the type arguments to yield the actual injection/test/projection
-                   functions.  For monotypes the fields contain the injection/test/projection
-                   functions directly. *)
-                fun addPolymorphism c =
-                   if constrArity = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
-
                 open ValueConstructor
 
                 val locProps = (* Get the declaration location. *)
@@ -843,7 +821,7 @@ struct
                     let
                         val argTypes = List.tabulate(constrArity, fn n => BoundTypeVar("'a", TVIndex n))
                         val typeOfArg = constructorResult(typeOf, argTypes)
-                        val getValue = mkEval(addPolymorphism(extractProjection constructorCode), [argCode])
+                        val getValue = mkEval(extractProjection constructorCode, [argCode])
                     in
                         codePrettyBlock(1, false, [],
                             codeList(
@@ -868,7 +846,7 @@ struct
                     then printCode
                     else
                     let
-                        val testValue = mkEval(addPolymorphism(extractTest constructorCode), [argCode])
+                        val testValue = mkEval(extractTest constructorCode, [argCode])
                     in
                         mkIf(testValue, printCode, printerForConstructors rest)
                     end,

@@ -868,8 +868,9 @@ struct
             (* Check the types for escaped datatypes. *)
             local
                 fun checkVars(ValBind{variables=ref vars, line, ...}) =
-                    List.app(fn (Value{typeOf=ValueType(valTypeOf, _), ...}) => checkForEscapingDatatypes(valTypeOf,
-                        fn message => errorNear (lex, true, firstEntry, line, message))) vars
+                    List.app(fn (Value{typeOf=ValueType(valTypeOf, _), ...}) =>
+                        checkForEscapingDatatypes(valTypeOf,
+                            fn message => errorNear (lex, true, firstEntry, line, message))) vars
             in
                 val () = List.app checkVars dec
             end

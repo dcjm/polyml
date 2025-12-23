@@ -867,7 +867,7 @@ struct
                     followTypes (makeEquivalent (constr, args))
             |   followTypes (TypeConstruction{constr as TypeConstrs {identifier,...}, args, ...}) =
                     SOME(identifier, constr, List.length args)
-            |   followTypes (TypeVar(TypeVariable{link=ref l, ...})) = Option.composePartial(followTypes o instanceToType, followRefChainToEnd) l
+            |   followTypes (TypeVar(TypeVariable{link=ref l, ...})) = Option.composePartial(followTypes o reduceToType, followRefChainToEnd) l
             |   followTypes _ = NONE;
 
             val constrId = followTypes installType
@@ -1058,7 +1058,7 @@ struct
                    It only does limited checking and should be regarded as "unsafe". *)
                 let
                     fun rmvars (TypeVar(TypeVariable{link=ref l, ...})) =
-                            (case followRefChainToEnd l of NONE => BadType | SOME t => rmvars(instanceToType t))
+                            (case followRefChainToEnd l of NONE => BadType | SOME t => rmvars(reduceToType t))
                     |   rmvars t = t
                     (* instance should be ('a->'b) -> string -> unit.  For overloadings
                        on most functions (e.g. abs and +) we are looking for the 'a, which
@@ -1081,8 +1081,7 @@ struct
                     fun addOverloading (argCode: codetree) (name: string) =
                         let
                             val typeToUse =
-                                if size name > 4 andalso
-                                    String.substring(name, 0, 4) = "conv"
+                                if size name > 4 andalso String.substring(name, 0, 4) = "conv"
                                 (* For conversion functions it's the result type we're interested in.
                                    For everything else it's the argument type.  This will be a pair
                                    for functions such as "+" and a single argument for "abs". *)
@@ -1109,9 +1108,9 @@ struct
                         (* evalue raises an exception if "argument" is not a constant,
                           or more usefully, a global value containing a constant and
                           possibly a piece of codetree to inline. *)
-                  case evalue(argument) of
-                    SOME _ => mkConst (toMachineWord (addOverloading argument))
-                  | NONE => mkEval (mkConst (toMachineWord addOverloadGeneral), [argument])
+                    case evalue argument of
+                        SOME _ => mkConst (toMachineWord (addOverloading argument))
+                    |   NONE => mkEval (mkConst (toMachineWord addOverloadGeneral), [argument])
                 end
 
         |   GetLocation => (* Return the current location. *) mkConst(toMachineWord lineno)
@@ -1130,7 +1129,7 @@ struct
      or a function to make a packet. If it is a nullary constructor make
      an exception packet now, otherwise generate a function to construct
      an exception packet. *)
-    fun codeExFunction (value as Value{typeOf=ValueType(typeOf, _), ...}, level, instance, nullary, lex, lineno) =
+    fun codeExFunction (value, level, instance, nullary, lex, lineno) =
         if nullary
         then applyFunction (value, CodeZero, level, instance, lex, lineno)
         else

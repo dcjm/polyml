@@ -88,7 +88,7 @@ sig
     val instanceToType: instanceType -> types
 
     (* Extract the instance data from an instance or create one if necessary. *)
-    val getInstance: instanceType -> types * (tvIndex -> types option) * (typeId -> typeId option)
+    val getInstance: instanceType -> types * (tvIndex -> types option)
 
     (* Compose two typeId maps. *)
     val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)
