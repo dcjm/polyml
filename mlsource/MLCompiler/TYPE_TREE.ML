@@ -2035,13 +2035,7 @@ struct
             val (tA, bvMapA) = canonicalise argsA
             and (tB, bvMapB) = canonicalise argsB
 
-            fun isUndefinedType(TypeConstruction{constr, ...}) = isUndefinedTypeConstr constr
-            |   isUndefinedType _ = false
         in (* start of "match" *)
-            if isUndefinedType tA orelse isUndefinedType tB
-            then () (* If either of these was an undefined type constructor don't try to match. 
-                       TODO: There are further tests below for this which are now redundant. *)
-            else
             case (tA, tB) of
                 (* If either of these was an undefined type constructor don't try to match. 
                            TODO: There are further tests below for this which are now redundant. *)
@@ -2074,10 +2068,10 @@ struct
 
                 (* Type functions (type abbreviations).  We need to deal with these first because unwrapping
                    them could allow a valid match.  Try to avoid unwrapping unnecessarily. *)
-            |   (TypeConstruction({constr = tACons as
-                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidA, typeFunCount=tfCA, usedTvs, ...}, ...},...}, args=tAargs, ...}), 
-                 TypeConstruction ({constr = tBCons as
-                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidB, typeFunCount=tfCB, ...}, ...},...}, args=tBargs, ...})) =>
+            |   (TypeConstruction({constr =
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidA, typeFunCount=tfCA, usedTvs, resType=rtA, ...}, ...},...}, args=tAargs, ...}), 
+                 TypeConstruction ({constr =
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidB, typeFunCount=tfCB, resType=rtB, ...}, ...},...}, args=tBargs, ...})) =>
                     if uuidA = uuidB
                     then (* They are the same ID: simply match the used type variables. *)
                     let
@@ -2089,17 +2083,17 @@ struct
                     else if tfCA >= tfCB
                         (* They are different: unwrap the one with the larger count.  It may refer to
                            the other one.  If they're equal we'll come back and unwrap the other later. *)
-                    then match ((makeEquivalent (tACons, tAargs), bvMapA), (tB, bvMapB), typeA, typeB)
-                    else match ((tA, bvMapA), (makeEquivalent (tBCons, tBargs), bvMapB), typeA, typeB)
+                    then match ((rtA, createTypeFnArgumentMap (tAargs, bvMapA)), (tB, bvMapB), typeA, typeB)
+                    else match ((tA, bvMapA), (rtB, createTypeFnArgumentMap (tBargs, bvMapB)), typeA, typeB)
 
-            |   (TypeConstruction({constr = tACons as
-                    TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args=tAargs, ...}), _) =>
+            |   (TypeConstruction({constr =
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn{resType, ...}, ...},...}, args=tAargs, ...}), _) =>
                     (* We need to unwrap A. *)
-                        match ((makeEquivalent (tACons, tAargs), bvMapA), (tB, bvMapB), typeA, typeB)
+                        match ((resType, createTypeFnArgumentMap(tAargs, bvMapA)), (tB, bvMapB), typeA, typeB)
 
-            |   (_,  TypeConstruction ({constr = tBCons as
-                        TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args=tBargs, ...})) =>
-                    match ((tA, bvMapA), (makeEquivalent (tBCons, tBargs), bvMapB), typeA, typeB)
+            |   (_,  TypeConstruction ({constr =
+                        TypeConstrs {identifier = TypeId{idKind = TypeFn{resType, ...}, ...},...}, args=tBargs, ...})) =>
+                    match ((tA, bvMapA), (resType, createTypeFnArgumentMap(tBargs, bvMapB)), typeA, typeB)
 
             |   (TypeConstruction({constr = tACons as TypeConstrs{identifier=tcIdA, ...}, args=tAargs, ...}), 
                  TypeConstruction ({constr = tBCons as TypeConstrs{identifier=tcIdB, ...}, args=tBargs, ...})) =>
@@ -2455,15 +2449,6 @@ struct
         reportError
     end
 
-  (* Given a function type returns the first argument if the
-     function takes a tuple otherwise returns the only argument.
-     Extended to include the case where the argument is not a function
-     in order to work properly for overloaded literals. *)
-  fun firstArg(FunctionType{arg=
-        LabelledRecord ({typeOf, ...} ::_), ...}) = eventual typeOf
-   |  firstArg(FunctionType{arg, ...}) = eventual arg
-   |  firstArg t = t
-
     (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
        or datatype 'a joe = bill of 'a list | mary of 'a * int or
        simply type 'a abs if the type is abstract. *)
@@ -2620,6 +2605,14 @@ struct
         |   prefType(TypeConstruction{constr, ...}) = constr
 
         |   prefType _ = raise InternalError "typeConstrFromOverload: No matching type"
+
+        (* Given a function type returns the first argument if the
+           function takes a tuple otherwise returns the only argument.
+           Extended to include the case where the argument is not a function
+           in order to work properly for overloaded literals. *)
+        fun firstArg(FunctionType{arg=LabelledRecord ({typeOf, ...} ::_), ...}) = eventual typeOf
+        |   firstArg(FunctionType{arg, ...}) = eventual arg
+        |   firstArg t = t
     in
         prefType(firstArg(eventual overloadedFn))
     end

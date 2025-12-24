@@ -159,7 +159,7 @@ struct
                             val arity = tcArity constructor
                             val num = length args
                         in
-                            if arity <> num
+                            if arity <> num andalso not (isUndefinedTypeConstr constructor)
                             then (* Give an error message *)
                             errorMessage (lex, location,
                                 String.concat["Type constructor (", tcName,
@@ -169,7 +169,9 @@ struct
                         end
                 val argTypes = List.map typeFromTypeParse args
             in
-                TypeConstruction {name = name, constr = constructor,
+                if isUndefinedTypeConstr constructor
+                then BadType
+                else TypeConstruction {name = name, constr = constructor,
                                   args = argTypes, locations = [DeclaredAt location]}
             end
 

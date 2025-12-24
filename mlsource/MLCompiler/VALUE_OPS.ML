@@ -862,7 +862,7 @@ struct
                  this against the last in the chain because type constructors in
                  different modules may be at different points in the chain. *)
               (* This does mean that it's not possible to install a
-                 pretty printer for a type constructor rather than a datatype. *)
+                 pretty printer for a type function rather than a datatype. *)
             fun followTypes (TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
                     followTypes (makeEquivalent (constr, args))
             |   followTypes (TypeConstruction{constr as TypeConstrs {identifier,...}, args, ...}) =

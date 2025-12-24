@@ -65,7 +65,6 @@ sig
     val recordNotFrozen:    types -> bool;
     val recordWidth:        types -> int;
     val makeEquivalent:     typeConstrs * types list -> types;
-    val firstArg:           types -> types
 
     val makeGeneralTypeFunction:   int * types * typeIdDescription * valAccess -> typeId
     and makeTypeFunction:   int * types * typeIdDescription -> typeId
