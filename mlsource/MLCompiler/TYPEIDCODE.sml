@@ -323,7 +323,7 @@ struct
             end
 
         |   printCode(typ  as LabelledRecord recList, level) =
-                printRecord(recList, isProductType typ andalso List.length recList >= 2, false, level)
+                printRecord(recList, isProductType typ andalso List.length recList >= 2, true, level)
 
         |   printCode(FunctionType _, _) = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
 

@@ -1283,38 +1283,38 @@ struct
     val emptyTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
 
     (* prints a block of items *)
-    fun tDisp (t : types, depth : FixedInt.int, typeVarName : typeVar -> string, env: printTypeEnv,
-               sigMap: (int->typeId)option) : pretty =
+    fun tDisp (t : instanceType, depth : FixedInt.int, typeVarName : typeVar -> string, env: printTypeEnv,
+               sigMap: (int->typeId)option) =
     let
         (* prints a block of items *)
-        fun dispP (t : types, depth : FixedInt.int) : pretty =
+        fun dispP (t, tMap, depth) =
         let
             (* prints a block of items *)
-            fun parenthesise depth t =
+            fun parenthesise depth (t, bvMap) =
             if depth <= 1
             then PrettyString "..."
             else
                 PrettyBlock (0, false, [],
                     [
                         PrettyString "(",
-                        dispP (t, depth - 1),
+                        dispP (t, bvMap, depth - 1),
                         PrettyString ")"
                     ]);
     
             (* prints a sequence of items *)
-            fun prettyList [] _ _: pretty list = []
+            fun prettyList [] _ _ _: pretty list = []
 
-            |   prettyList [H] depth separator =
+            |   prettyList [H] bvMap depth separator =
                 let
                     val v = eventual H;
                 in
                     if separator = "*" andalso
                         (isFunctionType v orelse isProductType v)
-                    then (* Must bracket the expression *) [parenthesise depth v]
-                    else [dispP (v, depth)]
+                    then (* Must bracket the expression *) [parenthesise depth (v, tMap)]
+                    else [dispP (v, bvMap, depth)]
                 end
 
-            |   prettyList (H :: T) depth separator =
+            |   prettyList (H :: T) bvMap depth separator =
                 if depth <= 0
                 then [PrettyString "..."]
                 else
@@ -1324,16 +1324,16 @@ struct
                     PrettyBlock (0, false, [],
                         [(if separator = "*" andalso
                            (isFunctionType v orelse isProductType v)
-                        then (* Must bracket the expression *) parenthesise depth v
-                        else dispP (v, depth)),
+                        then (* Must bracket the expression *) parenthesise depth (v, tMap)
+                        else dispP (v, bvMap, depth)),
                         PrettyBreak (if separator = "," then 0 else 1, 0),
                         PrettyString separator
                         ]) ::
                     PrettyBreak (1, 0) ::
-                    prettyList T (depth - 1) separator
+                    prettyList T bvMap (depth - 1) separator
                 end
 
-            fun printRecord(recList, isFrozen, depth) =
+            fun printRecord(recList, bvMap, isFrozen, depth) =
                 let
                     (* The ordering on fields is designed to allow mixing of tuples and
                        records (e.g. #1).  It puts shorter names before longer so that
@@ -1357,7 +1357,7 @@ struct
                                                 [
                                                 PrettyString (name ^ ":"),
                                                 PrettyBreak(1, 0),
-                                                dispP(typeOf, depth - 1)
+                                                dispP(typeOf, bvMap, depth - 1)
                                                 ] @
                                                 (if null T then [] else [PrettyBreak (0, 0), PrettyString ","])
                                             )
@@ -1373,7 +1373,7 @@ struct
                 end
 
 
-            val typ = eventual t (* Find the real type structure *)
+            val (typ, bvMap) = canonicalise(t, tMap) (* Find the real type structure *)
         in 
             case typ of
                 TypeVar tyVar => (* Unset type variable. *) PrettyString (typeVarName tyVar)
@@ -1512,12 +1512,12 @@ struct
                                 (* If we have just a single argument and it's just a type constructor
                                    or a construction we don't need to parenthesise it. *)
                                 if null tl andalso not (isProductType argVal orelse isFunctionType argVal)
-                                then dispP (argVal, depth - 1)
+                                then dispP (argVal, bvMap, depth - 1)
                                 else if depth <= 1
                                 then PrettyString "..."
                                 else PrettyBlock(0, false, [],
                                          [PrettyString "(", PrettyBreak (0, 0)]
-                                         @ prettyList args (depth - 1) ","
+                                         @ prettyList args bvMap (depth - 1) ","
                                          @ [PrettyBreak (0, 0), PrettyString ")"]
                                      ),
                                 PrettyBreak(1, 0),
@@ -1537,12 +1537,12 @@ struct
                         [
                         (* If the argument is a function it must be printed as (a-> b)->.. *)
                         if isFunctionType evArg 
-                        then parenthesise depth evArg
-                        else dispP (evArg, depth - 1),
+                        then parenthesise depth (evArg, bvMap)
+                        else dispP (evArg, bvMap, depth - 1),
                         PrettyBreak(1, 2),
                         PrettyString "->",
                         PrettyBreak (1, 2),
-                        dispP (result, depth - 1)
+                        dispP (result, bvMap, depth - 1)
                         ])
                 end
                      
@@ -1552,22 +1552,22 @@ struct
                 else if isProductType typ
                 then (* Print as a product *)
                     PrettyBlock (0, false, [], (* Print them as t1 * t2 * t3 .... *)
-                        prettyList (map (fn {typeOf, ...} => typeOf) recList) depth "*")
-                else (* Print as a record *) printRecord(recList, true, depth)
+                        prettyList (List.map (fn {typeOf, ...} => typeOf) recList) bvMap depth "*")
+                else (* Print as a record *) printRecord(recList, bvMap, true, depth)
 
             |   FlexibleRecordVar{recList=ref recl, fullList=ref full, ...} =>
                 let
                     val {frozen, ...} = followRefChainToEnd full
                     val recList = followRefChainToEnd recl
                 in
-                    printRecord(recList, frozen, depth)
+                    printRecord(recList, bvMap, frozen, depth)
                 end
 
             |   BoundFlexRecord{recList, fullList=ref full, ...} =>
                 let
                     val {frozen, ...} = followRefChainToEnd full
                 in
-                    printRecord(recList, frozen, depth)
+                    printRecord(recList, bvMap, frozen, depth)
                 end
 
             |   OverloadSetVar(ref chain) =>
@@ -1580,7 +1580,7 @@ struct
                     |   tconslist => 
                     (
                         case preferredOverload tconslist of
-                            SOME(tcons as TypeConstrs {name,...})  => dispP(mkTypeConstruction (name, tcons,[], []), depth)
+                            SOME(tcons as TypeConstrs {name,...})  => dispP(mkTypeConstruction (name, tcons,[], []), bvMap, depth)
                         |   NONE =>
                           (* Just print the type constructors separated by / *)
                         let
@@ -1607,8 +1607,10 @@ struct
 
             |   BadType => PrettyString "bad"
         end (* dispP *)
+        
+        val (t, map) = getInstance t
     in
-        dispP (t, depth)
+        dispP (t, map, depth)
     end (* tDisp *);
 
   (* Generate unique type-variable names. *)
@@ -1642,9 +1644,9 @@ struct
 
     (* Print a type (as a block of items) *)
     fun displayWithMap (t : instanceType, depth : FixedInt.int, env, sigMap) =
-        tDisp (instanceToType t, depth, varNameSequence (), env, sigMap)
+        tDisp (t, depth, varNameSequence (), env, sigMap)
     and display (t : instanceType, depth : FixedInt.int, env) =
-        tDisp (instanceToType t, depth, varNameSequence (), env, NONE)
+        tDisp (t, depth, varNameSequence (), env, NONE)
 
     (* Print out zero, one or more type variables (unblocked) *)
     fun printTypeVariables _ ([], _, _) = [] (* No type vars i.e. monotype *)
@@ -1683,7 +1685,7 @@ struct
         ]
 
     val printTypeVars =
-        printTypeVariables (fn (var, depth, typeV) => tDisp (var, depth, typeV, emptyTypeEnv, NONE))
+        printTypeVariables (fn (var, depth, typeV) => tDisp (SimpleInstance var, depth, typeV, emptyTypeEnv, NONE))
 
     (* When we have finished processing a list of patterns we need to check
        that the record is now frozen. *)
@@ -2503,7 +2505,7 @@ struct
                     PrettyBreak(1, 0),
                     PrettyString "=",
                     PrettyBreak(1, 0),
-                    tDisp(result, depth-1, typeV, typeEnv, sigMap)
+                    tDisp(SimpleInstance result, depth-1, typeV, typeEnv, sigMap)
                 ]
                 )
         end
@@ -2562,7 +2564,7 @@ struct
                             [
                                 PrettyBreak (1, 4),
                                 (* print the type as a single block of output *)
-                                tDisp (arg, depth - 1, typeV, typeEnv, sigMap)
+                                tDisp (SimpleInstance arg, depth - 1, typeV, typeEnv, sigMap)
                             ]
                             else [])
                             )
