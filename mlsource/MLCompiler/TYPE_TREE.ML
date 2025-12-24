@@ -761,9 +761,8 @@ struct
            e.g. type ('a, 'b, 'c) t = ('a * 'b ref).  (int, real, real) t admits equality. *)
         local
             val eqRefArray = BoolArray.array(arity, false)
-            fun lookupTypeVar _ = raise InternalError "lookupTypeVar"
-            fun lookupBTV(TVIndex i) = (BoolArray.update(eqRefArray, i, true); Yes)
-            val eq = computeEquality (resType, fn _ => No, lookupTypeVar, lookupBTV)
+            fun lookupBTV(TVIndex i) = BoolArray.update(eqRefArray, i, true)
+            val eq = computeEqualityWithinTypeConstructor(resType, fn _ => No, lookupBTV)
         in
             val eqRes =
                 case eq of
@@ -784,56 +783,26 @@ struct
         TypeId { access=access, description = desc, idKind = TypeFn typeFn}
     end
 
-  (* Returns a flag saying if equality testing is allowed for values of
-     the given type. "equality" is used both to generate the code for
-     a specific call of equality e.g.  (a, b, c) = f(x), and to generate
-     the equality operation for a type when it is declared. In the latter
-     case type variables may be parameters which will be filled in later e.g.
-     type 'a list = nil | op :: of ('a * 'a list). "search"
-     is a function which looks up constructors in mutually recursive type
-     declarations. "lookupTypeVar" deals with type variables. If they
-     represent parameters to a type declaration equality 
-     checking will be allowed. If we are unifying this type to an equality
-     type variable they  will be unified to new equality type variables.
-     Otherwise equality is not allowed. *)
+    (* Tests for equality for a type.  It is only used in datatype and type constructors.
+       lookupTypId is used when computing equality for a set of possibly mutually recursive
+       datatypes and types (from withtype) to get information about others in the set.
+       referenceBoundId indicates that a bound ID was actually used and is used when
+       computing equality for a type function.  It indicates that equality for the
+       type function does actually depend on the bound variable.   *)
     
-    and computeEquality (ty, lookupTypId, lookupTypeVar, lookupBTV) : tri =
+    and computeEqualityWithinTypeConstructor (ty, lookupTypId, referenceBoundId) : tri =
     let
-        (* Can't use foldT because it is not monotonic
-           (equality on ref 'a is allowed). *)
-        (* Returns Yes only if equality testing is allowed for all types
-           in the list. *)
+        (* Can't use foldT because it is not monotonic: equality on ref 'a is allowed. *)
+        (* Returns Yes only if equality testing is allowed for all types in the list. *)
         fun eqForList ([],    soFar) = soFar
         |   eqForList (x::xs, soFar) = 
-            case computeEquality (x, lookupTypId, lookupTypeVar, lookupBTV) of
+            case computeEqualityWithinTypeConstructor (x, lookupTypId, referenceBoundId) of
                 No    => No
             |   Maybe => eqForList (xs, Maybe)
-            |   Yes   => eqForList (xs, soFar);
+            |   Yes   => eqForList (xs, soFar)
     in
-        case eventual ty of
-            (* Type variable: this is needed for type functions.  TODO: Is that true any longer? *)
-            TypeVar(tyVar as TypeVariable{equality=ref eq, ...}) =>
-                if followRefChainToEnd eq then Yes else lookupTypeVar tyVar
-
-            (* This will only occur when testing equality in unification.  Check that equality is
-               permitted and if it is set the equality property so that any new fields will have
-               to be equality types.  If equality is already true we don't actually need to
-               do anything here. *)
-        |   FlexibleRecordVar{recList=ref recl, equality, ...} =>
-            let
-                val (eqVar, isEq) = followRefChainToRef equality
-                val recList = followRefChainToEnd recl
-                val eqStatus = eqForList (map #typeOf recList, Yes)
-            in
-                case eqStatus of
-                    No => ()
-                |   _ => if isEq then () else eqVar := ChainEnd true;
-                eqStatus
-            end
-
-        |   BoundTypeVar(_, index) => lookupBTV index
-        
-        |   FreeTypeVar{equality, ...} => if equality then Yes else No
+        case ty of
+            BoundTypeVar(_, index) => (referenceBoundId index; Yes) (* It is always true. *)
 
         |   FunctionType {...} => No  (* No equality on function types! *)
 
@@ -882,21 +851,9 @@ struct
         |   LabelledRecord recList => (* Record equality if all subtypes *)
                 eqForList (map #typeOf recList, Yes)
 
-        |   BoundFlexRecord _ => raise InternalError "computeEquality: BoundFlexRecord"
+        |   BadType => Yes
 
-        |   OverloadSetVar rchain =>
-            (* This will only occur when testing equality in unification. Reduce the list
-               to those that admit equality if possible. *)
-            let
-                val (final, typeset) = followRefChainToRef rchain
-                fun tcEquality(TypeConstrs{identifier, ...}) = isEquality identifier
-            in
-                case List.filter tcEquality typeset of
-                    [] => No (* And leave it unchanged so it can be reported as an error. *)
-                |   newset => ( final := ChainEnd newset; Yes )
-            end
-
-        |   BadType => No
+        |   _ => raise InternalError "computeEqualityWithinTypeConstructor: bad type"
     end
 
     (* Gets the final type in a chain.  Extends flexible records by adding
@@ -1093,7 +1050,7 @@ struct
     end
 
     (* Can this be used to set an eqtype? Used in "where type" constructions in signatures. *)
-    fun typePermitsEquality ty = computeEquality (ty, fn _ => No, fn _ => Yes, fn _ => Yes) <> No
+    fun typePermitsEquality ty = computeEqualityWithinTypeConstructor (ty, fn _ => No, fn _ => ()) <> No
 
   (* When a datatype is declared we test to see if equality is allowed. The
      types are mutually recursive so value constructors of one type may
@@ -1133,8 +1090,8 @@ struct
                    allowed are parameters to the datatype so if we have a type variable
                    then equality is allowed for this datatype.  *)
                 val eq = 
-                    computeEquality (#arg (typesFunctionType valTypeOf),
-                        genEquality, fn _ => Yes, fn _ => Yes)
+                    computeEqualityWithinTypeConstructor (#arg (typesFunctionType valTypeOf),
+                        genEquality, fn _ => ())
             in
                 if eq = No
                 then (* Not allowed. *) No
@@ -1165,9 +1122,8 @@ struct
                         TypeId{idKind = TypeFn{resType, equality, arity, ...}, ...} => (* withtype *)
                         let
                             val eqRefArray = BoolArray.array(arity, false)
-                            fun lookupTypeVar _ = raise InternalError "lookupTypeVar"
-                            fun lookupBoundTV(TVIndex i) = (BoolArray.update(eqRefArray, i, true); Yes)
-                            val eq = computeEquality (resType, genEquality, lookupTypeVar, lookupBoundTV)
+                            fun lookupBoundTV(TVIndex i) = BoolArray.update(eqRefArray, i, true)
+                            val eq = computeEqualityWithinTypeConstructor (resType, genEquality, lookupBoundTV)
                             val eqRes =
                                 case eq of
                                     No => TypeFnEqNever
@@ -1847,20 +1803,95 @@ struct
     |   minLevel(_, v2 as NotGeneralisable _) = v2
     |   minLevel(Generalisable, Generalisable) = Generalisable
 
-
-    fun computeEqualityForInstance(typ, bvMap) =
+    (* Will this type match an equality type?  Unlike computeEquality this takes an instance but bound
+       variables must be bound to types.  It sets equality on type variables. *)
+    fun equalityForInstance(typ, bvMap): bool =
     let
-        fun canMkEqTv (TypeVariable{equality, ...}) : tri = 
-        (* Set equality if it isn't already. *)
-        let
-            val (eqRef, isEq) = followRefChainToRef equality
-            val () = if isEq then () else eqRef := ChainEnd true
-            (* Don't actually have to link it because it can never change now. *)
-        in
-            Yes
-        end
+        fun eqForList ([], _) = true
+
+        |   eqForList (x::xs, map) =
+            if equalityForInstance (x, map)
+            then eqForList (xs, map)
+            else false
     in
-        computeEquality (reduceToType(Instance(typ, bvMap)), fn _ => No, canMkEqTv, fn _ => raise InternalError "computeEq")
+        case canonicalise(typ, bvMap) of
+            (TypeVar(TypeVariable{equality, ...}), _) =>
+            let
+                val (eqRef, isEq) = followRefChainToRef equality
+                val () = if isEq then () else eqRef := ChainEnd true
+                (* Don't actually have to link it because it can never change now. *)
+            in
+                true
+            end
+
+            (* Check that equality is permitted and if it is set the equality property so that
+               any new fields will have to be equality types.  If equality is already true we don't
+               actually need to do anything here. *)
+        |   (FlexibleRecordVar{recList=ref recl, equality, ...}, tmap) =>
+            let
+                val (eqVar, isEq) = followRefChainToRef equality
+                val recList = followRefChainToEnd recl
+                val eqStatus = eqForList (List.map #typeOf recList, tmap)
+            in
+                if eqStatus andalso not isEq
+                then eqVar := ChainEnd true
+                else ();
+                eqStatus
+            end
+        
+        |   (FreeTypeVar{equality, ...}, _) => equality
+
+        |   (FunctionType _, _) => false  (* No equality on function types! *)
+
+        |   (TypeConstruction {constr=TypeConstrs
+                {identifier=TypeId{idKind = TypeFn{equality=ref equal, ...}, ...},...}, args, ...}, tmap) =>
+                (* Type function. *)
+            (
+                case equal of
+                    TypeFnEqNever => false
+                |   TypeFnEq bv =>
+                    let
+                        (* Only some of the arguments may be necessary for equality.  See comment in makeGeneralTypeFunction. *)
+                        fun filterArgs(arg, (n, l)) = (n+1, if BoolVector.sub(bv, n) then arg::l else l)
+                        val (_, filtered) = List.foldl filterArgs (0, []) args
+                    in
+                        eqForList (filtered, tmap)
+                    end
+            )
+
+        |   (TypeConstruction {constr as TypeConstrs{identifier, ...}, args, ...}, tMap) =>
+            (* ref - Equality is permitted on refs of all types *)
+            (* The Definition of Standard ML says that ref is the ONLY type
+               constructor which is treated in this way.  The standard basis
+               library says that other mutable types such as array should
+               also work this way. *)
+            if isUndefinedTypeConstr constr orelse isPointerEqType constr
+            then true
+
+            (* Others apart from ref and real *)
+            else isEquality identifier andalso eqForList (args, tMap)
+
+        |   (LabelledRecord recList, tMap) => (* Record equality if all subtypes *)
+                eqForList (map #typeOf recList, tMap)
+
+        |   (OverloadSetVar rchain, _) =>
+            (* Reduce the list to those that admit equality if possible. *)
+            let
+                val (final, typeset) = followRefChainToRef rchain
+                fun tcEquality(TypeConstrs{identifier, ...}) = isEquality identifier
+            in
+                case List.filter tcEquality typeset of
+                    [] => false (* And leave it unchanged so it can be reported as an error. *)
+                |   newset => ( final := ChainEnd newset; true )
+            end
+
+        |   (BadType, _) => true (* To prevent further errors. *)
+
+        |   (BoundTypeVar _, _) => (* This should have been looked up in canonicalise. *)
+                raise InternalError "computeEqualityForInstance: Bound"
+
+        |   (BoundFlexRecord _, _) => raise InternalError "equalityForInstance: BoundFlexRecord"
+
     end
 
     (* Type matching algorithm for both unification and signature matching. *)
@@ -2015,7 +2046,7 @@ struct
                 (* If we are unifying a type with an equality type variable
                    we must ensure that equality is allowed for that type. This
                    will turn most type variables into equality type vars. *)
-                if varEqVal andalso computeEqualityForInstance finalInstance = No
+                if varEqVal andalso not(equalityForInstance finalInstance)
                 then cantMatch (aType, bType, "(Requires equality type)")
                 else ();
                 (* If we have had an error don't make the assignment.  At the very least
@@ -2351,9 +2382,9 @@ struct
                 |   (_, _, unmatchedA, unmatchedB) =>
                     let
                         fun checkEquality bvMap {name, typeOf} =
-                            case computeEqualityForInstance(typeOf, bvMap) of
-                                No => cantMatch (typA, typB, "(Field " ^ name ^ " requires an equality type)")
-                            |   _ => ()
+                            if equalityForInstance(typeOf, bvMap)
+                            then ()
+                            else cantMatch (typA, typB, "(Field " ^ name ^ " requires an equality type)")
                     in
                         (* Apply the appropriate equality checks. *)
                         if equalityA then List.app (checkEquality bvMapB) unmatchedB  else ();
