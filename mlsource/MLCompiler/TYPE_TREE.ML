@@ -1002,7 +1002,7 @@ struct
             fn TVIndex n => Vector.sub(tvVector, n)
         end
 
-    (* Exported wrapper for generaliseTypes. *)
+    (* Create an instance for a generalisable value, e.g. a polymorphic function. *)
     fun generalise(atyp, templs) =
     let
         (* Create free type variables for each template. *)
@@ -1252,10 +1252,11 @@ struct
         map2(m1 n)
     end
 
-    (* Similar to generaliseTypes but with the bound variables replaced by non-unifiable
+    (* Similar to generalise but with the bound variables replaced by non-unifiable
        free variables.  This is used in signature matching.  A polymorphic function
        in a structure will match a similar monomorphic function but not the other way
-       round. *)
+       round.  This currently still needs to copy the type because it includes
+       a type identifier map. *)
     fun createNonGeneralisableInstance((atyp, templs), copyId) =
     let
         fun createFreeTypeVariables([], _) = []
@@ -1269,8 +1270,7 @@ struct
         val freeVars = createFreeTypeVariables(templs, 0)
         fun boundVarMap(TVIndex n) = SOME(List.nth(freeVars, n))
         fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn s => s)
-        fun copyTarget t = copyType (t, boundVarMap, copyATypeConstr);
-        val copiedTarget = copyTarget atyp
+        val copiedTarget = copyType (atyp, boundVarMap, copyATypeConstr)
     in
         SimpleInstance copiedTarget
     end

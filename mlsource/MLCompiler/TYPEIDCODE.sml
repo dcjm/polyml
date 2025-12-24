@@ -110,21 +110,6 @@ struct
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
-
-        (* Entries are either type var maps or "stoppers". *)
-        datatype typeVarMapEntry =
-            TypeBoundVarEntry of tvIndex -> (level->codetree) option
-
-        type typeVarMap =
-        {
-            entryType: typeVarMapEntry, (* Either the type var map or a "stopper". *)
-            mkAddr: int->int, (* Make new addresses at this level. *)
-            level: level (* Function nesting level. *)
-        } list
-
-        fun extendBoundTypeVarMap (tvMap: tvIndex->(level->codetree) option, mkAddr, level, typeVarMap) =
-            {entryType = TypeBoundVarEntry tvMap, mkAddr=mkAddr, level=level} :: typeVarMap
-
         local
             open TypeValue
 (*            local
@@ -256,115 +241,111 @@ struct
             val defaultTypeCode = mkInd(0, code)
         end
 
-    fun printerForType(ty, baseLevel, argTypes: typeVarMap) =
+    (* Generate a print function for a type.  This is used both for PolyML.print when called as a
+       function and also to generate a print function for a datatype.
+       For the moment this complicates things.  If we have bound type variable in a general
+       type we'd want to look it up but if it's in a datatype it's an argument. *)
+    fun printerForType(ty, baseLevel, argTypes) =
     let
-        fun printCode(typ, level: level) =
+        fun printCode(TypeVar(TypeVariable{link=ref l, ...}), level) =
             (
-                case typ of
-                    TypeVar(TypeVariable{link=ref l, ...}) =>
-                    (
-                        case followRefChainToEnd l of
-                            NONE => TypeValue.extractPrinter defaultTypeCode
-                        |   SOME final => printCode(reduceToType final, level)
-                    )
-
-                |   BoundTypeVar(_, index) =>
-                    let
-                        fun findCodeFromTypeVar [] = (fn _ => defaultTypeCode)
-                            (* Return default code for a missing type variable.  This can occur
-                               if we have unreferenced type variables that need to be supplied but
-                               are treated as "don't care". *)
-
-                        |   findCodeFromTypeVar({entryType=TypeBoundVarEntry typeVarMap, ...} :: rest) =
-                            (
-                                case typeVarMap index of
-                                    SOME codeFn => codeFn
-                                |   NONE => findCodeFromTypeVar rest
-                            )
-                        val code = findCodeFromTypeVar argTypes
-                    in
-                        TypeValue.extractPrinter(code level)
-                    end
-
-                |   TypeConstruction { constr=typConstr as TypeConstrs {identifier,...}, args, name, ...} =>
-                        if tcIsAbbreviation typConstr (* Handle type abbreviations directly *)
-                        then printCode(makeEquivalent (typConstr, args), level)
-                        else
-                        let
-                            val nLevel = newLevel level
-                            (* Get the type Id and put in code to extract the printer ref. *)
-                            val codedId = codeId(identifier, nLevel)
-                            open TypeValue
-                            val printerRefAddress = extractPrinter codedId
-                            (* We need a type value here.  The printer field will be used to
-                               print the type argument and the boxedness and size fields may
-                               be needed to extract the argument from the constructed value. *)
-                            fun makePrinterId t = createTypeValue {eqCode=CodeZero, printCode=printCode(t, nLevel)}
-
-                            val argList = map makePrinterId args
-                        in
-                            case args of
-                                [] => (* Create a function that, when called, will extract the function from
-                                         the reference and apply it the pair of the value and the depth. *)
-                                    mkProc(
-                                        mkEval(
-                                            mkLoadOperation(LoadStoreMLWord{isImmutable=false}, printerRefAddress, CodeZero),
-                                            [arg1]),
-                                        1, "print-"^name, getClosure nLevel, 0)
-                            |   _ =>  (* Construct a function, that when called, will extract the
-                                         function from the reference and apply it first to the
-                                         base printer functions and then to the pair of the value and depth. *)
-                                    mkProc(
-                                        mkEval(
-                                            mkEval(
-                                                mkLoadOperation(LoadStoreMLWord{isImmutable=false}, printerRefAddress, CodeZero),
-                                                argList),
-                                            [arg1]),
-                                        1, "print-"^name, getClosure nLevel, 0)
-                        end
-
-                |   LabelledRecord [] =>
-                        (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled", [], 0)
-
-
-                |   LabelledRecord [{name, typeOf}] =>
-                    let (* Optimised unary record *)
-                        val localLevel = newLevel level
-                        val entryCode = mkEval(printCode(typeOf, localLevel), [arg1])
-                        val printItem =
-                            codeList([codePrettyString(name^" ="), codePrettyBreak(1, 0), entryCode, codePrettyString "}"], CodeZero)
-                    in
-                        mkProc(
-                            codePrettyBlock(1, false, [],
-                                mkTuple[codePrettyString "{", printItem]),
-                            1, "print-labelled", getClosure localLevel, 0)
-                    end
-
-                |   typ as LabelledRecord recList =>
-                        printRecord(recList, isProductType typ andalso List.length recList >= 2, false, level)
-
-                |   FunctionType _ => mkProc(codePrettyString "fn", 1, "print-function", [], 0)
-
-                |   FlexibleRecordVar{recList=ref recl, fullList=ref full, ...} =>
-                    let
-                        (* The record should be frozen at this point but this instance
-                           may not have all the fields.  There's no point in adding them
-                           because they will be type variables that will print as "?". *)
-                        val {names, ...} = followRefChainToEnd full
-                        val recList = followRefChainToEnd recl
-                    in
-                        printRecord(recList, false, List.length names = List.length recList, level)
-                    end
-
-                |   OverloadSetVar _ =>
-                    let
-                        val constr as TypeConstrs {name,...} = typeConstrFromOverload typ
-                    in
-                        printCode(mkTypeConstruction(name, constr, [], []), level)
-                    end
-
-                |   _ => mkProc(codePrettyString "<empty>", 1, "print-empty", [], 0)
+                (* Only in a general type.  We need to reduce the type immediately to
+                   eliminate bound variables. *)
+                case followRefChainToEnd l of
+                    NONE => TypeValue.extractPrinter defaultTypeCode
+                |   SOME final => printCode(reduceToType final, level)
             )
+
+        |   printCode(BoundTypeVar(_, index), level) =
+            let
+                 (* Return default code for a missing type variable.  This can occur
+                   if we have unreferenced type variables that need to be supplied but
+                   are treated as "don't care". *)
+                val code =
+                    case argTypes of
+                        NONE => (fn _ => defaultTypeCode)
+                    |   SOME typeVarMap => typeVarMap index
+            in
+                TypeValue.extractPrinter(code level)
+            end
+
+        |   printCode(TypeConstruction { constr=typConstr as TypeConstrs {identifier=TypeId{idKind = TypeFn _, ...},...}, args, ...}, level) =
+                (* Type function *)
+                printCode(makeEquivalent (typConstr, args), level)
+
+        |   printCode(TypeConstruction { constr=TypeConstrs {identifier,...}, args, name, ...}, level) =
+            let
+                val nLevel = newLevel level
+                (* Get the type Id and put in code to extract the printer ref. *)
+                val codedId = codeId(identifier, nLevel)
+                open TypeValue
+                val printerRefAddress = extractPrinter codedId
+                (* We need a type value here.  The printer field will be used to
+                   print the type argument and the boxedness and size fields may
+                   be needed to extract the argument from the constructed value. *)
+                fun makePrinterId t = createTypeValue {eqCode=CodeZero, printCode=printCode(t, nLevel)}
+
+                val argList = map makePrinterId args
+            in
+                case args of
+                    [] => (* Create a function that, when called, will extract the function from
+                             the reference and apply it the pair of the value and the depth. *)
+                        mkProc(
+                            mkEval(
+                                mkLoadOperation(LoadStoreMLWord{isImmutable=false}, printerRefAddress, CodeZero),
+                                [arg1]),
+                            1, "print-"^name, getClosure nLevel, 0)
+                |   _ =>  (* Construct a function, that when called, will extract the
+                             function from the reference and apply it first to the
+                             base printer functions and then to the pair of the value and depth. *)
+                        mkProc(
+                            mkEval(
+                                mkEval(
+                                    mkLoadOperation(LoadStoreMLWord{isImmutable=false}, printerRefAddress, CodeZero),
+                                    argList),
+                                [arg1]),
+                            1, "print-"^name, getClosure nLevel, 0)
+            end
+
+        |   printCode(LabelledRecord [], _) = (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled", [], 0)
+
+        |   printCode(LabelledRecord [{name, typeOf}], level) =
+            let (* Optimised unary record *)
+                val localLevel = newLevel level
+                val entryCode = mkEval(printCode(typeOf, localLevel), [arg1])
+                val printItem =
+                    codeList([codePrettyString(name^" ="), codePrettyBreak(1, 0), entryCode, codePrettyString "}"], CodeZero)
+            in
+                mkProc(
+                    codePrettyBlock(1, false, [],
+                        mkTuple[codePrettyString "{", printItem]),
+                    1, "print-labelled", getClosure localLevel, 0)
+            end
+
+        |   printCode(typ  as LabelledRecord recList, level) =
+                printRecord(recList, isProductType typ andalso List.length recList >= 2, false, level)
+
+        |   printCode(FunctionType _, _) = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
+
+        |   printCode(FlexibleRecordVar{recList=ref recl, fullList=ref full, ...}, level) =
+            let
+                (* The record should be frozen at this point but this instance
+                   may not have all the fields.  There's no point in adding them
+                   because they will be type variables that will print as "?". *)
+                val {names, ...} = followRefChainToEnd full
+                val recList = followRefChainToEnd recl
+            in
+                printRecord(recList, false, List.length names = List.length recList, level)
+            end
+
+        |   printCode(typ as OverloadSetVar _, level) =
+            let
+                val constr as TypeConstrs {name,...} = typeConstrFromOverload typ
+            in
+                printCode(mkTypeConstruction(name, constr, [], []), level)
+            end
+
+        |   printCode(_, _) = mkProc(codePrettyString "<empty>", 1, "print-empty", [], 0)
 
         and printRecord(recList, isTuple, isFrozen, level) =
         let
@@ -481,18 +462,10 @@ struct
 
         |   BoundTypeVar(_, index) =>
             let
-                fun findCodeFromTypeVar [] = (fn _ => defaultTypeCode)
-                    (* Return default code for a missing type variable.  This can occur
-                       if we have unreferenced type variables that need to be supplied but
-                       are treated as "don't care". *)
-
-                |   findCodeFromTypeVar({entryType=TypeBoundVarEntry typeVarMap, ...} :: rest) =
-                    (
-                        case typeVarMap index of
-                            SOME codeFn => codeFn
-                        |   NONE => findCodeFromTypeVar rest
-                    )
-                val code = findCodeFromTypeVar typeVarMap
+                val code =
+                    case typeVarMap of
+                        NONE => (fn _ => defaultTypeCode)
+                    |   SOME typeVarMap => typeVarMap index
             in
                 TypeValue.extractEquality(code level)
             end
@@ -530,7 +503,7 @@ struct
         |   OverloadSetVar _ => (* Should have been resolved. *)
                 equalityForConstruction(typeConstrFromOverload ty, [])
 
-        |   FlexibleRecordVar{recList=ref recl, fullList=ref full, ...} =>
+        |   FlexibleRecordVar{recList=ref _, fullList=ref _, ...} =>
                 (* TODO: If we have all the fields treat it as a labelled record otherwise fall back to
                    structure equality. *)
                 TypeValue.extractEquality defaultTypeCode
@@ -539,7 +512,7 @@ struct
     end
 
     (* Create equality functions for a set of possibly mutually recursive datatypes. *)
-    fun equalityForDatatypes(typeDataList, eqAddresses, baseEqLevel, typeVarMap): (int * codetree) list =
+    fun equalityForDatatypes(typeDataList, eqAddresses, baseEqLevel): (int * codetree) list =
     let
         val typesAndAddresses = ListPair.zipEq(typeDataList, eqAddresses)
 
@@ -554,19 +527,14 @@ struct
             (* Argument type variables. *)
             val argTypeMap =
                 case constrArity of
-                    0 => typeVarMap
+                    0 => NONE
                 |   _ =>
                     let
                         (* Add the polymorphic variables after the ordinary ones. *)
                         (* Create functions to load these if they are used in the map.  They may be non-local!!! *)
                         val args = Vector.tabulate(constrArity, fn addr => fn l => mkLoadParam(addr+2, l, baseEqLevelP1))
-                        (* Put the outer args in the map *)
-                        fun varToArgMap(TVIndex n) = if n < constrArity then SOME(Vector.sub(args, n)) else NONE
-                        (* Load the local args to return. *)
-                        val addrs = ref 0 (* Make local declarations for any type values. *)
-                        fun mkAddr n = !addrs before (addrs := !addrs + n)
                     in
-                        extendBoundTypeVarMap(varToArgMap, mkAddr, baseEqLevelP1, typeVarMap)
+                        SOME(fn TVIndex n => Vector.sub(args, n))
                     end
 
             (* If this is a reference to a datatype we're currently generating
@@ -684,7 +652,7 @@ struct
     (* Create a printer function for a datatype when the datatype is declared.
        We don't have to treat mutually recursive datatypes specially because
        this is called after the type IDs have been created. *)
-    fun printerForDatatype(TypeConstrSet(typeCons as TypeConstrs{name, ...}, vConstrs), level, typeVarMap) =
+    fun printerForDatatype(TypeConstrSet(typeCons as TypeConstrs{name, ...}, vConstrs), level) =
     let
         val argCode = mkInd(0, arg1)
         and depthCode = mkInd(1, arg1)
@@ -693,23 +661,15 @@ struct
 
         val (innerLevel, newTypeVarMap) =
             case constrArity of
-                0 => (nLevel, typeVarMap)
+                0 => (nLevel, NONE)
             |   _ =>
                 let
                     val nnLevel = newLevel nLevel
-                    local
-                        val oldLevel = nLevel
-                        val argAddrs = List.tabulate(constrArity, fn n => n)
-                        val args = List.map(fn addr => fn l => mkLoadParam(addr, l, oldLevel)) argAddrs
-                        val argVec = Vector.fromList args
-                    in
-                        fun varToArgMap(TVIndex n) = if n < constrArity then SOME(Vector.sub(argVec, n)) else NONE
-                    end
-
-                    val addrs = ref 1 (* Make local declarations for any type values. *)
-                    fun mkAddr n = !addrs before (addrs := !addrs + n)
+                    val argAddrs = List.tabulate(constrArity, fn n => n)
+                    val args = List.map(fn addr => fn l => mkLoadParam(addr, l, nLevel)) argAddrs
+                    val argVec = Vector.fromList args
                 in
-                    (nnLevel, extendBoundTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap))
+                    (nnLevel, SOME(fn TVIndex n => Vector.sub(argVec, n)))
                 end
 
         (* If we have an expression as the argument we parenthesise it unless it is
@@ -873,17 +833,13 @@ struct
        don't need to copy it. *)
     fun codeGenerativeId{source=TypeId{idKind=TypeFn{arity=0, resType, ...}, ...}, isEq, level, ...} =
         let (* Monotype abbreviation. *)
-            (* Create a new type value cache. *)
-            val typeVarMap = []
-
             open TypeValue
 
             val eqCode =
                 if not isEq then CodeZero
                 else (* We need a function that takes two arguments rather than a single pair. *)
-                    makeEq(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
-            val printCode =
-                printerForType(resType, level, typeVarMap)
+                    makeEq(resType, level, fn (typeId, _, l) => codeId(typeId, l), NONE)
+            val printCode = printerForType(resType, level, NONE)
         in
             createTypeValue {
                 eqCode = eqCode,
@@ -897,17 +853,15 @@ struct
         let (* Polytype abbreviation: All the entries in the tuple are functions that must
                be applied to the base type values when the type constructor is used. *)
             (* Create a new type value cache. *)
-            val typeVarMap = []
             val nArgs = arity
 
             fun createCode(makeCode, name) =
                 let
                     val nLevel = newLevel level
                     val addrs = ref 0
-                    fun mkAddr n = !addrs before (addrs := !addrs + n)
                     val args = Vector.tabulate(arity, fn addr => fn l => mkLoadParam(addr, l, nLevel))
-                    fun varToArgMap(TVIndex n) = if n < arity then SOME(Vector.sub(args, n)) else NONE
-                    val argTypeMap = extendBoundTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap)
+                    fun varToArgMap(TVIndex n) = Vector.sub(args, n)
+                    val argTypeMap = SOME varToArgMap
                     val innerFnCode = makeCode(nLevel, argTypeMap)
                 in
                     mkProc(innerFnCode, nArgs, name, getClosure nLevel, !addrs)
@@ -969,7 +923,6 @@ struct
             typeDatalist: {typeConstr: typeConstrSet, eqStatus: bool} list,
             mkAddr, level, makePrintFunction) =
     let
-        val typeVarMap = []
         (* Each entry has an equality function and a ref to a print function.
            The print functions for each type needs to indirect through the refs
            when printing other types so that if a pretty printer is later
@@ -986,7 +939,7 @@ struct
             val eqAddresses = List.map makeEqAddr typeDatalist (* Make addresses for the equalities. *)
         end
         val equalityFunctions =
-            mkMutualDecs(equalityForDatatypes(typeDatalist, eqAddresses, level, typeVarMap))
+            mkMutualDecs(equalityForDatatypes(typeDatalist, eqAddresses, level))
 
         (* Create the typeId values and set their addresses.  The print function is
            initially set as zero. *)
@@ -1022,7 +975,7 @@ struct
                 val arity = tcArity tCons
                 val printCode =
                     if makePrintFunction
-                    then printerForDatatype(typeConstr, level, typeVarMap)
+                    then printerForDatatype(typeConstr, level)
                     else if arity = 0
                     then codePrintDefault
                     else mkProc(codePrintDefault, arity, "print-printdefault", [], 0)
@@ -1043,19 +996,19 @@ struct
        N.B. This differs from the functions in the typeID which take a Poly pair. *)
     fun equalityForType(ty: types, level: level): codetree =
     let
-        val typeVarMap = []
         val nLevel = newLevel level
         (* The final result function must take a single argument. *)
         val resultCode =
-            makeEq(ty, nLevel, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
+            makeEq(ty, nLevel, fn (typeId, _, l) => codeId(typeId, l), NONE)
     in
         (* We need to wrap this up in a new inline function. *)
         mkInlproc(mkEval(resultCode, [mkInd(0, arg1), mkInd(1, arg1)]),
                   1, "equality", getClosure nLevel, 0)
     end
 
+    (* Exported version. *)
     val printerForType =
-        fn (ty, baseLevel) => printerForType(ty, baseLevel, [])
+        fn (ty, baseLevel) => printerForType(ty, baseLevel, NONE)
 
     (* This code is used when the type checker has to construct a unique monotype
        because a type variable has escaped to the top level.
@@ -1078,9 +1031,8 @@ struct
         type types      = types
         type typeConstrs= typeConstrs
         type typeConstrSet=typeConstrSet
-        type typeVar    =typeVar
-        type typeVarMap = typeVarMap
+        type typeVar=typeVar
         type codeBinding    = codeBinding
-        type level      = level
+        type level = level
     end
 end;
