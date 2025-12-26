@@ -423,10 +423,10 @@ struct
                 )
                 ::
                 (
-                    case exceptionArgType typeOf of
-                       NONE => []
-                    |  SOME excType =>
-                        [ PrettyBreak (1, 1), PrettyString "of", PrettyBreak (1, 3), displayWithMap (SimpleInstance  excType, depth, typeEnv, sigMap) ]
+                    case typeOf of
+                        FunctionType{arg=excType, ...} =>
+                            [ PrettyBreak (1, 1), PrettyString "of", PrettyBreak (1, 3), displayWithMap (SimpleInstance excType, depth, typeEnv, sigMap) ]
+                    |   _ => []
                 )
             )
 

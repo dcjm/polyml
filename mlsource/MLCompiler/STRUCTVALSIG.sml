@@ -77,11 +77,18 @@ sig
     (* Templates for type variables.  Normal type variables are TemplPlain.
        equality means this is an equality type.  The compiler adds equality
        functions to functions that contain an equality test and print functions to those that
-       use PolyML.print.  Currently, with TypeIdCode.justForEqualityTypes set to true, only
-       polymorphic functions that involve equality types will also print correctly with PolyML.print.
+       use PolyML.print.
+       TemplFlexRec is used when a function contains flexible records that have not been
+       resolved when the function was generalised.
        TemplOverload is used for the functions at the outer level that can be overloaded. *)
     and typeVarTemplate =
         TemplPlain of { equality: bool }
+    |   TemplFlexRec of
+        {
+            equality: bool,
+            recList: {typeOf: types, name: string} list,
+            fullList: {names: string list, frozen: bool} refChain ref
+        }
     |   TemplOverload of string
 
     (* Variables used in unification.  These are instantiated from generic type variables.
@@ -162,14 +169,6 @@ sig
             fullList: {names: string list, frozen: bool} refChain ref,
             equality: bool refChain ref,
             level: tvLevel refChain ref
-        }
-
-        (* The bound variable stands in for the unspecified fields. *)
-    |   BoundFlexRecord of
-        {
-            boundVar: tvIndex,
-            recList: {typeOf: types, name: string} list,
-            fullList: {names: string list, frozen: bool} refChain ref
         }
 
         (* An overload set.  This is constructed from a TemplOverload template along with the current

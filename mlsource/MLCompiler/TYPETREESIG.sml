@@ -146,11 +146,6 @@ sig
     (* Check for free type variables.  Added for ML97. *)
     val checkForFreeTypeVariables: string * types * lexan * (unit->codetree) -> unit;
 
-    val constructorResult: types * types list -> types
-    val exceptionArgType: types -> types option
-
-    val identical:       types * types -> bool
-
     (* Get the codetree "types".  This is used during code-generation to see if
        a function arguments or results are a tuple or contain floating-point values. *)
     val getCodetreeType: instanceType -> argumentType list

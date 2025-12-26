@@ -479,14 +479,6 @@ struct
         else addToInstance(names, currentFields)
     end
 
-
-    (* See if the types are the same. This is a bit of a fudge, but saves carrying
-       around a flag saying whether the structures were copied. This is only an
-       optimisation. If the values are different it will not go wrong. *)
-    val identical : types * types -> bool = PolyML.pointerEq
-    and identicalConstr : typeConstrs * typeConstrs -> bool = PolyML.pointerEq
-    and identicalList : 'a list * 'a list -> bool = PolyML.pointerEq
-
     (* Test to see is a type constructor is in an overload set. *)
     fun isInSet(tcons, tyConlist) = List.exists(fn h => isSameTypeIdAs(tcons, h)) tyConlist
 
@@ -525,29 +517,10 @@ struct
        type constructors when generalising signatures. *)
     fun copyType (at, indexBTV, copyTypeConstr) =
     let
-        fun copyList [] = []
-        |   copyList (l as (h :: t)) =
-        let
-            val h' = copyType (h, indexBTV, copyTypeConstr);
-            val t' = copyList t;
-        in
-            if identical (h', h) andalso identicalList (t', t)
-            then l
-            else h' :: t'
-        end  (* copyList *);
+        fun copyRecordList mapBTV =
+            List.map(fn{name, typeOf} => {name=name, typeOf=copyType (typeOf, mapBTV, copyTypeConstr)})
 
-        fun copyRecordList [] = []
-        |   copyRecordList (l as ({name, typeOf} :: t)) =
-        let
-            val typeOf' = copyType (typeOf, indexBTV, copyTypeConstr);
-            val t' = copyRecordList t;
-        in
-            if identical (typeOf', typeOf) andalso identicalList (t', t)
-            then l
-            else {name=name, typeOf=typeOf'} :: t'
-        end  (* copyList *);
-
-        val atyp = eventual at
+        val (atyp, mapBTV) = canonicalise(at, indexBTV)
     in
         case atyp of
             TypeVar _ => atyp (* Unbound type variable. *)
@@ -555,33 +528,28 @@ struct
         |   BoundTypeVar(_, index) =>
                 (* Instantiate the type variable if there is a map.  Currently this can also be called when
                    processing signatures so allow for the look-up to fail and return the original. *)
-                getOpt(indexBTV index, atyp)
+                getOpt(mapBTV index, atyp)
 
         |   FreeTypeVar _ => atyp
 
         |   TypeConstruction {constr, args, locations, ...} => 
             let
-                val copiedArgs   = copyList args;
-                val copiedConstr  as TypeConstrs {name=copiedName,...} = copyTypeConstr constr;
+                val copiedArgs = List.map(fn t => copyType (t, mapBTV, copyTypeConstr)) args
+                val copiedConstr  as TypeConstrs {name=copiedName,...} = copyTypeConstr constr
                 (* Use the name from the copied constructor.  This will normally
                    be the same as the original EXCEPT in the case where we are
                    using copyType to generate copies of the value constructors of
                    replicated datatypes. *)
             in
-                if identicalList (copiedArgs, args) andalso identicalConstr (copiedConstr, constr)
-                then atyp 
-                else (* Must copy it. *) 
-                    mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
+                mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
             end 
            
         |   FunctionType {arg, result} => 
             let
-                val copiedArg  = copyType (arg,    indexBTV, copyTypeConstr)
-                val copiedRes  = copyType (result, indexBTV, copyTypeConstr)
+                val copiedArg = copyType (arg, mapBTV, copyTypeConstr)
+                val copiedRes = copyType (result, mapBTV, copyTypeConstr)
             in
-                if identical (copiedArg, arg) andalso identical (copiedRes, result)
-                then atyp 
-                else FunctionType {arg = copiedArg, result = copiedRes}
+                FunctionType {arg = copiedArg, result = copiedRes}
             end
 
         |   FlexibleRecordVar{recList=ref recl, fullList as ref full, equality=ref eq, level=ref lvl} =>
@@ -591,47 +559,15 @@ struct
                 and equality = followRefChainToEnd eq
                 and level = followRefChainToEnd lvl
                 (* Add any new fields.  Each field has to be a new type variable modelled on the generic but distinct. *)
-                val copiedList = expandFlexRecord(copyRecordList recList, names, level, equality)
+                val copiedList = expandFlexRecord(copyRecordList mapBTV recList, names, level, equality)
             in
                 if frozen
                 then LabelledRecord copiedList
-                else FlexibleRecordVar{recList=ref(ChainEnd(copyRecordList recList)), fullList=fullList,
+                else FlexibleRecordVar{recList=ref(ChainEnd copiedList), fullList=fullList,
                         equality = ref(ChainEnd equality), level = ref(ChainEnd level)}
             end
 
-        |   LabelledRecord recList =>
-            let
-                val copiedList = copyRecordList recList
-            in
-                if identicalList (copiedList, recList)
-                then atyp 
-                else LabelledRecord copiedList
-            end
-
-        |   BoundFlexRecord{boundVar, recList, fullList as ref full} =>
-            (
-                case indexBTV boundVar of
-                    NONE =>
-                    (* This can occur if we are processing a flexible record inside a structure.  We create a "signature"
-                       and then copy it.  It is possible that the record has not been frozen at that point but is frozen
-                       by another declaration in the same topdec.  See Tests/Succeed/Test076. *)
-                        BoundFlexRecord{boundVar=boundVar, recList=copyRecordList recList, fullList=fullList}
-                |   SOME typeVar =>
-                    let
-                        val TypeVariable{equality=ref eq, level=ref lvl, ...} =
-                            case typeVar of TypeVar tv => tv | _ => raise InternalError "copyType: BoundFlexRecord not variable"
-                        val {names, frozen} = followRefChainToEnd full
-                        and equality = followRefChainToEnd eq
-                        and level = followRefChainToEnd lvl
-                        (* Add any new fields.  Each field has to be a new type variable modelled on the generic but distinct. *)
-                        val copiedList = expandFlexRecord(copyRecordList recList, names, level, equality)
-                    in
-                        if frozen
-                        then LabelledRecord copiedList
-                        else FlexibleRecordVar{recList=ref(ChainEnd(copyRecordList recList)), fullList=fullList,
-                                equality = ref(ChainEnd equality), level = ref(ChainEnd level)}
-                    end
-            )
+        |   LabelledRecord recList => LabelledRecord(copyRecordList mapBTV recList)
 
             (* Overload.  Return the type constructor if it's been resolved. *)
         |   typ as OverloadSetVar(ref c) =>
@@ -661,12 +597,10 @@ struct
                 val copiedEquiv =
                     copyType(equiv, fn _ => NONE, fn tcon => copyTypeConstr(tcon, typeMap, mungeName))
             in
-                if identical (equiv, copiedEquiv)
-                then tcon (* Type is identical and we don't want to change the name. *)
-                else (* How do we find a type function? *)
-                    makeTypeConstructor (mungeName tcName,
-                        makeGeneralTypeFunction(arity, copiedEquiv, description, access),
-                            locations)
+                (* How do we find a type function? *)
+                makeTypeConstructor (mungeName tcName,
+                    makeGeneralTypeFunction(arity, copiedEquiv, description, access),
+                        locations)
             end
 
        |    id =>
@@ -875,27 +809,16 @@ struct
             val equality = followRefChainToEnd eql
             val level = followRefChainToEnd lvl
             val newFieldList = expandFlexRecord(currentFields, names, level, equality)
+            val () = recListVar := ChainEnd newFieldList
         in
             if frozen (* Return a fixed record *)
             then LabelledRecord newFieldList
-            else
-            (
-                (* Extend the list if necessary. *)
-                recListVar := ChainEnd newFieldList;
-                t
-            )
+            else t
         end
     
     |   eventual t (* not a type variable *) = t
 
-    (* Get a type from an instance.  Needed when we have to construct a type, say a tuple, from components. *)
-    fun instanceToType(SimpleInstance ty) = ty
-    |   instanceToType(i as Instance _) = TypeVar(makeTv {value=SOME i, level=Generalisable, equality=false })
-
-    fun getInstance(Instance i) = i
-    |   getInstance(SimpleInstance ty) = (ty, fn _ => NONE)
-
-    fun getCanonical(Instance(ty, bvMap)) = canonicalise(ty, bvMap)
+    and getCanonical(Instance(ty, bvMap)) = canonicalise(ty, bvMap)
     |   getCanonical(SimpleInstance ty) = canonicalise(ty, fn _ => NONE)
 
     (* Reduce the instance by following type variable chains, looking up bound type
@@ -911,7 +834,13 @@ struct
     |   canonicalise(original as (BoundTypeVar(_, index), bvMap)) =
         (
             case bvMap index of
-                SOME ty => canonicalise(ty, bvMap)
+                SOME ty =>
+                (
+                    case ty of
+                        BoundTypeVar(_, newIndex) => if newIndex = index then raise InternalError "Looping type variables" else ()
+                    |   _ => ();
+                    canonicalise(ty, bvMap)
+                )
             |   NONE => original
         )
 
@@ -924,38 +853,24 @@ struct
             val equality = followRefChainToEnd eql
             val level = followRefChainToEnd lvl
             val newFieldList = expandFlexRecord(currentFields, names, level, equality)
+            (* Add the new fields onto the original,  There may be other references. *)
+            val () = recListVar := ChainEnd newFieldList
         in
             if frozen (* Return a fixed record *)
             then (LabelledRecord newFieldList, bvMap)
-            else
-            (
-                (* Extend the list if necessary. *)
-                recListVar := ChainEnd newFieldList;
-                original
-            )
+            else original
         end
-
-    |   canonicalise(original as (BoundFlexRecord{boundVar, recList, fullList}, bvMap)) =
-        (
-            case bvMap boundVar of
-                NONE => original
-            |   SOME typeVar =>
-                let
-                    val TypeVariable{equality=ref eq, level=ref lvl, ...} =
-                        case typeVar of TypeVar tv => tv | _ => raise InternalError "copyType: BoundFlexRecord not variable"
-                    val equality = followRefChainToEnd eq
-                    and level = followRefChainToEnd lvl
-                    val ty =
-                        FlexibleRecordVar{recList=ref(ChainEnd recList), fullList=fullList, (* TODO: why isn't this chained? *)
-                                    equality = ref(ChainEnd equality), level = ref(ChainEnd level)}
-                in
-                    canonicalise(ty, bvMap)
-                end
-        )
 
     |   canonicalise original = original
 
-    datatype generalMatch = Matched of {old: typeVar, new: types};
+    (* Get a type from an instance.  Needed when we have to construct a type, say a tuple, from components. *)
+    fun instanceToType(SimpleInstance ty) = ty
+    |   instanceToType(i as Instance _) = TypeVar(makeTv {value=SOME i, level=Generalisable, equality=false })
+
+    fun getInstance(Instance i) = i
+    |   getInstance(SimpleInstance ty) = (ty, fn _ => NONE)
+
+    datatype generalMatch = Matched of {old: typeVar, new: types}
 
     (* Create type variables.  If unifiable is true, the usual case, the type
        variables are new assignable variables.
@@ -966,6 +881,11 @@ struct
     fun createTypeVariable (TemplPlain{ equality }) =
             TypeVar(makeTv {value=NONE, level=Generalisable, equality=equality})
     |   createTypeVariable (TemplOverload s) = OverloadSetVar(ref(ChainEnd(Overloads.getOverloadTypes s)))
+    |   createTypeVariable (TemplFlexRec{ equality, recList, fullList }) =
+            FlexibleRecordVar{
+                recList=ref(ChainEnd recList), fullList=fullList,
+                equality=ref(ChainEnd equality), level=ref(ChainEnd Generalisable)
+            }
 
     (* Create a map for type variables.  Optimise the most common cases *)
     fun createTypeVariableMap [] = (fn _ => raise InternalError "createTypeVariableMap")
@@ -1033,9 +953,6 @@ struct
 
             |   FlexibleRecordVar {recList=ref recList,...} =>
                     List.foldr (fn ({ typeOf, ... }, v) => foldT(typeOf, m) v) res (followRefChainToEnd recList)
-
-            |   BoundFlexRecord{recList, ...} =>
-                    List.foldr (fn ({ typeOf, ... }, v) => foldT(typeOf, m) v) res recList
 
             |   BoundTypeVar _ => res (* We currently use this to check for free type variables on a generalised value without using a map. *)
 
@@ -1563,13 +1480,6 @@ struct
                     printRecord(recList, bvMap, frozen, depth)
                 end
 
-            |   BoundFlexRecord{recList, fullList=ref full, ...} =>
-                let
-                    val {frozen, ...} = followRefChainToEnd full
-                in
-                    printRecord(recList, bvMap, frozen, depth)
-                end
-
             |   OverloadSetVar(ref chain) =>
                 (* This typically arises when printing error messages in the second pass because
                    the third pass will select a single type e.g. int where possible.  To
@@ -1694,37 +1604,9 @@ struct
     |   recordNotFrozen (FlexibleRecordVar{fullList=ref full, ...}) = not(#frozen(followRefChainToEnd full))
     |   recordNotFrozen _ = false (* record or type alias *);
 
-   (* Find the argument type which gives this result when the constructor
-      is applied. If we have, for example, a value of type int list and
-      we have discovered that this is a "::" node we have to work back by
-      comparing the type of "::" ('a * 'a list -> 'a list) to find the
-      argument of the constructor (int * int list) and hence how to print it.
-      This is used in TYPEIDCODE to produce equality and type functions. *)
-    fun constructorResult (FunctionType{arg, result=TypeConstruction{args, ...}}, typeArgs) =
-        let
-            (* Temporary check - they should be bound variables in order *)
-            fun checkArg(n, BoundTypeVar(_, TVIndex m) ::args) =
-                if n <> m then raise InternalError "checkArg" else checkArg(n+1, args)
-            |   checkArg(n, []) = if n = List.length typeArgs then () else raise InternalError "checkArg"
-            |   checkArg _ = raise InternalError "checkArg"
-            val _ = checkArg(0, args)
-            val argMap = Vector.fromList typeArgs
-            fun generaliseTypes (atyp : types, lookupBound) = 
-            let
-                val copied =
-                    (* Only process type variables. Return type constructors unchanged. *)
-                    copyType (atyp, SOME o lookupBound, fn t => t (*copyTCons*))
-            in
-                copied
-            end
-        in
-            generaliseTypes(arg, fn(TVIndex n) => Vector.sub(argMap, n))
-        end
-    |   constructorResult _ = raise InternalError "Not a function type"
-
     (* If this is a nullary constructor it returns NONE otherwise it returns the argument type. *)
-    fun exceptionArgType (FunctionType{arg, ...}) = SOME arg
-    |   exceptionArgType _ = NONE
+(*    fun exceptionArgType (FunctionType{arg, ...}) = SOME arg
+    |   exceptionArgType _ = NONE*)
 
     (* Create an argument map for a type function. *)
     fun createTypeFnArgumentMap(arguments, argTyMap) =
@@ -1787,7 +1669,11 @@ struct
        This should be replaced by createTypeFnArgumentMap. *)
     fun makeEquivalent (TypeConstrs {identifier=TypeId{idKind=TypeFn{resType=typeResult, ...}, ...},...}, args) =
         let
-            val vars = Vector.fromList args
+            (* Map the arguments to type variables containing the arguments.  That ensures
+               that if the arguments contain bound type variables we won't get a bound variable
+               lookup loop. *)
+            fun mapToTv t = TypeVar (makeTv {value=SOME(SimpleInstance t), level=Generalisable, equality=false})
+            val vars = Vector.fromList(List.map mapToTv args)
             fun getArg(TVIndex n) = Vector.sub(vars, n)
         in
             copyType (typeResult, SOME o getArg, fn t => t (*copyTCons*))
@@ -1891,8 +1777,6 @@ struct
 
         |   (BoundTypeVar _, _) => (* This should have been looked up in canonicalise. *)
                 raise InternalError "computeEqualityForInstance: Bound"
-
-        |   (BoundFlexRecord _, _) => raise InternalError "equalityForInstance: BoundFlexRecord"
 
     end
 
@@ -2661,6 +2545,7 @@ struct
         (* Map from type variables to bound variables we have already made. *)
         val typeVarMapList: (typeVar * tvIndex) list ref = ref nil
         val freeTypeVarMapList: (uniqueId * tvIndex) list ref = ref nil
+        val flexRecordMapList: ({typeOf: types, name: string} list refChain ref * tvIndex) list ref = ref nil
 
         (* Perform checks and return the generic version with the templates. *)
         fun createGeneric(instance, templates: typeVarTemplate list) =
@@ -2710,8 +2595,6 @@ struct
                     SOME ty => createGeneric((ty, bvMap), templates)
                 |   NONE => raise InternalError "createGeneric: already bound"
             )
-
-        |   (BoundFlexRecord _, _) => raise InternalError "createGeneric: already bound"
 
         |   (typ as OverloadSetVar typeSetVar, _) =>
             if checkOverloadFlex
@@ -2765,37 +2648,48 @@ struct
                 (LabelledRecord(List.rev copiedList), resTempls)
             end
 
-        |   (typ as FlexibleRecordVar{recList=ref recl, fullList as ref full, equality=ref eqv, level=ref lvl}, bvMap) =>
+        |   (typ as FlexibleRecordVar{recList as ref recl, fullList as ref full, equality=ref eqv, level=ref lvl}, bvMap) =>
             let
-                val equality = followRefChainToEnd eqv
-                val tvLevel = followRefChainToEnd lvl
+                (* Construct a TemplFlexRec but make sure there is only one for each FlexibleRecordVar *)
+                val (flexRec, _) = followRefChainToRef recList
             in
-                if (case tvLevel of NotGeneralisable v => v < level | Generalisable => false)
-                then (typ, templates)
-                else
-                let
-                    val {frozen, ...} = followRefChainToEnd full
-                    val recList = followRefChainToEnd recl
-                    fun copyRecordEntry({name, typeOf}, (fields, templs)) =
+                case List.find(fn (fv, _) => fv = flexRec) (!flexRecordMapList) of
+                    SOME(_, index) => (BoundTypeVar("'a", index), templates)
+                |   NONE =>
                     let
-                        val (copiedTyp, newtempls) = createGeneric((typeOf, bvMap), templs)
+                        val equality = followRefChainToEnd eqv
+                        val tvLevel = followRefChainToEnd lvl
                     in
-                        ({name=name, typeOf=copiedTyp} :: fields, newtempls)
+                        if (case tvLevel of NotGeneralisable v => v < level | Generalisable => false)
+                        then (typ, templates)
+                        else
+                        let
+                            val {frozen, ...} = followRefChainToEnd full
+                            val recList = followRefChainToEnd recl
+                            fun copyRecordEntry({name, typeOf}, (fields, templs)) =
+                            let
+                                val (copiedTyp, newtempls) = createGeneric((typeOf, bvMap), templs)
+                            in
+                                ({name=name, typeOf=copiedTyp} :: fields, newtempls)
+                            end
+                            val (copiedList, resTempls) = List.foldl copyRecordEntry ([], templates) recList
+                        in
+                            if frozen
+                            then (LabelledRecord(List.rev copiedList), resTempls)
+                            else
+                            let
+                                (* If we're using the narrow context it should have been resolved. *)
+                                val () = if checkOverloadFlex then giveError("Type is an unresolved flexible record") else ()
+                                val newIndex = TVIndex(List.length resTempls)
+                                val newTempl =
+                                    TemplFlexRec { equality=equality,
+                                        recList=List.rev copiedList, fullList=fullList}
+                                val () = flexRecordMapList := (flexRec, newIndex) :: ! flexRecordMapList
+                            in
+                                (BoundTypeVar("'a", newIndex), newTempl :: resTempls)
+                            end
+                        end
                     end
-                    val (copiedList, resTempls) = List.foldl copyRecordEntry ([], templates) recList
-                in
-                    if frozen
-                    then (LabelledRecord(List.rev copiedList), resTempls)
-                    else
-                    let
-                        (* If we're using the narrow context it should have been resolved. *)
-                        val () = if checkOverloadFlex then giveError("Type is an unresolved flexible record") else ()
-                    in
-                        (BoundFlexRecord{boundVar=TVIndex(List.length resTempls),
-                                recList=List.rev copiedList, fullList=fullList},
-                            TemplPlain { equality=equality } :: resTempls)
-                    end
-                end
             end
 
         |   (BadType, _) => (BadType, templates)
@@ -2836,7 +2730,6 @@ struct
             |   FlexibleRecordVar{recList=ref recl, ...} =>
                     List.foldl(fn ({ typeOf, ... }, v) => checkFree typeOf v) v (followRefChainToEnd recl)
 
-            |   BoundFlexRecord _ => raise InternalError "containsLocalFreeVariables: boundflexvar"
             |   BoundTypeVar _ => raise InternalError "containsLocalFreeVariables: boundvar"
             |   BadType => v
             |   OverloadSetVar _ => v

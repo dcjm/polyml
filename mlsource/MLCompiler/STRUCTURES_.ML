@@ -1246,12 +1246,12 @@ struct
                                 PrettyBreak(1, 3) ::
                                 valName ::
                             (
-                                case exceptionArgType typeOf of
-                                   NONE => []
-                                |  SOME excType =>
+                                case typeOf of
+                                    FunctionType{arg=excType, ...} =>
                                     [
                                         PrettyBreak (1, 1), PrettyString "of",
                                         PrettyBreak (1, 3), display (SimpleInstance excType, errorDepth lex, typeEnv) ]
+                                |   _ => []
                             ))
                 |   _ => dispVal("val", SimpleInstance typeOf)    
             end

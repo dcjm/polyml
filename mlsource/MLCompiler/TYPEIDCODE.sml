@@ -585,14 +585,11 @@ struct
                             mkIf(mkIf(isShort, CodeFalse, matches arg1), matches arg2, processConstrs rest)
                         end
                     |    _ => (* We have to unwrap the value. *)
-                        let
-                            (* Get the constructor argument given the result type.  We might
-                               actually be able to take the argument type off directly but
-                               there's some uncertainty about whether we use the same type
-                               variables for the constructors as for the datatype. (This only
-                               applies for polytypes). *)
-                            val argTypes = List.tabulate(constrArity, fn n => BoundTypeVar("'a", TVIndex n))
-                            val resType = constructorResult(typeOf, argTypes)
+                        let                            
+                            val resType =
+                                case typeOf of
+                                    FunctionType{arg, ...} => arg
+                                |   _ => raise InternalError "Constructor not a function type"
 
                             (* Code to extract the value. *)
                             fun destruct argNo =
@@ -779,8 +776,10 @@ struct
                     then (* Just the name *) nameCode
                     else
                     let
-                        val argTypes = List.tabulate(constrArity, fn n => BoundTypeVar("'a", TVIndex n))
-                        val typeOfArg = constructorResult(typeOf, argTypes)
+                        val typeOfArg =
+                            case typeOf of
+                                FunctionType{arg, ...} => arg
+                            |   _ => raise InternalError "Constructor is not a function type"
                         val getValue = mkEval(extractProjection constructorCode, [argCode])
                     in
                         codePrettyBlock(1, false, [],
