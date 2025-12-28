@@ -2545,39 +2545,37 @@ struct
      *)
     fun allowGeneralisation (instance, level, checkOverloadFlex, giveError) =
     let
-        (* Map from type variables to bound variables we have already made. *)
-        val typeVarMapList: (typeVar * tvIndex) list ref = ref nil
+        (* Map from type variables to bound variables we have already made.
+           Searching the list to find a type variable is quadratic in the number of type variables.
+           Instead, for simple type variables we set the type variable to the bound variable
+           and reuse it. *)
         val freeTypeVarMapList: (uniqueId * tvIndex) list ref = ref nil
         val flexRecordMapList: ({typeOf: types, name: string} list refChain ref * tvIndex) list ref = ref nil
+        val createdTypeVars: instanceType option refChain ref list ref = ref nil
 
         (* Perform checks and return the generic version with the templates. *)
-        fun createGeneric(instance, templates: typeVarTemplate list) =
+        fun createGeneric(instance, templates: typeVarTemplate list, nextBvCount) =
         case canonicalise instance of
-            (typ as TypeVar(tvar as TypeVariable{level=ref lvl, equality=ref eq, ...}), _) =>
+            (typ as TypeVar(TypeVariable{level=ref lvl, equality=ref eq, link, ...}), _) =>
                 if (case followRefChainToEnd lvl of NotGeneralisable v => v < level | Generalisable => false)
                 then (* Explicit type variable at an outer level.  Same whether expansive or not.
                         For the moment just return this type variable. *)
-                    (typ, templates)
+                    (typ, templates, nextBvCount)
 
                 else (* If we've already made a bound variable here we need to reuse it. *)
                 let
                     val isEq = followRefChainToEnd eq
+                    val (link, _) = followRefChainToRef link
+                    val newVar = createNewBoundVar isEq (TVIndex nextBvCount)
+                    val () = createdTypeVars := link :: (!createdTypeVars)
+                    val () = link := ChainEnd(SOME(SimpleInstance newVar))
                 in
-                    case List.find(fn (tv, _) => sameTv(tv, tvar)) (!typeVarMapList) of
-                        NONE =>
-                        let
-                            val newIndex = TVIndex(List.length templates)
-                            val () = typeVarMapList := (tvar, newIndex) :: (!typeVarMapList)
-                        in
-                            (createNewBoundVar isEq newIndex,
-                                TemplPlain { equality= isEq} :: templates)
-                        end
-                    |   SOME(_, index) => (createNewBoundVar isEq index, templates)
+                   (newVar, TemplPlain { equality= isEq} :: templates, nextBvCount+1)
                 end
 
         |   (typ as FreeTypeVar{name, equality, level=NotGeneralisable fLevel, uid, ...}, _) =>
                 (* If this is defined at an outer level it's not generalisable here. *)
-                if fLevel < level then (typ, templates)
+                if fLevel < level then (typ, templates, nextBvCount)
                 else
                 (
                     (* Generalisable here: See if we have already made a bound var. *)
@@ -2587,18 +2585,18 @@ struct
                             val newIndex = TVIndex(List.length templates)
                             val () = freeTypeVarMapList := (uid, newIndex) :: (!freeTypeVarMapList)
                         in
-                            (createNewBoundVar equality newIndex, TemplPlain { equality=equality } :: templates)
+                            (createNewBoundVar equality newIndex, TemplPlain { equality=equality } :: templates, nextBvCount+1)
                         end
-                    |   SOME(_, index) => (BoundTypeVar(name, index), templates)
+                    |   SOME(_, index) => (BoundTypeVar(name, index), templates, nextBvCount)
                 )  
          
         |   (FreeTypeVar{level=Generalisable, ...}, _) => raise InternalError "createGeneric: generalisable free"
 
-        |   (BoundTypeVar(_, index), bvMap) =>
+        |   (b as BoundTypeVar(_, index), bvMap) =>
             (
                 case bvMap index of
-                    SOME ty => createGeneric((ty, bvMap), templates)
-                |   NONE => raise InternalError "createGeneric: already bound"
+                    SOME ty => createGeneric((ty, bvMap), templates, nextBvCount)
+                |   NONE => (b (* Newly created. *), templates, nextBvCount)
             )
 
         |   (typ as OverloadSetVar typeSetVar, _) =>
@@ -2611,46 +2609,46 @@ struct
                     SOME (constr as TypeConstrs {name, locations, ...}) =>
                     (
                         v := ChainEnd[constr];
-                        (TypeConstruction{constr=constr, args=[], locations=locations, name=name}, templates)
+                        (TypeConstruction{constr=constr, args=[], locations=locations, name=name}, templates, nextBvCount)
                     )
 
                 |   NONE => raise InternalError "general: No matching type"
             end
             else (* Normal setting: find overloading from full context. Return the current overload set. *)
-                (typ, templates)
+                (typ, templates, nextBvCount)
 
         |   (TypeConstruction {constr, args, locations, name}, bvMap) =>
             let
-                fun copyEntry(ty, (resList, templs: typeVarTemplate list, n)) =
+                fun copyEntry(ty, (resList, templs: typeVarTemplate list, newBvCount, n)) =
                 let
-                    val (copiedTyp, newtempls) = createGeneric((ty, bvMap), templs)
+                    val (copiedTyp, newtempls, newBvCount) = createGeneric((ty, bvMap), templs, newBvCount)
                 in
-                    (copiedTyp :: resList, newtempls, n+1)
+                    (copiedTyp :: resList, newtempls, newBvCount, n+1)
                 end
-                val (copiedArgs, resTemplates, _) = List.foldl copyEntry ([], templates, 0) args
+                val (copiedArgs, resTemplates, newBvCount, _) = List.foldl copyEntry ([], templates, nextBvCount, 0) args
             in
-                (TypeConstruction{constr=constr, args=List.rev copiedArgs, locations=locations, name=name}, resTemplates)
+                (TypeConstruction{constr=constr, args=List.rev copiedArgs, locations=locations, name=name}, resTemplates, newBvCount)
             end
 
         |   (FunctionType {arg, result}, bvMap) =>
             let
-                val (copiedArg, argTemplates) = createGeneric((arg, bvMap), templates)
-                val (copiedRes, resTemplates) = createGeneric((result, bvMap), argTemplates)
+                val (copiedArg, argTemplates, argBvCount) = createGeneric((arg, bvMap), templates, nextBvCount)
+                val (copiedRes, resTemplates, resBvCount) = createGeneric((result, bvMap), argTemplates, argBvCount)
             in
-                (FunctionType {arg = copiedArg, result = copiedRes}, resTemplates)
+                (FunctionType {arg = copiedArg, result = copiedRes}, resTemplates, resBvCount)
             end
 
         |   (LabelledRecord recList, bvMap) =>
             let
-                fun copyRecordEntry({name, typeOf}, (fields, templs)) =
+                fun copyRecordEntry({name, typeOf}, (fields, templs, bvCount)) =
                 let
-                    val (copiedTyp, newtempls) = createGeneric((typeOf, bvMap), templs)
+                    val (copiedTyp, newtempls, newBv) = createGeneric((typeOf, bvMap), templs, bvCount)
                 in
-                    ({name=name, typeOf=copiedTyp} :: fields, newtempls)
+                    ({name=name, typeOf=copiedTyp} :: fields, newtempls, newBv)
                 end
-                val (copiedList, resTempls) = List.foldl copyRecordEntry ([], templates) recList
+                val (copiedList, resTempls, resBvCount) = List.foldl copyRecordEntry ([], templates, nextBvCount) recList
             in
-                (LabelledRecord(List.rev copiedList), resTempls)
+                (LabelledRecord(List.rev copiedList), resTempls, resBvCount)
             end
 
         |   (typ as FlexibleRecordVar{recList as ref recl, fullList as ref full, equality=ref eqv, level=ref lvl}, bvMap) =>
@@ -2659,49 +2657,51 @@ struct
                 val (flexRec, _) = followRefChainToRef recList
             in
                 case List.find(fn (fv, _) => fv = flexRec) (!flexRecordMapList) of
-                    SOME(_, index) => (BoundTypeVar("'a", index), templates)
+                    SOME(_, index) => (BoundTypeVar("'a", index), templates, nextBvCount)
                 |   NONE =>
                     let
                         val equality = followRefChainToEnd eqv
                         val tvLevel = followRefChainToEnd lvl
                     in
                         if (case tvLevel of NotGeneralisable v => v < level | Generalisable => false)
-                        then (typ, templates)
+                        then (typ, templates, nextBvCount)
                         else
                         let
                             val {frozen, ...} = followRefChainToEnd full
                             val recList = followRefChainToEnd recl
-                            fun copyRecordEntry({name, typeOf}, (fields, templs)) =
+                            fun copyRecordEntry({name, typeOf}, (fields, templs, bvCount)) =
                             let
-                                val (copiedTyp, newtempls) = createGeneric((typeOf, bvMap), templs)
+                                val (copiedTyp, newtempls, newBvCount) = createGeneric((typeOf, bvMap), templs, bvCount)
                             in
-                                ({name=name, typeOf=copiedTyp} :: fields, newtempls)
+                                ({name=name, typeOf=copiedTyp} :: fields, newtempls, newBvCount)
                             end
-                            val (copiedList, resTempls) = List.foldl copyRecordEntry ([], templates) recList
+                            val (copiedList, resTempls, resBvCount) = List.foldl copyRecordEntry ([], templates, nextBvCount) recList
                         in
                             if frozen
-                            then (LabelledRecord(List.rev copiedList), resTempls)
+                            then (LabelledRecord(List.rev copiedList), resTempls, resBvCount)
                             else
                             let
                                 (* If we're using the narrow context it should have been resolved. *)
                                 val () = if checkOverloadFlex then giveError("Type is an unresolved flexible record") else ()
-                                val newIndex = TVIndex(List.length resTempls)
+                                val newIndex = TVIndex resBvCount
                                 val newTempl =
                                     TemplFlexRec { equality=equality,
                                         recList=List.rev copiedList, fullList=fullList}
                                 val () = flexRecordMapList := (flexRec, newIndex) :: ! flexRecordMapList
                             in
-                                (createNewBoundVar false newIndex, newTempl :: resTempls)
+                                (createNewBoundVar false newIndex, newTempl :: resTempls, resBvCount+1)
                             end
                         end
                     end
             end
 
-        |   (BadType, _) => (BadType, templates)
+        |   (BadType, _) => (BadType, templates, nextBvCount)
 
         val (ty, bvMap) = getCanonical instance
 
-        val (newType, newTemplates) = createGeneric((ty, bvMap), [])
+        val (newType, newTemplates, _) = createGeneric((ty, bvMap), [], 0)
+        (* Reset the type variable list *)
+        val () = List.app(fn r => r:= ChainEnd NONE) (! createdTypeVars)
     in
         (newType, List.rev newTemplates)
     end (*  end allowGeneralisation *)
