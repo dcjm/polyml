@@ -139,22 +139,25 @@ struct
     (* Create a name for a type variable. *)
     fun makeTypeVariableName(n, isEq) =
     let
-        fun makeName n = if n < 26 then [chr(n+ord #"a")] else chr(n mod 26 + ord #"a") :: makeName(n div 26)
-        val varName = List.rev(makeName n)
-        val name = String.implode(if isEq then #"'" :: #"'" :: varName else #"'" :: varName)
+        fun name num = (if num >= 26 then name (num div 26 - 1) else "")
+              ^ String.str (Char.chr (num mod 26 + Char.ord #"a"))
+        val name = (if isEq then "''" else "'") ^ name(n + 1)
     in
         name
     end
 
+    (* Create a bound variable and set its name. *)
+    fun createNewBoundVar isEq (index as TVIndex n) = BoundTypeVar(makeTypeVariableName(n, isEq), index)
+
     (* Create a bound variable.  Give it the name 'a, 'b etc.  Create the first ten
        in advance to reduce duplication. *)
     local
-        fun createNewBoundVar isEq n = BoundTypeVar(makeTypeVariableName(n, isEq), TVIndex n)
-        val nonEqVars = Vector.tabulate(10, createNewBoundVar false)
-        and eqVars = Vector.tabulate(10, createNewBoundVar true)
+        fun makeVar eq n = createNewBoundVar eq (TVIndex n)
+        val nonEqVars = Vector.tabulate(10, makeVar false)
+        and eqVars = Vector.tabulate(10, makeVar true)
     in
-        fun createBoundVar true n = if n < 10 then Vector.sub(eqVars, n) else createNewBoundVar true n
-        |   createBoundVar false n = if n < 10 then Vector.sub(nonEqVars, n) else createNewBoundVar false n
+        fun createBoundVar true n = if n < 10 then Vector.sub(eqVars, n) else makeVar true n
+        |   createBoundVar false n = if n < 10 then Vector.sub(nonEqVars, n) else makeVar false n
     end
 
     (* Functions to construct the run-time representations of type constructor values,
@@ -2557,18 +2560,20 @@ struct
                     (typ, templates)
 
                 else (* If we've already made a bound variable here we need to reuse it. *)
-                (
+                let
+                    val isEq = followRefChainToEnd eq
+                in
                     case List.find(fn (tv, _) => sameTv(tv, tvar)) (!typeVarMapList) of
                         NONE =>
                         let
                             val newIndex = TVIndex(List.length templates)
                             val () = typeVarMapList := (tvar, newIndex) :: (!typeVarMapList)
                         in
-                            (BoundTypeVar("'a", newIndex),
-                                TemplPlain { equality=followRefChainToEnd eq } :: templates)
+                            (createNewBoundVar isEq newIndex,
+                                TemplPlain { equality= isEq} :: templates)
                         end
-                    |   SOME(_, index) => (BoundTypeVar("'a", index), templates)
-                )
+                    |   SOME(_, index) => (createNewBoundVar isEq index, templates)
+                end
 
         |   (typ as FreeTypeVar{name, equality, level=NotGeneralisable fLevel, uid, ...}, _) =>
                 (* If this is defined at an outer level it's not generalisable here. *)
@@ -2582,7 +2587,7 @@ struct
                             val newIndex = TVIndex(List.length templates)
                             val () = freeTypeVarMapList := (uid, newIndex) :: (!freeTypeVarMapList)
                         in
-                            (BoundTypeVar(name, newIndex), TemplPlain { equality=equality } :: templates)
+                            (createNewBoundVar equality newIndex, TemplPlain { equality=equality } :: templates)
                         end
                     |   SOME(_, index) => (BoundTypeVar(name, index), templates)
                 )  
@@ -2686,7 +2691,7 @@ struct
                                         recList=List.rev copiedList, fullList=fullList}
                                 val () = flexRecordMapList := (flexRec, newIndex) :: ! flexRecordMapList
                             in
-                                (BoundTypeVar("'a", newIndex), newTempl :: resTempls)
+                                (createNewBoundVar false newIndex, newTempl :: resTempls)
                             end
                         end
                     end
