@@ -71,14 +71,14 @@ sig
 
     (* Copy a type constructor. *)
     val copyTypeConstr:
-        typeConstrs * (typeId -> typeId option) * (string -> string) -> typeConstrs
+        typeConstrs * (typeId -> typeId option) * (string -> string) -> typeConstrs * bool
 
     val copyTypeConstrWithCache:
         typeConstrs * (typeId -> typeId option) *
-        (string -> string) * typeConstrs list -> typeConstrs
+        (string -> string) * typeConstrs list -> typeConstrs * bool
 
     (* Copy a type. *)
-    val copyType: types * (typeConstrs -> typeConstrs) -> types * bool
+    val copyType: types * (typeConstrs -> typeConstrs * bool) -> types * bool
 
     (* Copy the type if necessary to instantiate the bound variables. *)
     val reduceToType: instanceType -> types

@@ -1089,14 +1089,16 @@ struct
                     in
                         (v::r, b orelse c)
                     end
-                val (copiedArgs, argChange) = argMap args
-                val copiedConstr  as TypeConstrs {name=copiedName,...} = copyTypeConstr constr
+                val (copiedArgs, argChanged) = argMap args
+                val (copiedConstr as TypeConstrs {name=copiedName,...}, constrChanged) = copyTypeConstr constr
                 (* Use the name from the copied constructor.  This will normally
                    be the same as the original EXCEPT in the case where we are
                    using copyType to generate copies of the value constructors of
                    replicated datatypes. *)
             in
-                (mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations), true)
+                if argChanged orelse constrChanged
+                then (mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations), true)
+                else (atyp, false)
             end 
            
         |   FunctionType {arg, result} => 
@@ -1153,16 +1155,16 @@ struct
             in
                 (* How do we find a type function? *)
                 if haveCopied
-                then makeTypeConstructor (mungeName tcName,
+                then (makeTypeConstructor (mungeName tcName,
                         makeGeneralTypeFunction(arity, copiedEquiv, description, access),
-                            locations)
-                else tcon
+                            locations), true)
+                else (tcon, false)
             end
 
        |    id =>
             (
                 case typeMap id of
-                    NONE => tcon (* No change *)
+                    NONE => (tcon, false) (* No change *)
                 |   SOME newId =>
                     let
                         val name = #second(splitString tcName)
@@ -1172,7 +1174,7 @@ struct
                                 andalso #second(splitString tcName) = name
                     in
                         case List.find cacheMatch cache of
-                            SOME tc => tc (* Use the entry from the cache. *)
+                            SOME tc => (tc, true) (* Use the entry from the cache. *)
                         |   NONE =>
                             (* Either a hidden identifier or alternatively this can happen as part of
                                the matching process.
@@ -1181,7 +1183,7 @@ struct
                                with the actual IDs as part of the checking process.
                                We will return SOME newId but we don't have a
                                cache so return NONE for List.find. *)
-                                makeTypeConstructor(mungeName tcName, newId, locations)
+                                (makeTypeConstructor(mungeName tcName, newId, locations), true)
                     end
             )
 
@@ -1201,10 +1203,12 @@ struct
                 |   copyId id = SOME(map2 id)
                 (* If it's a type function e.g. this was a "where type" we have to apply the
                    map to any type identifiers in the type. *)
-                val (copiedEquiv, _) =
+                val (copiedEquiv, haveCopied) =
                     copyType(equiv, fn tcon => copyTypeConstr (tcon, copyId, fn y => y))
             in
-                makeGeneralTypeFunction(arity, copiedEquiv, description, access)
+                if haveCopied
+                then makeGeneralTypeFunction(arity, copiedEquiv, description, access)
+                else id
             end
     in
         map2(m1 n)

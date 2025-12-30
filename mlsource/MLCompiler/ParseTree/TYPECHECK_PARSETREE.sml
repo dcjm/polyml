@@ -1121,10 +1121,8 @@ struct
                                This is not strictly necessary but improves printing.
                                e.g. local datatype X = A | B in datatype Y = datatype X end;
                                A; prints  A: Y rather than A: X *)
-                            fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
-                                if sameTypeId(tcIdentifier tcon, typeID)
-                                then newTypeCons
-                                else tcon;
+                            fun copyTypeCons tcon =
+                                if sameTypeId(tcIdentifier tcon, typeID) then (newTypeCons, true) else (tcon, false)
                             val (newType, _) = copyType (typeOf, copyTypeCons)
                             val newAccess =
                                 case (access, baseStruct) of

@@ -121,7 +121,7 @@ struct
                     if buildDatatypes then rest (* Not on this pass. *)
                     else (* Build a new entry whether the typeID has changed or not. *)
                     let
-                        val (copiedEquiv, haveCopied) =
+                        val (copiedEquiv, _) =
                             copyType(equiv,
                                 fn tcon =>
                                     copyTypeConstrWithCache(tcon, copyId, makeName, initialCache))
@@ -157,7 +157,7 @@ struct
         val typeCache =
             buildTypeCache(sourceTab, strName, mapTypeId, false, (* Type abbreviations. *)datatypeCache, datatypeCache)
 
-        fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
+        fun copyTypeCons tcon =
         let
             fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
             |   copyId _ = NONE
@@ -209,7 +209,7 @@ struct
             then
             let
                 val TypeConstrSet(oldConstr, tcConstructors) = tagProject typeConstrVar dVal
-                val newConstr = copyTypeCons oldConstr;
+                val (newConstr, _) = copyTypeCons oldConstr
                 (* Copy the value constructors for a datatype. *)
        
                 fun copyValueConstr(Value{name, typeOf=ValueType(typeOf, templates), class, access, locations, references, ...}) =
