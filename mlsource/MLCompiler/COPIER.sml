@@ -122,7 +122,7 @@ struct
                     else (* Build a new entry whether the typeID has changed or not. *)
                     let
                         val copiedEquiv =
-                            copyType(equiv, fn _ => NONE,
+                            copyType(equiv,
                                 fn tcon =>
                                     copyTypeConstrWithCache(tcon, copyId, makeName, initialCache))
                         val copiedId =
@@ -165,7 +165,7 @@ struct
             copyTypeConstrWithCache (tcon, copyId, fn s => strName ^ s, typeCache)
         end
 
-        fun copyTyp (t : types) : types = copyType (t, fn _ => NONE, copyTypeCons)
+        fun copyTyp (t : types) : types = copyType (t, copyTypeCons)
  
     in
         univFold

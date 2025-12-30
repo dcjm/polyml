@@ -78,7 +78,7 @@ sig
         (string -> string) * typeConstrs list -> typeConstrs
 
     (* Copy a type. *)
-    val copyType: types * (tvIndex -> types option) * (typeConstrs -> typeConstrs) -> types;
+    val copyType: types * (typeConstrs -> typeConstrs) -> types
 
     (* Copy the type if necessary to instantiate the bound variables. *)
     val reduceToType: instanceType -> types

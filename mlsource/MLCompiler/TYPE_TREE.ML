@@ -514,141 +514,8 @@ struct
      
     datatype tri = Yes (* 3-valued logic *) | No | Maybe
 
-    (* Copy a type, avoiding copying type structures unnecessarily.
-       Used to make new type variables for all distinct type variables when
-       generalising polymorphic functions, and to make new type stamps for
-       type constructors when generalising signatures. *)
-    fun copyType (at, indexBTV, copyTypeConstr) =
-    let
-        fun copyRecordList mapBTV =
-            List.map(fn{name, typeOf} => {name=name, typeOf=copyType (typeOf, mapBTV, copyTypeConstr)})
-
-        val (atyp, mapBTV) = canonicalise(at, indexBTV)
-    in
-        case atyp of
-            TypeVar _ => atyp (* Unbound type variable. *)
-
-        |   BoundTypeVar(_, index) =>
-                (* Instantiate the type variable if there is a map.  Currently this can also be called when
-                   processing signatures so allow for the look-up to fail and return the original. *)
-                getOpt(mapBTV index, atyp)
-
-        |   FreeTypeVar _ => atyp
-
-        |   TypeConstruction {constr, args, locations, ...} => 
-            let
-                val copiedArgs = List.map(fn t => copyType (t, mapBTV, copyTypeConstr)) args
-                val copiedConstr  as TypeConstrs {name=copiedName,...} = copyTypeConstr constr
-                (* Use the name from the copied constructor.  This will normally
-                   be the same as the original EXCEPT in the case where we are
-                   using copyType to generate copies of the value constructors of
-                   replicated datatypes. *)
-            in
-                mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
-            end 
-           
-        |   FunctionType {arg, result} => 
-            let
-                val copiedArg = copyType (arg, mapBTV, copyTypeConstr)
-                val copiedRes = copyType (result, mapBTV, copyTypeConstr)
-            in
-                FunctionType {arg = copiedArg, result = copiedRes}
-            end
-
-        |   FlexibleRecordVar{recList=ref recl, fullList as ref full, equality=ref eq, level=ref lvl} =>
-            let
-                val recList = followRefChainToEnd recl
-                val {names, frozen} = followRefChainToEnd full
-                and equality = followRefChainToEnd eq
-                and level = followRefChainToEnd lvl
-                (* Add any new fields.  Each field has to be a new type variable modelled on the generic but distinct. *)
-                val copiedList = expandFlexRecord(copyRecordList mapBTV recList, names, level, equality)
-            in
-                if frozen
-                then LabelledRecord copiedList
-                else FlexibleRecordVar{recList=ref(ChainEnd copiedList), fullList=fullList,
-                        equality = ref(ChainEnd equality), level = ref(ChainEnd level)}
-            end
-
-        |   LabelledRecord recList => LabelledRecord(copyRecordList mapBTV recList)
-
-            (* Overload.  Return the type constructor if it's been resolved. *)
-        |   typ as OverloadSetVar(ref c) =>
-            (
-                case followRefChainToEnd c of
-                    [tcons as TypeConstrs{name, ...}] => mkTypeConstruction (name, tcons,[], [])
-                |   _ => typ
-            )
-
-        |   BadType => BadType
-
-    end (* copyType *)
-
-    (* Generate the instance by applying any copying necessary. *)
-    and reduceToType(Instance(typeOf, indexBTV)) =
-        copyType(typeOf, indexBTV, fn tcon => copyTypeConstr (tcon, fn _ => NONE, fn s => s))
-    |   reduceToType(SimpleInstance t) =
-        copyType(t, fn _ => NONE, fn tcon => copyTypeConstr (tcon, fn _ => NONE, fn s => s))
-
-    (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
-       function copies that as well. Does not copy value constructors. When copying a signature
-       type constructors are copied first and then passed in here as the cache argument. *)
-    and copyTypeConstrWithCache (tcon as TypeConstrs{identifier=tcId, locations, name=tcName, ...}, typeMap, mungeName, cache) =
-        case tcId of
-            TypeId{idKind = TypeFn{arity, resType=equiv, ...}, description, access, ...} =>
-            let
-                val copiedEquiv =
-                    copyType(equiv, fn _ => NONE, fn tcon => copyTypeConstr(tcon, typeMap, mungeName))
-            in
-                (* How do we find a type function? *)
-                makeTypeConstructor (mungeName tcName,
-                    makeGeneralTypeFunction(arity, copiedEquiv, description, access),
-                        locations)
-            end
-
-       |    id =>
-            (
-                case typeMap id of
-                    NONE =>
-                    (
-                        (*print(concat[tcName tcon, " not copied\n"]);*)
-                        tcon (* No change *)
-                    )
-                |   SOME newId =>
-                    let
-                        val name = #second(splitString tcName)
-                        (* We must only match here if they're really the same. *)
-                        fun cacheMatch (TypeConstrs{identifier, name=tcName, ...}) =
-                            sameTypeId(identifier, newId)
-                                andalso #second(splitString tcName) = name
-                    in
-                        case List.find cacheMatch cache of
-                            SOME tc =>
-                            (
-                                (*print(concat[tcName tcon, " copied as ", tcName tc, "\n"]);*)
-                                tc (* Use the entry from the cache. *)
-                            )
-                        |   NONE =>
-                            (* Either a hidden identifier or alternatively this can happen as part of
-                               the matching process.
-                               When matching a structure to a signature we first match up the type
-                               constructors then copy the type of each value replacing bound type IDs
-                               with the actual IDs as part of the checking process.
-                               We will return SOME newId but we don't have a
-                               cache so return NONE for List.find. *)
-                            let
-                                val newName = mungeName tcName
-                            in
-                                (*print(concat[tcName tcon, " not cached\n"]);*)
-                                makeTypeConstructor(newName, newId, locations)
-                            end
-                    end
-            )
-
-    and copyTypeConstr (tcon, typeMap, mungeName) = copyTypeConstrWithCache(tcon, typeMap, mungeName, [])
-
     (* Create a type function and compute the relevant information. *)
-    and makeGeneralTypeFunction(arity, resType, desc, access) =
+    fun makeGeneralTypeFunction(arity, resType, desc, access) =
     let
         (* If this refers to another type construction involving a type function add one
            to its type-function count.  When seeing if two type constructions unify we
@@ -666,9 +533,8 @@ struct
         local
             fun processTypes typ =
             let
-                val t = eventual typ
             in
-                case t of
+                case typ of
                     TypeVar _=> raise InternalError "TypeVar"
                 |   BoundTypeVar(_, TVIndex n) => BoolArray.update(refArray, n, true)
                 |   FunctionType {arg, result} => (processTypes arg; processTypes result)
@@ -793,34 +659,6 @@ struct
         |   _ => raise InternalError "computeEqualityWithinTypeConstructor: bad type"
     end
 
-    (* Gets the final type in a chain.  Extends flexible records by adding
-       extra fields if necessary. *)
-    and eventual (t as (TypeVar(TypeVariable{link=ref l, ...}))) =
-        (
-            (* Get the last entry in the chain and see if it has been set. *)
-            case followRefChainToEnd l of
-                NONE => t (* Not bound to anything - return the type variable *)
-            |   SOME newVal => eventual(reduceToType newVal) (* Return the type it is bound to *)
-        )
-    
-    |   eventual(t as FlexibleRecordVar{recList, fullList=ref fullList, equality=ref eql, level=ref lvl}) =
-        (* Add on any fields to the record that were not previously present and have been added
-           by a different instance. *)
-        let
-            val {names, frozen} = followRefChainToEnd fullList
-            and (recListVar, currentFields) = followRefChainToRef recList
-            val equality = followRefChainToEnd eql
-            val level = followRefChainToEnd lvl
-            val newFieldList = expandFlexRecord(currentFields, names, level, equality)
-            val () = recListVar := ChainEnd newFieldList
-        in
-            if frozen (* Return a fixed record *)
-            then LabelledRecord newFieldList
-            else t
-        end
-    
-    |   eventual t (* not a type variable *) = t
-
     and getCanonical(Instance(ty, bvMap)) = canonicalise(ty, bvMap)
     |   getCanonical(SimpleInstance ty) = canonicalise(ty, fn _ => NONE)
 
@@ -865,6 +703,79 @@ struct
         end
 
     |   canonicalise original = original
+
+    local
+        (* Reduced copyType that only deals with type variables. *)
+        fun copyType(typ, indexBTV) =
+        let
+            fun copyRecordList mapBTV =
+                List.map(fn{name, typeOf} => {name=name, typeOf=copyType (typeOf, mapBTV)})
+
+            val (atyp, mapBTV) = canonicalise(typ, indexBTV)
+        in
+            case atyp of
+                TypeVar _ => atyp (* Unbound type variable. *)
+
+            |   BoundTypeVar(_, index) =>
+                    (* Instantiate the type variable if there is a map.  Currently this can also be called when
+                       processing signatures so allow for the look-up to fail and return the original. *)
+                    getOpt(mapBTV index, atyp)
+
+            |   FreeTypeVar _ => atyp
+
+            |   TypeConstruction {constr, args, locations, name, ...} => 
+                let
+                    val copiedArgs = List.map(fn t => copyType (t, mapBTV)) args
+                in
+                    mkTypeConstruction (name, constr, copiedArgs, locations)
+                end 
+       
+            |   FunctionType {arg, result} => 
+                let
+                    val copiedArg = copyType (arg, mapBTV)
+                    val copiedRes = copyType (result, mapBTV)
+                in
+                    FunctionType {arg = copiedArg, result = copiedRes}
+                end
+
+            |   FlexibleRecordVar{recList=ref recl, fullList as ref full, equality=ref eq, level=ref lvl} =>
+                let
+                    val recList = followRefChainToEnd recl
+                    val {names, frozen} = followRefChainToEnd full
+                    and equality = followRefChainToEnd eq
+                    and level = followRefChainToEnd lvl
+                    (* Add any new fields.  Each field has to be a new type variable modelled on the generic but distinct. *)
+                    val copiedList = expandFlexRecord(copyRecordList mapBTV recList, names, level, equality)
+                in
+                    if frozen
+                    then LabelledRecord copiedList
+                    else FlexibleRecordVar{recList=ref(ChainEnd copiedList), fullList=fullList,
+                            equality = ref(ChainEnd equality), level = ref(ChainEnd level)}
+                end
+
+            |   LabelledRecord recList => LabelledRecord(copyRecordList mapBTV recList)
+
+                (* Overload.  Return the type constructor if it's been resolved. *)
+            |   typ as OverloadSetVar(ref c) =>
+                (
+                    case followRefChainToEnd c of
+                        [tcons as TypeConstrs{name, ...}] => mkTypeConstruction (name, tcons,[], [])
+                    |   _ => typ
+                )
+
+            |   BadType => BadType
+        end
+    in
+        (* Generate the instance by applying any copying necessary.  This is mainly required for
+           backwards compatibility. *)
+        fun reduceToType(Instance(typeOf, indexBTV)) = copyType(typeOf, indexBTV)
+        |   reduceToType(SimpleInstance t) = copyType(t, fn _ => NONE)
+
+        (* Backwards compatibility.  This should be replaced by canonicalise. *)
+        fun eventual typ =
+            reduceToType(Instance(getCanonical(SimpleInstance typ)))
+
+    end
 
     (* Get a type from an instance.  Needed when we have to construct a type, say a tuple, from components. *)
     fun instanceToType(SimpleInstance ty) = ty
@@ -1147,6 +1058,128 @@ struct
     end
     | isProductType _ = false;
 
+    (* This version of copyType is used when copying signatures to instantiate bound type IDs. *)
+    fun copyType (at, copyTypeConstr) =
+    let
+
+        val atyp = at
+    in
+        case atyp of
+            TypeVar(TypeVariable{link=ref l, ...}) =>
+            (
+                (* This can occur when we create a "signature" for a structure that does
+                   not have an explicit signature. *)
+                case followRefChainToEnd l of
+                    NONE => (atyp) (* Unbound type variable.  Can occur if we're copying a candidate "signature" that has type variables that
+                                    are free at this level but will be constrained by the signature. *)
+                |   SOME newVal => let val t = copyType(reduceToType newVal, copyTypeConstr) in (t) end
+            )
+
+        |   BoundTypeVar _ => (atyp)
+
+        |   FreeTypeVar _ => (atyp)
+
+        |   TypeConstruction {constr, args, locations, ...} => 
+            let
+                fun argMap [] = ([], false)
+                |   argMap (t :: l) =
+                    let
+                        val v = copyType (t, copyTypeConstr)
+                        val (r, c) = argMap l
+                    in
+                        (v::r, c)
+                    end
+                val (copiedArgs, argChange) = argMap args
+                val copiedConstr  as TypeConstrs {name=copiedName,...} = copyTypeConstr constr
+                (* Use the name from the copied constructor.  This will normally
+                   be the same as the original EXCEPT in the case where we are
+                   using copyType to generate copies of the value constructors of
+                   replicated datatypes. *)
+            in
+                mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
+            end 
+           
+        |   FunctionType {arg, result} => 
+            let
+                val (copiedArg) = copyType (arg, copyTypeConstr)
+                val (copiedRes) = copyType (result, copyTypeConstr)
+            in
+                FunctionType {arg = copiedArg, result = copiedRes}
+            end
+
+        |   FlexibleRecordVar _ => (BadType) (* This case does not occur. Flexible records have already been frozen or errored. *)
+
+        |   LabelledRecord recList =>
+            let
+                fun labMap [] = ([], false)
+                |   labMap ({name, typeOf} :: l) =
+                    let
+                        val (v) = copyType (typeOf, copyTypeConstr)
+                        val (r, c) = labMap l
+                    in
+                        ({name=name, typeOf=v} :: r, c)
+                    end
+                val (mapped, mRes) = labMap recList
+            in
+                LabelledRecord mapped
+            end
+
+            (* Overload.  Return the type constructor if it's been resolved.  This can occur in similar
+               situations to type variables. *)
+        |   typ as OverloadSetVar(ref c) =>
+            (
+                case followRefChainToEnd c of
+                    [tcons as TypeConstrs{name, ...}] => (mkTypeConstruction (name, tcons,[], []))
+                |   _ => (typ)
+            )
+
+        |   BadType => (BadType)
+
+    end
+
+    (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
+       function copies that as well. Does not copy value constructors. When copying a signature
+       type constructors are copied first and then passed in here as the cache argument. *)
+    fun copyTypeConstrWithCache (tcon as TypeConstrs{identifier=tcId, locations, name=tcName, ...}, typeMap, mungeName, cache) =
+        case tcId of
+            TypeId{idKind = TypeFn{arity, resType=equiv, ...}, description, access, ...} =>
+            let
+                val copiedEquiv =
+                    copyType(equiv, fn tcon => copyTypeConstr(tcon, typeMap, mungeName))
+            in
+                (* How do we find a type function? *)
+                makeTypeConstructor (mungeName tcName,
+                    makeGeneralTypeFunction(arity, copiedEquiv, description, access),
+                        locations)
+            end
+
+       |    id =>
+            (
+                case typeMap id of
+                    NONE => tcon (* No change *)
+                |   SOME newId =>
+                    let
+                        val name = #second(splitString tcName)
+                        (* We must only match here if they're really the same. *)
+                        fun cacheMatch (TypeConstrs{identifier, name=tcName, ...}) =
+                            sameTypeId(identifier, newId)
+                                andalso #second(splitString tcName) = name
+                    in
+                        case List.find cacheMatch cache of
+                            SOME tc => tc (* Use the entry from the cache. *)
+                        |   NONE =>
+                            (* Either a hidden identifier or alternatively this can happen as part of
+                               the matching process.
+                               When matching a structure to a signature we first match up the type
+                               constructors then copy the type of each value replacing bound type IDs
+                               with the actual IDs as part of the checking process.
+                               We will return SOME newId but we don't have a
+                               cache so return NONE for List.find. *)
+                                makeTypeConstructor(mungeName tcName, newId, locations)
+                    end
+            )
+
+    and copyTypeConstr (tcon, typeMap, mungeName) = copyTypeConstrWithCache(tcon, typeMap, mungeName, [])
 
     (* Compose typeID maps.  If the first map returns a Bound id we apply the second otherwise
        just return the result of the first. *)
@@ -1156,15 +1189,14 @@ struct
 
         |   map2 (id as TypeId{idKind=Free _, ...}) = id
 
-        |   map2 (TypeId{idKind=TypeFn{arity, resType=equiv, ...}, access, description, ...}) =
+        |   map2 (id as TypeId{idKind=TypeFn{arity, resType=equiv, ...}, access, description, ...}) =
             let
                 fun copyId(TypeId{idKind=Free _, ...}) = NONE
                 |   copyId id = SOME(map2 id)
                 (* If it's a type function e.g. this was a "where type" we have to apply the
                    map to any type identifiers in the type. *)
-                val copiedEquiv =
-                    copyType(equiv, fn _ => NONE,
-                        fn tcon => copyTypeConstr (tcon, copyId, fn y => y))
+                val (copiedEquiv) =
+                    copyType(equiv, fn tcon => copyTypeConstr (tcon, copyId, fn y => y))
             in
                 makeGeneralTypeFunction(arity, copiedEquiv, description, access)
             end
@@ -1190,9 +1222,9 @@ struct
         val freeVars = createFreeTypeVariables(templs, 0)
         fun boundVarMap(TVIndex n) = SOME(List.nth(freeVars, n))
         fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn s => s)
-        val copiedTarget = copyType (atyp, boundVarMap, copyATypeConstr)
+        val (copiedTarget) = copyType (atyp, copyATypeConstr)
     in
-        SimpleInstance copiedTarget
+        Instance(copiedTarget, boundVarMap)
     end
 
     (* Basic procedure to print a type structure. *)
@@ -1677,9 +1709,9 @@ struct
                lookup loop. *)
             fun mapToTv t = TypeVar (makeTv {value=SOME(SimpleInstance t), level=Generalisable, equality=false})
             val vars = Vector.fromList(List.map mapToTv args)
-            fun getArg(TVIndex n) = Vector.sub(vars, n)
+            fun getArg(TVIndex n) = SOME(Vector.sub(vars, n))
         in
-            copyType (typeResult, SOME o getArg, fn t => t (*copyTCons*))
+            reduceToType(Instance(typeResult, getArg))
         end
 
     |   makeEquivalent _ = raise InternalError "makeEquivalent: Not a type function"

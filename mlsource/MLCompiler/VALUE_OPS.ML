@@ -178,7 +178,7 @@ struct
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(typeIdMap offset)
         |   copyId _ = NONE
         val copiedType =
-            copyType (typeOf, fn _ => NONE,
+            copyType (typeOf,
                 fn tcon => copyTypeConstr (tcon, copyId, fn s => baseName^"."^s))                            
         val baseLoc =
             case List.find (fn DeclaredAt _ => true | _ => false) locations of

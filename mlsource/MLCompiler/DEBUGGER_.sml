@@ -207,7 +207,7 @@ struct
             fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
             |   copyId id = SOME(searchType state id)
         in
-            ValueType(copyType (ty, fn _ => NONE,
+            ValueType(copyType (ty,
                     fn tcon => copyTypeConstr (tcon, copyId, fn s => s)), templates)
         end
 
