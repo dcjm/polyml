@@ -69,18 +69,6 @@ struct
     in
         refA = refB
     end 
-     
-    fun isFunctionType     (FunctionType     _) = true
-    |   isFunctionType     _ = false;
-    
-    fun isBadType           BadType             = true
-    |   isBadType          _ = false;
-
-    fun typesFunctionType     (FunctionType     x) = x
-    |   typesFunctionType     _ = raise Match;
-
-
-(*************)
 
     fun mkTypeVar (level, equality) = 
         TypeVar (makeTv {value=NONE, level=level, equality=equality})
@@ -675,13 +663,7 @@ struct
     |   canonicalise(original as (BoundTypeVar(_, index), bvMap)) =
         (
             case bvMap index of
-                SOME ty =>
-                (
-                    case ty of
-                        BoundTypeVar(_, newIndex) => if newIndex = index then raise InternalError "Looping type variables" else ()
-                    |   _ => ();
-                    canonicalise(ty, bvMap)
-                )
+                SOME ty => canonicalise(ty, bvMap)
             |   NONE => original
         )
 
@@ -907,28 +889,26 @@ struct
         (* Look at each of the constructors in the list. Equality testing is
            only allowed if it is allowed for each of the alternatives. *)
         fun constrEq _           []       soFar = soFar (* end of list - all o.k. *)
-        |   constrEq constructor ((Value{typeOf=ValueType(valTypeOf, _), ...}) :: t) soFar =
+
+        |   constrEq constructor ((Value{typeOf=ValueType(FunctionType{arg, ...}, _), ...}) :: t) soFar =
             (* The constructor may be a constant e.g.
                datatype 'a list = nil | ... or  a function e.g.
                datatype 'a list = ... cons of 'a * 'a list. *)
-            if not (isFunctionType valTypeOf) (* Constant *)
-            then constrEq constructor t soFar (* Go on to the next. *)
-      
-            else
             let
                 (* Function - look at the argument type. *)
                 (* Equality is allowed for any type-variable.  The only type variables
                    allowed are parameters to the datatype so if we have a type variable
                    then equality is allowed for this datatype.  *)
                 val eq = 
-                    computeEqualityWithinTypeConstructor (#arg (typesFunctionType valTypeOf),
-                        genEquality, fn _ => ())
+                    computeEqualityWithinTypeConstructor (arg, genEquality, fn _ => ())
             in
                 if eq = No
                 then (* Not allowed. *) No
                 else (* O.k. - go on to the next. *)
                     constrEq constructor t (if eq = Maybe then Maybe else soFar)
             end (* constrEq *)
+
+        |   constrEq constructor (_ :: t) soFar = constrEq constructor t soFar (* Go on to the next. *)
 
         (* This procedure checks to see if equality is allowed for this datatype. *)
         and genEquality constructorId =
@@ -1056,92 +1036,85 @@ struct
     in
         isRec recList 1
     end
-    | isProductType _ = false;
+    | isProductType _ = false
 
     (* This version of copyType is used when copying signatures to instantiate bound type IDs. *)
-    fun copyType (at, copyTypeConstr) =
-    let
+    fun copyType (atyp as TypeVar(TypeVariable{link=ref l, ...}), copyTypeConstr) =
+        (
+            (* This can occur when we create a "signature" for a structure that does
+               not have an explicit signature. *)
+            case followRefChainToEnd l of
+                NONE => (atyp, false) (* Unbound type variable.  Can occur if we're copying a candidate "signature" that has type variables that
+                                are free at this level but will be constrained by the signature. *)
+            |   SOME newVal => let val (t, _) = copyType(reduceToType newVal, copyTypeConstr) in (t, true) end
+        )
 
-        val atyp = at
-    in
-        case atyp of
-            TypeVar(TypeVariable{link=ref l, ...}) =>
-            (
-                (* This can occur when we create a "signature" for a structure that does
-                   not have an explicit signature. *)
-                case followRefChainToEnd l of
-                    NONE => (atyp, false) (* Unbound type variable.  Can occur if we're copying a candidate "signature" that has type variables that
-                                    are free at this level but will be constrained by the signature. *)
-                |   SOME newVal => let val (t, _) = copyType(reduceToType newVal, copyTypeConstr) in (t, true) end
-            )
+    |   copyType (atyp as BoundTypeVar _, _) = (atyp, false)
 
-        |   BoundTypeVar _ => (atyp, false)
+    |   copyType (atyp as FreeTypeVar _, _) = (atyp, false)
 
-        |   FreeTypeVar _ => (atyp, false)
-
-        |   TypeConstruction {constr, args, locations, ...} => 
-            let
-                fun argMap [] = ([], false)
-                |   argMap (t :: l) =
-                    let
-                        val (v, b) = copyType (t, copyTypeConstr)
-                        val (r, c) = argMap l
-                    in
-                        (v::r, b orelse c)
-                    end
-                val (copiedArgs, argChanged) = argMap args
-                val (copiedConstr as TypeConstrs {name=copiedName,...}, constrChanged) = copyTypeConstr constr
-                (* Use the name from the copied constructor.  This will normally
-                   be the same as the original EXCEPT in the case where we are
-                   using copyType to generate copies of the value constructors of
-                   replicated datatypes. *)
-            in
-                if argChanged orelse constrChanged
-                then (mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations), true)
-                else (atyp, false)
-            end 
+    |   copyType (atyp as TypeConstruction {constr, args, locations, ...}, copyTypeConstr) =
+        let
+            fun argMap [] = ([], false)
+            |   argMap (t :: l) =
+                let
+                    val (v, b) = copyType (t, copyTypeConstr)
+                    val (r, c) = argMap l
+                in
+                    (v::r, b orelse c)
+                end
+            val (copiedArgs, argChanged) = argMap args
+            val (copiedConstr as TypeConstrs {name=copiedName,...}, constrChanged) = copyTypeConstr constr
+            (* Use the name from the copied constructor.  This will normally
+               be the same as the original EXCEPT in the case where we are
+               using copyType to generate copies of the value constructors of
+               replicated datatypes. *)
+        in
+            if argChanged orelse constrChanged
+            then (mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations), true)
+            else (atyp, false)
+        end 
            
-        |   FunctionType {arg, result} => 
-            let
-                val (copiedArg, argChange) = copyType (arg, copyTypeConstr)
-                val (copiedRes, resChange) = copyType (result, copyTypeConstr)
-            in
-                if argChange orelse resChange
-                then (FunctionType {arg = copiedArg, result = copiedRes}, true)
-                else (atyp, false)
-            end
+    |   copyType (atyp as FunctionType {arg, result}, copyTypeConstr) =
+        let
+            val (copiedArg, argChange) = copyType (arg, copyTypeConstr)
+            val (copiedRes, resChange) = copyType (result, copyTypeConstr)
+        in
+            if argChange orelse resChange
+            then (FunctionType {arg = copiedArg, result = copiedRes}, true)
+            else (atyp, false)
+        end
 
-        |   FlexibleRecordVar _ => (BadType, true) (* This case does not occur. Flexible records have already been frozen or errored. *)
+    |   copyType (FlexibleRecordVar _, _) =
+            (BadType, true) (* This case does not occur. Flexible records have already been frozen or errored. *)
 
-        |   LabelledRecord recList =>
-            let
-                fun labMap [] = ([], false)
-                |   labMap ({name, typeOf} :: l) =
-                    let
-                        val (v, b) = copyType (typeOf, copyTypeConstr)
-                        val (r, c) = labMap l
-                    in
-                        ({name=name, typeOf=v} :: r, b orelse c)
-                    end
-                val (mapped, mRes) = labMap recList
-            in
-                if mRes
-                then (LabelledRecord mapped, true)
-                else (atyp, false)
-            end
+    |   copyType (atyp as LabelledRecord recList, copyTypeConstr) =
+        let
+            fun labMap [] = ([], false)
+            |   labMap ({name, typeOf} :: l) =
+                let
+                    val (v, b) = copyType (typeOf, copyTypeConstr)
+                    val (r, c) = labMap l
+                in
+                    ({name=name, typeOf=v} :: r, b orelse c)
+                end
+            val (mapped, mRes) = labMap recList
+        in
+            if mRes
+            then (LabelledRecord mapped, true)
+            else (atyp, false)
+        end
 
-            (* Overload.  Return the type constructor if it's been resolved.  This can occur in similar
-               situations to type variables. *)
-        |   typ as OverloadSetVar(ref c) =>
-            (
-                case followRefChainToEnd c of
-                    [tcons as TypeConstrs{name, ...}] => (mkTypeConstruction (name, tcons,[], []), true)
-                |   _ => (typ, false)
-            )
+    |   copyType (atyp as OverloadSetVar(ref c), _) =
+        (* Overload.  Return the type constructor if it's been resolved.  This can occur in similar
+           situations to type variables. *)
+        (
+            case followRefChainToEnd c of
+                [tcons as TypeConstrs{name, ...}] => (mkTypeConstruction (name, tcons,[], []), true)
+            |   _ => (atyp, false)
+        )
 
-        |   BadType => (BadType, false)
-
-    end
+    |   copyType (BadType, _) = (BadType, false)
 
     (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
        function copies that as well. Does not copy value constructors. When copying a signature
@@ -1248,8 +1221,12 @@ struct
     fun tDisp (t : instanceType, depth : FixedInt.int, typeVarName : typeVar -> string, env: printTypeEnv,
                sigMap: (int->typeId)option) =
     let
+             
+        fun isFunctionType     (FunctionType     _) = true
+        |   isFunctionType     _ = false
+
         (* prints a block of items *)
-        fun dispP (t, tMap, depth) =
+        fun dispP (t, ttMap, depth) =
         let
             (* prints a block of items *)
             fun parenthesise depth (t, bvMap) =
@@ -1268,12 +1245,11 @@ struct
 
             |   prettyList [H] bvMap depth separator =
                 let
-                    val v = eventual H;
+                    val (v, vm) = canonicalise(H, bvMap)
                 in
-                    if separator = "*" andalso
-                        (isFunctionType v orelse isProductType v)
-                    then (* Must bracket the expression *) [parenthesise depth (v, tMap)]
-                    else [dispP (v, bvMap, depth)]
+                    if separator = "*" andalso (isFunctionType v orelse isProductType v)
+                    then (* Must bracket the expression *) [parenthesise depth (v, vm)]
+                    else [dispP (v, vm, depth)]
                 end
 
             |   prettyList (H :: T) bvMap depth separator =
@@ -1281,18 +1257,17 @@ struct
                 then [PrettyString "..."]
                 else
                 let
-                    val v = eventual H;
+                    val (v, vm) = canonicalise(H, bvMap)
                 in
                     PrettyBlock (0, false, [],
-                        [(if separator = "*" andalso
-                           (isFunctionType v orelse isProductType v)
-                        then (* Must bracket the expression *) parenthesise depth (v, tMap)
+                        [(if separator = "*" andalso (isFunctionType v orelse isProductType v)
+                        then (* Must bracket the expression *) parenthesise depth (v, vm)
                         else dispP (v, bvMap, depth)),
                         PrettyBreak (if separator = "," then 0 else 1, 0),
                         PrettyString separator
                         ]) ::
                     PrettyBreak (1, 0) ::
-                    prettyList T bvMap (depth - 1) separator
+                    prettyList T vm (depth - 1) separator
                 end
 
             fun printRecord(recList, bvMap, isFrozen, depth) =
@@ -1335,7 +1310,7 @@ struct
                 end
 
 
-            val (typ, bvMap) = canonicalise(t, tMap) (* Find the real type structure *)
+            val (typ, bvMap) = canonicalise(t, ttMap) (* Find the real type structure *)
         in 
             case typ of
                 TypeVar tyVar => (* Unset type variable. *) PrettyString (typeVarName tyVar)
@@ -1467,19 +1442,19 @@ struct
                         [] => constructorEntry
                     |   args as hd :: tl =>
                         let
-                            val argVal = eventual hd;
+                            val (argVal, argMap) = canonicalise(hd, bvMap)
                         in
                             PrettyBlock (0, false, [],
                             [
                                 (* If we have just a single argument and it's just a type constructor
                                    or a construction we don't need to parenthesise it. *)
                                 if null tl andalso not (isProductType argVal orelse isFunctionType argVal)
-                                then dispP (argVal, bvMap, depth - 1)
+                                then dispP (argVal, argMap, depth - 1)
                                 else if depth <= 1
                                 then PrettyString "..."
                                 else PrettyBlock(0, false, [],
                                          [PrettyString "(", PrettyBreak (0, 0)]
-                                         @ prettyList args bvMap (depth - 1) ","
+                                         @ prettyList args argMap (depth - 1) ","
                                          @ [PrettyBreak (0, 0), PrettyString ")"]
                                      ),
                                 PrettyBreak(1, 0),
@@ -1493,13 +1468,13 @@ struct
                 then PrettyString "..."
                 else (* print out in infix notation *)
                 let
-                    val evArg = eventual arg;
+                    val (evArg, evMap) = canonicalise(arg, bvMap)
                 in
                     PrettyBlock (0, false, [],
                         [
                         (* If the argument is a function it must be printed as (a-> b)->.. *)
                         if isFunctionType evArg 
-                        then parenthesise depth (evArg, bvMap)
+                        then parenthesise depth (evArg, evMap)
                         else dispP (evArg, bvMap, depth - 1),
                         PrettyBreak(1, 2),
                         PrettyString "->",
@@ -2188,7 +2163,7 @@ struct
                     (* Unify the records, but discard the result. *)
                     (matchRecords (recA, tA, bvMapA, true, false, recB, tB, bvMapB, true, false); ())
 
-                (* eventual returns LabelledRecord if the FlexibleRecordVar is now frozen *)
+                (* canonicalise returns LabelledRecord if the FlexibleRecordVar is now frozen *)
             |   (LabelledRecord recA, FlexibleRecordVar{recList, equality=ref eqVar, fullList, ...}) =>
                 let
                     val equality = followRefChainToEnd eqVar
@@ -2751,38 +2726,47 @@ struct
     (* See if the type contains non-unifiable i.e. explicit type variables but it's an expansive context. *)
     fun containsLocalFreeVariables(t, level) =
     let
-        fun checkFree typ v =
-        let
-            val t = eventual typ
-        in
-            case t of
-                TypeVar _ => v
+        fun checkFree(TypeVar(TypeVariable{link=ref l, ...}), _) v =
+            (
+                case followRefChainToEnd l of
+                    NONE => v
+                |   SOME(SimpleInstance i) => checkFree (i, fn _ => NONE) v
+                |   SOME(Instance inst) => checkFree inst v
 
-                (* Explicit type variables at outer levels are allowed but not at this level. *)
-            |   FreeTypeVar{level=NotGeneralisable fLev, ...} => v orelse fLev >= level
-            |   FreeTypeVar{level=Generalisable, ...} => v (* Shouldn't occur *) 
+            )
 
-                (* If this is a type function we mustn't check type variables that aren't actually used. *)
-            |   TypeConstruction {args, constr=TypeConstrs{identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
-                    #1 (List.foldl(fn (t, (v, n)) => (if BoolVector.sub(usedTvs, n) then checkFree t v else v, n+1)) (v, 0) args)
+        |   checkFree(BoundTypeVar (_, index), bvMap) v =
+            (
+                case bvMap index of
+                    SOME ty => checkFree(ty, bvMap) v
+                |   NONE => raise InternalError "containsLocalFreeVariables: boundvar"
+            )
 
-            |   TypeConstruction {args, ...} => (* Then process the arguments. *)
-                    List.foldl (fn (t, v) => checkFree t v) v args
-           
-            |   FunctionType {arg, result} => checkFree arg (checkFree result v)
-    
-            |   LabelledRecord recList =>
-                    List.foldl (fn ({ typeOf, ... }, v) => checkFree typeOf v) v recList
+            (* Explicit type variables at outer levels are allowed but not at this level. *)
+        |   checkFree(FreeTypeVar{level=NotGeneralisable fLev, ...}, _) v = v orelse fLev >= level
+        |   checkFree(FreeTypeVar{level=Generalisable, ...}, _) v = v  (* Shouldn't occur *) 
+            
+            (* If this is a type function we mustn't check type variables that aren't actually used. *)
+        |   checkFree(TypeConstruction {args, constr=TypeConstrs{identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, ...}, bvMap) v =
+                #1 (List.foldl(fn (t, (v, n)) => (if BoolVector.sub(usedTvs, n) then checkFree (t, bvMap) v else v, n+1)) (v, 0) args)
 
-            |   FlexibleRecordVar{recList=ref recl, ...} =>
-                    List.foldl(fn ({ typeOf, ... }, v) => checkFree typeOf v) v (followRefChainToEnd recl)
+        |   checkFree(TypeConstruction {args, ...}, bvMap) v = (* Then process the arguments. *)
+                List.foldl (fn (t, v) => checkFree (t, bvMap) v) v args
 
-            |   BoundTypeVar _ => raise InternalError "containsLocalFreeVariables: boundvar"
-            |   BadType => v
-            |   OverloadSetVar _ => v
-        end
+        |   checkFree(FunctionType {arg, result}, bvMap) v = (* Then process the arguments. *)
+                checkFree (arg, bvMap) (checkFree (result, bvMap) v)
+
+        |   checkFree(LabelledRecord recList, bvMap) v = (* Then process the arguments. *)
+                List.foldl (fn ({ typeOf, ... }, v) => checkFree(typeOf, bvMap) v) v recList
+
+        |   checkFree(FlexibleRecordVar{recList=ref recl, ...}, bvMap) v = (* Then process the arguments. *)
+                List.foldl (fn ({ typeOf, ... }, v) => checkFree(typeOf, bvMap) v) v (followRefChainToEnd recl)
+
+        |   checkFree(BadType, _) v = v
+        |   checkFree(OverloadSetVar _, _) v = v
+
     in
-        checkFree (reduceToType(SimpleInstance t)) false
+        checkFree (t, fn _ => NONE) false
     end
     
 
@@ -2917,6 +2901,9 @@ struct
         val getCodetreeType = getCodetreeType o instanceToType
     end
 
+    (* In a bracketed sequence of expressions e.g. (a; b; c) the earlier expressions are evaluated for
+       their side-effects but the results are discarded.  There is an optional check on the types of
+       the values being discarded. *)
     fun checkDiscard(t: instanceType, lex: lexan): string option =
     let
         open DEBUG

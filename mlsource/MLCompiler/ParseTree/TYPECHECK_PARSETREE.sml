@@ -737,9 +737,9 @@ struct
                     instanceToType(assignList (processElement, displayParsetree, valTypeMessage)
                         ("Elements in a list have different types.", "Item", ",", location, aList) elements)
             in
-                if isBadType elementType
-                then badInstance
-                else SimpleInstance(mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis]))
+                case elementType of
+                    BadType => badInstance
+                |   _ => SimpleInstance(mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis]))
             end
 
         |   processPattern(aConstraint as Constraint {value, given, location}, enterResult, level, notConst, mkVar, isRec) =
@@ -1159,9 +1159,9 @@ struct
                         ("Elements in a list have different types.", "Item", ",", location, aList) elements
                 val elementType = instanceToType elementType
             in
-                if isBadType elementType
-                then badInstance
-                else SimpleInstance(mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis]))
+                case elementType of
+                    BadType => badInstance
+                |   elementType => SimpleInstance(mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis]))
             end
 
         |   assValues near (v as Constraint {value, given, location}) =

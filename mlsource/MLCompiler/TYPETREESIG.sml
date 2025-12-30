@@ -63,8 +63,15 @@ sig
     val sortLabels:         {name: string, typeOf: types } list -> {name: string, typeOf: types } list;
     val entryNumber:        string * types -> int;
     val recordNotFrozen:    types -> bool;
-    val recordWidth:        types -> int;
-    val makeEquivalent:     typeConstrs * types list -> types;
+    val recordWidth:        types -> int
+
+    (* Creates a map from the arguments to a type function.  The type function can then be processed
+       and any bound arguments will be looked up in the map. *)
+    val createTypeFnArgumentMap: types list * (tvIndex -> types option) -> (tvIndex -> types option)
+
+    (* Expand a type function.  This should generally be replaced by createTypeFnArgumentMap since this
+       copies the type. *)
+    val makeEquivalent:     typeConstrs * types list -> types
 
     val makeGeneralTypeFunction:   int * types * typeIdDescription * valAccess -> typeId
     and makeTypeFunction:   int * types * typeIdDescription -> typeId
@@ -174,7 +181,6 @@ sig
     
     val isPointerEqType: typeConstrs -> bool
     val isUndefinedTypeConstr: typeConstrs -> bool
-    val isBadType:  types -> bool
 
     (* Returns true if this is the function that returns ref.  It is used when a constructor
        application has been found.  In all other cases this would be non-expansive but if the

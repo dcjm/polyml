@@ -269,9 +269,12 @@ struct
                 TypeValue.extractPrinter(code level)
             end
 
-        |   printCode(TypeConstruction { constr=typConstr as TypeConstrs {identifier=TypeId{idKind = TypeFn _, ...},...}, args, ...}, level) =
-                (* Type function *)
-                printCode(makeEquivalent (typConstr, args), level)
+        |   printCode(TypeConstruction { constr=TypeConstrs {identifier=TypeId{idKind = TypeFn{resType, ...}, ...},...}, args, ...}, level) =
+            let (* Type function *)
+                val argMap = createTypeFnArgumentMap(args, fn _ => NONE)
+            in
+                printCode(reduceToType(Instance(resType, argMap)), level)
+            end
 
         |   printCode(TypeConstruction { constr=TypeConstrs {identifier,...}, args, name, ...}, level) =
             let
