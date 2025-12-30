@@ -1070,24 +1070,24 @@ struct
                 (* This can occur when we create a "signature" for a structure that does
                    not have an explicit signature. *)
                 case followRefChainToEnd l of
-                    NONE => (atyp) (* Unbound type variable.  Can occur if we're copying a candidate "signature" that has type variables that
+                    NONE => (atyp, false) (* Unbound type variable.  Can occur if we're copying a candidate "signature" that has type variables that
                                     are free at this level but will be constrained by the signature. *)
-                |   SOME newVal => let val t = copyType(reduceToType newVal, copyTypeConstr) in (t) end
+                |   SOME newVal => let val (t, _) = copyType(reduceToType newVal, copyTypeConstr) in (t, true) end
             )
 
-        |   BoundTypeVar _ => (atyp)
+        |   BoundTypeVar _ => (atyp, false)
 
-        |   FreeTypeVar _ => (atyp)
+        |   FreeTypeVar _ => (atyp, false)
 
         |   TypeConstruction {constr, args, locations, ...} => 
             let
                 fun argMap [] = ([], false)
                 |   argMap (t :: l) =
                     let
-                        val v = copyType (t, copyTypeConstr)
+                        val (v, b) = copyType (t, copyTypeConstr)
                         val (r, c) = argMap l
                     in
-                        (v::r, c)
+                        (v::r, b orelse c)
                     end
                 val (copiedArgs, argChange) = argMap args
                 val copiedConstr  as TypeConstrs {name=copiedName,...} = copyTypeConstr constr
@@ -1096,32 +1096,36 @@ struct
                    using copyType to generate copies of the value constructors of
                    replicated datatypes. *)
             in
-                mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
+                (mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations), true)
             end 
            
         |   FunctionType {arg, result} => 
             let
-                val (copiedArg) = copyType (arg, copyTypeConstr)
-                val (copiedRes) = copyType (result, copyTypeConstr)
+                val (copiedArg, argChange) = copyType (arg, copyTypeConstr)
+                val (copiedRes, resChange) = copyType (result, copyTypeConstr)
             in
-                FunctionType {arg = copiedArg, result = copiedRes}
+                if argChange orelse resChange
+                then (FunctionType {arg = copiedArg, result = copiedRes}, true)
+                else (atyp, false)
             end
 
-        |   FlexibleRecordVar _ => (BadType) (* This case does not occur. Flexible records have already been frozen or errored. *)
+        |   FlexibleRecordVar _ => (BadType, true) (* This case does not occur. Flexible records have already been frozen or errored. *)
 
         |   LabelledRecord recList =>
             let
                 fun labMap [] = ([], false)
                 |   labMap ({name, typeOf} :: l) =
                     let
-                        val (v) = copyType (typeOf, copyTypeConstr)
+                        val (v, b) = copyType (typeOf, copyTypeConstr)
                         val (r, c) = labMap l
                     in
-                        ({name=name, typeOf=v} :: r, c)
+                        ({name=name, typeOf=v} :: r, b orelse c)
                     end
                 val (mapped, mRes) = labMap recList
             in
-                LabelledRecord mapped
+                if mRes
+                then (LabelledRecord mapped, true)
+                else (atyp, false)
             end
 
             (* Overload.  Return the type constructor if it's been resolved.  This can occur in similar
@@ -1129,11 +1133,11 @@ struct
         |   typ as OverloadSetVar(ref c) =>
             (
                 case followRefChainToEnd c of
-                    [tcons as TypeConstrs{name, ...}] => (mkTypeConstruction (name, tcons,[], []))
-                |   _ => (typ)
+                    [tcons as TypeConstrs{name, ...}] => (mkTypeConstruction (name, tcons,[], []), true)
+                |   _ => (typ, false)
             )
 
-        |   BadType => (BadType)
+        |   BadType => (BadType, false)
 
     end
 
@@ -1144,13 +1148,15 @@ struct
         case tcId of
             TypeId{idKind = TypeFn{arity, resType=equiv, ...}, description, access, ...} =>
             let
-                val copiedEquiv =
+                val (copiedEquiv, haveCopied) =
                     copyType(equiv, fn tcon => copyTypeConstr(tcon, typeMap, mungeName))
             in
                 (* How do we find a type function? *)
-                makeTypeConstructor (mungeName tcName,
-                    makeGeneralTypeFunction(arity, copiedEquiv, description, access),
-                        locations)
+                if haveCopied
+                then makeTypeConstructor (mungeName tcName,
+                        makeGeneralTypeFunction(arity, copiedEquiv, description, access),
+                            locations)
+                else tcon
             end
 
        |    id =>
@@ -1195,7 +1201,7 @@ struct
                 |   copyId id = SOME(map2 id)
                 (* If it's a type function e.g. this was a "where type" we have to apply the
                    map to any type identifiers in the type. *)
-                val (copiedEquiv) =
+                val (copiedEquiv, _) =
                     copyType(equiv, fn tcon => copyTypeConstr (tcon, copyId, fn y => y))
             in
                 makeGeneralTypeFunction(arity, copiedEquiv, description, access)
@@ -1222,7 +1228,7 @@ struct
         val freeVars = createFreeTypeVariables(templs, 0)
         fun boundVarMap(TVIndex n) = SOME(List.nth(freeVars, n))
         fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn s => s)
-        val (copiedTarget) = copyType (atyp, copyATypeConstr)
+        val (copiedTarget, _) = copyType (atyp, copyATypeConstr)
     in
         Instance(copiedTarget, boundVarMap)
     end

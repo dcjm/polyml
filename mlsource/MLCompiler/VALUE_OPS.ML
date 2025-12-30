@@ -177,7 +177,7 @@ struct
            used in this particular structure instance. *)
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(typeIdMap offset)
         |   copyId _ = NONE
-        val copiedType =
+        val (copiedType, _) =
             copyType (typeOf,
                 fn tcon => copyTypeConstr (tcon, copyId, fn s => baseName^"."^s))                            
         val baseLoc =

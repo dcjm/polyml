@@ -1125,8 +1125,7 @@ struct
                                 if sameTypeId(tcIdentifier tcon, typeID)
                                 then newTypeCons
                                 else tcon;
-                            fun copyTyp (t : types) : types = copyType (t, copyTypeCons);
-                            val newType = copyTyp typeOf
+                            val (newType, _) = copyType (typeOf, copyTypeCons)
                             val newAccess =
                                 case (access, baseStruct) of
                                     (* If we are opening a structure we must have a base structure
