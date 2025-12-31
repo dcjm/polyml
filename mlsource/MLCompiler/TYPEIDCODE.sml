@@ -31,8 +31,7 @@ struct
     open CODETREE PRETTY ADDRESS STRUCTVALS TYPETREE
    
     (* This module deals with handling the run-time values that carry type
-       information.  At the moment that's just the equality and print
-       operations but that will be extended.
+       information, currently the equality and print functions.
        
        There are different versions according to whether this is a
        monomorphic constructor, a polymorphic constructor or a type.
@@ -277,18 +276,17 @@ struct
             end
 
         |   printCode(TypeConstruction { constr=TypeConstrs {identifier,...}, args, name, ...}, level) =
-            let
+            let (* Other datatypes. *)
                 val nLevel = newLevel level
                 (* Get the type Id and put in code to extract the printer ref. *)
                 val codedId = codeId(identifier, nLevel)
                 open TypeValue
                 val printerRefAddress = extractPrinter codedId
-                (* We need a type value here.  The printer field will be used to
-                   print the type argument and the boxedness and size fields may
-                   be needed to extract the argument from the constructed value. *)
-                fun makePrinterId t = createTypeValue {eqCode=CodeZero, printCode=printCode(t, nLevel)}
-
-                val argList = map makePrinterId args
+                (* This is a bit complicated.  We're compiling a function to print a type but it's
+                   quite possible that a new pretty printer will be installed to print it after
+                   this is compiled. e.g. The printer function for datatype t = A of s
+                   depends on the printer for "s" but must only extract the function when
+                   a value of type "t" is printed. *)
             in
                 case args of
                     [] => (* Create a function that, when called, will extract the function from
@@ -301,6 +299,12 @@ struct
                 |   _ =>  (* Construct a function, that when called, will extract the
                              function from the reference and apply it first to the
                              base printer functions and then to the pair of the value and depth. *)
+                    let
+                        (* We need a type value here.  The printer field will be used to
+                           print the type argument. *)
+                        fun makePrinterId t = createTypeValue {eqCode=CodeZero, printCode=printCode(t, nLevel)}
+                        val argList = map makePrinterId args
+                    in
                         mkProc(
                             mkEval(
                                 mkEval(
@@ -308,6 +312,7 @@ struct
                                     argList),
                                 [arg1]),
                             1, "print-"^name, getClosure nLevel, 0)
+                    end
             end
 
         |   printCode(LabelledRecord [], _) = (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled", [], 0)
@@ -412,10 +417,16 @@ struct
 
     and makeEq(ty, level: level, getTypeValueForID, typeVarMap): codetree =
     let
- 
         fun equalityForConstruction(tyConstr as TypeConstrs {identifier=iden,...}, args): codetree =
         (* Generate an equality function for a datatype construction. *)
+            (* Special case: If this is ref, Array.array or Array2.array we must use
+               pointer equality and not attempt to create equality functions for
+               the argument.  It may not be an equality type. *)
+        if isPointerEqType tyConstr
+        then equalPointerOrWordFn
+        else
         let
+            open TypeValue
             (* Get argument types parameters for polytypes.  There's a special case
                here for type vars, essentially the type arguments to the datatype, to avoid taking
                apart the type value record and then building it again.
@@ -434,25 +445,12 @@ struct
                     (* We need a type value here.  The equality function will be used to compare *)
                     createTypeValue{eqCode=eqFun, printCode=CodeZero}
                 end
-
-            val resFun =
-                (* Special case: If this is ref, Array.array or Array2.array we must use
-                   pointer equality and not attempt to create equality functions for
-                   the argument.  It may not be an equality type. *)
-                if isPointerEqType tyConstr
-                then equalPointerOrWordFn
-                else
-                let
-                    open TypeValue
-                    val codeForId = extractEquality(getTypeValueForID(iden, args, level))
-                in
-                    (* Apply the function we obtained to any type arguments. *)
-                    if null args
-                    then codeForId
-                    else mkEval(codeForId, map getArg args)
-                end
+            val codeForId = extractEquality(getTypeValueForID(iden, args, level))
         in
-            resFun
+            (* Apply the function we obtained to any type arguments. *)
+            if null args
+            then codeForId
+            else mkEval(codeForId, map getArg args)
         end
     in
         case ty of
