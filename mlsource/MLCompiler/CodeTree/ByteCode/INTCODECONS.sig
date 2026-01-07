@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18, 2020-23 David C.J. Matthews
+    Copyright (c) 2016-18, 2020-23, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -144,6 +144,7 @@ sig
     val opcode_arbSubtract: opcode
     val opcode_arbMultiply: opcode
     val opcode_log2Word: opcode
+    val opcode_arbCompare: opcode
 
     val codeCreate: string * Universal.universal list -> code  (* makes the initial segment. *)
 

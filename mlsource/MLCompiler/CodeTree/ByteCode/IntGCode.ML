@@ -607,6 +607,21 @@ struct
 
                 |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
                 
+                |   LongArbComparison TestEqual =>
+                        (genOpcode(opcode_arbCompare, cvec); pushConst (word0, cvec); genOpcode(opcode_equalWord, cvec) )
+                |   LongArbComparison TestLess =>
+                        (genOpcode(opcode_arbCompare, cvec); pushConst (word0, cvec); genOpcode(opcode_lessSigned, cvec) )
+                |   LongArbComparison TestLessEqual =>
+                        (genOpcode(opcode_arbCompare, cvec); pushConst (word0, cvec); genOpcode(opcode_lessEqUnsigned, cvec) )
+                |   LongArbComparison TestGreater =>
+                        (genOpcode(opcode_arbCompare, cvec); pushConst (word0, cvec); genOpcode(opcode_greaterSigned, cvec) )
+                |   LongArbComparison TestGreaterEqual =>
+                        (genOpcode(opcode_arbCompare, cvec); pushConst (word0, cvec); genOpcode(opcode_greaterEqSigned, cvec) )
+                |   LongArbComparison TestUnordered => raise InternalError "LongArbComparison TestUnordered"
+                |   LongArbArith BuiltIns.ArithAdd => genOpcode(opcode_arbAdd, cvec)
+                |   LongArbArith BuiltIns.ArithSub => genOpcode(opcode_arbSubtract, cvec)
+                |   LongArbArith _ => raise InternalError "unknown LongArbArith"
+                
                 |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
 
                  ;

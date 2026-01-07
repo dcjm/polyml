@@ -247,6 +247,7 @@ struct
     and ext_opcode_realUnordered     = 0wx79
     and ext_opcode_floatUnordered    = 0wx7a
     and ext_opcode_tail              = 0wx7c
+    and ext_opcode_arbCompare        = 0wx7d
     and ext_opcode_callFastRTSRtoR   = 0wx8f
     and ext_opcode_callFastRTSGtoR   = 0wx90
     and ext_opcode_createMutex       = 0wx91
@@ -664,6 +665,7 @@ struct
                         |   0wx79 => printStream "realUnordered"
                         |   0wx7a => printStream "floatUnordered"
                         |   0wx7c => (printOp (2, "tail\t"); printOp (2, ","))
+                        |   0wx7d => printStream "arbCompare"
                         |   0wx8f => printStream "callFastRTSRtoR"
                         |   0wx90 => printStream "callFastRTSGtoR"
                         |   0wx91 => printStream "createMutex"
@@ -1801,6 +1803,7 @@ struct
     val opcode_arbAdd           = SimpleCode [opcode_arbAdd]
     val opcode_arbSubtract      = SimpleCode [opcode_arbSubtract]
     val opcode_arbMultiply      = SimpleCode [opcode_arbMultiply]
+    val opcode_arbCompare       = SimpleCode [opcode_escape, ext_opcode_arbCompare]
 
     structure Sharing =
     struct

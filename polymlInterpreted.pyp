@@ -43,7 +43,7 @@
 	<source name="basis\LibrarySupport.sml" />
 	<source name="basis\List.sml" />
 	<source name="basis\ListPair.sml" />
-	<source name="basis\MATH.sml" />
+	<source name="basis\MATH.sig" />
 	<source name="basis\MONO_ARRAY.sml" />
 	<source name="basis\MONO_ARRAY_SLICE.sml" />
 	<source name="basis\MONO_VECTOR.sml" />
@@ -62,10 +62,9 @@
 	<source name="basis\PrettyPrinter.sml" />
 	<source name="basis\PRIM_IO.sml" />
 	<source name="basis\PrimIO.sml" />
+	<source name="basis\REAL.sig" />
 	<source name="basis\Real.sml" />
-	<source name="basis\Real32.sml" />
 	<source name="basis\RealArray.sml" />
-	<source name="basis\RealSignature.sml" />
 	<source name="basis\Signal.sml" />
 	<source name="basis\SingleAssignment.sml" />
 	<source name="basis\SML90.sml" />
@@ -152,10 +151,10 @@
 	<source name="mlsource\MLCompiler\MAKESIG.sml" />
 	<source name="mlsource\MLCompiler\Misc.ML" />
 	<source name="mlsource\MLCompiler\ml_bind.ML" />
-	<source name="mlsource\MLCompiler\PARSEDECSIG.sml" />
 	<source name="mlsource\MLCompiler\PARSE_DEC.ML" />
 	<source name="mlsource\MLCompiler\PARSE_TYPE.ML" />
 	<source name="mlsource\MLCompiler\ParseDec.ML" />
+	<source name="mlsource\MLCompiler\PARSEDECSIG.sml" />
 	<source name="mlsource\MLCompiler\ParseTree\BASE_PARSE_TREE.sml" />
 	<source name="mlsource\MLCompiler\ParseTree\BaseParseTreeSig.sml" />
 	<source name="mlsource\MLCompiler\ParseTree\CODEGEN_PARSETREE.sml" />

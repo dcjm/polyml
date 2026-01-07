@@ -2395,6 +2395,14 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 sp = tailPtr + arg2;
                 goto TAIL_CALL;
 
+            case EXTINSTR_arbCompare:
+            {
+                // Compare the top two values as arbitrary precision values and push the result as a tagged value.
+                PolyWord x = *sp++;
+                PolyWord y = (*sp);
+                *sp = TAGGED(compareLong(x, y));
+                break;
+            }
 
             case EXTINSTR_allocMutClosureW:
             {

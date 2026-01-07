@@ -222,6 +222,7 @@
 #define EXTINSTR_realUnordered      0x79
 #define EXTINSTR_floatUnordered     0x7a
 #define EXTINSTR_tail               0x7c
+#define EXTINSTR_arbCompare         0x7d
 #define EXTINSTR_callFastRtoR       0x8f
 #define EXTINSTR_callFastGtoR       0x90
 #define EXTINSTR_createMutex        0x91
