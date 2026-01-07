@@ -143,6 +143,9 @@ class X86TaskData;
 // This is passed as the argument vector to X86AsmSwitchToPoly.
 // The offsets are built into the assembly code and the code-generator.
 // localMpointer and stackPtr are updated before control returns to C.
+// The offset of enterInterpreter is built into the code-generator for
+// the interpreter (IntCodeCons.ML) because it generates "EnterInt"
+// instructions at the start of interpreted code during bootstrap.
 typedef struct _AssemblyArgs {
 public:
     PolyWord        *localMpointer;     // Allocation ptr + 1 word
@@ -157,11 +160,11 @@ public:
     uintptr_t       saveCStack;         // Saved C stack frame.
     PolyWord        threadId;           // My thread id.  Saves having to call into RTS for it.
     stackItem       *stackPtr;          // Current stack pointer
-    byte            *arbEmulationCall;  // These are filled in with the functions.
     byte            *enterInterpreter;  // These are filled in with the functions.
-    byte            *heapOverFlowCall; 
+    byte            *heapOverFlowCall;
     byte            *stackOverFlowCall;
     byte            *stackOverFlowCallEx;
+    byte            *arbEmulationCall;  // These are filled in with the functions.
     byte            *trapHandlerEntry;
     // Saved registers, where applicable.
     stackItem       p_rax;

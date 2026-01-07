@@ -57,10 +57,11 @@ UnusedAlign         DWORD   ?
 SaveCStack          QWORD   ?       ; Saved C stack frame
 ThreadId            QWORD   ?       ; My thread id
 StackPtr            QWORD   ?       ; Stack pointer
-UnusedProgramCtr    QWORD   ?
+EnterInterpreter    QWORD   ?
 HeapOverFlowCall    QWORD   ?
 StackOverFlowCall   QWORD   ?
 StackOverFlowCallEx QWORD   ?
+ArbEmulationCall    QWORD   ?
 TrapHandlerEntry    QWORD   ?
 SaveRAX             QWORD   ?
 SaveRBX             QWORD   ?

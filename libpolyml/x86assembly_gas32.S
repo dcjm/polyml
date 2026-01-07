@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2021
+   Copyright (c) David C. J. Matthews 2000-2021, 2026
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -74,14 +74,14 @@ EXTNAME(id):
 #define Arg_SaveCStack          0x18  /* Save C Stack pointer */
 #define Arg_ThreadId            0x1c  /* My thread id */
 #define Arg_StackPtr            0x20  /* Stack Pointer */
-#define Arg_TrapHandlerEntry    0x34
-#define Arg_SaveRAX             0x38
-#define Arg_SaveRBX             0x3c
-#define Arg_SaveRCX             0x40
-#define Arg_SaveRDX             0x44
-#define Arg_SaveRSI             0x48
-#define Arg_SaveRDI             0x4c
-#define Arg_SaveFP              0x50
+#define Arg_TrapHandlerEntry    0x38
+#define Arg_SaveRAX             0x3c
+#define Arg_SaveRBX             0x40
+#define Arg_SaveRCX             0x44
+#define Arg_SaveRDX             0x48
+#define Arg_SaveRSI             0x4c
+#define Arg_SaveRDI             0x50
+#define Arg_SaveFP              0x54
 
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2

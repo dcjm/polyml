@@ -1,6 +1,6 @@
 (*
     Title:      Second stage bootstrap from interpreted code.
-    Copyright   David Matthews 2020
+    Copyright   David Matthews 2020, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,7 +24,7 @@ PolyML.make "mlsource/MLCompiler";
 
 (* Create the initial basis *)
 val globalTable : Make.gEnv = Make.makeGEnv ();
-val () = Initialise.initGlobalEnv {globalTable=globalTable, intIsArbitraryPrecision=false};
+val () = Initialise.initGlobalEnv {globalTable=globalTable, intIsArbitraryPrecision=false, useEmulationForArbitrary=false};
 
 (* PolyEndBootstrapMode sets the interpreter so that any function or return must
    have an enter-int instruction otherwise it is treated as machine code.

@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2020
+;  Copyright (c) David C. J. Matthews 2000-2020, 2027
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -50,10 +50,11 @@ Pflags              DB      ?       ; Byte: Flags to set - used in arbitrary pre
 SaveCStack          DWORD   ?       ; Saved C stack pointer
 ThreadId            DWORD   ?       ; My thread id
 StackPtr            DWORD   ?       ; Stack pointer
-UnusedProgramCtr    DWORD   ?
+EnterInterpreter    DWORD   ?
 HeapOverFlowCall    DWORD   ?
 StackOverFlowCall   DWORD   ?
 StackOverFlowCallEx DWORD   ?
+ArbEmulationCall    DWORD   ?
 TrapHandlerEntry    DWORD   ?
 SaveRAX             DWORD   ?
 SaveRBX             DWORD   ?

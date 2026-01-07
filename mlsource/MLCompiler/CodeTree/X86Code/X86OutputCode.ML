@@ -151,10 +151,10 @@ struct
     and memRegCStackPtr           = 6 * Word.toInt nativeWordSize
     and memRegThreadSelf          = 7 * Word.toInt nativeWordSize
     and memRegStackPtr            = 8 * Word.toInt nativeWordSize
-    and memRegArbPrecisionCall    = 9 * Word.toInt nativeWordSize
     and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
     and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
     and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
+    and memRegArbPrecisionCall    = 13 * Word.toInt nativeWordSize
     and memRegSavedRbx            = 15 * Word.toInt nativeWordSize (* Heap base in 32-in-64. *)
 
     (* create and initialise a code segment *)

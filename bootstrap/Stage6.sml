@@ -1,6 +1,6 @@
 (*
     Title:      Sixth stage bootstrap from interpreted code.
-    Copyright   David Matthews 2020
+    Copyright   David Matthews 2020, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,8 +24,9 @@ PolyML.make "mlsource/MLCompiler";
 
 (* Create the initial basis *)
 val globalTable : Make.gEnv = Make.makeGEnv ();
-val test = List.exists (fn "--intIsIntInf" => true | _ => false) (CommandLine.arguments());
-val () = Initialise.initGlobalEnv {globalTable=globalTable, intIsArbitraryPrecision=test};
+val testIntIsArb = List.exists (fn "--intIsIntInf" => true | _ => false) (CommandLine.arguments())
+val testArbUseEmulation = List.exists (fn "--useCompactIntInf" => true | _ => false) (CommandLine.arguments())
+val () = Initialise.initGlobalEnv {globalTable=globalTable, intIsArbitraryPrecision=testIntIsArb, useEmulationForArbitrary=testArbUseEmulation};
 
 (* Compile the basis in the new compiler. Export the result. *)
 MLCompiler.useIntoEnv globalTable [] "bootstrap/Stage7.sml";

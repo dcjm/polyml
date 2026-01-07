@@ -114,7 +114,6 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg);
 }
 
-static Handle mult_longc(TaskData* taskData, Handle, Handle); 
 static Handle or_longc(TaskData *taskData, Handle,Handle);
 static Handle and_longc(TaskData *taskData, Handle,Handle);
 static Handle xor_longc(TaskData *taskData, Handle,Handle);
