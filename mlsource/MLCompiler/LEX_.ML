@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
         
     Further development:
-    Copyright (c) 2000-7, 2015-16 David C.J. Matthews
+    Copyright (c) 2000-7, 2015-16, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,9 +26,9 @@
 *)
 
 functor LEX_ (
-structure PRETTY: PRETTYSIG
+structure PRETTY: PRETTY
 structure SYMBOLS : SymbolsSig
-structure DEBUG: DEBUGSIG
+structure DEBUG: DEBUG
 
 ) : LEXSIG =
 

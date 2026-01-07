@@ -1,7 +1,7 @@
 /*
     Title:  polystring.cpp - String functions and types
 
-    Copyright (c) 2006, 2015 David C.J. Matthews
+    Copyright (c) 2006, 2015, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,6 +41,8 @@
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
+
+#include <string>
 
 #include "globals.h"
 #include "polystring.h"
@@ -104,6 +106,12 @@ char *Poly_string_to_C_alloc(PolyWord ps, size_t extraChars)
     res[chars] = '\0';
     return res;
 } /* Poly_string_to_C_alloc */
+
+std::string PolyStringToCString(PolyWord ps)
+{
+    PolyStringObject* str = (PolyStringObject*)ps.AsObjPtr();
+    return std::string(str->chars, str->length);
+}
 
 TempCString::~TempCString()
 {
@@ -198,6 +206,22 @@ WCHAR *Poly_string_to_U_alloc(PolyWord ps, size_t extraChars)
     return res;
 }
 
+std::wstring PolyStringToUString(PolyWord ps)
+{
+    PolyStringObject* str = (PolyStringObject*)ps.AsObjPtr();
+    int iLength = (int)str->length;
+    if (iLength == 0) return std::wstring();
+    const char* iPtr = str->chars;
+
+    // Find the space required.
+    int chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, NULL, 0);
+    if (chars <= 0) return std::wstring();
+    std::wstring result;
+    result.resize(chars);
+    MultiByteToWideChar(codePage, 0, iPtr, iLength, &result[0], (int)result.size());
+    return result;
+}
+
 // convert_string_list return a list of strings.
 // This converts Unicode strings.
 Handle convert_string_list(TaskData *mdTaskData, int count, WCHAR **strings)
@@ -287,41 +311,11 @@ void freeStringVector(char **vec)
     free(vec);
 }
 
-// Concatenate two strings.  Now used only internally in the RTS in process_env.cpp
-Handle strconcatc(TaskData *mdTaskData, Handle y, Handle x)
-/* Note: arguments are in the reverse order from Poly */
-{
-    POLYUNSIGNED xlen = DEREFSTRINGHANDLE(x)->length;
-    /* Don't concatenate with null strings */
-    if (xlen == 0) return y;
-    
-    POLYUNSIGNED ylen = DEREFSTRINGHANDLE(y)->length;
-    if (ylen == 0) return x;
-    
-    POLYUNSIGNED len = xlen + ylen;
-    
-    /* Get store for combined string. Include rounding up to next word and
-    room for the length word and add in the flag. */
-    Handle result = alloc_and_save(mdTaskData, (len + sizeof(PolyWord)-1)/sizeof(PolyWord) + 1, F_BYTE_OBJ);
-    
-    DEREFSTRINGHANDLE(result)->length = len;
-    
-    /* Copy first string */
-    char *to_ptr = DEREFSTRINGHANDLE(result)->chars;
-    char *from_ptr = DEREFSTRINGHANDLE(x)->chars;
-    while (xlen-- > 0) (*to_ptr++ = *from_ptr++);
-
-    /* Add on second */
-    from_ptr = DEREFSTRINGHANDLE(y)->chars;
-    while (ylen-- > 0) (*to_ptr++ = *from_ptr++);
-
-    return(result);
-} /* strconcat */
 
 // Only used in Xwindows and then only for debugging.
 void print_string(PolyWord s)
 {
     extern FILE *polyStdout;
-        PolyStringObject * str = (PolyStringObject *)s.AsObjPtr();
-        fwrite(str->chars, 1, str->length, polyStdout);
+    PolyStringObject * str = (PolyStringObject *)s.AsObjPtr();
+    fwrite(str->chars, 1, str->length, polyStdout);
 }

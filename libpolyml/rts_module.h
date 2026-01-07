@@ -1,7 +1,7 @@
 /*
     Title:  rts_module.h - Base class for the run-time system modules.
 
-    Copyright (c) 2006, 2011, 2016 David C.J. Matthews
+    Copyright (c) 2006, 2011, 2016, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,6 +34,7 @@ public:
     virtual void Start(void) {}
     virtual void Stop(void) {}
     virtual void GarbageCollect(ScanAddress * /*process*/) {}
+    virtual void ForkChild(void) {} // Called in the child process after a Unix fork.
 private:
     void RegisterModule(void);
 };
@@ -42,6 +43,7 @@ void InitModules(void);
 void StartModules(void);
 void StopModules(void);
 void GCModules(ScanAddress *process);
+void ForkChildModules(void);
 
 #endif
 

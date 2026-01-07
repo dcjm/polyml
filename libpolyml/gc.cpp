@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010-12, 2019 David C. J. Matthews
+    Copyright (c) 2010-12, 2019, 2020 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -55,6 +55,7 @@
 #include "statistics.h"
 #include "profiling.h"
 #include "heapsizing.h"
+#include "gc_progress.h"
 
 static GCTaskFarm gTaskFarm; // Global task farm.
 GCTaskFarm *gpTaskFarm = &gTaskFarm;
@@ -122,6 +123,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         globalStats.incCount(PSC_GC_SHARING);
         GCSharingPhase();
     }
+
+    gcProgressBeginMajorGC(); // The GC sharing phase is treated separately
+
 /*
  * There is a really weird bug somewhere.  An extra bit may be set in the bitmap during
  * the mark phase.  It seems to be related to heavy swapping activity.  Duplicating the
@@ -187,18 +191,20 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         LocalMemSpace *lSpace = *i;
         // Reset the allocation pointers.  They will be set to the
         // limits of the retained data.
-#ifdef POLYML32IN64
-        lSpace->lowerAllocPtr = lSpace->bottom+1; // Must be odd-word aligned
-        lSpace->lowerAllocPtr[-1] = PolyWord::FromUnsigned(0);
-#else
         lSpace->lowerAllocPtr = lSpace->bottom;
+#ifdef POLYML32IN64
+        for (int i = 0; i < POLYML32IN64-1; i++)
+            *lSpace->lowerAllocPtr++ = PolyWord::FromUnsigned(0);
 #endif
         lSpace->upperAllocPtr = lSpace->top;
     }
 
+	gcProgressSetPercent(25);
+
     if (debugOptions & DEBUG_GC) Log("GC: Check weak refs\n");
     /* Detect unreferenced streams, windows etc. */
     GCheckWeakRefs();
+	gcProgressSetPercent(50);
 
     // Check that the heap is not overfull.  We make sure the marked
     // mutable and immutable data is no more than 90% of the
@@ -230,6 +236,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     GCCopyPhase();
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Copy");
+	gcProgressSetPercent(75);
 
     // Update Phase.
     if (debugOptions & DEBUG_GC) Log("GC: Update\n");
@@ -346,14 +353,6 @@ void CreateHeap()
     initialiseMarkerTables();
 }
 
-// Set single threaded mode. This is only used in a child process after
-// Posix fork in case there is a GC before the exec.
-void GCSetSingleThreadAfterFork()
-{
-    gpTaskFarm->SetSingleThreaded();
-    initialiseMarkerTables();
-}
-
 class FullGCRequest: public MainThreadRequest
 {
 public:
@@ -414,3 +413,21 @@ void FullGCForShareCommonData(void)
 {
     doGC(0);
 }
+
+// RTS module for the GC.  Only used for ForkChild.
+class GarbageCollectModule : public RtsModule
+{
+public:
+    virtual void ForkChild(void);
+};
+
+// Set single threaded mode. This is only used in a child process after
+// Posix fork in case there is a GC before the exec.
+void GarbageCollectModule::ForkChild(void)
+{
+    gpTaskFarm->SetSingleThreaded();
+    initialiseMarkerTables();
+}
+
+// Declare this.  It will be automatically added to the table.
+static GarbageCollectModule gcModule;

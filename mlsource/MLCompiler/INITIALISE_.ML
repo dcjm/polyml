@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-20
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-23, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -30,15 +30,15 @@ functor INITIALISE_ (
     structure TYPETREE : TYPETREESIG
     structure STRUCTVALS : STRUCTVALSIG
     structure VALUEOPS : VALUEOPSSIG
-    structure CODETREE : CODETREESIG
+    structure CODETREE : CODETREE
     structure EXPORTTREE: EXPORTTREESIG
     structure DATATYPEREP: DATATYPEREPSIG
     structure TYPEIDCODE: TYPEIDCODESIG
     structure MAKE: MAKESIG
     structure ADDRESS : AddressSig
-    structure DEBUG: DEBUGSIG
-    structure DEBUGGER : DEBUGGERSIG
-    structure PRETTY : PRETTYSIG
+    structure DEBUG: DEBUG
+    structure DEBUGGER : DEBUGGER
+    structure PRETTY : PRETTY
     structure PRINTTABLE: PRINTTABLESIG
 
     structure MISC :
@@ -163,15 +163,24 @@ struct
                     val code =
                         createTypeValue{
                             eqCode = CodeZero, printCode = mkConst (toMachineWord (ref monotypePrinter)),
-                            boxedCode = boxedEither (* Assume this for the moment *), sizeCode = singleWord }
+                            boxedCode = boxedNever, sizeCode = singleWord }
                 in
                     Global (genCode(code, [], 0) ())
                 end
         end
-        
+
+        fun makeTypeConstructor (name, typeVars, uid, locations) =
+            TypeConstrs
+            {
+                name       = name,
+                typeVars   = typeVars,
+                identifier = uid,
+                locations = locations
+            }
+
         fun makeTypeAbbreviation(name, fullName, typeVars, typeResult, locations) =
             makeTypeConstructor(
-                name, typeVars, makeTypeFunction(basisDescription fullName, (typeVars, typeResult)),
+                name, typeVars, makeTypeFunction(typeVars, typeResult, basisDescription fullName),
                 locations)
 
         (* Make an opaque type and add it to an environment. *)
@@ -185,6 +194,9 @@ struct
             #enterType env (typeName, TypeConstrSet(typeconstr, []));
             mkTypeConstruction (typeName, typeconstr, [], declInBasis)
         end;
+
+        fun tsConstr(TypeConstrSet(ts, _)) = ts
+        and tsConstructors(TypeConstrSet(_, tvs)) = tvs
 
         (* List of something *)
         fun List (base : types) : types =
@@ -287,7 +299,7 @@ struct
         in
             val largeWordType =
                 makeTypeConstructor("word", [],
-                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
+                    makeFreeId(0, idCode, true, basisDescription "LargeWord.word"), declInBasis)
             val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
         end
 
@@ -340,6 +352,12 @@ struct
             (* Load a byte from an immutable.  *)
             val () = enterRunCall ("loadByteFromImmutable",
                     makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLByte{isImmutable=true})), a ** Word ->> b)
+            (* Load a 32-bit value into a large word *)
+            val () = enterRunCall ("loadPolyWord",
+                    makePolymorphic([a], mkLoadOperationFn(LoadStorePolyWord{isImmutable=false})), a ** Word ->> LargeWord)
+            (* Load a 64-bit value into a large word *)
+            val () = enterRunCall ("loadNativeWord",
+                    makePolymorphic([a], mkLoadOperationFn(LoadStoreNativeWord{isImmutable=false})), a ** Word ->> LargeWord)
             (* Get the length of a heap cell. *)
             val () = enterRunCall ("memoryCellLength", makePolymorphic([a], mkUnaryFn MemoryCellLength), a ->> Word)
             (* Return the flags.  Perhaps this could return a Word8.word value instead of a word. *)
@@ -354,6 +372,18 @@ struct
             (* Store a byte *)
             val () = enterRunCall ("storeByte",
                     makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=false})), mkProductType[a, Word, b] ->> Unit)
+            (* Store a word without release semantics. *)
+            val () = enterRunCall ("storeWordInitialise",
+                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLWord{isImmutable=true})), mkProductType[a, Word, b] ->> Unit)
+            (* Store a byte without release semantics *)
+            val () = enterRunCall ("storeByteInitialise",
+                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=true})), mkProductType[a, Word, b] ->> Unit)
+            (* Store a PolyWord value from a large word *)
+            val () = enterRunCall ("storePolyWord",
+                    makePolymorphic([a], mkStoreOperationFn(LoadStorePolyWord{isImmutable=false})), mkProductType[a, Word, LargeWord] ->> Unit)
+            (* Store a native word value from a large word *)
+            val () = enterRunCall ("storeNativeWord",
+                    makePolymorphic([a], mkStoreOperationFn(LoadStoreNativeWord{isImmutable=false})), mkProductType[a, Word, LargeWord] ->> Unit)
             (* Lock a mutable cell. *)
             val () = enterRunCall ("clearMutableBit",
                     makePolymorphic([a], mkUnaryFn ClearMutableFlag), a ->> Unit)
@@ -390,7 +420,6 @@ struct
  
             fun makeCall rtsCall n entryName = rtsCall (entryName, n, debugOpts)
             val makeFastCall = makeCall CODETREE.Foreign.rtsCallFast
-            and makeFullCall = makeCall CODETREE.Foreign.rtsCallFull
             (* We need to wrap this so that the arguments are passed in registers. *)
 
             fun makeRunCallTupled (argTypes, resultType, callN) : codetree =
@@ -427,6 +456,42 @@ struct
                 outerLambda
             end
 
+            (* "Full" calls pass the thread Id as the first parameter. *)
+            fun makeRunCallTupledFull (argTypes, resultType) =
+            let
+                val width = List.length argTypes
+                val callN = toMachineWord(makeFastCall(width + 1))
+                val name = "rtsCall" ^ Int.toString width;
+
+                local
+                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
+                    val tuple = mkLoadArgument 0       (* the inner parameter *)
+                    val args  =
+                        case argTypes of
+                            [singleType] => [(tuple, singleType)]
+                        |   argTypes =>
+                            let
+                                val argVals = List.tabulate(width, fn n => mkInd (n, tuple))
+                            in
+                                ListPair.zipEq(argVals, argTypes)
+                            end
+                in
+                    val innerBody = mkCall (f, (getCurrentThreadId, GeneralType) :: args, resultType)
+                end
+
+                local
+                    (* The closure contains the address of the RTS call. *)
+                    val f = mkEval(mkConst callN, [mkLoadArgument 0]) (* This creates the actual call. *)
+                    val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 0)
+                in
+                    val outerBody = mkEnv([mkDec (0, f)], innerLambda)
+                end
+
+                val outerLambda  = mkInlproc (outerBody, 1, name, [], 1)
+            in
+                outerLambda
+            end
+
             local
                 val a = makeTV ()
                 and b = makeTV ()
@@ -440,8 +505,7 @@ struct
                     makePolymorphic([a, b], proc)
                 end
             in
-                val rtsCallFull1Entry = makeInlCode(makeFullCall, "rtsCallFull1")
-                and rtsCallFast1Entry = makeInlCode(makeFastCall, "rtsCallFast1")
+                val rtsCallFast1Entry = makeInlCode(makeFastCall, "rtsCallFast1")
             end
             
             local
@@ -450,23 +514,28 @@ struct
                 and c = makeTV ()
                 and d = makeTV ()
                 and e = makeTV ()
+                and f = makeTV ()
                 
                 fun makeRtsCall(n, makeCall) = makeRunCallTupled(List.tabulate(n, fn _ => GeneralType), GeneralType, toMachineWord(makeCall n))
+                fun makeFullRtsCall n = makeRunCallTupledFull(List.tabulate(n, fn _ => GeneralType), GeneralType)
             in
-                val rtsCallFull0Entry = makePolymorphic([a], makeRtsCall(0, makeFullCall))
+                val rtsCallFull0Entry = makePolymorphic([a], makeFullRtsCall 0)
                 and rtsCallFast0Entry = makePolymorphic([a], makeRtsCall(0, makeFastCall))
                 val rtsCall0Type = String ->> Unit ->> a
  
                 val rtsCall1Type = String ->> a ->> b
-
-                val rtsCallFull2Entry = makePolymorphic([a, b, c], makeRtsCall(2, makeFullCall))
+                val rtsCallFull1Entry = makePolymorphic([a, b], makeFullRtsCall 1)
+                val rtsCallFull2Entry = makePolymorphic([a, b, c], makeFullRtsCall 2)
                 and rtsCallFast2Entry = makePolymorphic([a, b, c], makeRtsCall(2, makeFastCall))
                 val rtsCall2Type = String ->> TYPETREE.mkProductType [a,b] ->> c
-                val rtsCallFull3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFullCall))
+                val rtsCallFull3Entry = makePolymorphic([a, b, c, d], makeFullRtsCall 3)
                 val rtsCallFast3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFastCall))
                 val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
+                val rtsCallFull4Entry = makePolymorphic([a, b, c, d, e], makeFullRtsCall 4)
                 val rtsCallFast4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFastCall))
                 val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
+                val rtsCallFull5Entry = makePolymorphic([a, b, c, d, e, f], makeFullRtsCall 5)
+                val rtsCall5Type = String ->> TYPETREE.mkProductType [a,b,c,d,e] ->> f
             end
         in
             val () = enterRunCall ("rtsCallFull0", rtsCallFull0Entry, rtsCall0Type)
@@ -478,6 +547,8 @@ struct
             val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
+            val () = enterRunCall ("rtsCallFull4", rtsCallFull4Entry, rtsCall4Type)
+            val () = enterRunCall ("rtsCallFull5", rtsCallFull5Entry, rtsCall5Type)
             
             val makeRunCallTupled = makeRunCallTupled (* Needed for reals. *)
         end
@@ -515,7 +586,6 @@ struct
             val EXC_XWindows    = 10
             val EXC_subscript   = 11
             val EXC_thread      = 12
-            val EXC_foreign     = 23
             val EXC_Bind        = 100 (* In Match compiler. *)
             val EXC_Match       = 101
             val EXC_Fail        = 103
@@ -535,11 +605,11 @@ struct
                     ("Fail",        EXC_Fail,           String),
                     ("Conversion",  EXC_conversion,     String),
                     ("XWindows",    EXC_XWindows,       String),
-                    ("Foreign",     EXC_foreign,        String),
                     ("Thread",      EXC_thread,         String),
                     ("SysErr",      EXC_syserr,         String ** Option LargeWord)
                 ]
         end
+        
 
         (* Standard Basis structures for basic types.  These contain the definitions of the basic
            types and operations on them.  The structures are extended in the basis library and
@@ -576,6 +646,7 @@ struct
             val () = enterArbitrary("add", ArbArith BuiltIns.ArithAdd, arithType)
             val () = enterArbitrary("subtract", ArbArith BuiltIns.ArithSub, arithType)
             val () = enterArbitrary("multiply", ArbArith BuiltIns.ArithMult, arithType)
+            val () = #enterVal largeIntEnv ("log2Word", mkGvar ("log2Word", Word ->> Word, mkUnaryFn BuiltIns.Log2Word, declInBasis))
         end
 
         local
@@ -857,12 +928,7 @@ struct
             val () = #enterType real32Env ("real", TypeConstrSet(floatConstr, []))
             val () = enterUnary("toLarge", BuiltIns.FloatToDouble, floatType ->> Real)
             (* Conversion with the current rounding mode. *)
-            and () = enterUnary("fromReal", BuiltIns.DoubleToFloat NONE, Real  ->> floatType)
-            (* There are various versions of this function for each of the rounding modes. *)
-            and () = enterUnary("fromRealRound", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_NEAREST), Real  ->> floatType)
-            and () = enterUnary("fromRealTrunc", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_ZERO), Real  ->> floatType)
-            and () = enterUnary("fromRealCeil", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_POSINF), Real  ->> floatType)
-            and () = enterUnary("fromRealFloor", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_NEGINF), Real  ->> floatType)
+            and () = enterUnary("fromReal", BuiltIns.DoubleToFloat, Real  ->> floatType)
             val () = #enterVal real32Env ("rtsCallFastR_R", rtsCallFastF_F)
             val () = #enterVal real32Env ("rtsCallFastRR_R", rtsCallFastFF_F)
             val () = #enterVal real32Env ("rtsCallFastRI_R", rtsCallFastFG_F)
@@ -879,6 +945,7 @@ struct
             val () = enterBinaryOp("/",     ArithDiv)
             val () = enterUnary("~",   RealNeg PrecSingle, unaryType)
             val () = enterUnary("abs", RealAbs PrecSingle, unaryType)
+            val () = enterUnary("fromFixedInt", RealFixedInt PrecSingle, fixedIntType ->> floatType)
             val () = enterUnary("truncFix", RealToInt(PrecSingle, TO_ZERO), floatToFixType)
             val () = enterUnary("roundFix", RealToInt(PrecSingle, TO_NEAREST), floatToFixType)
             val () = enterUnary("ceilFix", RealToInt(PrecSingle, TO_POSINF), floatToFixType)
@@ -913,15 +980,19 @@ struct
                     [DeclaredAt inBasis])
             val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
             val selfFunction = mkGvar ("self", Unit ->> threadType, getCurrentThreadIdFn, declInBasis)
-            val atIncrFunction = mkGvar("atomicIncr", Ref Word ->> Word, mkUnaryFn BuiltIns.AtomicIncrement, declInBasis)
-            val atDecrFunction = mkGvar("atomicDecr", Ref Word ->> Word, mkUnaryFn BuiltIns.AtomicDecrement, declInBasis)
-            val atResetFunction = mkGvar("atomicReset", Ref Word ->> Unit, mkUnaryFn BuiltIns.AtomicReset, declInBasis)
+            val createMutexFunction = mkGvar("createMutex", Unit ->> Ref Word, createMutexFn, declInBasis)
+            and lockMutexFunction = mkGvar("lockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.LockMutex, declInBasis)
+            and tryLockMutexFunction = mkGvar("tryLockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.TryLockMutex, declInBasis)
+            and unlockMutexFunction = mkGvar("unlockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.UnlockMutex, declInBasis)
+            and cpuPauseFunction = mkGvar("cpuPause", Unit ->> Unit, cpuPauseFn, declInBasis)
         in
             val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
             val () = #enterVal threadEnv ("self", selfFunction)
-            val () = #enterVal threadEnv ("atomicIncr", atIncrFunction)
-            val () = #enterVal threadEnv ("atomicDecr", atDecrFunction)
-            val () = #enterVal threadEnv ("atomicReset", atResetFunction)
+            val () = #enterVal threadEnv ("createMutex", createMutexFunction)
+            val () = #enterVal threadEnv ("lockMutex", lockMutexFunction)
+            val () = #enterVal threadEnv ("tryLockMutex", tryLockMutexFunction)
+            val () = #enterVal threadEnv ("unlockMutex", unlockMutexFunction)
+            val () = #enterVal threadEnv ("cpuPause", cpuPauseFunction)
         end
 
         local
@@ -961,6 +1032,10 @@ struct
             val setDoubleFunction =
                 mkGvar("setDouble",
                     mkProductType[LargeWord, Word, Real] ->> Unit, mkStoreOperationFn LoadStoreCDouble, declInBasis)
+            val allocCStackFn =
+                mkGvar("allocCStack", Word ->> LargeWord, mkUnaryFn BuiltIns.AllocCStack, declInBasis)
+            val freeCStackFn =
+                mkGvar("freeCStack", LargeWord ** Word ->> Unit, mkBinaryFn BuiltIns.FreeCStack, declInBasis)
         in
             val () = #enterVal fmemEnv ("get8", get8Function)
             val () = #enterVal fmemEnv ("get16", get16Function)
@@ -974,6 +1049,92 @@ struct
             val () = #enterVal fmemEnv ("set64", set64Function)
             val () = #enterVal fmemEnv ("setFloat", setFloatFunction)
             val () = #enterVal fmemEnv ("setDouble", setDoubleFunction)
+            val () = #enterVal fmemEnv ("allocCStack", allocCStackFn)
+            (* Free is a binary operation that takes both the allocated address and the size.
+               The size is used by the compiled code where this is implemented using the C-stack.
+               The allocated address is intended for possible use by the interpreter where so
+               that it can be implemented as malloc/free. *)
+            val () = #enterVal fmemEnv ("freeCStack", freeCStackFn)
+        end
+        
+        local
+            val foreignEnv = makeStructure(globalEnv, "Foreign")
+
+            local
+                val EXC_foreign     = 23
+                val foreignException =
+                    Value{ name = "Foreign", typeOf = String ->> TYPETREE.exnType,
+                           access = Global(mkConst(toMachineWord EXC_foreign)),
+                           class = Exception, locations = declInBasis,
+                        references = NONE, instanceTypes=NONE }
+            in
+                val () = #enterVal foreignEnv ("Foreign", foreignException)
+            end
+            
+            val arg0 = mkLoadArgument 0
+            val arg1 = mkLoadArgument 1
+            
+            local
+                val callForeignCall = mkEval(mkConst (toMachineWord CODETREE.Foreign.foreignCall), [arg0])
+                val innerBody = mkEval(mkLoadClosure 0, [mkInd(0, arg0), mkInd(1, arg0), mkInd(2, arg0)])
+                val outerBody =
+                    mkEnv([mkDec(0, callForeignCall)], mkInlproc(innerBody, 1, "foreignCall(1)(1)", [mkLoadLocal 0], 0))
+            in
+                val foreignCallEntry = mkInlproc(outerBody, 1, "foreignCall(1)", [], 1)
+            end
+
+            local
+                (* Build a callback.  First apply the compiler to the abi/argtype/restype values.
+                   Then apply the result to a function to generate the final C callback code.
+                   The C callback code calls the function with two arguments.  Here we have to
+                   pass it a function that expects a tuple and unwrap it. *)
+                val innerMost =
+                    mkInlproc(mkEval(mkLoadClosure 0, [mkTuple[arg0, arg1]]), 2, "buildCallBack(1)(1)2", [mkLoadArgument 0], 0)
+                val resultFn =
+                    mkInlproc(mkEval(mkLoadClosure 0, [innerMost]), 1, "buildCallBack(1)(1)", [mkLoadLocal 0], 0)
+                val firstBuild = mkEval(mkConst (toMachineWord CODETREE.Foreign.buildCallBack), [arg0])
+                val outerBody = mkEnv([mkDec(0, firstBuild)], resultFn)
+            in
+                val buildCallBackEntry = mkInlproc(outerBody, 1, "buildCallBack(1)", [], 1)
+            end
+            
+            (* Abi - an eqtype.  An enumerated type or short int. *)
+            local
+                open TypeValue
+                fun monotypePrinter _ = PRETTY.PrettyString "?"
+                val code =
+                    createTypeValue{
+                        eqCode = equalTaggedWordFn, printCode = mkConst (toMachineWord (ref monotypePrinter)),
+                        boxedCode = boxedNever, sizeCode = singleWord }
+                val abiEqAndPrint = Global (genCode(code, [], 0) ())
+            in
+                val abiConstr =
+                    makeTypeConstructor("abi", [],
+                        makeFreeId(0, abiEqAndPrint, true,
+                            basisDescription "Foreign.LowLevel.abi"), declInBasis)
+            end
+            val () = #enterType foreignEnv ("abi", TypeConstrSet(abiConstr, []))
+            val abiType = mkTypeConstruction ("abi", abiConstr, [], declInBasis)
+            (* It would be possible to put the definition of cType in here but it's complicated.
+               It's easier to use an opaque type and put in a cast later. *)
+            val ctypeConstr =
+                makeTypeConstructor("ctype", [],
+                        makeFreeId(0, defaultEqAndPrintCode(), false,
+                            basisDescription "Foreign.LowLevel.ctype"), declInBasis)
+            val () = #enterType foreignEnv ("ctype", TypeConstrSet(ctypeConstr, []))
+            val ffiType = mkTypeConstruction ("ctype", ctypeConstr, [], declInBasis)
+            val foreignCallType =
+                mkProductType[abiType, List ffiType, ffiType] ->> mkProductType[LargeWord, LargeWord, LargeWord] ->> Unit
+            val buildCallBackType =
+                mkProductType[abiType, List ffiType, ffiType] ->> (mkProductType[LargeWord, LargeWord] ->> Unit) ->> LargeWord
+        
+            fun enterForeign (name, entry, typ) =
+                #enterVal foreignEnv (name, mkGvar (name, typ, entry, declInBasis))
+        in
+            val () = enterForeign("foreignCall", foreignCallEntry, foreignCallType)
+            val () = enterForeign("buildCallBack", buildCallBackEntry, buildCallBackType)
+            (* Apply the abiList function here.  The ABIs depend on the platform in the interpreted version. *)
+            val () = enterForeign("abiList", mkConst(toMachineWord(CODETREE.Foreign.abiList())), List (String ** abiType))
         end
 
         local
@@ -1005,20 +1166,26 @@ struct
                       | SOME res => res
                 end
             
+            fun unescapeChar (s: string) : char =
+            let
+                fun rdr i =
+                    if i = size s then NONE
+                    else SOME(String.sub(s, i), i+1)
+            in
+                case Char.scan rdr 0 of
+                    NONE => (* Bad conversion *)
+                        raise Conversion "Invalid string constant"
+                |   SOME(res, _) => res
+            end
+            
             open PRINTTABLE
             
             val convstringCode = genCode(mkConst(toMachineWord unescapeString), [], 0) ()
             val convintCode = genCode(mkConst(toMachineWord intOfString), [], 0) ()
             val convwordCode = genCode(mkConst(toMachineWord wordOfString), [], 0) ()
+            val convcharCode = genCode(mkConst(toMachineWord unescapeChar), [], 0) ()
         in
-            (* Conversion overloads used to be set by the ML bootstrap code.  It's simpler
-               to do that here but to maintain compatibility with the 5.6 compiler we need
-               to define these.  Once we've rebuilt the compiler this can be removed
-               along with the code that uses it. *)
-            val () = addVal ("convStringName", "convString": string, String)
-            val () = addVal ("convInt", intOfString : string -> int, String ->> intInfType)
-            val () = addVal ("convWord", wordOfString : string -> word, String ->> Word)
-            (* Convert a string, recognising and converting the escape codes. *)
+            (* We need this for compatibility with the 5.8.2 bootstrap. *)
             val () = addVal ("convString", unescapeString: string -> string, String ->> String)
             (* Flag to indicate which version of Int to compile *)
             val () = addVal ("intIsArbitraryPrecision", intIsArbitraryPrecision, Bool)
@@ -1027,6 +1194,7 @@ struct
             val () = addOverload("convInt", fixedIntConstr, convintCode)
             val () = addOverload("convInt", intInfConstr, convintCode)
             val () = addOverload("convWord", wordConstr, convwordCode)
+            val () = addOverload("convChar", charConstr, convcharCode)
         end
 
     (* The only reason we have vector here is to get equality right.  We need
@@ -1319,6 +1487,7 @@ struct
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, t ->> environEntryType, code, false, numConstrs, declInBasis))
                         (constrs, constrReps)
+            fun valName (Value{name, ...}) = name
             val () = List.app (fn c => #enterVal debuggerEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
             val () = #enterType debuggerEnv ("environEntry", TypeConstrSet(environEntryConstr, constructors))
@@ -1537,6 +1706,7 @@ struct
             (* This representation must match the representation defined in ExportTree.sml. *)
             val numConstrs = List.length constrs
             val {constrs=constrReps, ...} = chooseConstrRepr(constrs, [])
+            fun valName (Value{name, ...}) = name
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, t ->> PtProperties, code, false, numConstrs, declInBasis))
@@ -1566,6 +1736,8 @@ struct
                     List Universal ->> String ->> Unit)            
             val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord (compiler: compilerType)), declInBasis));
             val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable: nameSpace)), nameSpaceType)
+            (* Add a print function so we can print a message at the start of a bootstrap phase. *)
+            val () = enterBootstrap("print", mkConst (toMachineWord TextIO.print), String ->> Unit)
         end;
         
         local
@@ -1636,6 +1808,7 @@ struct
                 ("lowlevelOptimiseTag",    toMachineWord (lowlevelOptimiseTag: bool tag),       Tag Bool),
                 ("codetreeAfterOptTag",    toMachineWord (codetreeAfterOptTag: bool tag),       Tag Bool),
                 ("inlineFunctorsTag",      toMachineWord (inlineFunctorsTag: bool tag),         Tag Bool),
+                ("compilerDebugTag",       toMachineWord (compilerDebugTag: int tag),           Tag Int),
                 ("debugTag",               toMachineWord (debugTag: bool tag),                  Tag Bool),
                 ("printDepthFunTag",       toMachineWord (DEBUG.printDepthFunTag: (unit->FixedInt.int) tag), Tag (Unit->>fixedIntType)),
                 ("errorDepthTag",          toMachineWord (DEBUG.errorDepthTag: FixedInt.int tag),        Tag fixedIntType),
@@ -1648,6 +1821,7 @@ struct
                 ("reportUnreferencedIdsTag", toMachineWord (reportUnreferencedIdsTag: bool tag), Tag Bool),
                 ("reportExhaustiveHandlersTag", toMachineWord (reportExhaustiveHandlersTag: bool tag), Tag Bool),
                 ("narrowOverloadFlexRecordTag", toMachineWord (narrowOverloadFlexRecordTag: bool tag), Tag Bool),
+                ("languageExtensionsTag",  toMachineWord (languageExtensionsTag: bool tag), Tag Bool),
                 ("createPrintFunctionsTag", toMachineWord (createPrintFunctionsTag: bool tag), Tag Bool),
                 ("reportDiscardedValuesTag", toMachineWord (reportDiscardedValuesTag: FixedInt.int tag), Tag fixedIntType)
                  ]
@@ -1738,13 +1912,16 @@ struct
                         displayValues(valu, depth, makeTypeEnv nameSpace)
                 and propsForValue (Value {locations, typeOf, ...}) = PTtype typeOf :: mapLocationProps locations
 
-                fun isConstructor (Value{class = Exception, ...}) = true
-                |   isConstructor (Value{class = Constructor _, ...}) = true
-                |   isConstructor _ = false
-                
                 fun isException (Value{class = Exception, ...}) = true
                 |   isException _ = false
-                
+
+                fun valName (Value{name, ...}) = name
+                fun valTypeOf (Value{typeOf, ...}) = typeOf
+
+                fun isConstructor (Value{class=Constructor _, ...}) = true
+                |   isConstructor (Value{class=Exception, ...})     = true
+                |   isConstructor _                                  = false;
+    
             in
                 val () = applyList (fn (name, v, t) =>
                                     #enterVal valuesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))

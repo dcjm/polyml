@@ -1,7 +1,7 @@
 (*
     Title:      Source level debugger for Poly/ML
     Author:     David Matthews
-    Copyright  (c)   David Matthews 2000, 2014, 2015
+    Copyright  (c)   David Matthews 2000, 2014, 2015, 2020, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,13 +21,13 @@ functor DEBUGGER_ (
 
     structure STRUCTVALS : STRUCTVALSIG
     structure VALUEOPS : VALUEOPSSIG
-    structure CODETREE : CODETREESIG
+    structure CODETREE : CODETREE
     structure TYPETREE: TYPETREESIG
     structure ADDRESS : AddressSig
     structure COPIER: COPIERSIG
     structure TYPEIDCODE: TYPEIDCODESIG
     structure LEX : LEXSIG
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
 
     structure UTILITIES :
     sig
@@ -37,7 +37,7 @@ functor DEBUGGER_ (
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = COPIER.Sharing =
         TYPEIDCODE.Sharing = CODETREE.Sharing = ADDRESS = LEX.Sharing
 )
-: DEBUGGERSIG
+: DEBUGGER
 =
 struct
     open STRUCTVALS VALUEOPS CODETREE COPIER TYPETREE DEBUG
@@ -163,7 +163,8 @@ struct
     in
         case (searchEnvs match (clist, rlist), typeid) of
             (SOME t, _) => t
-        |   (NONE, TypeId{description, idKind = TypeFn typeFn, ...}) => makeTypeFunction(description, typeFn)
+        |   (NONE, TypeId{description, idKind as TypeFn _, ...}) =>
+                TypeId { access=Global CodeZero, description = description, idKind = idKind}
 
         |   (NONE, typeid as TypeId{description, idKind = Bound{arity, ...}, ...}) =>
                 (* The type ID is missing.  Make a new temporary ID. *)
@@ -174,13 +175,23 @@ struct
                 makeFreeId(arity, Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
 
     end
-    
+
+(*    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
+    |   tcIsAbbreviation _ = false*)
+    fun makeTypeConstructor (name, typeVars, uid, locations) =
+        TypeConstrs
+        {
+            name       = name,
+            typeVars   = typeVars,
+            identifier = uid,
+            locations = locations
+        }
+
     (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
-    fun makeTypeConstr (state: debugState) (TypeConstrSet(tcons, (*tcConstructors*) _)) =
+    fun makeTypeConstr (state: debugState) (TypeConstrSet(TypeConstrs {identifier, name, typeVars, locations, ...}, (*tcConstructors*) _)) =
         let
-            val typeID = searchType state (tcIdentifier tcons)
-            val newTypeCons =
-                makeTypeConstructor(tcName tcons, tcTypeVars tcons, typeID, tcLocations tcons)
+            val typeID = searchType state identifier
+            val newTypeCons = makeTypeConstructor(name, typeVars, typeID, locations)
 
             val newValConstrs = (*map copyAConstructor tcConstructors*) []
         in
@@ -306,30 +317,29 @@ struct
     then ([], debugEnv)
     else
     let
-        fun foldIds(tc :: tcs, {staticEnv, dynEnv, lastLoc, ...}) =
+        fun foldIds((tc as TypeConstrSet(TypeConstrs {name, identifier=id,...}, _)) :: tcs, {staticEnv, dynEnv, lastLoc, ...}) =
             let
-                val cons = tsConstr tc
-                val id = tcIdentifier cons
-                val {second = typeName, ...} = UTILITIES.splitString(tcName cons)
+                val {second = typeName, ...} = UTILITIES.splitString name
             in
-                if tcIsAbbreviation (tsConstr tc)
-                then foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: staticEnv, dynEnv=dynEnv, lastLoc = lastLoc})
-                else
-                let
-                    (* This code will build a cons cell containing the run-time value
-                       associated with the type Id as the hd and the rest of the run-time
-                       environment as the tl. *)                
-                    val loadTypeId = TYPEIDCODE.codeId(id, level)
-                    val newEnv = mkDatatype [ loadTypeId, dynEnv level ]
-                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                    (* Make an entry for the type constructor itself as well as the new type id.
-                       The type Id is used both for the type constructor and also for any values
-                       of the type. *)
-                    val (decs, newEnv) =
-                        foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: envTypeId id :: staticEnv, dynEnv=load, lastLoc = lastLoc})
-                in
-                    (dec @ decs, newEnv)
-                end
+                case id of
+                    TypeId{idKind = TypeFn _, ...} =>
+                        foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: staticEnv, dynEnv=dynEnv, lastLoc = lastLoc})
+                |   _ =>
+                    let
+                        (* This code will build a cons cell containing the run-time value
+                           associated with the type Id as the hd and the rest of the run-time
+                           environment as the tl. *)                
+                        val loadTypeId = TYPEIDCODE.codeId(id, level)
+                        val newEnv = mkDatatype [ loadTypeId, dynEnv level ]
+                        val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                        (* Make an entry for the type constructor itself as well as the new type id.
+                           The type Id is used both for the type constructor and also for any values
+                           of the type. *)
+                        val (decs, newEnv) =
+                            foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: envTypeId id :: staticEnv, dynEnv=load, lastLoc = lastLoc})
+                    in
+                        (dec @ decs, newEnv)
+                    end
             end
         |   foldIds([], debugEnv) = ([], debugEnv)
     in

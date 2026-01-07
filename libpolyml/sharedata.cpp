@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010-13, 2016-17
+    and David C. J. Matthews 2006, 2010-13, 2016-17, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -58,6 +58,7 @@
 #include "gctaskfarm.h"
 #include "diagnostics.h"
 #include "sharedata.h"
+#include "gc_progress.h"
 
 /*
 This code was largely written by Simon Finn as a database improver for the
@@ -120,7 +121,7 @@ at the cost of increasing the total memory requirement.
 */
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShareCommonData(POLYUNSIGNED threadId, POLYUNSIGNED root);
 }
 
 // The depth is stored in the length field.  If the Weak bit is set but the Mutable bit
@@ -396,21 +397,11 @@ POLYUNSIGNED DepthVector::MergeSameItems()
             // If we can't find a permanent space choose a space that isn't
             // an allocation space.  Otherwise we could break the invariant
             // that immutable areas never point into the allocation area.
-            MemSpace *space = gMem.SpaceForAddress((PolyWord*)ptrVector[j]-1);
+            MemSpace *space = gMem.SpaceForObjectAddress(ptrVector[j]);
             if (bestSpace == 0)
             {
                 bestShare = ptrVector[j];
                 bestSpace = space;
-            }
-            else if (bestSpace->spaceType == ST_PERMANENT)
-            {
-                // Only update if the current space is also permanent and a lower hierarchy
-                if (space->spaceType == ST_PERMANENT &&
-                        ((PermanentMemSpace *)space)->hierarchy < ((PermanentMemSpace *)bestSpace)->hierarchy)
-                {
-                    bestShare = ptrVector[j];
-                    bestSpace = space;
-                }
             }
             else if (bestSpace->spaceType == ST_LOCAL)
             {
@@ -545,7 +536,11 @@ void DepthVector::SortRange(PolyObject * *first, PolyObject * *last)
 void DepthVectorWithVariableLength::RestoreLengthWords()
 {
     for (POLYUNSIGNED i = 0; i < this->nitems; i++)
-        ptrVector[i]->SetLengthWord(lengthVector[i]); // restore genuine length word
+    {
+        PolyObject* obj = ptrVector[i];
+        obj = gMem.SpaceForObjectAddress(obj)->writeAble(obj); // This could be code.
+        obj->SetLengthWord(lengthVector[i]); // restore genuine length word
+    }
 }
 void DepthVectorWithFixedLength::RestoreLengthWords()
 {
@@ -654,6 +649,8 @@ public:
         { (void)AddPolyWordToDepthVectors(*pt); return 0; }
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
         { (void)AddObjectToDepthVector(base); return base; }
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject** pt)
+        { *pt = ScanObjectAddress(*pt); return 0; }
 
     void ProcessRoot(PolyObject *root);
 
@@ -703,7 +700,7 @@ POLYUNSIGNED ProcessAddToVector::AddPolyWordToDepthVectors(PolyWord old)
 // grow.
 POLYUNSIGNED ProcessAddToVector::AddObjectToDepthVector(PolyObject *obj)
 {
-    MemSpace *space = gMem.SpaceForAddress(((PolyWord*)obj)-1);
+    MemSpace *space = gMem.SpaceForObjectAddress(obj);
     if (space == 0)
         return 0;
 
@@ -740,8 +737,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectToDepthVector(PolyObject *obj)
         return 0; // Level is zero
     }
 
-    if (space->spaceType == ST_PERMANENT &&
-             ((PermanentMemSpace*)space)->hierarchy == 0)
+    if (space->spaceType == ST_PERMANENT && ((PermanentMemSpace*)space)->isWriteProtected)
     {
         // Immutable data in the permanent area can't be merged
         // because it's read only.  We need to follow the addresses
@@ -768,7 +764,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectToDepthVector(PolyObject *obj)
         // We want to update addresses in the code segment.
         m_parent->AddToVector(0, L, obj);
         PushToStack(obj);
-        obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
+        gMem.SpaceForObjectAddress(obj)->writeAble(obj)->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
 
         return 0;
     }
@@ -841,7 +837,7 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
             // If it's local set the depth with the value zero.  It has already been
             // added to the zero depth vector.
             if (obj->LengthWord() & _OBJ_GC_MARK)
-                obj->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
+                gMem.SpaceForObjectAddress(obj)->writeAble(obj)->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
         }
 
         else
@@ -927,7 +923,7 @@ bool ShareDataClass::RunShareData(PolyObject *root)
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
         PermanentMemSpace *space = *i;
-        if (!space->isMutable && space->hierarchy == 0)
+        if (space->isWriteProtected)
         {
             if (! space->shareBitmap.Create(space->spaceSize()))
                 return false;
@@ -1056,6 +1052,7 @@ public:
         // allocation spaces.  It may be overkill if we are applying the sharing
         // to a small root but generally it seems to be applied to the whole heap.
         FullGCForShareCommonData();
+		gcProgressBeginOtherGC(); // Set the phase to "other" now the GC is complete.
         // Now do the sharing.
         result = s.RunShareData(shareRoot->WordP());
     }
@@ -1083,7 +1080,7 @@ void ShareData(TaskData *taskData, Handle root)
 }
 
 // RTS call entry.
-POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root)
+POLYUNSIGNED PolyShareCommonData(POLYUNSIGNED threadId, POLYUNSIGNED root)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1091,7 +1088,7 @@ POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root)
     Handle reset = taskData->saveVec.mark();
 
     try {
-        if (! root.IsDataPtr())
+        if (!PolyWord::FromUnsigned(root).IsDataPtr())
             return TAGGED(0).AsUnsigned(); // Nothing to do.
 
         // Request the main thread to do the sharing.

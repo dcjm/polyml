@@ -1,6 +1,6 @@
 (*
     Title:      Rebuild the basis library: Date
-    Copyright   David C.J. Matthews 2016
+    Copyright   David C.J. Matthews 2016, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 *)
 
 (* Date . *)
-useBasis "DateSignature";
+useBasis "DATE.sig";
 structure Date: DATE =
 struct
     open Date

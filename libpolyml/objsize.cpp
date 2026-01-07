@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development David C.J. Matthews 2016, 2017
+    Further development David C.J. Matthews 2016, 2017, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -67,9 +67,9 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjSize(POLYUNSIGNED threadId, POLYUNSIGNED obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowSize(POLYUNSIGNED threadId, POLYUNSIGNED obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjProfile(POLYUNSIGNED threadId, POLYUNSIGNED obj);
 }
 
 extern FILE *polyStdout;
@@ -92,7 +92,7 @@ public:
     ProcessVisitAddresses(bool show);
     ~ProcessVisitAddresses();
 
-    VisitBitmap *FindBitmap(PolyWord p);
+    VisitBitmap *FindBitmap(PolyObject *p);
     void ShowBytes(PolyObject *start);
     void ShowCode(PolyObject *start);
     void ShowWords(PolyObject *start);
@@ -157,12 +157,12 @@ ProcessVisitAddresses::~ProcessVisitAddresses()
 }
 
 // Return the bitmap corresponding to the address or NULL if it isn't there.
-VisitBitmap *ProcessVisitAddresses::FindBitmap(PolyWord p)
+VisitBitmap *ProcessVisitAddresses::FindBitmap(PolyObject *p)
 {
     for (unsigned i = 0; i < nBitmaps; i++)
     {
         VisitBitmap *bm = bitmaps[i];
-        if (bm->InRange(p.AsStackAddr())) return bm;
+        if (bm->InRange((PolyWord*)p)) return bm;
     }
     return 0;
 }
@@ -203,7 +203,7 @@ void ProcessVisitAddresses::ShowCode(PolyObject *start)
     if (start->IsMutable()) fprintf(polyStdout, "MUTABLE ");
 
     char buffer[MAXNAME+1];
-    PolyWord *consts = start->ConstPtrForCode();
+    PolyWord *consts = machineDependent->ConstPtrForCode(start);
     PolyWord string = consts[0];
             
     if (string == TAGGED(0))
@@ -226,6 +226,10 @@ void ProcessVisitAddresses::ShowCode(PolyObject *start)
             i = 0;
         }
     }
+
+    // TODO: This will only print the constants if they are part of
+    // the code.  If they have been split off they will still be scanned
+    // but they won't be printed and their size won't be included.
 
     if (i != 0) putc('\n', polyStdout);
 }
@@ -329,7 +333,7 @@ POLYUNSIGNED ProcessVisitAddresses::ShowObject(PolyObject *p)
     {
         PolyWord *cp;
         POLYUNSIGNED const_count;
-        p->GetConstSegmentForCode(cp, const_count);
+        machineDependent->GetConstSegmentForCode(p, cp, const_count);
         
         if (show_size)
             ShowCode(p);
@@ -374,43 +378,48 @@ static void printfprof(unsigned *counts)
     }
 }
 
-POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj)
+POLYUNSIGNED PolyObjSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
 
     ProcessVisitAddresses process(false);
-    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
+    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
+    taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
     return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj)
+POLYUNSIGNED PolyShowSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
 
     ProcessVisitAddresses process(true);
-    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
+    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
     fflush(polyStdout); /* We need this for Windows at least. */
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
+    taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
     return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj)
+POLYUNSIGNED PolyObjProfile(POLYUNSIGNED threadId, POLYUNSIGNED obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
 
     ProcessVisitAddresses process(false);
-    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
+    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
     fprintf(polyStdout, "\nImmutable object sizes and counts\n");
     printfprof(process.iprofile);
     fprintf(polyStdout, "\nMutable object sizes and counts\n");
@@ -418,6 +427,7 @@ POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj)
     fflush(polyStdout); /* We need this for Windows at least. */
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
+    taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
     return result->Word().AsUnsigned();
 }

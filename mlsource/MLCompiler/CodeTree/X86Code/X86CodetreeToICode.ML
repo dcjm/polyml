@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-20
+    Copyright David C. J. Matthews 2016-23, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,20 +16,20 @@
 *)
 
 functor X86CodetreeToICode(
-    structure BACKENDTREE: BackendIntermediateCodeSig
-    structure ICODE: ICodeSig
-    structure DEBUG: DEBUGSIG
-    structure X86FOREIGN: FOREIGNCALLSIG
-    structure ICODETRANSFORM: X86ICODETRANSFORMSIG
-    structure CODE_ARRAY: CODEARRAYSIG
+    structure BackEndTree: BACKENDINTERMEDIATECODE
+    structure X86ICode: X86ICODE
+    structure Debug: DEBUG
+    structure X86Foreign: FOREIGNCALL
+    structure ICodeTransform: X86ICODETRANSFORM
+    structure CodeArray: CODEARRAY
 
-    sharing ICODE.Sharing = ICODETRANSFORM.Sharing = CODE_ARRAY.Sharing
-): GENCODESIG =
+    sharing X86ICode.Sharing = ICodeTransform.Sharing = CodeArray.Sharing
+): GENCODE =
 struct
-    open BACKENDTREE
+    open BackEndTree
     open Address
-    open ICODE
-    open CODE_ARRAY
+    open X86ICode
+    open CodeArray
  
     exception InternalError = Misc.InternalError
 
@@ -38,7 +38,8 @@ struct
             case targetArch of
                 Native32Bit => [eax, ebx]
             |   Native64Bit => [eax, ebx, r8, r9, r10]
-            |   ObjectId32Bit => [eax, esi, r8, r9, r10]
+            |   ObjectId32Bit2Word => [eax, esi, r8, r9, r10]
+            |   ObjectId32Bit4Word => [eax, esi, r8, r9, r10]
         val fpResult = case targetArch of Native32Bit => FPReg fp0 | _ => XMMReg xmm0
         val fpArgRegs = case targetArch of Native32Bit => [] | _ => [xmm0, xmm1, xmm2]
     in
@@ -47,7 +48,11 @@ struct
         fun resultReg GeneralType = GenReg eax
         |   resultReg DoubleFloatType = fpResult
         |   resultReg SingleFloatType = fpResult
+        |   resultReg (ContainerType _) = GenReg eax (* Doesn't need a result. *)
     end
+
+    (* If a container is larger than this it is passed on the stack. *)
+    val smallContainerSize = case targetArch of Native32Bit => 2 | _ => 4
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
@@ -146,13 +151,22 @@ struct
         datatype locationValue =
             NoLocation
         |   PregLocation of preg
-        |   ContainerLocation of { container: stackLocn, stackOffset: int }
+        |   StackContainer of { container: stackLocn, stackOffset: int }
+        |   RegisterContainer of preg list
 
         val locToPregArray = Array.array(localCount, NoLocation)
         val labelCounter = ref 1 (* Start at 1.  Zero is used for the root. *)
         fun newLabel() = !labelCounter before labelCounter := !labelCounter + 1
         val ccRefCounter = ref 0
         fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
+
+        (* The profile object is a single mutable with the F_bytes bit set. *)
+        val profileObject = createProfileObject()
+
+        (* Switch to indicate if we want to trace where live data has been allocated. *)
+        (* TODO: This should be used in AllocateMemoryOperation and BoxValue and possibly AllocateMemoryVariable. *)
+        val addAllocatingFunction =
+            Debug.getParameter Debug.profileAllocationTag debugSwitches = 1
 
         fun constantAsArgument value =
             if isShort value
@@ -347,7 +361,12 @@ struct
 
         
         (* Indicate that the base address is actually an object index where appropriate. *)
-        val memIndexOrObject = case targetArch of ObjectId32Bit => ObjectIndex | _ => NoMemIndex
+        val memIndexOrObject =
+            case targetArch of
+                ObjectId32Bit2Word => ObjectIndex2
+            |   ObjectId32Bit4Word => ObjectIndex4
+            |   Native32Bit => NoMemIndex
+            |   Native64Bit => NoMemIndex
 
         (* Generally we have an offset in words and no index register. *)
         fun wordOffsetAddress(offset, baseReg: preg): argument =
@@ -365,6 +384,7 @@ struct
         datatype argLoc =
             ArgInReg of { realReg: reg, argReg: preg }
         |   ArgOnStack of { stackOffset: int, stackReg: stackLocn }
+        |   ArgIsRegContainer of preg list
 
         (* Pseudo-regs for the result, the closure and the args that were passed in real regs. *)
         val resultTarget = newPReg()
@@ -372,6 +392,15 @@ struct
 
         (* Create a map for the arguments indicating their register or stack location. *)
         local
+            val containerRegs =
+                case List.filter(fn ContainerType _ => true | _ => false) argTypes of
+                    [] => NONE
+                |   [ContainerType s] =>
+                        if s <= smallContainerSize
+                        then SOME(List.tabulate(s, fn _ => newMergeReg()))
+                        else SOME [] (* Larger containers return their result on the stack. *)
+                |   _ => raise InternalError "more than one container arg"
+
             (* Select the appropriate argument register depending on the argument type. *)
             fun argTypesToArgEntries([], _, _, _) = ([], [], [], [])
 
@@ -392,6 +421,18 @@ struct
                     (ArgInReg{realReg=fpReg, argReg=pRegArg} :: argTypes,
                      boxOrTagReal(uRegArg, pRegArg, BuiltIns.PrecSingle) @ argCode, (uRegArg, fpReg) :: argRegs, stackArgs)
                 end
+
+            |   argTypesToArgEntries(ContainerType s :: tl, gRegs, fpRegs, n) =
+                if s <= smallContainerSize
+                then
+                let
+                    val (argTypes, argCode, argRegs, stackArgs) = argTypesToArgEntries(tl, gRegs, fpRegs, n-1)
+                    val regs = valOf containerRegs
+                in
+                    (ArgIsRegContainer regs :: argTypes, argCode, argRegs, stackArgs)
+                end
+                (* The address of a larger container is passed as an argument *)
+                else argTypesToArgEntries(GeneralType :: tl, gRegs, fpRegs, n)
 
             |   argTypesToArgEntries(_ :: tl, gReg :: gRegs, fpRegs, n) =
                 (* This deals with general arguments but also with extra floating point arguments.
@@ -424,22 +465,25 @@ struct
 
             (* The number of arguments on the stack.  Needed in return instrs and tail calls. *)
             val currentStackArgs = List.length stackArguments
+            
+            val containerResults = Option.map(fn regs => ListPair.zip(regs, generalArgRegs)) containerRegs
         end
         
         (* The return instruction.  This can be added on to various tails but there is always
            one at the end anyway. *)
         fun returnInstruction({stackPtr, ...}, target, tailCode) =
         let
-            val (returnCode, resReg) =
-                case fnResultType of
-                    GeneralType => ([], target)
-                |   DoubleFloatType =>
+            val (results, returnCode) =
+                case (containerResults, fnResultType) of
+                    (NONE, GeneralType) => ([(target, resultReg GeneralType)], [])
+                |   (NONE, DoubleFloatType) =>
                     let
                         val resReg = newUReg()
                     in
-                        ([BlockSimple(LoadArgument{source=wordAt target, dest=resReg, kind=MoveDouble})], resReg)
+                        ([(resReg, resultReg DoubleFloatType)],
+                                [BlockSimple(LoadArgument{source=wordAt target, dest=resReg, kind=MoveDouble})])
                     end
-                |   SingleFloatType =>
+                |   (NONE, SingleFloatType) =>
                     let
                         val resReg = newUReg()
                         val unpack =
@@ -447,11 +491,12 @@ struct
                             then BlockSimple(UntagFloat{source=RegisterArgument target, dest=resReg, cache=NONE})
                             else BlockSimple(LoadArgument{source=wordAt target, dest=resReg, kind=MoveFloat})
                     in
-                        
-                        ([unpack], resReg)
+                        ([(resReg, resultReg SingleFloatType)], [unpack])
                     end
+                |   (SOME cResult, GeneralType) => (cResult, [])
+                |   _ => raise InternalError "returnInstruction: result type mismatch"
         in
-            BlockExit(ReturnResultFromFunction{resultReg=resReg, realReg=resultReg fnResultType, numStackArgs=currentStackArgs}) ::
+            BlockExit(ReturnResultFromFunction{results=results(*[(resReg, resultReg fnResultType)]*), numStackArgs=currentStackArgs}) ::
                 returnCode @
                 (if stackPtr <> 0
                 then BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode
@@ -542,6 +587,26 @@ struct
             testCode
         end
 
+        (* See if we have a container and return the entry if present. *)
+        datatype containerType =
+            NoContainer | ContainerOnStack of { container: stackLocn, stackOffset: int } | ContainerInRegs of preg list
+
+        fun getContainerIfPresent(BICExtract(BICLoadLocal l)) =
+            (
+                case Array.sub(locToPregArray, l) of
+                    StackContainer container => ContainerOnStack container
+                |   RegisterContainer rc => ContainerInRegs rc
+                |   _ => NoContainer
+            )
+        |   getContainerIfPresent(BICExtract(BICLoadArgument a)) =
+            (
+                case Vector.sub(argumentVector, a) of
+                    ArgIsRegContainer rc => ContainerInRegs rc
+                |   _ => NoContainer
+            )
+            
+        |   getContainerIfPresent _ = NoContainer
+
 
         fun moveIfNotAllowedRev(NoResult, code, arg) = (code, arg, false)
 
@@ -577,6 +642,26 @@ struct
             in
                 (BlockSimple(LoadArgument{source=arg, dest=target, kind=moveSize}) :: code, RegisterArgument target, false)
             end
+
+        (* Allocate a fixed size cell with a reference to the profile object if we want
+           to trace the location of live data.  Currently only used for tuples and for closures
+           in native 32/64 bit. *)
+        and allocateWithProfileRev(n, flags, memAddr, tlCode) =
+            if addAllocatingFunction
+            then
+            let
+                val restAndAlloc =
+                    BlockSimple(AllocateMemoryOperation{size=n+1, flags=Word8.orb(flags, Address.F_profile), dest=memAddr, saveRegs=[]}) ::
+                        tlCode
+                val (code2, source, _) =
+                    moveIfNotAllowedRev(Allowed allowInMemMove, restAndAlloc, AddressConstant profileObject)
+                val storeValue =
+                    BlockSimple(StoreArgument{ source=source, offset=n*Word.toInt wordSize, base=memAddr,
+                        index=memIndexOrObject, kind=movePolyWord, isMutable=false})
+            in
+                storeValue :: code2
+            end
+            else BlockSimple(AllocateMemoryOperation{size=n, flags=flags, dest=memAddr, saveRegs=[]}) :: tlCode
 
         (* Use a move if there's no offset or index.  We could use an add if there's no index. *)
         and loadAddress{base, offset=0, index=NoMemIndex, dest} =
@@ -667,13 +752,19 @@ struct
                         fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
                         let
                             val () = Array.update(locToPregArray, addr, PregLocation dest)
-                            val sizeClosure = List.length closure + (if targetArch = ObjectId32Bit then 2 else 1)
+                            (* The code address is always a native address even in compact 32-bit mode. *)
+                            val (codeAddrWords, closureFlags) =
+                                case targetArch of
+                                    Native32Bit => (1, F_mutable)
+                                |   Native64Bit => (1, F_mutable)
+                                |   ObjectId32Bit2Word => (2, Word8.orb(F_mutable, F_closure))
+                                |   ObjectId32Bit4Word => (2, Word8.orb(F_mutable, F_closure))
+                            val sizeClosure = List.length closure + codeAddrWords
                             open Address
 
                             fun clear n =
                                 if n = sizeClosure
-                                then [BlockSimple(AllocateMemoryOperation{size=sizeClosure,
-                                        flags=if targetArch = ObjectId32Bit then Word8.orb(F_mutable, F_closure) else F_mutable, dest=dest, saveRegs=[]})]
+                                then [BlockSimple(AllocateMemoryOperation{size=sizeClosure, flags=closureFlags, dest=dest, saveRegs=[]})]
                                 else
                                     (clear (n+1) @
                                         [BlockSimple(
@@ -700,33 +791,47 @@ struct
                                     code @ storeValue @ loadFields(rest, n+1)
                                 end
                             val setCodeAddress =
-                                if targetArch = ObjectId32Bit
-                                then
-                                let (* We can't get the code address until run time. *)
-                                    val codeReg = newUReg()
-                                    val closureReg = newPReg()
-                                in
-                                    map BlockSimple
-                                    [
-                                        LoadArgument{ source=AddressConstant(toMachineWord clResult), dest=closureReg, kind=movePolyWord},
-                                        LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex, cache=NONE},
-                                            dest=codeReg, kind=Move64Bit},
-                                        StoreArgument{ source=RegisterArgument codeReg, offset=0, base=dest, index=ObjectIndex,
-                                            kind=moveNativeWord, isMutable=false}
-                                    ]
-                                end
-                                else
-                                let
-                                    val codeAddr = codeAddressFromClosure clResult
-                                    val (code, source, _) =
-                                        moveIfNotAllowed(Allowed allowInMemMove, [], AddressConstant codeAddr)
-                                in
-                                    code @
-                                        [BlockSimple(
-                                            StoreArgument{ source=source, base=dest, offset=0, index=NoMemIndex, kind=movePolyWord, isMutable=false })]
-                                end
+                                case targetArch of
+                                    ObjectId32Bit2Word =>
+                                    let (* We can't get the code address until run time. *)
+                                        val codeReg = newUReg()
+                                        val closureReg = newPReg()
+                                    in
+                                        map BlockSimple
+                                        [
+                                            LoadArgument{ source=AddressConstant(toMachineWord clResult), dest=closureReg, kind=movePolyWord},
+                                            LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex2, cache=NONE},
+                                                dest=codeReg, kind=Move64Bit},
+                                            StoreArgument{ source=RegisterArgument codeReg, offset=0, base=dest, index=ObjectIndex2,
+                                                kind=moveNativeWord, isMutable=false}
+                                        ]
+                                    end
+                                |   ObjectId32Bit4Word =>
+                                    let
+                                        val codeReg = newUReg()
+                                        val closureReg = newPReg()
+                                    in
+                                        map BlockSimple
+                                        [
+                                            LoadArgument{ source=AddressConstant(toMachineWord clResult), dest=closureReg, kind=movePolyWord},
+                                            LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex4, cache=NONE},
+                                                dest=codeReg, kind=Move64Bit},
+                                            StoreArgument{ source=RegisterArgument codeReg, offset=0, base=dest, index=ObjectIndex4,
+                                                kind=moveNativeWord, isMutable=false}
+                                        ]
+                                    end
+                                |   _ =>
+                                    let
+                                        val codeAddr = codeAddressFromClosure clResult
+                                        val (code, source, _) =
+                                            moveIfNotAllowed(Allowed allowInMemMove, [], AddressConstant codeAddr)
+                                    in
+                                        code @
+                                            [BlockSimple(
+                                                StoreArgument{ source=source, base=dest, offset=0, index=NoMemIndex, kind=movePolyWord, isMutable=false })]
+                                    end
                             val setFields =
-                                setCodeAddress @ loadFields(closure, if targetArch = ObjectId32Bit then 2 else 1)
+                                setCodeAddress @ loadFields(closure, case targetArch of ObjectId32Bit2Word => 2 | ObjectId32Bit4Word => 2 | _ => 1)
                         in
                             l @ setFields @ [BlockSimple(LockMutable{addr=dest})]
                         end
@@ -745,10 +850,19 @@ struct
                     end
        
                 |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr, currHandler, overflowBlock}, tailCode) =
+                    if size <= smallContainerSize
+                    then
                     let
-                        val containerReg = newStackLoc size
+                        val regs = List.tabulate(size, fn _ => newMergeReg())
+                        val () = Array.update(locToPregArray, addr, RegisterContainer regs)
+                    in
+                        doBindings(decs, context, tailCode)
+                    end
+                    else
+                    let (* Larger container - reserve a portion of stack and zero it. *)
+                         val containerReg = newStackLoc size
                         val () = Array.update(locToPregArray, addr,
-                                    ContainerLocation{container=containerReg, stackOffset=stackPtr+size})
+                                    StackContainer{container=containerReg, stackOffset=stackPtr+size})
                     in
                         doBindings(decs,
                             {loopArgs=loopArgs, stackPtr=stackPtr+size, currHandler=currHandler, overflowBlock=overflowBlock},
@@ -785,9 +899,10 @@ struct
                 case Array.sub(locToPregArray, l) of
                     NoLocation => raise InternalError "codeToICodeRev - local unset"
                 |   PregLocation preg => moveIfNotAllowedRev(destination, tailCode, RegisterArgument preg)
-                |   ContainerLocation{container, stackOffset} =>
+                |   StackContainer{container, stackOffset} =>
                         (* This always returns a ContainerAddr whatever the "allowed". *)
                         (tailCode, ContainerAddr{container=container, stackOffset=stackPtr-stackOffset}, false)
+                |   RegisterContainer _ => raise InternalError "BICExtract local: reg container"
             )
 
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
@@ -804,12 +919,13 @@ struct
                             dest=target, kind=moveNativeWord}) :: tailCode,
                          RegisterArgument target, false)
                     end
+                |   ArgIsRegContainer _ => raise InternalError "BICExtract argument: reg container"
             )
         
         |   codeToICodeRev(BICExtract(BICLoadClosure c), _, _, destination, tailCode) =
             let
                 (* Add the number of words for the code address.  This is 1 in native but 2 in 32-in-64. *)
-                val offset = case targetArch of ObjectId32Bit => c+2 | _ => c+1
+                val offset = case targetArch of ObjectId32Bit2Word => c+2 | ObjectId32Bit4Word => c+2 | _ => c+1
             in
                 if c >= List.length closure then raise InternalError "BICExtract: closure" else ();
                 (* N.B.  We need to add one to the closure entry because zero is the code address. *)
@@ -837,15 +953,9 @@ struct
             end
 
         |   codeToICodeRev(BICLoadContainer{base, offset}, context, _, destination, tailCode) =
-            let
-                val (codeBase, baseEntry, _) = codeToICodeRev(base, context, false, Allowed allowInPReg, tailCode)
-                val multiplier = Word.toInt(nativeWordSize div wordSize)
-            in
-                (* If this is a local container we extract the field. *)
-                case baseEntry of
-                    RegisterArgument baseR =>
-                        moveIfNotAllowedRev(destination, codeBase, wordOffsetAddress(offset*multiplier, baseR))
-                |   ContainerAddr{container, stackOffset} =>
+            (
+                case getContainerIfPresent base of
+                    ContainerOnStack {container, stackOffset} =>
                     let
                         val target = asTarget destination
                         val finalOffset = stackOffset+offset
@@ -856,8 +966,24 @@ struct
                             dest=target, kind=moveNativeWord}) :: tailCode,
                         RegisterArgument target, false)
                     end
-                |   _ =>   raise InternalError "codeToICodeRev-BICField"                      
-            end
+
+                |   NoContainer =>
+                    let
+                        val (codeBase, baseR) = codeToPRegRev(base, context, tailCode)
+                        val multiplier = Word.toInt(nativeWordSize div wordSize)
+                    in
+                        moveIfNotAllowedRev(destination, codeBase, wordOffsetAddress(offset*multiplier, baseR))
+                    end
+
+                |   ContainerInRegs regs =>
+                    let
+                        (* Always copy this into a new register because the source will be a merge reg. *)
+                        val target = asTarget destination
+                    in
+                        (BlockSimple(LoadArgument{source=RegisterArgument(List.nth(regs, offset)), dest=target, kind=movePolyWord}) :: tailCode,
+                                RegisterArgument target, false)
+                    end
+            )
 
         |   codeToICodeRev(BICEval{function, argList, resultType, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
             let
@@ -880,7 +1006,7 @@ struct
                             else if flags addrAsAddr <> Address.F_words andalso flags addrAsAddr <> Address.F_closure
                             then (BlockSimple(LoadArgument{source=AddressConstant addr, dest=clPReg, kind=movePolyWord}) :: tailCode,
                                       [(RegisterArgument clPReg, GenReg edx)], FullCall)
-                            else if targetArch = ObjectId32Bit
+                            else if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
                             then (* We can't actually load the code address here. *)
                             let
                                 val addrLength = length addrAsAddr
@@ -931,7 +1057,7 @@ struct
                    because we may use a memory move to set them.  We also don't allow them in
                    32-in-64 because we can't push an address constant. *)
                 val allowInStackArg =
-                    Allowed {anyConstant=not isTail andalso targetArch <> ObjectId32Bit,
+                    Allowed {anyConstant=not isTail andalso (targetArch = Native32Bit orelse targetArch = Native64Bit),
                                const32s=true, memAddr=false, existingPreg=not isTail }
                 and allowInRegArg =
                     Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
@@ -979,7 +1105,10 @@ struct
                         (code, regArgs, r :: stackArgs)
                     end
 
-                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, generalArgRegs, floatingPtArgRegs, functionCode)
+                fun isSmallContainer(ContainerType s) = s <= smallContainerSize | isSmallContainer _ = false
+
+                val (codeArgs, regArgs, stackArgs) =
+                    loadArgs(List.filter(not o isSmallContainer o #2) argList, generalArgRegs, floatingPtArgRegs, functionCode)
                 
                 (* If this is at the end of the function and the result types are the
                    same we can use a tail-recursive call. *)
@@ -1045,24 +1174,56 @@ struct
                     end
                     else
                     let
-                        val (moveResult, resReg) =
-                            case resultType of
-                                GeneralType => ([], target)
-                            |   DoubleFloatType =>
+                        (* See if there is a container argument. *)
+                        val containerArg = List.find(fn (_, ContainerType _) => true | _ => false) argList
+
+                        val containerValue =
+                            case containerArg of
+                                SOME(argVal, _) => getContainerIfPresent argVal
+                            |   NONE => NoContainer
+                        (* When a container is passed as an argument we put the address into a register.
+                           Normally the container will be referenced after the call in order to extract
+                           the values but if it's discarded we need to make sure it will continue to
+                           be referenced at least as far as the call.  This isn't a problem for the X86
+                           code-generator since container addresses are a form of the "argument"
+                           datatype. *)
+                        (* There's a further problem with register containers that seems to occur only with
+                           the X86, perhaps because of the way registers are allocated from the end back.
+                           We need to copy the container arguments to temporary normal registers and
+                           later copy the results into the merge registers.  It seems to be something to
+                           do with having a handler. *)
+                        val (results, moveResult) =
+                            case (containerValue, resultType) of
+                                (ContainerInRegs regs, GeneralType) =>
+                                let
+                                    val newRegs = List.map (fn _ => newPReg()) regs
+                                    val copyRegs =
+                                        ListPair.mapEq(fn (sreg, dreg) =>
+                                                BlockSimple(LoadArgument{ source=RegisterArgument sreg, dest=dreg, kind=movePolyWord })) (newRegs, regs)
+                                in
+                                    (ListPair.zip(newRegs, generalArgRegs),
+                                        BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit }) :: copyRegs)
+                                end
+                            |   (ContainerOnStack _, GeneralType) =>
+                                    ([], [BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit })])
+                            |   (NoContainer, GeneralType) => ([(target, resultReg GeneralType)], [])
+                            |   (NoContainer, DoubleFloatType) =>
                                 let
                                     val fpRegDest = newUReg()
                                 in
-                                    (boxOrTagReal(fpRegDest, target, BuiltIns.PrecDouble), fpRegDest)
+                                    ([(fpRegDest, resultReg DoubleFloatType)], boxOrTagReal(fpRegDest, target, BuiltIns.PrecDouble))
                                 end
-                            |   SingleFloatType =>
+                            |   (NoContainer, SingleFloatType) =>
                                 let
                                     val fpRegDest = newUReg()
                                 in
-                                    (boxOrTagReal(fpRegDest, target, BuiltIns.PrecSingle), fpRegDest)
+                                    ([(fpRegDest, resultReg SingleFloatType)], boxOrTagReal(fpRegDest, target, BuiltIns.PrecSingle))
                                 end
+                            |   _ => raise InternalError "codeToICodeRev: BICEval result type"
+
                         val call =
-                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=resReg,
-                                         realDest=resultReg resultType, callKind=callKind, saveRegs=[]}
+                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs,
+                                         results=results, callKind=callKind, saveRegs=[]}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs
@@ -1074,12 +1235,31 @@ struct
                 (callCode, RegisterArgument target, tailCall (* We've exited if this was a tail jump *))
             end
 
-        |   codeToICodeRev(BICGetThreadId, _, _, destination, tailCode) =
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.GetCurrentThreadId}, _, _, destination, tailCode) =
             (* Get the ID of the current thread. *)
             let
                 val target = asTarget destination
             in
-                (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target}) :: tailCode, RegisterArgument target, false)
+                (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target, kind=movePolyWord}) :: tailCode, RegisterArgument target, false)
+            end
+
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CPUPause}, _, _, destination, tailCode) =
+            (* Pause during spinlock phase of mutex locking. *)
+                moveIfNotAllowedRev(destination, BlockSimple PauseCPU :: tailCode, (* Unit result *) IntegerConstant(tag 0))
+
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CreateMutex}, _, _, destination, tailCode) =
+            let
+                (* Allocate memory for a mutex.  Use a native word as a mutable, weak, no-overwrite, byte cell
+                   which is the same as a volatileRef. This ensures that it will always be cleared when it is
+                   loaded even if it was locked when it was saved. *)
+                val target = asTarget destination
+                val flags = Word8.orb(F_mutable, Word8.orb(F_weak, Word8.orb(F_noOverwrite, F_bytes))) (* 0wx69 *)
+            in
+                (BlockSimple InitialisationComplete ::
+                 BlockSimple(StoreArgument{source=IntegerConstant 0, base=target, offset=0,
+                    index=memIndexOrObject, kind=moveNativeWord, isMutable=false }) ::
+                 BlockSimple(AllocateMemoryOperation{size=Word.toInt(nativeWordSize div wordSize), flags=flags, dest=target, saveRegs=[]}) ::
+                    tailCode, RegisterArgument target, false)
             end
 
         |   codeToICodeRev(BICUnary instr, context, isTail, destination, tailCode) =
@@ -1144,11 +1324,12 @@ struct
                 val closureRef = makeConstantClosure()
                 val () = codeFunctionToX86(lambda, debugSwitches, closureRef)
             in
-                if targetArch = ObjectId32Bit
+                if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
                 then
                 let
                     val target = asTarget destination
                     val memAddr = newPReg()
+                    val indexKind = if targetArch = ObjectId32Bit2Word then ObjectIndex2 else ObjectIndex4
                     fun loadFields([], n, tlCode) =
                         let
                             val codeReg = newUReg()
@@ -1157,8 +1338,8 @@ struct
                             (* The code address occupies the first native word but we need to extract it at
                                run-time.  We don't currently have a way to have 64-bit constants. *)
                             BlockSimple(
-                                StoreArgument{ source=RegisterArgument codeReg, offset=0, base=memAddr, index=ObjectIndex, kind=moveNativeWord, isMutable=false}) ::
-                            BlockSimple(LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex, cache=NONE}, dest=codeReg, kind=Move64Bit}) ::
+                                StoreArgument{ source=RegisterArgument codeReg, offset=0, base=memAddr, index=indexKind, kind=moveNativeWord, isMutable=false}) ::
+                            BlockSimple(LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=indexKind, cache=NONE}, dest=codeReg, kind=Move64Bit}) ::
                             BlockSimple(LoadArgument{ source=AddressConstant(toMachineWord closureRef), dest=closureReg, kind=movePolyWord}) ::
                             BlockSimple(AllocateMemoryOperation{size=n, flags=F_closure, dest=memAddr, saveRegs=[]}) :: tlCode
                         end
@@ -1172,7 +1353,7 @@ struct
                             val (code2, source, _)  = moveIfNotAllowedRev(Allowed allowInMemMove, restAndAlloc, source1)
                             val storeValue =
                                 BlockSimple(StoreArgument{ source=source, offset=n*Word.toInt wordSize, base=memAddr,
-                                    index=ObjectIndex, kind=movePolyWord, isMutable=false})
+                                    index=indexKind, kind=movePolyWord, isMutable=false})
                         in
                             storeValue :: code2
                         end
@@ -1503,8 +1684,9 @@ struct
                    the result of a tuple to be at the top of the stack.  It should be changed. *)
                 val target = asTarget destination (* Actually we want this. *)
                 val memAddr = newPReg()
-                fun loadFields([], n, tlCode) =
-                        BlockSimple(AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]}) :: tlCode
+
+                fun loadFields([], n, tlCode) = allocateWithProfileRev(n, 0w0, memAddr, tlCode)
+                    
                 |   loadFields(f :: rest, n, tlCode) =
                     let
                         (* Defer the evaluation if possible.  We may have a constant that we can't move
@@ -1533,40 +1715,37 @@ struct
                destination is a local container we can store directly into the stack. *)
         |   codeToICodeRev(BICSetContainer{container, tuple, filter}, context as {stackPtr, ...}, _, destination, tailCode) =
             let
-                local
-                    fun createStore containerReg (source, destWord) =
-                        StoreArgument{source=source, offset=destWord*Word.toInt nativeWordSize, base=containerReg, index=NoMemIndex, kind=moveNativeWord, isMutable=false}
-                in
-                    val findContainer =
-                        case container of
-                            BICExtract(BICLoadLocal l) =>
-                            (
-                                case Array.sub(locToPregArray, l) of
-                                    ContainerLocation{container, stackOffset} =>
-                                    let
-                                        fun storeToStack(source, destWord) =
-                                            StoreToStack{source=source, container=container, field=destWord,
-                                                stackOffset=stackPtr-stackOffset+destWord}
-                                    in
-                                        SOME storeToStack
-                                    end
-                               |    _ => NONE
-                           )
-                       |    _ => NONE
+                val (codeContainer, storeInstr) =
+                    case getContainerIfPresent container of
+                        ContainerOnStack{container, stackOffset} =>
+                        let
+                            fun storeToStack(source, destWord) =
+                                StoreToStack{source=source, container=container, field=destWord,
+                                    stackOffset=stackPtr-stackOffset+destWord}
+                        in
+                            (tailCode, storeToStack)
+                        end
 
-                    val (codeContainer, storeInstr) =
-                        case findContainer of
-                            SOME storeToStack => (tailCode, storeToStack)
-                        |   NONE => 
-                            let
-                                val containerTarget = newPReg()
-                                val (codeContainer, _, _) =
-                                    codeToICodeRev(container, context, false, SpecificPReg containerTarget, tailCode)
-                            in
-                                (codeContainer, createStore containerTarget)
-                            end
-                end
-                
+                    |   ContainerInRegs regs =>
+                        let
+                            fun copy(source, destWord) =
+                                LoadArgument{source=source, dest=List.nth(regs, destWord), kind=movePolyWord}
+                        in
+                            (tailCode, copy)
+                        end
+
+                    |   NoContainer => 
+                        let
+                            val containerTarget = newPReg()
+                            val (codeContainer, _, _) =
+                                codeToICodeRev(container, context, false, SpecificPReg containerTarget, tailCode)
+                            fun createStore (source, destWord) =
+                                StoreArgument{source=source, offset=destWord*Word.toInt nativeWordSize, base=containerTarget, index=NoMemIndex,
+                                              kind=moveNativeWord, isMutable=false}
+                        in
+                            (codeContainer, createStore)
+                        end
+
                 val filterLength = BoolVector.length filter
 
                 val code =
@@ -1598,31 +1777,30 @@ struct
                         end
 
                     |   tuple =>
-                        let (* Copy a heap tuple.  It is possible that this is another container in which case
-                               we must load the fields directly.  We mustn't load its address and then copy
-                               because loading the address would be the last reference and might cause
-                               the container to be reused prematurely. *)
-                            val findContainer =
-                                case tuple of
-                                    BICExtract(BICLoadLocal l) =>
-                                    (
-                                        case Array.sub(locToPregArray, l) of
-                                            ContainerLocation{container, stackOffset} =>
-                                            let
-                                                fun getAddr sourceWord =
-                                                    StackLocation{wordOffset=stackPtr-stackOffset+sourceWord, container=container,
-                                                                  field=sourceWord, cache=NONE}
-                                            in
-                                                SOME getAddr
-                                            end
-                                        |   _ => NONE
-                                   )
-                                |   _ => NONE
-
+                        let (* Copy a heap tuple.  If the source is a stack tuple we need to copy it using
+                               instructions that reference the container until the copy is complete.
+                               Taking the address and then copying can result in the space used by
+                               the container being reused for pushing registers after the address
+                               has been taken but before the copy. *)
                             val (codeTuple, loadField) =
-                                case findContainer of
-                                    SOME getAddr => (codeContainer, getAddr)
-                                |   NONE =>
+                                case getContainerIfPresent tuple of
+                                    ContainerOnStack {container, stackOffset} =>
+                                    let
+                                        fun getAddr sourceWord =
+                                            StackLocation{wordOffset=stackPtr-stackOffset+sourceWord, container=container,
+                                                          field=sourceWord, cache=NONE}
+                                    in
+                                        (codeContainer, getAddr)
+                                    end
+
+                                |   ContainerInRegs regs =>
+                                    let
+                                        fun copyReg sourceWord = RegisterArgument(List.nth(regs, sourceWord))
+                                    in
+                                        (codeContainer, copyReg)
+                                    end
+
+                                |   NoContainer =>
                                     let
                                         val tupleTarget = newPReg()
                                         val (codeTuple, _, _) = codeToICodeRev(tuple, context, false, SpecificPReg tupleTarget, codeContainer)
@@ -1688,9 +1866,9 @@ struct
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val ccRef = newCCRef()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                    codeAddressRev(sourceLeft, true, context, tailCode)
+                    codeAddressRev(sourceLeft, 0w1, context, tailCode)
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                    codeAddressRev(destRight, true, context, leftCode)
+                    codeAddressRev(destRight, 0w1, context, leftCode)
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToRegRev(length, false (* unsigned *), context, rightCode)
                 val target = asTarget destination
                 val code =
@@ -1772,52 +1950,6 @@ struct
                 moveIfNotAllowedRev(destination, BlockSimple(LockMutable{addr=addrReg}) :: argCode, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination, tailCode) =
-            let
-                val target = asTarget destination
-                val incrReg = newUReg()
-                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                val code =
-                    (* We want the result to be the new value but we've returned the old value. *)
-                    BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1),
-                                ccRef=newCCRef(), opSize=polyWordOpSize}) ::
-                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }) ::
-                    BlockSimple(LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=movePolyWord}) ::
-                    argCode
-            in
-                (code, RegisterArgument target, false)
-            end
-
-        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination, tailCode) =
-            let
-                val target = asTarget destination
-                val incrReg = newUReg()
-                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                val code =
-                    BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1),
-                                    ccRef=newCCRef(), opSize=polyWordOpSize}) ::
-                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }) ::
-                    BlockSimple(LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=movePolyWord}) ::
-                    argCode
-            in
-                (code, RegisterArgument target, false)
-            end
-
-        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicReset, arg1}, context, _, destination, tailCode) =
-            let
-                (* This is needed only for the interpreted version where we have a single real
-                   mutex to interlock atomic increment and decrement.  We have to use the same
-                   mutex to interlock clearing a mutex.  On the X86 we use hardware locking and
-                   the hardware guarantees that an assignment of a word will be atomic. *)
-                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                (* Store tagged 1 in the mutex.  This is the unlocked value. *)
-                val code =
-                    BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=memIndexOrObject, offset=0, kind=movePolyWord, isMutable=true})
-                        :: argCode
-            in
-                moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
-
         |   codeToICodeUnaryRev({oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination, tailCode) =
             let (* This is exactly the same as StringLengthWord at the moment.
                    TODO: introduce a new ICode entry so that the next stage can optimise
@@ -1827,6 +1959,7 @@ struct
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
                 val code =
                     BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false, opSize=polyWordOpSize }) ::
+                    (* Use movePolyWord even on 32-in-64 since we're producing a 32-bit value anyway. *)
                     BlockSimple(LoadArgument{source=wordAt addrReg, dest=argReg1, kind=movePolyWord}) ::
                     argCode
             in
@@ -1838,14 +1971,14 @@ struct
                 val addrReg = newPReg() and untagArg = newUReg()
                 val (argCode, argReg1) = codeToPRegRev(arg1, context, tailCode)
                 val (signExtend, sxReg) =
-                    case targetArch of
-                        ObjectId32Bit =>
+                    if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
+                    then
                         let
                             val sReg = newUReg()
                         in
                             ([BlockSimple(SignExtend32To64{source=RegisterArgument argReg1, dest=sReg})], sReg)
                         end
-                    |   _ => ([], argReg1)
+                    else ([], argReg1)
                 val code =
                     BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}) ::
                     BlockSimple(UntagValue{source=sxReg, dest=untagArg, isSigned=true, cache=NONE, opSize=nativeWordOpSize}) ::
@@ -1931,16 +2064,18 @@ struct
 
         |   codeToICodeUnaryRev({oper=BuiltIns.RealFixedInt precision, arg1}, context, _, destination, tailCode) =
             let
+                open BuiltIns
                 val target = asTarget destination
                 val untagReg = newUReg() and fpReg = newUReg()
                 val (argCode, aReg1) = codeToPReg(arg1, context)
-                val floatOp = case fpMode of FPModeX87 => X87Float | FPModeSSE2 => SSE2Float
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2Double
-                val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealFixedInt - single"
+                val floatOp =
+                    case fpMode of
+                        FPModeX87 => X87Float{ dest=fpReg, source=RegisterArgument untagReg}
+                    |   FPModeSSE2 => SSE2IntToReal{ dest=fpReg, source=RegisterArgument untagReg, isDouble=precision=PrecDouble}
                 val code = argCode @
                  [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true, cache=NONE, opSize=polyWordOpSize}),
-                  BlockSimple(floatOp{ dest=fpReg, source=RegisterArgument untagReg}),
-                  BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg, dest=target, saveRegs=[]})]
+                  BlockSimple floatOp] @
+                  boxOrTagReal(fpReg, target, precision)
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
@@ -1968,7 +2103,7 @@ struct
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat NONE, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat, arg1}, context, _, destination, tailCode) =
             let
                 (* Convert a double precision value to a single precision using the current rounding
                    mode.  This is simpler than setting the rounding mode and then restoring it. *)
@@ -1983,29 +2118,6 @@ struct
                             BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}) ::
                                 boxOrTagReal(fpReg2, target, BuiltIns.PrecSingle)
                 val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @ boxOrTag
-            in
-                (revApp(code, tailCode), RegisterArgument target, false)
-            end
-
-        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat (SOME rndMode), arg1}, context, _, destination, tailCode) =
-            let
-                (* Convert a double precision value to a single precision.  The rounding mode
-                   is passed in explicitly. *)
-                val target = asTarget destination
-                val fpReg = newUReg() and fpReg2 = newUReg()
-                val (argCode, aReg1) = codeToPReg(arg1, context)
-                (* In 32-bit mode we need to box the float.  In 64-bit mode we can tag it. *)
-                (* We need to save the rounding mode before we change it and restore it afterwards. *)
-                open IEEEReal
-                fun doConversion() =
-                    case fpMode of
-                        FPModeX87 => (* Convert the value using the appropriate rounding. *)
-                            [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
-                    |   FPModeSSE2 =>
-                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}) ::
-                                boxOrTagReal(fpReg2, target, BuiltIns.PrecSingle)
-                val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @
-                    setAndRestoreRounding(rndMode, doConversion)
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
@@ -2086,6 +2198,96 @@ struct
                         (* Unit result *) IntegerConstant(tag 0))
             end
 
+        |   codeToICodeUnaryRev({oper=BuiltIns.AllocCStack, arg1}, context, _, destination, tailCode) =
+            (* Allocate space on the C stack.  Assumes that the argument has already been aligned. *)
+            let
+                val target = asTarget destination
+                val (argCode, untaggedArg) =
+                    case arg1 of
+                        BICConstnt(value, _) => (tailCode, IntegerConstant(Word.toLargeInt(toShort value)) (* Leave untagged *))
+                    |   _ =>
+                        let
+                            val (argCode, aReg) = codeToPRegRev(arg1, context, tailCode)
+                            val arg1Untagged = newUReg()
+                        in
+                            (
+                                BlockSimple(UntagValue{source=aReg, dest=arg1Untagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}) :: argCode,
+                                RegisterArgument arg1Untagged
+                            )
+                        end
+                val argReg1 = newUReg() and resReg1 = newUReg()
+                val code =
+                    BlockSimple(BoxValue{boxKind=BoxLargeWord, source=resReg1, dest=target, saveRegs=[]}) ::
+                    BlockSimple(StoreMemReg{offset=memRegCStackPtr, source=resReg1, kind=moveNativeWord}) ::
+                    BlockSimple(ArithmeticFunction{oper=SUB, resultReg=resReg1, operand1=argReg1, operand2=untaggedArg,
+                            ccRef=newCCRef(), opSize=nativeWordOpSize}) ::
+                    BlockSimple(LoadMemReg{offset=memRegCStackPtr, dest=argReg1, kind=moveNativeWord}) ::
+                    argCode
+            in
+                (code, RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.LockMutex, arg1}, context, _, destination, tailCode) =
+            let
+                (* Temporarily don't bother with the spin-lock. *)
+                val incrReg = newUReg() and resultReg = newUReg() and ccRef = newCCRef()
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val target = asTarget destination
+                val code =
+                    BlockSimple(CompareLiteral{arg1=RegisterArgument resultReg, arg2=0, opSize=nativeWordOpSize, ccRef=ccRef }) ::
+                    BlockSimple(AtomicExchangeAndAdd{base=addrReg, source=incrReg, resultReg=resultReg}) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant 1, dest=incrReg, kind=moveNativeWord}) ::
+                    argCode
+            in
+                (makeBoolResultRev(JE, ccRef, target, code), RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.TryLockMutex, arg1}, context, _, destination, tailCode) =
+            let
+                val toStoreReg = newUReg() and compareReg = newUReg() and resultReg = newUReg() and ccRef = newCCRef()
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val target = asTarget destination
+                (* If the current value is zero (unlocked) set it to one (locked) otherwise do nothing. *)
+                val code =
+                    BlockSimple(AtomicCompareAndExchange{base=addrReg, compare=compareReg,
+                                                         toStore=toStoreReg, resultReg=resultReg, ccRef=ccRef}) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant 0, dest=compareReg, kind=moveNativeWord}) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant 1, dest=toStoreReg, kind=moveNativeWord}) ::
+                    argCode
+            in
+                (makeBoolResultRev(JE, ccRef, target, code), RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.UnlockMutex, arg1}, context, _, destination, tailCode) =
+            let (* Unlock a mutex - (atomically) exchange with 0 (unlock) and return true if the
+                   previous value was 1 i.e. only this thread has locked it. *)
+                val newValReg = newUReg() and resultReg = newUReg() and ccRef = newCCRef()
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val target = asTarget destination
+                val code =
+                    BlockSimple(CompareLiteral{arg1=RegisterArgument resultReg, arg2=1, opSize=nativeWordOpSize, ccRef=ccRef }) ::
+                    BlockSimple(AtomicExchange{base=addrReg, source=newValReg, resultReg=resultReg}) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant 0, dest=newValReg, kind=moveNativeWord}) ::
+                    argCode
+            in
+                (makeBoolResultRev(JE, ccRef, target, code), RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.Log2Word, arg1}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val argReg2 = newUReg()
+                val (argCode, argReg1) = codeToPRegRev(arg1, context, tailCode)
+                (* We compute the bit position using a tagged word so we have to subtract one from the result.
+                   This can be combined with the tagging. *)
+                val code =
+                    BlockSimple(LoadEffectiveAddress{base=SOME argReg2, offset= ~1, index=MemIndex1 argReg2, dest=target, opSize=polyWordOpSize}) ::
+                    BlockSimple(BitScanReverse{ source=RegisterArgument argReg1, dest=argReg2}) ::
+                    argCode
+            in
+                (code, RegisterArgument target, false)
+            end
+
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
             let
                 (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
@@ -2107,7 +2309,7 @@ struct
                         case arg1 of
                             BICLoadOperation{kind=LoadStoreUntaggedUnsigned, address} =>
                             let
-                                val (codeBaseIndex, codeUntag, memLoc) = codeAddressRev(address, false, context, tailCode)
+                                val (codeBaseIndex, codeUntag, memLoc) = codeAddressRev(address, wordSize, context, tailCode)
                                 val literal = Word.toLargeIntX(toShort arg2Value)
                             in
                                 BlockSimple(CompareLiteral{arg1=MemoryLocation memLoc, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
@@ -2116,7 +2318,7 @@ struct
                         |   BICLoadOperation{kind=LoadStoreMLByte _, address} =>
                             let
                                 val (codeBaseIndex, codeUntag, {base, index, offset, ...}) =
-                                    codeAddressRev(address, true, context, tailCode)
+                                    codeAddressRev(address, 0w1, context, tailCode)
                                 val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
                                             orelse raise InternalError "Compare byte not a byte"
                                 val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
@@ -3043,6 +3245,37 @@ struct
         |   codeToICodeBinaryRev({oper=BuiltIns.LongArbArith _, ...}, _, _, _, _) =
                 raise InternalError "codeToICodeBinaryRev: unknown LongArbArith"
 
+        |   codeToICodeBinaryRev({oper=BuiltIns.FreeCStack, arg1, arg2}, context, _, destination, tailCode) =
+            (* Free space on the C stack by storing the address in the argument into the "memory register".
+               This is a binary operation that takes the base address and the size.  The base address isn't
+               used in this version.  *)
+            let
+                val (arg2Code, untaggedLength) =
+                    case arg2 of
+                        BICConstnt(value, _) => (tailCode, IntegerConstant(Word.toLargeInt(toShort value)) (* Leave untagged *))
+                    |   _ =>
+                        let
+                            val (arg2Code, lengthReg) = codeToPRegRev(arg2, context, tailCode)
+                            val lengthUntagged = newUReg()
+                        in
+                            (
+                                BlockSimple(UntagValue{source=lengthReg, dest=lengthUntagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}) :: arg2Code,
+                                RegisterArgument lengthUntagged
+                            )
+                        end
+
+                (* Evaluate the first argument for side-effects but discard it. *)
+                val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, Allowed allowDefer, arg2Code)
+                val addrReg = newUReg() and resAddrReg = newUReg()
+                val code =
+                    BlockSimple(StoreMemReg{offset=memRegCStackPtr, source=resAddrReg, kind=moveNativeWord}) ::
+                    BlockSimple(ArithmeticFunction{oper=ADD, resultReg=resAddrReg, operand1=addrReg, operand2=untaggedLength,
+                                    ccRef=newCCRef(), opSize=nativeWordOpSize}) ::
+                    BlockSimple(LoadMemReg{offset=memRegCStackPtr, dest=addrReg, kind=moveNativeWord}) ::
+                    arg1Code
+            in
+                moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
         
         (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use
            various short cuts. *)
@@ -3124,7 +3357,7 @@ struct
         and codeToICodeLoad({kind=LoadStoreMLWord _, address}, context, _, destination) =
             let
                 val target = asTarget destination
-                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, wordSize, context)
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument {source=MemoryLocation memLoc, dest=target, kind=movePolyWord})], RegisterArgument target, false)
@@ -3133,7 +3366,7 @@ struct
         |   codeToICodeLoad({kind=LoadStoreMLByte _, address}, context, _, destination) =
             let
                 val target = asTarget destination
-                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, true, context)
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, 0w1, context)
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
@@ -3228,7 +3461,7 @@ struct
         |   codeToICodeLoad({kind=LoadStoreUntaggedUnsigned, address}, context, _, destination) =
             let
                 val target = asTarget destination
-                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, wordSize, context)
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
@@ -3236,11 +3469,32 @@ struct
                      BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false, opSize=polyWordOpSize})], RegisterArgument target, false)
             end
 
+        |   codeToICodeLoad({kind=LoadStorePolyWord _, address}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, wordSize, context)
+                val untaggedResReg = newUReg()
+            in
+                (codeBaseIndex @ codeUntag @
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=movePolyWord}),
+                     BlockSimple(BoxValue {boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
+
+        |   codeToICodeLoad({kind=LoadStoreNativeWord _, address}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, nativeWordSize, context)
+                val untaggedResReg = newUReg()
+            in
+                (codeBaseIndex @ codeUntag @
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveNativeWord}),
+                     BlockSimple(BoxValue {boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
 
         and codeToICodeStore({kind=LoadStoreMLWord _, address, value}, context, _, destination) =
             let
                 val (sourceCode, source, _) = codeToICode(value, context, false, Allowed allowInMemMove)
-                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, wordSize, context)
                 val code =
                     codeBaseIndex @ sourceCode @ codeUntag @
                         [BlockSimple(StoreArgument {source=source, base=base, offset=offset, index=index, kind=movePolyWord, isMutable=true})]
@@ -3250,7 +3504,7 @@ struct
 
         |   codeToICodeStore({kind=LoadStoreMLByte _, address, value}, context, _, destination) =
             let
-                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, true, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, 0w1, context)
                 (* We have to untag the value to store. *)
                 val (valueCode, untagValue, valueArg) = codeAsUntaggedByte(value, false, context)
                 val code =
@@ -3363,7 +3617,7 @@ struct
         |   codeToICodeStore({kind=LoadStoreUntaggedUnsigned, address, value}, context, _, destination) =
             let
                 (* We have to untag the value to store. *)
-                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, wordSize, context)
                 (* See if it's a constant.  This is frequently used to set the last word of a string to zero. *)
                 (* We have to be a bit more careful on the X86.  We use moves to store constants that
                    can include addresses.  To avoid problems we only use a move if the value is
@@ -3400,6 +3654,33 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
+        |   codeToICodeStore({kind=LoadStorePolyWord _, address, value}, context, _, destination) =
+            let
+                (* Store a 32-bit value from a large-word. *)
+                val (valueCode, valueReg) = codeToPReg(value, context)
+                val valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, wordSize, context)
+                val code =
+                    codeBaseIndex @ valueCode @ codeUntag @
+                    [BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=moveNativeWord}),
+                     BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=movePolyWord, isMutable=true})]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
+        |   codeToICodeStore({kind=LoadStoreNativeWord _, address, value}, context, _, destination) =
+            let
+                (* Store a 32-bit value from a large-word. *)
+                val (valueCode, valueReg) = codeToPReg(value, context)
+                val valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, nativeWordSize, context)
+                val code =
+                    codeBaseIndex @ valueCode @ codeUntag @
+                    [BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=moveNativeWord}),
+                     BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=moveNativeWord, isMutable=true})]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
 
         and codeToICodeBlock({kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
             let
@@ -3409,9 +3690,9 @@ struct
                 val mergeResult = newMergeReg()
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                    codeAddress(sourceLeft, true, context)
+                    codeAddress(sourceLeft, 0w1, context)
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                    codeAddress(destRight, true, context)
+                    codeAddress(destRight, 0w1, context)
                 val ccRef = newCCRef()
                 val labLess = newLabel() and labGreater = newLabel() and exitLab = newLabel()
                 val labNotLess = newLabel() and labNotGreater = newLabel()
@@ -3455,18 +3736,18 @@ struct
                         then NONE
                         else
                         let
-                            val leng = toShort l
+                            val leng = Word.toInt(toShort l)
                             val moveKind =
                                 if toShort l = nativeWordSize
                                 then moveNativeWord
                                 else Move32Bit
                             val isLeftAligned =
                                 case sourceLeft of
-                                    {index=NONE, offset, ...} => offset mod leng = 0w0
+                                    {index=NONE, offset:int, ...} => offset mod leng = 0
                                 |   _ => false
                             val isRightAligned =
                                 case destRight of
-                                    {index=NONE, offset, ...} => offset mod leng = 0w0
+                                    {index=NONE, offset: int, ...} => offset mod leng = 0
                                 |   _ => false
                         in
                             if isLeftAligned andalso isRightAligned
@@ -3479,9 +3760,9 @@ struct
                     SOME moveKind =>
                     let
                         val (leftCode, leftUntag, leftMem) =
-                            codeAddress(sourceLeft, isByteMove, context)
+                            codeAddress(sourceLeft, if isByteMove then 0w1 else wordSize, context)
                         val (rightCode, rightUntag, {base, offset, index, ...}) =
-                            codeAddress(destRight, isByteMove, context)
+                            codeAddress(destRight, if isByteMove then 0w1 else wordSize, context)
                         val untaggedResReg = newUReg()
                         val code =
                             leftCode @ rightCode @ leftUntag @ rightUntag @
@@ -3495,9 +3776,9 @@ struct
                     let
                         val vec1Reg = newUReg() and vec2Reg = newUReg()
                         val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                            codeAddress(sourceLeft, isByteMove, context)
+                            codeAddress(sourceLeft, if isByteMove then 0w1 else wordSize, context)
                         val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                            codeAddress(destRight, isByteMove, context)
+                            codeAddress(destRight, if isByteMove then 0w1 else wordSize, context)
                         val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
                         val code =
                             leftCode @ rightCode @ lengthCode @
@@ -3763,7 +4044,7 @@ struct
         )
 
         (* Code an address.  The index is optional. *)
-        and codeAddressRev({base, index=SOME index, offset}, true (* byte move *), context, tailCode) =
+        and codeAddressRev({base, index=SOME index, offset}, 0w1 (* byte move *), context, tailCode) =
             let
                 (* Byte address with index.  The index needs to be untagged. *)
                 val indexReg1 = newUReg()
@@ -3771,39 +4052,51 @@ struct
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
                 val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE, opSize=polyWordOpSize})]
                 val (codeLoadAddr, realBase) =
-                    if targetArch = ObjectId32Bit
-                    then
-                    let
-                        val addrReg = newUReg()
-                    in
-                        ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
-                    end
-                    else ([], baseReg)
-                val memResult = {base=realBase, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
+                    case targetArch of
+                        ObjectId32Bit2Word =>
+                        let
+                            val addrReg = newUReg()
+                        in
+                            ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex2, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
+                        end
+                    |   ObjectId32Bit4Word =>
+                        let
+                            val addrReg = newUReg()
+                        in
+                            ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex4, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
+                        end
+                    |   _ => ([], baseReg)
+                val memResult = {base=realBase, offset=offset, index=MemIndex1 indexReg1, cache=NONE}
             in
                 (codeLoadAddr @ codeIndex, untagCode, memResult)
             end
 
-        |   codeAddressRev({base, index=SOME index, offset}, false (* word move *), context, tailCode) =
+        |   codeAddressRev({base, index=SOME index, offset}, scale (* word move *), context, tailCode) =
             let
                 (* Word address with index.  We can avoid untagging the index by adjusting the
                    multiplier and offset *) 
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
                 val (codeLoadAddr, realBase) =
-                    if targetArch = ObjectId32Bit
-                    then
-                    let
-                        val addrReg = newUReg()
-                    in
-                        ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
-                    end
-                    else ([], baseReg)
-                val iOffset = Word.toInt offset handle Overflow => 0 (* See below: special case may not happen. *)
+                    case targetArch of
+                        ObjectId32Bit2Word =>
+                        let
+                            val addrReg = newUReg()
+                        in
+                            ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex2, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
+                        end
+                    |   ObjectId32Bit4Word =>
+                        let
+                            val addrReg = newUReg()
+                        in
+                            ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex4, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
+                        end
+                    |   _ => ([], baseReg)
                 val memResult =
-                    if wordSize = 0w8
-                    then {base=realBase, offset=iOffset-4, index=MemIndex4 indexReg, cache=NONE}
-                    else {base=realBase, offset=iOffset-2, index=MemIndex2 indexReg, cache=NONE}
+                    case scale of
+                        0w8 => {base=realBase, offset=offset-4, index=MemIndex4 indexReg, cache=NONE}
+                    |   0w4 => {base=realBase, offset=offset-2, index=MemIndex2 indexReg, cache=NONE}
+                    |   _ => raise InternalError "codeAddressRev: unknown scale"
             in
                 (codeLoadAddr @ codeIndex, [], memResult)
             end
@@ -3811,17 +4104,14 @@ struct
         |   codeAddressRev({base, index=NONE, offset}, _, context, tailCode) =
             let
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
-                (* A negative value for "offset" will produce an overflow at compile time.  It should never be
-                   reached at run-time because of bounds checking.  See Test192. *)
-                val iOffset = Word.toInt offset handle Overflow => 0
-                val memResult = {offset=iOffset, base=baseReg, index=memIndexOrObject, cache=NONE}
+                val memResult = {offset=offset, base=baseReg, index=memIndexOrObject, cache=NONE}
             in
                 (codeBase, [], memResult)
             end
 
-        and codeAddress(addr, isByte, context) =
+        and codeAddress(addr, scale, context) =
         let
-            val (code, untag, res) = codeAddressRev(addr, isByte, context, [])
+            val (code, untag, res) = codeAddressRev(addr, scale, context, [])
         in
             (List.rev code, untag, res)
         end
@@ -3831,15 +4121,29 @@ struct
         and codeCAddress({base, index=SOME index, offset}, 0w1, context) =
             let
                 (* Byte address with index.  The index needs to be untagged. *)
-                val untaggedBaseReg = newUReg() and indexReg1 = newUReg()
+                val untaggedBaseReg = newUReg()
                 val (codeBase, baseReg) = codeToPReg(base, context)
                 and (codeIndex, indexReg) = codeToPReg(index, context)
-                val untagCode =
-                    [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord}),
-                     BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE, opSize=polyWordOpSize})]
-                val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
+                (* The index needs to untagged and, if necessary, sign-extended to the native word size. *)
+                val (untagCode, sxReg) =
+                    if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
+                    then
+                    let
+                        val sReg1 = newUReg() and sReg2 = newUReg()
+                    in
+                        ([BlockSimple(SignExtend32To64{dest=sReg1, source=RegisterArgument indexReg}),
+                          BlockSimple(UntagValue{dest=sReg2, source=sReg1, isSigned=true, cache=NONE, opSize=nativeWordOpSize})], sReg2)
+                    end
+                    else
+                    let
+                        val sReg = newUReg()
+                    in
+                        ([BlockSimple(UntagValue{dest=sReg, source=indexReg, isSigned=true, cache=NONE, opSize=nativeWordOpSize})], sReg)
+                    end
+                val loadCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord})]
+                val memResult = {base=untaggedBaseReg, offset=offset, index=MemIndex1 sxReg, cache=NONE}
             in
-                (codeBase @ codeIndex, untagCode, memResult)
+                (codeBase @ codeIndex, loadCode @ untagCode, memResult)
             end
 
         |   codeCAddress({base, index=SOME index, offset}, size, context) =
@@ -3849,15 +4153,27 @@ struct
                 val untaggedBaseReg = newUReg()
                 val (codeBase, baseReg) = codeToPReg(base, context)
                 and (codeIndex, indexReg) = codeToPReg(index, context)
-                val untagCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord})]
+                (* The index is signed i.e. negative index values are legal.  We don't have
+                   to do anything special on the native code versions but on 32-in-64 we need
+                   to sign extend. *)
+                val (untagCode, sxReg) =
+                    if (case targetArch of ObjectId32Bit2Word => true | ObjectId32Bit4Word => true | _ => false)
+                    then
+                    let
+                        val sReg = newUReg()
+                    in
+                        ([BlockSimple(SignExtend32To64{source=RegisterArgument indexReg, dest=sReg})], sReg)
+                    end
+                    else ([], indexReg)
+                val loadCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord})]
                 val memResult =
                     case size of
-                        0w2 => {base=untaggedBaseReg, offset=Word.toInt offset-1, index=MemIndex1 indexReg, cache=NONE}
-                    |   0w4 => {base=untaggedBaseReg, offset=Word.toInt offset-2, index=MemIndex2 indexReg, cache=NONE}
-                    |   0w8 => {base=untaggedBaseReg, offset=Word.toInt offset-4, index=MemIndex4 indexReg, cache=NONE}
+                        0w2 => {base=untaggedBaseReg, offset=offset-1, index=MemIndex1 sxReg, cache=NONE}
+                    |   0w4 => {base=untaggedBaseReg, offset=offset-2, index=MemIndex2 sxReg, cache=NONE}
+                    |   0w8 => {base=untaggedBaseReg, offset=offset-4, index=MemIndex4 sxReg, cache=NONE}
                     |   _ => raise InternalError "codeCAddress: unknown size"
             in
-                (codeBase @ codeIndex, untagCode, memResult)
+                (codeBase @ codeIndex, loadCode @ untagCode, memResult)
             end
 
         |   codeCAddress({base, index=NONE, offset}, _, context) =
@@ -3865,7 +4181,7 @@ struct
                 val untaggedBaseReg = newUReg()
                 val (codeBase, baseReg) = codeToPReg(base, context)
                 val untagCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord})]
-                val memResult = {offset=Word.toInt offset, base=untaggedBaseReg, index=NoMemIndex, cache=NONE}
+                val memResult = {offset=offset, base=untaggedBaseReg, index=NoMemIndex, cache=NONE}
             in
                 (codeBase, untagCode, memResult)
             end
@@ -3948,9 +4264,12 @@ struct
               [BlockSimple(StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=memIndexOrObject, kind=MoveByte, isMutable=false}),
               (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
               BlockSimple(
-                if targetArch = ObjectId32Bit
-                then LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex, dest=initAddrReg, opSize=nativeWordOpSize}
-                else LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=movePolyWord}),
+                case targetArch of
+                    ObjectId32Bit2Word =>
+                        LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex2, dest=initAddrReg, opSize=nativeWordOpSize}
+                |   ObjectId32Bit4Word =>
+                        LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex4, dest=initAddrReg, opSize=nativeWordOpSize}
+                |   _ => LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=movePolyWord}),
               BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false, cache=NONE, opSize=polyWordOpSize}),
               BlockSimple(LoadArgument{source=initResult, dest=initReg, kind=movePolyWord}),
               BlockSimple(InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg}),
@@ -4017,17 +4336,18 @@ struct
             val resultVector = Array.vector resArray
         end
       
-        open ICODETRANSFORM
+        open ICodeTransform
         
         val pregProperties = Vector.fromList(List.rev(! pregPropList))
     in
         codeICodeFunctionToX86{blocks = resultVector, functionName = name, pregProps = pregProperties,
-            ccCount= ! ccRefCounter, debugSwitches = debugSwitches, resultClosure = resultClosure}
+            ccCount= ! ccRefCounter, debugSwitches = debugSwitches, resultClosure = resultClosure,
+            profileObject = profileObject}
     end
 
     fun gencodeLambda(lambda, debugSwitches, closure) =
     let
-        open DEBUG Universal
+        open Debug Universal
         (*val debugSwitches =
             [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
             tagInject assemblyCodeTag true] @ debugSwitches*)
@@ -4035,7 +4355,7 @@ struct
         codeFunctionToX86(lambda, debugSwitches, closure)
     end
     
-    structure Foreign = X86FOREIGN
+    structure Foreign = X86Foreign
     
     structure Sharing =
     struct

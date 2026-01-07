@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2009, 2012, 2015-18
+    Further work copyright David C. J. Matthews 2009, 2012, 2015-18, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -60,7 +60,7 @@
 #include "memmgr.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFullGC(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFullGC(POLYUNSIGNED threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyIsBigEndian();
 }
 
@@ -105,7 +105,7 @@ Handle alloc_and_save(TaskData *taskData, uintptr_t size, unsigned flags)
     return taskData->saveVec.push(alloc(taskData, size, flags));
 }
 
-POLYUNSIGNED PolyFullGC(PolyObject *threadId)
+POLYUNSIGNED PolyFullGC(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -163,7 +163,6 @@ static Handle make_exn(TaskData *taskData, int id, Handle arg, const char *fileN
     case EXC_syserr: exName = "SysErr"; break;
     case EXC_size: exName = "Size"; break;
     case EXC_overflow: exName = "Overflow"; break;
-    case EXC_underflow: exName = "Underflow"; break;
     case EXC_divide: exName = "Div"; break;
     case EXC_conversion: exName = "Conversion"; break;
     case EXC_XWindows: exName = "XWindows"; break;
@@ -171,7 +170,6 @@ static Handle make_exn(TaskData *taskData, int id, Handle arg, const char *fileN
     case EXC_foreign: exName = "Foreign"; break;
     case EXC_Fail: exName = "Fail"; break;
     case EXC_thread: exName = "Thread"; break;
-    case EXC_extrace: exName = "ExTrace"; break;
     default: ASSERT(0); exName = "Unknown"; // Shouldn't happen.
     }
    
@@ -222,7 +220,6 @@ void raise_exception(TaskData *taskData, int id, Handle arg, const char *file, i
     /*NOTREACHED*/
 }
 
-
 void raiseException0WithLocation(TaskData *taskData, int id, const char *file, int line)
 /* Raise an exception with no arguments. */
 {
@@ -267,6 +264,15 @@ void raiseSycallWithLocation(TaskData *taskData, const char *errmsg, int err, co
 void raiseExceptionFailWithLocation(TaskData *taskData, const char *str, const char *file, int line)
 {
     raiseExceptionStringWithLocation(taskData, EXC_Fail, str, file, line);
+}
+
+// Set the exception packet as the result of a bad::alloc exception.
+// Does not throw a further C++ exception.
+void setMemoryExceptionWithLocation(TaskData* taskData, const char* file, int line)
+{
+    Handle str = SAVE(C_string_to_Poly(taskData, "Insufficient Memory: C++ allocation failed"));
+    Handle exn = make_exn(taskData, EXC_Fail, str, file, line);
+    taskData->SetException(DEREFEXNHANDLE(exn));
 }
 
 /* "Polymorphic" function to generate a list. */
@@ -331,15 +337,20 @@ void CheckAndGrowStack(TaskData *taskData, uintptr_t minSize)
 
 Handle Make_fixed_precision(TaskData *taskData, int val)
 {
+#if (SIZEOF_INT >= SIZEOF_POLYWORD)
+    // This range check may produce a warning if int is 32 bits and PolyWord is 64-bits.
     if (val > MAXTAGGED || val < -MAXTAGGED-1)
         raise_exception0(taskData, EXC_overflow);
+#endif
     return taskData->saveVec.push(TAGGED(val));
 }
 
 Handle Make_fixed_precision(TaskData *taskData, unsigned uval)
 {
+#if (SIZEOF_INT >= SIZEOF_POLYWORD)
     if (uval > MAXTAGGED)
         raise_exception0(taskData, EXC_overflow);
+#endif
     return taskData->saveVec.push(TAGGED(uval));
 }
 

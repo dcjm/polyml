@@ -1,7 +1,7 @@
 /*
     Title:      Operating Specific functions.
 
-    Copyright (c) 2000, 2016 David C. J. Matthews
+    Copyright (c) 2000, 2016, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,12 +20,6 @@
 
 #ifndef _OSSPEC_H
 #define _OSSPEC_H
-
-class SaveVecEntry;
-typedef SaveVecEntry *Handle;
-class TaskData;
-
-extern Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
 extern struct _entrypts osSpecificEPT[];
 

@@ -30,7 +30,6 @@
    too large.  As "Size" it is used extensively in the Basis library. */
 #define EXC_size        4 /* General.Size */
 #define EXC_overflow    5 /* General.Overflow */
-#define EXC_underflow   6 /* This does not correspond to any ML exception. */
 #define EXC_divide      7 /* General.Div */
 #define EXC_conversion  8
 /*
@@ -38,17 +37,9 @@
   added by the compiler in order to signal failure of conversion.
 */
 #define EXC_XWindows    10
-/* EXC_subscript is raised both by the string subscript function and
-   also by substring.  As "Subscript" it is used extensively in the
-   Basis library. */
 #define EXC_subscript   11 /* General.Subscript */
-
 #define EXC_thread      12 /* Thread.Thread. */  /* DCJM 13/3/07 */
-
-#define EXC_extrace     13 // Used for exception tracing
-
 #define EXC_foreign     23  /* nic 4/5/94 */
-
 #define EXC_Fail        103  /* DCJM 11/5/06 */
 // Make sure to add any additional exceptions to make_exn.
 

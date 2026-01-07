@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-20 David C.J. Matthews
+    Copyright (c) 2012, 2016-23 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 (* Intermediate code tree for the back end of the compiler. *)
 
-structure BackendIntermediateCode: BackendIntermediateCodeSig =
+structure BackendIntermediateCode: BACKENDINTERMEDIATECODE =
 struct
     open Address
     
@@ -56,9 +56,6 @@ struct
         |   MemoryCellLength
         |   MemoryCellFlags
         |   ClearMutableFlag
-        |   AtomicIncrement
-        |   AtomicDecrement
-        |   AtomicReset
         |   LongWordToTagged
         |   SignedToLongWord
         |   UnsignedToLongWord
@@ -66,9 +63,14 @@ struct
         |   RealNeg of precision
         |   RealFixedInt of precision
         |   FloatToDouble
-        |   DoubleToFloat of IEEEReal.rounding_mode option
+        |   DoubleToFloat
         |   RealToInt of precision * IEEEReal.rounding_mode
         |   TouchAddress
+        |   AllocCStack
+        |   LockMutex
+        |   TryLockMutex
+        |   UnlockMutex
+        |   Log2Word
 
         and precision = PrecSingle | PrecDouble
 
@@ -88,15 +90,18 @@ struct
         |   PointerEq
         |   LongArbComparison of testConditions
         |   LongArbArith of arithmeticOperations
-        
+        |   FreeCStack
+
+        and nullaryOps =
+            GetCurrentThreadId
+        |   CPUPause
+        |   CreateMutex
+
         fun unaryRepr NotBoolean = "NotBoolean"
         |   unaryRepr IsTaggedValue = "IsTaggedValue"
         |   unaryRepr MemoryCellLength = "MemoryCellLength"
         |   unaryRepr MemoryCellFlags = "MemoryCellFlags"
         |   unaryRepr ClearMutableFlag = "ClearMutableFlag"
-        |   unaryRepr AtomicIncrement = "AtomicIncrement"
-        |   unaryRepr AtomicDecrement = "AtomicDecrement"
-        |   unaryRepr AtomicReset = "AtomicReset"
         |   unaryRepr LongWordToTagged = "LongWordToTagged"
         |   unaryRepr SignedToLongWord = "SignedToLongWord"
         |   unaryRepr UnsignedToLongWord = "UnsignedToLongWord"
@@ -104,10 +109,14 @@ struct
         |   unaryRepr (RealNeg prec) = "RealNeg" ^ precRepr prec
         |   unaryRepr (RealFixedInt prec) = "RealFixedInt" ^ precRepr prec
         |   unaryRepr FloatToDouble = "FloatToDouble"
-        |   unaryRepr (DoubleToFloat NONE) = "DoubleToFloat"
-        |   unaryRepr (DoubleToFloat (SOME mode)) = "DoubleToFloat" ^ rndModeRepr mode
+        |   unaryRepr DoubleToFloat = "DoubleToFloat"
         |   unaryRepr (RealToInt (prec, mode)) = "RealToInt" ^ precRepr prec ^ rndModeRepr mode
         |   unaryRepr TouchAddress = "TouchAddress"
+        |   unaryRepr AllocCStack = "AllocCStack"
+        |   unaryRepr LockMutex = "LockMutex"
+        |   unaryRepr TryLockMutex = "TryLockMutex"
+        |   unaryRepr UnlockMutex = "UnlockMutex"
+        |   unaryRepr Log2Word = "Log2Word"
 
         and binaryRepr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
@@ -125,6 +134,11 @@ struct
         |   binaryRepr PointerEq = "PointerEq"
         |   binaryRepr (LongArbComparison test) = "LongArbTest" ^ (testRepr test)
         |   binaryRepr (LongArbArith arithOp) = (arithRepr arithOp) ^ "LongArb"
+        |   binaryRepr FreeCStack = "FreeCStack"
+        
+        and nullaryRepr GetCurrentThreadId = "GetCurrentThreadId"
+        |   nullaryRepr CPUPause = "CPUPause"
+        |   nullaryRepr CreateMutex = "CreateMutex"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestLess           = "Less"
@@ -163,6 +177,7 @@ struct
         GeneralType
     |   DoubleFloatType
     |   SingleFloatType
+    |   ContainerType of int
 
     datatype backendIC =
         BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
@@ -182,6 +197,7 @@ struct
         }
 
         (* Built-in functions. *)
+    |   BICNullary of {oper: BuiltIns.nullaryOps}
     |   BICUnary of {oper: BuiltIns.unaryOps, arg1: backendIC}
     |   BICBinary of {oper: BuiltIns.binaryOps, arg1: backendIC, arg2: backendIC}
     
@@ -230,8 +246,6 @@ struct
     |   BICBlockOperation of
             { kind: blockOpKind, sourceLeft: bicAddress, destRight: bicAddress, length: backendIC }
 
-    |   BICGetThreadId
-    
     |   BICAllocateWordMemory of {numWords: backendIC, flags: backendIC, initial: backendIC}
 
     and bicCodeBinding =
@@ -260,6 +274,8 @@ struct
     |   LoadStoreCFloat
     |   LoadStoreCDouble
     |   LoadStoreUntaggedUnsigned
+    |   LoadStorePolyWord of {isImmutable: bool}        (* Load/Store a PolyWord value to/from a large word *)
+    |   LoadStoreNativeWord of {isImmutable: bool}      (* Load/Store a native word value to/from a large word *)
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}
@@ -279,8 +295,7 @@ struct
         closure       : bicLoadForm list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        localCount    : int,
-        heapClosure   : bool
+        localCount    : int
     }
 
     and bicAddress =
@@ -288,7 +303,7 @@ struct
            address if this is to/from ML memory or a (boxed) SysWord.word if it is
            to/from C memory.  The index is a value in units of the size of the item
            being loaded/stored and the offset is always in bytes. *)
-        {base: backendIC, index: backendIC option, offset: word}
+        {base: backendIC, index: backendIC option, offset: int}
 
     structure CodeTags =
     struct
@@ -329,6 +344,10 @@ struct
     |   loadStoreKindRepr LoadStoreCFloat = "CFloat"
     |   loadStoreKindRepr LoadStoreCDouble = "CDouble"
     |   loadStoreKindRepr LoadStoreUntaggedUnsigned = "MLWordUntagged"
+    |   loadStoreKindRepr (LoadStorePolyWord {isImmutable=true}) = "PolyWordImmutable"
+    |   loadStoreKindRepr (LoadStorePolyWord {isImmutable=false}) = "PolyWord"
+    |   loadStoreKindRepr (LoadStoreNativeWord {isImmutable=true}) = "NativeWordImmutable"
+    |   loadStoreKindRepr (LoadStoreNativeWord {isImmutable=false}) = "NativeWord"
 
     fun blockOpKindRepr (BlockOpMove{isByteMove=false}) = "MoveWord"
     |   blockOpKindRepr (BlockOpMove{isByteMove=true}) = "MoveByte"
@@ -363,6 +382,7 @@ struct
         fun prettyArgType GeneralType = PrettyString "G"
         |   prettyArgType DoubleFloatType = PrettyString "D"
         |   prettyArgType SingleFloatType = PrettyString "F"
+        |   prettyArgType (ContainerType m) = PrettyString ("M"^Int.toString m)
         
         fun prettyArg (c, t) =
                 PrettyBlock(1, false, [], [pretty c, PrettyBreak (1, 0), prettyArgType t])
@@ -384,7 +404,7 @@ struct
                     PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0), 
                     case index of NONE => PrettyString "-" | SOME i => pretty i,
                     PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0),
-                    PrettyString(Word.toString offset), PrettyBreak (0, 0), PrettyString "]"
+                    PrettyString(Int.toString offset), PrettyBreak (0, 0), PrettyString "]"
                 ])
         end
 
@@ -404,8 +424,6 @@ struct
                 )
             end
 
-        |   BICGetThreadId => PrettyString "GetThreadId"
-
         |   BICUnary { oper, arg1 } =>
                 PrettyBlock (3, false, [],
                     [ PrettyString(BuiltIns.unaryRepr oper), PrettyBreak(1, 0), printList("", [arg1], ",") ]
@@ -415,6 +433,8 @@ struct
                 PrettyBlock (3, false, [],
                     [ PrettyString(BuiltIns.binaryRepr oper), PrettyBreak(1, 0), printList("", [arg1, arg2], ",") ]
                 )
+
+        |   BICNullary { oper } => PrettyString(BuiltIns.nullaryRepr oper)
 
         |   BICArbitrary { oper, shortCond, arg1, arg2, longCall } =>
                 PrettyBlock (3, false, [],
@@ -468,8 +488,7 @@ struct
                 )
             end
         
-        |   BICLambda {body, name, closure, argTypes,
-                  heapClosure, resultType, localCount} =>
+        |   BICLambda {body, name, closure, argTypes, resultType, localCount} =>
             let
                 fun prettyArgTypes [] = []
                 |   prettyArgTypes [last] = [prettyArgType last]
@@ -481,7 +500,6 @@ struct
                         PrettyBreak (1, 0),
                         PrettyString name,
                         PrettyBreak (1, 0),
-                        PrettyString ( "CL="  ^ Bool.toString heapClosure),
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
@@ -560,6 +578,7 @@ struct
                 [
                     PrettyString "HANDLE(",
                     pretty exp,
+                    PrettyBreak (1, 0),
                     PrettyString ("WITH exid=" ^ Int.toString exPacketAddr),
                     PrettyBreak (1, 0),
                     pretty handler,
@@ -725,6 +744,7 @@ struct
         and  blockOpKind = blockOpKind
         and  unaryOps = BuiltIns.unaryOps
         and  binaryOps = BuiltIns.binaryOps
+        and  nullaryOps = BuiltIns.nullaryOps
         and  testConditions = BuiltIns.testConditions
         and  arithmeticOperations = BuiltIns.arithmeticOperations
     end

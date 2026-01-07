@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-20
+    Copyright David C. J. Matthews 2016-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,12 +17,12 @@
 
 functor X86ICode(
 
-    structure X86CODE: X86CODESIG
+    structure X86Code: X86CODE
 
-): ICodeSig =
+): X86ICODE =
 
 struct
-    open X86CODE
+    open X86Code
 
     open Address
 
@@ -36,7 +36,8 @@ struct
         case targetArch of
             Native32Bit     => (OpSize32, OpSize32)
         |   Native64Bit     => (OpSize64, OpSize64)
-        |   ObjectId32Bit   => (OpSize32, OpSize64)
+        |   ObjectId32Bit2Word   => (OpSize32, OpSize64)
+        |   ObjectId32Bit4Word   => (OpSize32, OpSize64)
 
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
 
@@ -68,7 +69,7 @@ struct
        object index. *)
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg |
-        MemIndex4 of preg | MemIndex8 of preg | ObjectIndex
+        MemIndex4 of preg | MemIndex8 of preg | ObjectIndex2 | ObjectIndex4
 
     (* Kinds of moves.
        Move32Bit - 32-bit loads and stores
@@ -87,7 +88,8 @@ struct
         case targetArch of
             Native32Bit     => (Move32Bit, Move32Bit)
         |   Native64Bit     => (Move64Bit, Move64Bit)
-        |   ObjectId32Bit   => (Move32Bit, Move64Bit)
+        |   ObjectId32Bit2Word   => (Move32Bit, Move64Bit)
+        |   ObjectId32Bit4Word   => (Move32Bit, Move64Bit)
 
     datatype boxKind = BoxLargeWord | BoxSSE2Double | BoxSSE2Float | BoxX87Double | BoxX87Float
 
@@ -114,8 +116,11 @@ struct
     |   StoreArgument of
             { source: argument, base: preg, offset: int, index: memoryIndex, kind: moveKind, isMutable: bool }
 
-        (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
-    |   LoadMemReg of { offset: int, dest: preg }
+        (* Load an entry from the "memory registers".  Used for ThreadSelf and AllocCStack. *)
+    |   LoadMemReg of { offset: int, dest: preg, kind: moveKind }
+
+        (* Store a value into an entry in the "memory registers".  Used for AllocCStack/FreeCStack. *)
+    |   StoreMemReg of { offset: int, source: preg, kind: moveKind }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  The last entry is the return address.  If the function
@@ -124,10 +129,12 @@ struct
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
-           as one of the argument registers.  The result is stored in the destination register. *)
+           as one of the argument registers.  The results are stored in the destination
+           registers.  Usually there is a single result but there could be zero or more
+           than one if results are returned as containers. *)
     |   FunctionCall of
             { callKind: callKinds, regArgs: (argument * reg) list,
-              stackArgs: argument list, dest: preg, realDest: reg, saveRegs: preg list}
+              stackArgs: argument list, results: (preg * reg) list, saveRegs: preg list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -204,7 +211,7 @@ struct
     |   BeginHandler of { packetReg: preg, workReg: preg }
 
         (* Return from the function. *)
-    |   ReturnResultFromFunction of { resultReg: preg, realReg: reg, numStackArgs: int }
+    |   ReturnResultFromFunction of { results: (preg * reg) list, numStackArgs: int }
     
         (* Arithmetic or logical operation.  These can set the condition codes. *)
     |   ArithmeticFunction of
@@ -253,10 +260,22 @@ struct
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
            Before the operation the source contains an increment.  After the operation
-           the source contains the old value of the destination and the destination
+           the resultReg contains the old value of the destination and the destination
            has been updated with its old value added to the increment.
            The destination is actually the word pointed at by "base". *)
-    |   AtomicExchangeAndAdd of { base: preg, source: preg }
+    |   AtomicExchangeAndAdd of { base: preg, source: preg, resultReg: preg }
+
+        (* Atomic exchange.  Used to release a mutex.  The contents of the source
+           register are written to the address and the resultReg contains the
+           previous value. *)
+    |   AtomicExchange of { base: preg, source: preg, resultReg: preg }
+
+        (* Atomic compare-and-exchange.  Used to test a mutex and set it if it is currently unlocked.
+           Compares the current value with the contents of "compare" and sets the mutex to
+           "toStore" if it is equal.  If it is not it stores the current value of the
+           mutex in resultReg.  Both compare and resultReg are actually RAX/EAX.
+           Sets the condition codes to the results of the comparison. *)
+    |   AtomicCompareAndExchange of { base: preg, compare: preg, toStore: preg, resultReg: preg, ccRef: ccRef }
 
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
@@ -294,7 +313,7 @@ struct
     |   X87Float of { dest: preg, source: argument }
 
         (* Load a fixed point value as a floating point value. *)
-    |   SSE2Float of { dest: preg, source: argument }
+    |   SSE2IntToReal of { dest: preg, source: argument, isDouble: bool }
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPUnary of { opc: sse2UnaryOps, resultReg: preg, source: argument }
@@ -338,6 +357,14 @@ struct
     |   LongArbArithmetic of
             { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, saveRegs: preg list }
 
+        (* Pause instruction - used only in mutex spinlock *)
+    |   PauseCPU
+
+        (* Find the bit position of the highest bit set. This is always applied
+           to a tagged value so it will return 63/31 if the argument is
+           (tagged) zero. *)
+    |   BitScanReverse of { source: argument, dest: preg }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -371,8 +398,6 @@ struct
     |   successorBlocks(UnconditionalHandle handler) = [handler]
     |   successorBlocks(ConditionalHandle{handler, continue, ...}) = [handler, continue]
 
-    datatype destinations = RegDest of reg | StackDest of int
-
     local
         fun printReg(PReg i, stream) = stream("R" ^ Int.toString i)
         and printCC(CcRef ccRef, stream) = stream ("CC" ^ Int.toString ccRef)
@@ -382,8 +407,9 @@ struct
         |   printIndex(MemIndex2 i, stream) = (stream "["; printReg(i, stream); stream "*2]")
         |   printIndex(MemIndex4 i, stream) = (stream "["; printReg(i, stream); stream "*4]")
         |   printIndex(MemIndex8 i, stream) = (stream "["; printReg(i, stream); stream "*8]")
-        |   printIndex(ObjectIndex, stream) = stream "[objectindex]"
-        
+        |   printIndex(ObjectIndex2, stream) = stream "[objectindex2]"
+        |   printIndex(ObjectIndex4, stream) = stream "[objectindex4]"
+       
         fun printStackLoc(StackLoc{size, rno}, stream) =
             (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
         
@@ -451,8 +477,11 @@ struct
                 printIndex(index, stream)
             )
 
-        |   printICode(LoadMemReg { offset, dest}, stream) =
-                ( stream "\tLoadMemReg\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
+        |   printICode(LoadMemReg { offset, dest, kind}, stream) =
+                ( stream "\tLoadMemReg"; printKind(kind, stream); stream "\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
+
+        |   printICode(StoreMemReg { offset, source, kind}, stream) =
+                ( stream "\tStoreMemReg"; printKind(kind, stream); stream "\t"; printReg(source, stream); stream " => "; stream(Int.toString offset)  )
 
         |   printICode(BeginFunction {regArgs, stackArgs}, stream) =
             (
@@ -461,7 +490,7 @@ struct
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
-        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, realDest, saveRegs}, stream) =
+        |   printICode(FunctionCall{callKind, regArgs, stackArgs, results, saveRegs}, stream) =
             (
                 stream "\tFunctionCall\t";
                 case callKind of
@@ -470,7 +499,7 @@ struct
                 |   FullCall => ();
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream); stream " ")) stackArgs;
-                stream "=> "; printReg(dest, stream); stream "="; stream(regRepr realDest);
+                List.app(fn (pr, r) => (stream(regRepr r); stream "=>"; printReg(pr, stream); stream " ")) results;
                 stream " save="; printSaves(saveRegs, stream)
             )
 
@@ -592,10 +621,11 @@ struct
                 printReg(workReg, stream)
             )
 
-        |   printICode(ReturnResultFromFunction{resultReg, realReg, numStackArgs}, stream) =
+        |   printICode(ReturnResultFromFunction{results, numStackArgs}, stream) =
             (
                 stream "\tReturnFromFunction\t";
-                printReg(resultReg, stream); stream "="; stream(regRepr realReg);
+                List.app(fn (resultReg, realReg) =>
+                    (printReg(resultReg, stream); stream "="; stream(regRepr realReg))) results;
                 stream("," ^ Int.toString numStackArgs)
             )
 
@@ -711,11 +741,34 @@ struct
                 printReg(remainder, stream)
             )
 
-        |   printICode(AtomicExchangeAndAdd{base, source}, stream) =
+        |   printICode(AtomicExchangeAndAdd{base, source, resultReg}, stream) =
             (
                 stream "\tAtomicExchangeAdd\t";
                 stream "addr=0("; printReg(base, stream);
-                stream "),with="; printReg(source, stream)
+                stream "), + "; printReg(source, stream);
+                stream " => ";
+                printReg(resultReg, stream)
+            )
+
+        |   printICode(AtomicExchange{base, source, resultReg}, stream) =
+            (
+                stream "\tAtomicExchange\t";
+                stream "addr=0("; printReg(base, stream);
+                stream "), + "; printReg(source, stream);
+                stream " => ";
+                printReg(resultReg, stream)
+            )
+
+
+        |   printICode(AtomicCompareAndExchange{base, compare, toStore, resultReg, ccRef}, stream) =
+            (
+                stream "\tAtomicCompareAndExchange\t";
+                stream "addr=0("; printReg(base, stream);
+                stream "), = "; printReg(compare, stream);
+                stream " then = "; printReg(toStore, stream);
+                stream " => ";
+                printReg(resultReg, stream);
+                stream " , "; printCC(ccRef, stream)
             )
 
         |   printICode(BoxValue{boxKind, source, dest, saveRegs}, stream) =
@@ -799,8 +852,11 @@ struct
         |   printICode(X87Float{dest, source}, stream) =
                 (stream "\tX87Float\t"; printArg(source, stream); stream " => "; printReg(dest, stream))
 
-        |   printICode(SSE2Float{dest, source}, stream) =
-                (stream "\tSSE2Float\t"; printArg(source, stream); stream " => "; printReg(dest, stream))
+        |   printICode(SSE2IntToReal{dest, source, isDouble}, stream) =
+            (
+                stream "\tSSE2IntToReal"; stream(if isDouble then "Double\t" else "Float\t");
+                printArg(source, stream); stream " => "; printReg(dest, stream)
+            )
         
         |   printICode(SSE2FPUnary{opc, resultReg, source}, stream) =
             (
@@ -863,6 +919,11 @@ struct
  
         |   printICode(TouchArgument{source}, stream) =
             (stream "\tTouchArgument\t"; printReg(source, stream))
+        
+        |   printICode(PauseCPU, stream) = stream "\tPauseCPU"
+
+        |   printICode(BitScanReverse{source, dest}, stream) =
+            (stream "\tBitScanReverse"; printArg(source, stream); stream " => "; printReg(dest, stream))
 
         |   printICode(LongArbComparison{arg1, arg2, ccRef, saveRegs, ...}, stream) =
             (
@@ -937,7 +998,8 @@ struct
     |   indexRegister (MemIndex2 r) = SOME r
     |   indexRegister (MemIndex4 r) = SOME r
     |   indexRegister (MemIndex8 r) = SOME r
-    |   indexRegister ObjectIndex = NONE
+    |   indexRegister ObjectIndex2 = NONE
+    |   indexRegister ObjectIndex4 = NONE
 
     structure Sharing =
     struct
@@ -948,7 +1010,6 @@ struct
         and branchOps       = branchOps
         and reg             = reg
         and preg            = preg
-        and destinations    = destinations
         and controlFlow     = controlFlow
         and basicBlock      = basicBlock
         and stackLocn       = stackLocn

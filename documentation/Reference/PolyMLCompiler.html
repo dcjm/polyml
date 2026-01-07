@@ -74,7 +74,7 @@
     <strong>val</strong> <a href="#reportExhaustiveHandlers">reportExhaustiveHandlers</a>: bool ref
     <strong>val</strong> <a href="#reportUnreferencedIds">reportUnreferencedIds</a>: bool ref
     <strong>val</strong> <a href="#reportDiscardFunction">reportDiscardFunction</a>: bool ref
-	<strong>val</strong> <a href="#reportDiscardNonUnit">reportDiscardNonUnit</a>: bool ref
+    <strong>val</strong> <a href="#reportDiscardNonUnit">reportDiscardNonUnit</a>: bool ref
 
     <strong>val</strong> <a href="#debug">debug</a>: bool ref
     <strong>val</strong> <a href="#timing">timing</a>: bool ref
@@ -86,6 +86,7 @@
     <strong>val</strong> <a href="#createPrintFunctions">createPrintFunctions</a>: bool ref
     <strong>val</strong> <a href="#maxInlineSize">maxInlineSize</a>: int ref
     <strong>val</strong> <a href="#narrowOverloadFlexRecord">narrowOverloadFlexRecord</a>: bool ref
+    <strong>val</strong> <a href="#languageExtensions">languageExtensions</a>: bool ref
     <strong>val</strong> <a href="#traceCompiler">traceCompiler</a>: bool ref
 
     <strong>val</strong> <a href="#parsetree">parsetree</a>: bool ref
@@ -465,6 +466,18 @@
       message unless appropriate type constraints have been included. However, 
       that may ensure that the code is portable to compilers which take a more 
       restrictive view than Poly/ML.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="languageExtensions" id="languageExtensions"></a>val recordPunning: bool ref
+</pre>
+  <div class="entrytext">
+    <p>This reference controls whether the Poly/ML compiler should accept some non-standard language
+	   extensions.</p>
+	<p>Currently, the only extension is record punning, where a record variable in an
+	   expression used without a value is treated as defining a field of the record 
+	   having the value of a variable with the same name as the label.
+	</p>
   </div>
 </div>
 <div class="entryblock"> 

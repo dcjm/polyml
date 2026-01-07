@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Word and LargeWord Structure
-    Copyright   David Matthews 1999, 2005, 2012, 2016
+    Copyright   David Matthews 1999, 2005, 2012, 2016, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -180,8 +180,8 @@ in
         and fromLargeInt = wordFromLargeInt
 
         (* Conversion to signed integer is simple. *)
-        val toIntX: word->int = RunCall.unsafeCast
-        and toLargeIntX: word -> LargeInt.int = RunCall.unsafeCast
+	val toLargeIntX: word -> LargeInt.int = RunCall.unsafeCast
+        val toIntX = Int.fromLarge o toLargeIntX
         
         (* Conversion to unsigned integer has to treat values with the sign bit
            set specially. *)
@@ -192,7 +192,9 @@ in
                 if signed < 0 then maxWordP1 + signed else signed
             end
 
-        fun toInt x = LargeInt.toInt(toLargeInt x)
+        (* If int is arbitrary precision we just convert it
+           otherwise we have to check the range. *)
+        val toInt =  Int.fromLarge o toLargeInt
 
         fun scan radix getc src =
             case scanWord radix getc src of
@@ -279,15 +281,8 @@ in
             then fromLargeInt(LargeInt.fromInt i)
             else Word.toLargeWordX(Word.fromInt i)
 
-        and toInt(w: word): int =
-            if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt(toLargeInt w)
-            else Word.toInt(Word.fromLargeWord w)
-            
-        and toIntX(w: word): int =
-            if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt(toLargeIntX w)
-            else Word.toIntX(Word.fromLargeWord w)
+        val toInt = Int.fromLarge o toLargeInt
+        val toIntX = Int.fromLarge o toLargeIntX
 
         fun scan radix getc src =
             case scanWord radix getc src of

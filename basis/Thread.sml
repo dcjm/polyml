@@ -1,7 +1,7 @@
 (*
     Title:      Thread package for ML.
     Author:     David C. J. Matthews
-    Copyright (c) 2007-2014, 2018
+    Copyright (c) 2007-2014, 2018-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,15 +21,86 @@
    but are included here because they depend on the Time structure and are
    in turn dependencies of the BasicIO structure. *)
 
+(*!Earlier versions of Poly/ML have provided a form of concurrent execution through 
+  the Process structure. Version 5.1 introduces 
+  new thread primitives in the Thread structure. This structure is modelled on 
+  the Posix thread (pthread) package but simplified and modified for ML. The aim 
+  is to provide an efficient implementation of parallelism particularly to enable 
+  ML programs to make use of multi-core processors while minimising the changes 
+  needed to existing code. The Process structure will continue to be available 
+  as a library written on top of these primitives but new programs should use 
+  the Thread structure directly.
+  
+The thread package differs from pthreads in a number of ways. 
+There is no join function to wait for the completion of a thread. 
+This can be written using mutexes and condition variables. 
+Cancellation and signal handling are combined into the interrupt
+functions. (The Poly/ML Signal structure handles signals for all the
+threads together).  The effect of explicit cancellation is achieved
+using the interrupt function.  This causes an interrupt to be
+generated in a specific thread.  Alternatively an interrupt can be
+broadcast to all threads.  This is most likely to be used
+interactively to kill threads that appear to have gone out of
+control.  The normal top-level handler for a console interrupt will
+generate this.  Threads can choose how or whether they respond to
+these interrupts.  A thread that is doing processor-intensive work
+probably needs to be able to be interrupted asynchronously whereas if
+it is communicating with other threads the presence of asynchronous
+interrupts makes correct programming difficult.
+*)
+
 signature THREAD =
 sig
+    (*!The Thread exception can be raised by various of the functions in the
+       structure if they detect an error.*)
     exception Thread of string (* Raised if an operation fails. *)
     
     structure Thread:
     sig
+        (*!The type of a thread identifier.*)
         eqtype thread
         
         (* Thread attributes - This may be extended. *)
+        (*!The type of a thread attribute. Thread attributes are
+            properties of the thread that are set initially when the thread is
+            created but can subsequently be modified by the thread itself.  The
+            thread attribute type may be extended in the future to include things
+            like scheduling priority. The current thread attributes control the
+            way interrupt exceptions are delivered to the thread.
+            
+            `EnableBroadcastInterrupt` controls whether the thread will receive an interrupt sent using
+            `broadcastInterrupt` or as a result of pressing the console interrupt
+            key. If this is false the thread will not receive them.  The default
+            for a new thread if this is not specified is false.
+            
+            `InterruptState` controls when and whether interrupts are delivered to the 
+            thread. This includes broadcast interrupts and also interrupts directed at 
+            a specific thread with the interrupt call.
+            `InterruptDefer` means the thread 
+            will not receive any interrupts. However, if the thread has previously been 
+            interrupted the interrupt may be delivered when the thread calls setAttributes 
+            to change its interrupt state. `InterruptSynch`
+            means interrupts are delivered 
+            synchronously. An interrupt will be delayed until an interruption point. An 
+            interruption point is one of: `testInterrupt`,
+            `ConditionVar.wait`, `ConditionVar.waitUntil`
+            and various library calls that may block, such as IO calls, pause etc. N.B. 
+            `Mutex.lock` is not an interruption point even though it can result in a thread 
+            blocking for an indefinite period. `InterruptAsynch` means interrupts are delivered 
+            asynchronously i.e. at a suitable point soon after they are triggered.
+            `InterruptAsynchOnce`
+            means that only a single interrupt is delivered asynchronously after which 
+            the interrupt state is changed to `InterruptSynch`. It allows a thread to tidy 
+            up and if necessary indicate that it has been interrupted without the risk 
+            of a second asynchronous interrupt occurring in the handler for the first 
+            interrupt. If this attribute is not specified when a thread is created the 
+            default is `InterruptSynch`.
+            
+            `MaximumMLStack` was added in version 5.5.3. It controls the maximum size the 
+            ML stack may grow to. It is an option type where NONE allows the stack to 
+            grow to the limit of the available memory whereas SOME n limits the stack 
+            to n words. This is approximate since there is some rounding involved. When 
+            the limit is reached the thread is sent an Interrupt exception.*)
         datatype threadAttribute =
             (* Does this thread accept a broadcast interrupt?  The default is not to
                accept broadcast interrupts. *)
@@ -55,94 +126,98 @@ sig
                that it has been interrupted without the risk of a second asynchronous
                interrupt occurring in the handler for the first interrupt. *)
         
-        (* fork: Fork a thread.  Starts a new thread running the function argument.  The
-           attribute list gives initial values for thread attributes which can be
-           modified by the thread itself.  Any unspecified attributes take default values.
-           The thread is terminated when the thread function returns, if it
-           raises an uncaught exception or if it calls "exit". *)
+        (*!Fork a thread. Starts a new thread running 
+          the function argument. The attribute list gives initial values for thread attributes 
+          which can be modified by the thread itself. Any unspecified attributes take 
+          default values. The thread is terminated when the thread function returns, if 
+          it raises an uncaught exception or if it calls `exit`;*)
         val fork: (unit->unit) * threadAttribute list -> thread
-        (* exit: Terminate this thread. *)
+
+        (*!Terminate this thread. *)
         val exit: unit -> unit
-        (* isActive: Test if a thread is still running or has terminated. *)
+        (*!Test if a thread is still running or has terminated.  This function should be
+          used with care.  The thread may be on the point of terminating and still appear
+          to be active.*)
         val isActive: thread -> bool
         
-        (* Test whether thread ids are the same.  No longer needed if this is an eqtype. *)
+        (*!Test whether thread ids are the same.  This is provided for backwards compatibility
+          since `thread` is an eqtype. *)
         val equal: thread * thread -> bool
-        (* Get my own ID. *)
+        (*!Return the thread identifier for the current thread. *)
         val self: unit -> thread
         
         exception Interrupt (* = SML90.Interrupt *)
-        (* Send an Interrupt exception to a specific thread.  When and indeed whether
+        (*!Send an Interrupt exception to a specific thread.  When and indeed whether
            the exception is actually delivered will depend on the interrupt state
            of the target thread.  Raises Thread if the thread is no longer running,
            so an exception handler should be used unless the thread is known to
            be blocked. *)
         val interrupt: thread -> unit
-        (* Send an interrupt exception to every thread which is set to accept it. *)
+        (*!Send an interrupt exception to every thread which is set to accept it. *)
         val broadcastInterrupt: unit -> unit
-        (* If this thread is handling interrupts synchronously, test to see 
-           if it has been interrupted.  If so it raises the Interrupt
-           exception. *)
+        (*!If this thread is handling interrupts synchronously, test to see 
+           if it has been interrupted.  If so it raises the
+           `Interrupt` exception. *)
         val testInterrupt: unit -> unit
-        (* Terminate a thread. This should be used as a last resort.  Normally
+        (*!Terminate a thread. This should be used as a last resort.  Normally
            a thread should be allowed to clean up and terminate by using the
            interrupt call.  Raises Thread if the thread is no longer running,
            so an exception handler should be used unless the thread is known to
            be blocked. *)
         val kill: thread -> unit
         
-        (* Get and set thread-local store for the calling thread. The store is a
+        (*!Get and set thread-local store for the calling thread. The store is a
            tagged associative memory which is initially empty for a new thread.
            A thread can call setLocal to add or replace items in its store and
            call getLocal to return values if they exist.  The Universal structure
            contains functions to make new tags as well as injection, projection and
            test functions. *)
         val getLocal: 'a Universal.tag -> 'a option
-        val setLocal: 'a Universal.tag * 'a -> unit
+        and setLocal: 'a Universal.tag * 'a -> unit
         
-        (* Change the specified attribute(s) for the calling thread.  Unspecified
+        (*!Change the specified attribute(s) for the calling thread.  Unspecified
            attributes remain unchanged. *)
         val setAttributes: threadAttribute list -> unit
-        (* Get the values of attributes. *)
+        (*!Get the values of attributes. *)
         val getAttributes: unit -> threadAttribute list
 
-        (* Return the number of processors that will be used to run threads. *)
+        (*!Return the number of processors that will be used to run threads
+           and the number of physical processors if that is available. *)
         val numProcessors: unit -> int
-        (* and the number of physical processors if that is available. *)
         and numPhysicalProcessors: unit -> int option
     end
         
     structure Mutex:
     sig
-        (* Mutexes.  A mutex provides simple mutual exclusion.  A thread can lock
+        (*!A mutex provides simple mutual exclusion.  A thread can lock
            a mutex and until it unlocks it no other thread will be able to lock it.
            Locking and unlocking are intended to be fast in the situation when
-           there is no other process attempting to lock the mutex.  *)
+           there is no other process attempting to lock the mutex.
+           These functions may not work correctly if an asynchronous interrupt
+           is delivered during the calls.  A thread should use synchronous interrupt
+           when using these calls. *)
         type mutex
-        (* mutex: Make a new mutex *)
+        (*!Make a new mutex *)
         val mutex: unit -> mutex
-        (* lock:  Lock a mutex.  If the mutex is currently locked the thread is
+        (*!Lock a mutex.  If the mutex is currently locked the thread is
            blocked until it is unlocked.  If a thread tries to lock a mutex that
            it has previously locked the thread will deadlock.
-           N.B.  "lock" is not an interruption point (a point where synchronous
+           N.B.  `thread` is not an interruption point
+           (a point where synchronous
            interrupts are delivered) even though a thread can be blocked indefinitely. *)
         val lock: mutex -> unit
-        (* unlock:  Unlock a mutex and allow any waiting threads to run.  The behaviour
+        (*!Unlock a mutex and allow any waiting threads to run.  The behaviour
            if the mutex was not previously locked by the calling thread is undefined.  *)
         val unlock: mutex -> unit
-        (* trylock: Attempt to lock the mutex.  Returns true if the mutex was not
+        (*!Attempt to lock the mutex.  Returns true if the mutex was not
            previously locked and has now been locked by the calling thread.  Returns
            false if the mutex was previously locked, including by the calling thread. *)
         val trylock: mutex -> bool
-        
-        (* These functions may not work correctly if an asynchronous interrupt
-           is delivered during the calls.  A thread should use synchronous interrupt
-           when using these calls. *)
     end
     
     structure ConditionVar:
     sig
-        (* Condition variables.  Condition variables are used to provide communication
+        (*!Condition variables are used to provide communication
            between threads.  A condition variable is used in conjunction with a mutex
            and usually a reference to establish and test changes in state.  The normal
            use is for one thread to lock a mutex, test the reference and then wait on
@@ -154,25 +229,43 @@ sig
            More complex communication mechanisms, such as blocking channels, can
            be written in terms of condition variables. *)
         type conditionVar
-        (* conditionVar: Make a new condition variable. *)
+        (*!Make a new condition variable. *)
         val conditionVar: unit -> conditionVar
-        (* wait: Release the mutex and block until the condition variable is
-           signalled.  When wait returns the mutex has been re-acquired.
-           If thread is handling interrupts synchronously a call to "wait" may cause
-           an Interrupt exception to be delivered.
-           (The implementation must ensure that if an Interrupt is delivered as well
-           as signal waking up a single thread that the interrupted thread does not
-           consume the "signal".)
-           The mutex is (re)acquired before Interrupt is delivered.  *)
+        (*!Release the mutex and block until the condition variable is signalled. When 
+            wait returns the mutex will have been re-acquired.
+            
+            If the thread is handling interrupts synchronously this function can be interrupted 
+            using the `Thread.interrupt` function or, if the thread is set to 
+            accept broadcast interrupts, `Thread.broadcastInterrupt`. The thread 
+            will re-acquire the mutex before the exception is delivered. An exception 
+            will only be delivered in this case if the interrupt is sent before the condition 
+            variable is signalled. If the interrupt is sent after the condition variable 
+            is signalled the function will return normally even if it has not yet re-acquired 
+            the mutex. The interrupt state will be delivered on the next call to &quot;wait&quot;, 
+            `Thread.testInterrupt` or other blocking call.
+            
+            A thread should never call this function if it may receive an asynchronous 
+            interrupt. It should always set its interrupt state to either
+            `InterruptSynch` 
+            or `InterruptDefer` beforehand.
+            An asynchronous interrupt may leave the condition 
+            variable and the mutex in an indeterminate state and could lead to deadlock.
+            
+            A condition variable should only be associated with one mutex at a time. 
+            All the threads waiting on a condition variable should pass the same mutex 
+            as argument.*)
         val wait: conditionVar * Mutex.mutex -> unit
-        (* waitUntil: As wait except that it blocks until either the condition
-           variable is signalled or the time (absolute) is reached.  Either way
-           the mutex is reacquired so there may be a further delay if it is held
-           by another thread.  *)
+        (*!As wait except that it blocks until either the condition
+           variable is signalled or the time (absolute) is reached.
+           Returns true if condition variable was signalled and false if
+           the time-out was reached.  Either way the mutex is reacquired so
+           there may be a further delay if it is held by another thread. *)
         val waitUntil: conditionVar * Mutex.mutex * Time.time -> bool
-        (* signal: Wake up one thread if any are waiting on the condition variable. *)
+        (*!Wake up one thread if any are waiting on the condition variable. 
+          If there are several threads waiting for the condition variable one will be 
+          selected to run and will run as soon as it has re-acquired the lock. *)
         val signal: conditionVar -> unit
-        (* broadcast: Wake up all threads waiting on the condition variable. *)
+        (*!Wake up all threads waiting on the condition variable. *)
         val broadcast: conditionVar -> unit
     end
 
@@ -181,12 +274,7 @@ end;
 structure Thread :> THREAD =
 struct
     exception Thread = RunCall.Thread
-    
-    (* Create non-overwritable mutables for mutexes and condition variables.
-       A non-overwritable mutable in the executable or a saved state is not
-       overwritten when a saved state further down the hierarchy is loaded. *)
-    val nvref = LibrarySupport.noOverwriteRef
-    
+
     structure Thread =
     struct
         open Thread (* Created in INITIALISE with thread type and self function. *)
@@ -317,6 +405,10 @@ struct
                 else ()
         end
 
+        val exit: unit -> unit = RunCall.rtsCallFull0 "PolyThreadKillSelf"
+        and isActive: thread -> bool = RunCall.rtsCallFast1 "PolyThreadIsActive"
+        and broadcastInterrupt: unit -> unit = RunCall.rtsCallFull0 "PolyThreadBroadcastInterrupt"
+
         local
             fun getAttrWord (me: thread) : Word.word =
                 RunCall.loadWord(me, threadIdFlags)
@@ -387,15 +479,13 @@ struct
                     val (attrWord, mask) = attrsToWord attrs
                     val attrValue = Word.orb(attrWord, Word.andb(Word.notb mask, defaultAttrs))
                     val stack = newStackSize(attrs, 0 (* Default is unlimited *))
+                    (* Run the function and exit whether it returns normally or raises an exception. *)
+                    fun threadFunction () = (f() handle _ => ()) before exit()
                 in
-                    threadForkFunction(f, attrValue, stack)
+                    threadForkFunction(threadFunction, attrValue, stack)
                 end
             end
         end
-
-        val exit: unit -> unit = RunCall.rtsCallFull0 "PolyThreadKillSelf"
-        and isActive: thread -> bool = RunCall.rtsCallFast1 "PolyThreadIsActive"
-        and broadcastInterrupt: unit -> unit = RunCall.rtsCallFull0 "PolyThreadBroadcastInterrupt"
 
         local
             (* Send an interrupt to a thread.  If it returns false
@@ -431,83 +521,44 @@ struct
     
     structure Mutex =
     struct
-        type mutex = Word.word ref
-        fun mutex() = nvref 0w1; (* Initially unlocked. *)
-        open Thread  (* atomicIncr, atomicDecr and atomicReset are set up by Initialise. *)
+        type mutex = Word.word ref (* This is a ref of some sort but may be a volatile byte or word ref. *)
+        open Thread  (* createMutex, lockMutex, tryLockMutex and unlockMutex are set up by Initialise. *)
+        
+        val mutex = createMutex
+        
+        (* lockMutex, tryLockMutex and unlockMutex are now architecture-specific code. *)
         
         val threadMutexBlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexBlock"
         val threadMutexUnlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexUnlock"
 
-        (* A mutex is implemented as a Word.word ref.  It is initially set to 1 and locked
-           by atomically decrementing it.  If it was previously unlocked the result will
-           by zero but if it was already locked it will be some negative value.  When it
-           is unlocked it is atomically incremented.  If there was no contention the result
-           will again be 1 but if some other thread tried to lock it the result will be
-           zero or negative.  In that case the unlocking thread needs to call in to the
-           RTS to wake up the blocked thread.
-
-           The cost of contention on the lock is very high.  To try to avoid this we
-           first loop (spin) to see if we can get the lock without contention.  *)
-
-        val spin_cycle = 20000
-        fun spin (m: mutex, c: int) =
-           if ! m = 0w1 then ()
-           else if c = spin_cycle then ()
-           else spin(m, c+1);
-
         fun lock (m: mutex): unit =
         let
-            val () = spin(m, 0)
-            val newValue = atomicDecr m
+            (* If the lock is taken we will have to call into the RTS to suspend ourselves.
+               In addition the thread that currently has the mutex will have to call into
+               the RTS to release waiting threads.  We want to avoid those costs so
+               we first attempt to treat is as a spin-lock. *)
+            fun keepTrying n =
+                if tryLockMutex m then () (* Success *)
+                else if n <> 0w0
+                then (cpuPause(); keepTrying(n-0w1))
+                else if lockMutex m
+                then ()
+                else (* It's locked.  We return some time after the lock is released. *)
+                (
+                    threadMutexBlock m;
+                    lock m (* Try again. *)
+                )
         in
-            if newValue = 0w0
-            then () (* We've acquired the lock. *)
-            else (* It's locked.  We return when we have the lock. *)
-            (
-                threadMutexBlock m;
-                lock m (* Try again. *)
-            )
+            keepTrying 0w1000
         end
 
         fun unlock (m: mutex): unit =
-        let
-            val newValue = atomicIncr m
-        in
-            if newValue = 0w1
+            if unlockMutex m
             then () (* No contention. *)
-            else
-                (* Another thread has blocked and we have to release it.  We can safely
-                   set the value to 1 here to release the lock.  If another thread
-                   acquires it before we have woken up the other threads that's fine.
-                   Equally, if another thread decremented the count and saw it was
-                   still locked it will enter the RTS and try to acquire the lock
-                   there.
-                   It's probably better to reset it here rather than within the RTS
-                   since it allows another thread to acquire the lock immediately
-                   rather than after the rather long process of entering the RTS.
-                   Resetting this needs to be atomic with respect to atomic increment
-                   and decrement.  That's not a problem on X86 so a simple assignment
-                   is sufficient but in the interpreter at least it's necessary to
-                   acquire a lock. *)
-            (
-                atomicReset m;
-                threadMutexUnlock m
-            )
-        end
+            else (* Another thread has blocked and we have to release it. *)
+               threadMutexUnlock m
 
-        (* Try to lock the mutex.  If it was previously unlocked then lock it and
-           return true otherwise return false.  Because we don't block here there is
-           the possibility that the thread that has locked it could release the lock
-           shortly afterwards.  The check for !m = 0w1 is an optimisation and nearly
-           all the time it avoids the call to atomicDecr setting m to a negative value.
-           There is a small chance that another thread could lock the mutex between the
-           test for !m = 0w1 and the atomicDecr.  In that case the atomicDecr would
-           return a negative value and the function that locked the mutex will have to
-           call into the RTS to reset it when it is unlocked.  *)
-        fun trylock (m: mutex): bool =
-            if !m = 0w1 andalso atomicDecr m = 0w0
-            then true (* We've acquired the lock. *)
-            else false (* The lock was taken. *)
+        val trylock = tryLockMutex
     end
 
     structure ConditionVar =
@@ -517,7 +568,7 @@ struct
         (* A condition variable contains a lock and a list of suspended threads. *)
         type conditionVar = { lock: Mutex.mutex, threads: thread list ref }
         fun conditionVar(): conditionVar =
-            { lock = Mutex.mutex(), threads = nvref nil }
+            { lock = Mutex.mutex(), threads = LibrarySupport.volatileListRef() }
 
         local
             val threadCondVarWait: Mutex.mutex -> unit = RunCall.rtsCallFull1 "PolyThreadCondVarWait"
@@ -664,52 +715,6 @@ struct
         end
     end
 end;
-
-structure ThreadLib:
-sig
-    val protect: Thread.Mutex.mutex -> ('a -> 'b) -> 'a -> 'b
-end =
-struct
-    (* This applies a function while a mutex is being held. 
-       Although this can be defined in terms of Thread.Thread.getAttributes it's
-       defined here using the underlying calls.  The original version with
-       getAttributes appeared as a major allocation hot-spot when building the
-       compiler because "protect" is called round every access to the global
-       name-space. *)
-    fun protect m f a =
-    let
-        open Thread.Thread Thread.Mutex
-        open Word
-        (* Set this to handle interrupts synchronously except if we are blocking
-           them.  We don't want to get an asynchronous interrupt while we are
-           actually locking or unlocking the mutex but if we have to block to do
-           IO then we should allow an interrupt at that point. *)
-        val oldAttrs: Word.word = RunCall.loadWord(self(), 0w1)
-        val () =
-            if andb(oldAttrs, 0w6) = 0w0 (* Already deferred? *)
-            then ()
-            else RunCall.storeWord (self(), 0w1,
-                    orb(andb(notb 0w6, oldAttrs), 0w2))
-        fun restoreAttrs() =
-        (
-            RunCall.storeWord (self(), 0w1, oldAttrs);
-            if andb(oldAttrs, 0w4) = 0w4 then testInterrupt() else ()
-        )
-        val () = lock m
-        val result = f a
-            handle exn =>
-            (
-                unlock m; restoreAttrs();
-                (* Reraise the exception preserving the location information. *)
-                PolyML.Exception.reraise exn
-            )
-    in
-        unlock m;
-        restoreAttrs();
-        result
-    end
-end;
-
 
 local
     fun prettyMutex _ _ (_: Thread.Mutex.mutex) = PolyML.PrettyString "?"

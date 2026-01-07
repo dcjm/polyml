@@ -54,6 +54,7 @@ UnusedProgramCtr    DWORD   ?
 HeapOverFlowCall    DWORD   ?
 StackOverFlowCall   DWORD   ?
 StackOverFlowCallEx DWORD   ?
+TrapHandlerEntry    DWORD   ?
 SaveRAX             DWORD   ?
 SaveRBX             DWORD   ?
 SaveRCX             DWORD   ?
@@ -71,23 +72,15 @@ RETURN_STACK_OVERFLOWEX     EQU 3
 RETURN_ARB_EMULATION        EQU 5
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
-RETURN_KILL_SELF            EQU 9
+RETURN_ENTER_INTERPRETER    EQU 4
 
 ;
 ; CODE STARTS HERE
 ;
     .CODE
 
-; Load the registers from the ML stack and jump to the code.
-; This is used to start ML code.
-; The argument is the address of the MemRegisters struct and goes into ebp.
-; This is the general code for switching control to ML.  There are a number of cases to consider:
-; 1.  Initial entry to root function or a new thread.  Needs to load EDX at least.
-; 2.  Normal return from an RTS call.  Could just do a simple return.
-; 3.  Exception raised in RTS call.
-; 4.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
-; 5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
-;     either because the stack can't be grown or because Interrupt has been raised.
+; Enter ML code.  This is now only ever used to start a new thread.
+; It is probably unnecessary to save the callee-save regs or load the ML regs.
 PUBLIC  X86AsmSwitchToPoly
 X86AsmSwitchToPoly:
     push    ebp                             ; Standard entry sequence
@@ -98,9 +91,6 @@ X86AsmSwitchToPoly:
     sub     esp,(Fr_size-12)                ; Allocate frame
     mov     [ArgVector.SaveCStack+ebp],esp
 	mov     esp,[ArgVector.StackPtr+ebp]
-    mov     eax,[ArgVector.ExceptionPacket+ebp]
-    cmp     eax,1                                           ; Did we raise an exception?
-    jnz     raisex
     frstor  [ArgVector.SaveFP+ebp]
     mov     ah,[ArgVector.Pflags+ebp]
     sahf
@@ -111,11 +101,13 @@ X86AsmSwitchToPoly:
     mov     esi,[ArgVector.SaveRSI+ebp]
     mov     edi,[ArgVector.SaveRDI+ebp]
     cld                                     ; Clear this just in case
-    ret
+    jmp     dword ptr [edx]
 
-; Code to save the state and switch to C
-; This saves the full register state.
-SaveFullState:
+; Save all the registers and enter the trap handler.
+; It is probably unnecessary to save the FP state now.
+X86TrapHandler PROTO C
+
+CallTrapHandler:
     mov     [ArgVector.SaveRAX+ebp],eax
     mov     [ArgVector.SaveRBX+ebp],ebx
     mov     [ArgVector.SaveRCX+ebp],ecx
@@ -126,25 +118,25 @@ SaveFullState:
     FLDCW   [ArgVector.SaveFP+ebp]          ; ...load because we need the same rounding mode in the RTS
     mov     [ArgVector.StackPtr+ebp],esp    ; Save ML stack pointer
     mov     esp,[ArgVector.SaveCStack+ebp]  ; Restore C stack pointer
-    add     esp,(Fr_size-12)
-    pop     esi                             ; Restore saved registers
-    pop     edi
-    pop     ebx
-    pop     ebp
+    sub     esp,12                          ; Align stack ptr - GCC prefers this
+    push    [ArgVector.ThreadId+ebp]
+
+    call    [ArgVector.TrapHandlerEntry+ebp]
+    add     esp,16
+	mov     esp,[ArgVector.StackPtr+ebp]
+    mov     eax,[ArgVector.ExceptionPacket+ebp]
+    cmp     eax,1                                           ; Did we raise an exception?
+    jnz     raisexcept
+    frstor  [ArgVector.SaveFP+ebp]
+    mov     eax,[ArgVector.SaveRAX+ebp]
+    mov     ebx,[ArgVector.SaveRBX+ebp]
+    mov     ecx,[ArgVector.SaveRCX+ebp]
+    mov     edx,[ArgVector.SaveRDX+ebp]
+    mov     esi,[ArgVector.SaveRSI+ebp]
+    mov     edi,[ArgVector.SaveRDI+ebp]
+    cld                                     ; Clear this just in case
     ret
-
-; Used when entering new code.  The argument and closure are on the stack
-; in case there is a GC before we enter the code.
-PUBLIC X86AsmPopArgAndClosure
-X86AsmPopArgAndClosure:
-    pop     edx
-    pop     eax
-    jmp     dword ptr [edx]
-
-; This is used if the RTS sets up an exception.  It's probably no longer relevant.
-PUBLIC  X86AsmRaiseException
-X86AsmRaiseException:
-raisex:
+raisexcept:
     mov     ecx,[ArgVector.HandlerRegister+ebp]
     jmp     dword ptr [ecx]
 
@@ -153,33 +145,8 @@ raisex:
 
 CALL_EXTRA  MACRO   index
     mov     byte ptr [ArgVector.ReturnReason+ebp],index
-    jmp     SaveFullState
+    jmp     CallTrapHandler
 ENDM
-
-; Terminate the current thread
-PUBLIC  X86AsmKillSelf
-X86AsmKillSelf:
-    CALL_EXTRA RETURN_KILL_SELF
-
-PUBLIC  X86AsmCallbackReturn
-X86AsmCallbackReturn:
-    CALL_EXTRA RETURN_CALLBACK_RETURN
-
-PUBLIC  X86AsmCallbackException
-X86AsmCallbackException:
-    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
-
-; This implements atomic addition in the same way as atomic_increment
-; N.B. It is called from the RTS so uses C linkage conventions.
-PUBLIC  X86AsmAtomicIncrement
-X86AsmAtomicIncrement:
-    mov     eax,4[esp]
-; Use ecx and eax because they are volatile (unlike ebx on X86/64/Unix)
-    mov     ecx,2
-    lock xadd [eax],ecx
-    add     ecx,2
-    mov     eax,ecx
-    ret
 
 CREATE_EXTRA_CALL MACRO index
 PUBLIC  X86AsmCallExtra&index&
@@ -192,5 +159,6 @@ CREATE_EXTRA_CALL RETURN_ARB_EMULATION
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+CREATE_EXTRA_CALL RETURN_ENTER_INTERPRETER
 
 END

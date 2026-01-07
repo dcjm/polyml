@@ -38,6 +38,8 @@ local
     |   ByteCount of LargeInt.int
     |   Time of Time.time
     |   UnknownComponent
+    
+    datatype gcState = MLCode | MinorGC of int | MajorGC of int | GCSharing of int | OtherState of int
 
     val emptySlice = Word8VectorSlice.full(Word8Vector.fromList [])
 
@@ -176,7 +178,14 @@ local
             timeNonGCReal = extractTime(26, stats),
             timeGCReal = extractTime(27, stats),
             sizeCode = extractSize(29, stats),
-            sizeStacks = extractSize(30, stats)
+            sizeStacks = extractSize(30, stats),
+            gcState =
+            let
+                val pc = extractCounter(32, stats)
+            in
+                case extractCounter(31, stats) of
+                    0 => MLCode | 1 => MinorGC pc | 2 => MajorGC pc | 3 => GCSharing pc | _ => OtherState pc
+            end 
         }
     end
     
@@ -188,6 +197,7 @@ in
         open PolyML
         structure Statistics =
         struct
+            datatype gcState = datatype gcState
             fun getLocalStats() = convStats(localStats())
             and getRemoteStats(pid: int) = convStats(remoteStats pid)
             

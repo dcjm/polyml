@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18 David C.J. Matthews
+    Copyright (c) 2016-18, 2021-2 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,15 +16,15 @@
 *)
 
 functor X86ICodeGetConflictSets(
-    structure ICODE: ICodeSig
-    structure INTSET: INTSETSIG
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
-): X86GETCONFLICTSETSIG =
+    structure X86ICode: X86ICODE
+    structure IntSet: INTSET
+    structure Identify: X86IDENTIFYREFERENCES
+    sharing X86ICode.Sharing = Identify.Sharing = IntSet
+): X86GETCONFLICTSET =
 struct
-    open ICODE
-    open INTSET
-    open IDENTIFY
+    open X86ICode
+    open IntSet
+    open Identify
 
     type conflictState =
     {
@@ -112,6 +112,12 @@ struct
                     |   Multiplication{operand2 as MemoryLocation _, ...} =>
                         (* Likewise for multiplication.  *)
                             destRegNos @ map regNo (argRegs operand2)
+                    |   AtomicExchangeAndAdd{base, ...} =>
+                        (* and for atomic operations. The base is always a memory address. *)
+                            regNo base :: destRegNos
+                    |   AtomicExchange{base, ...} => regNo base :: destRegNos
+                    |   AtomicCompareAndExchange{base, ...} => regNo base :: destRegNos
+                            
                         (* TailRecursiveCall and JumpLoop may require a work register.
                            This is the only destination but if present it must be distinct
                            from the arguments. *)
@@ -139,11 +145,16 @@ struct
             (* I'm not sure if this is needed.  There was a check in the old code to ensure that
                different registers were used for loop variables even if they were actually unused.
                This may happen anyway. *)
+            (* However, we need to ensure that if there is a work register it is distinct from any
+               of the registers being used for arguments.  So at the least we need to add a
+               conflict between these. *)
             val () =
                 case instr of
-                    JumpLoop{regArgs, ...} =>
+                    JumpLoop{regArgs, workReg, ...} =>
                     let
                         val destRegs = List.foldl(fn ((_, PReg loopReg), dests) => loopReg :: dests) [] regArgs
+                        val workDest = case workReg of SOME(PReg reg) => [reg] | NONE => []
+                        val destRegs = destRegs @ workDest
                     in
                         addConflictsTo(destRegs, listToSet destRegs);
                         addConflictsTo(destRegs, current);
@@ -221,16 +232,17 @@ struct
                 |   BeginHandler { packetReg, ...} =>
                         reserveRegister([regNo packetReg], GenReg eax)
                 
-                |   FunctionCall { dest, realDest, regArgs, ...} =>
+                |   FunctionCall { results, regArgs, ...} =>
                         (* This is only needed if we are saving the registers rather
                            than marking them as "must push". *)
                     (
-                        reserveRegister([regNo dest], realDest);
+                        List.app (fn (dest, realDest) => reserveRegister([regNo dest], realDest)) results;
                         (* The argument registers also conflict.  In order to execute this call we need to load
                            the arguments into specific registers so we can't use them for values that we want after
                            the call.   We use regNo dest here because that will conflict with everything
                            immediately afterwards. *)
-                        List.app(fn (_, r) => reserveRegister([regNo dest], r)) regArgs
+                        List.app(fn (_, r) =>
+                            List.app(fn (dest, _) => reserveRegister([regNo dest], r)) results) regArgs
                     )
 
                 |   TailRecursiveCall {workReg=PReg wReg, regArgs, ...} =>

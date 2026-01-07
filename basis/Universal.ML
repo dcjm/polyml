@@ -17,17 +17,35 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+(**
+  The `Universal` structure provides a universal 
+  union type. It allows value of any type to be stored in a single table without 
+  knowing in advance the types to be stored. Note that this is not the same as 
+  a dynamic type. The values are discriminated by the tag, not by the type. There 
+  may be more than one tag that can be used with values of a particular type and 
+  these are treated as completely different. `Universal` 
+  is built in for efficiency reasons but it is perfectly feasible to implement 
+  it in Standard ML using `exception` bindings.
+**)
+
 structure Universal :>
 
 sig
-  type universal
-  type 'a tag
-  
-  val tag : unit -> 'a tag
-  
-  val tagIs      : 'a tag -> universal -> bool
-  val tagInject  : 'a tag -> 'a -> universal
-  val tagProject : 'a tag -> universal -> 'a
+    (*!The type of the universal union.*)
+    type universal
+    (*!The type of a tag that can be used to mark a value of the argument type.*)
+    type 'a tag
+
+    (*!Create a tag that can be used to identify a value of a particular type.*)
+    val tag : unit -> 'a tag
+    (*!Inject a value into the union. This marks the value with the tag.*)
+    val tagInject  : 'a tag -> 'a -> universal
+    (*!Test whether the value was marked with the tag.*)
+    val tagIs      : 'a tag -> universal -> bool
+    (*!Project a value from the union. The tag must match the tag that was used 
+      to create union value otherwise a `Match` 
+      exception will be raised.*)
+    val tagProject : 'a tag -> universal -> 'a
   
 end =
 

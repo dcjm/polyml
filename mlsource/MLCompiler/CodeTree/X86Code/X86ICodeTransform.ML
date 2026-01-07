@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-17, 2020-1
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,30 +16,30 @@
 *)
 
 functor X86ICodeTransform(
-    structure ICODE: ICodeSig
-    structure DEBUG: DEBUGSIG
-    structure CODEGEN: X86ICODEGENERATESIG
-    structure ALLOCATE: X86ALLOCATEREGISTERSSIG
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    structure CONFLICTSETS: X86GETCONFLICTSETSIG
-    structure PUSHREGISTERS: X86PUSHREGISTERSIG
-    structure OPTIMISE: X86ICODEOPTSIG
-    structure PRETTY: PRETTYSIG
-    structure INTSET: INTSETSIG
-    sharing ICODE.Sharing = CODEGEN.Sharing = ALLOCATE.Sharing = IDENTIFY.Sharing =
-            CONFLICTSETS.Sharing = PUSHREGISTERS.Sharing = INTSET = OPTIMISE.Sharing
-) : X86ICODETRANSFORMSIG
+    structure X86ICode: X86ICODE
+    structure Debug: DEBUG
+    structure Codegen: X86ICODEGENERATE
+    structure Allocate: X86ALLOCATEREGISTERS
+    structure Identify: X86IDENTIFYREFERENCES
+    structure ConflictSets: X86GETCONFLICTSET
+    structure PushRegisters: X86PUSHREGISTERS
+    structure Optimise: X86ICODEOPT
+    structure Pretty: PRETTY
+    structure IntSet: INTSET
+    sharing X86ICode.Sharing = Codegen.Sharing = Allocate.Sharing = Identify.Sharing =
+            ConflictSets.Sharing = PushRegisters.Sharing = IntSet = Optimise.Sharing
+) : X86ICODETRANSFORM
 =
 struct
-    open ICODE
+    open X86ICode
     open Address
-    open IDENTIFY
-    open CONFLICTSETS
-    open PUSHREGISTERS
-    open INTSET
-    open CODEGEN
-    open ALLOCATE
-    open OPTIMISE
+    open Identify
+    open ConflictSets
+    open PushRegisters
+    open IntSet
+    open Codegen
+    open Allocate
+    open Optimise
     
     exception InternalError = Misc.InternalError
     
@@ -146,16 +146,16 @@ struct
      
     type triple = {instr: x86ICode, current: intSet, active: intSet}
 
-    fun codeICodeFunctionToX86{blocks, functionName, pregProps, ccCount, debugSwitches, resultClosure, ...} =
+    fun codeICodeFunctionToX86{blocks, functionName, pregProps, ccCount, debugSwitches, resultClosure, profileObject, ...} =
     let
        (*val maxPRegs = Vector.length pregProps*)
         val icodeTabs = [8, 20, 60]
-        val wantPrintCode = DEBUG.getParameter DEBUG.icodeTag debugSwitches
+        val wantPrintCode = Debug.getParameter Debug.icodeTag debugSwitches
         
         fun printCode identifiedCode =
             (* Print the code before the transformation. *)
             let
-                val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
+                val printStream = Pretty.getSimplePrinter(debugSwitches, icodeTabs)
             in
                 printStream(functionName ^ "\n");
                 printICodeAbstract(identifiedCode, printStream);
@@ -164,7 +164,7 @@ struct
         
         fun printConflicts(regStates: conflictState vector) =
             let
-                val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
+                val printStream = Pretty.getSimplePrinter(debugSwitches, icodeTabs)
 
                 fun printRegs([], _) = ()
                 |   printRegs(_, 0) = printStream "..."
@@ -183,7 +183,7 @@ struct
 
         fun printRegisters(regAlloc: reg vector) =
         let
-            val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
+            val printStream = Pretty.getSimplePrinter(debugSwitches, icodeTabs)
             fun printRegAlloc(i, reg) = printStream (Int.toString i ^ "\t=> " ^ regRepr reg ^ "\n");
         in
             Vector.appi printRegAlloc regAlloc
@@ -265,6 +265,8 @@ struct
                                                 RegPropStack _ => chooseReg(regs, bestReg, bestCost)
                                             |   RegPropCacheUntagged => reg (* Pick the first cache reg. *)
                                             |   RegPropCacheTagged => reg (* Pick the first cache reg. *)
+                                            |   RegPropMultiple => (* Must not pick a merge reg *)
+                                                    chooseReg(regs, bestReg, bestCost)
                                             |   _ =>
                                                 if cost >= bestCost
                                                 then chooseReg(regs, reg, active)
@@ -299,7 +301,8 @@ struct
                                 (
                                     if wantPrintCode then printRegisters allocatedRegs else ();
                                     icodeToX86Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
-                                               stackRequired=maxStack, debugSwitches=debugSwitches, resultClosure=resultClosure}
+                                               stackRequired=maxStack, debugSwitches=debugSwitches, resultClosure=resultClosure,
+                                               profileObject=profileObject}
                                 )
                        |    AllocateFailure fails =>
                             let

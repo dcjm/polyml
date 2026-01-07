@@ -24,13 +24,7 @@
 
 #define _REALS_H
 
-class SaveVecEntry;
-typedef SaveVecEntry *Handle;
-class TaskData;
-
-extern double real_arg(Handle x); // Also used in "foreign.cpp"
-extern Handle real_result(TaskData *mdTaskData, double x); // Also used in "foreign.cpp"
-
+// This is used in the interpreter
 extern int getrounding();
 extern int setrounding(int rounding);
 

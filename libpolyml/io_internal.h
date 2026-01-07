@@ -76,8 +76,18 @@ class WinStream : public WinStreamBase
 {
 public:
     virtual void closeEntry(TaskData *taskData) = 0;
+
+    // Block for a short time until either input is possible, returning true,
+    // or the time-out, which may be zero, has expired.
+    virtual bool testForInput(TaskData *taskData, unsigned waitMilliSecs) = 0;
+
+    // The same for output.
+    virtual bool testForOutput(TaskData *taskData, unsigned waitMilliSecs) = 0;
+
+    // These are really for backwards compatibility.
     virtual void waitUntilAvailable(TaskData *taskData);
     virtual void waitUntilOutputPossible(TaskData *taskData);
+
     virtual size_t readStream(TaskData *taskData, byte *base, size_t length) {
         unimplemented(taskData);
         return 0;
@@ -100,17 +110,6 @@ public:
     virtual int fileKind() = 0;
     static int fileTypeOfHandle(HANDLE hStream);
 
-    // In general this class does not support polling.
-    // We return true for both of these so we will block.
-    virtual bool isAvailable(TaskData *taskData) {
-        return true; // No general way to test this
-    }
-
-    virtual bool canOutput(TaskData *taskData) {
-        // There doesn't seem to be a way to do this in Windows.
-        return true;
-    }
-
 protected:
     void unimplemented(TaskData *taskData);
 };
@@ -124,14 +123,14 @@ public:
     virtual void closeEntry(TaskData *taskData);
     virtual void openFile(TaskData * taskData, TCHAR *name, openMode mode, bool text);
     virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
-    virtual bool isAvailable(TaskData *taskData);
-    virtual void waitUntilAvailable(TaskData *taskData);
+
+    virtual bool testForInput(TaskData *taskData, unsigned waitMilliSecs);
+    virtual bool testForOutput(TaskData *taskData, unsigned waitMilliSecs);
+
     virtual uint64_t getPos(TaskData *taskData);
     virtual void setPos(TaskData *taskData, uint64_t pos);
     virtual uint64_t fileSize(TaskData *taskData);
 
-    virtual bool canOutput(TaskData *taskData);
-    virtual void waitUntilOutputPossible(TaskData *taskData);
     virtual size_t writeStream(TaskData *taskData, byte *base, size_t length);
 
     // Open on a handle.  This returns an error result rather than raising an exception
@@ -162,6 +161,9 @@ protected:
         overlap.Offset = (DWORD)newPos;
         overlap.OffsetHigh = (DWORD)(newPos >> 32);
     }
+
+    bool isAvailable(TaskData *taskData);
+    bool canOutput(TaskData *taskData);
 
 protected:
     bool isRead;

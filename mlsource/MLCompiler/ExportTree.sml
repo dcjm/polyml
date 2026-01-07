@@ -17,7 +17,7 @@
 
 functor ExportTree(
 structure STRUCTVALS : STRUCTVALSIG
-structure PRETTY: PRETTYSIG
+structure PRETTY: PRETTY
 ): EXPORTTREESIG =
 struct
     open PRETTY STRUCTVALS

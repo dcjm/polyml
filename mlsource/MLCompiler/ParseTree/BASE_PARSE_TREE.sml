@@ -33,7 +33,7 @@
 functor BASE_PARSE_TREE (
     structure STRUCTVALS : STRUCTVALSIG
     structure TYPETREE : TYPETREESIG
-    structure DEBUGGER : DEBUGGERSIG
+    structure DEBUGGER : DEBUGGER
     
     sharing STRUCTVALS.Sharing = TYPETREE.Sharing = DEBUGGER.Sharing
 ): BaseParseTreeSig =

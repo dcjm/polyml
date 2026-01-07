@@ -104,8 +104,8 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyWord action);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWaitForSignal(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetSignalHandler(POLYUNSIGNED threadId, POLYUNSIGNED signalNo, POLYUNSIGNED action);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWaitForSignal(POLYUNSIGNED threadId);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -266,7 +266,7 @@ static Handle waitForSignal(TaskData *taskData)
     }
 }
 
-POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyWord action)
+POLYUNSIGNED PolySetSignalHandler(POLYUNSIGNED threadId, POLYUNSIGNED signalNo, POLYUNSIGNED action)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -285,7 +285,7 @@ POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyW
                 PLocker locker(&sigLock);
                 // We have to pass this to the main thread to 
                 // set up the signal handler.
-                sign = get_C_int(taskData, signalNo);
+                sign = get_C_int(taskData, PolyWord::FromUnsigned(signalNo));
                 /* Decode the action if it is Ignore or Default. */
                 if (pushedAction->Word().IsTagged())
                     action = (int)pushedAction->Word().UnTagged();
@@ -321,7 +321,7 @@ POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyW
 }
 
 // Called by the signal handler thread.  Blocks until a signal is available.
-POLYUNSIGNED PolyWaitForSignal(PolyObject *threadId)
+POLYUNSIGNED PolyWaitForSignal(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -547,11 +547,11 @@ void SigHandler::Init(void)
     pthread_attr_t attrs;
     pthread_attr_init(&attrs);
 #ifdef PTHREAD_STACK_MIN
-#if (PTHREAD_STACK_MIN < 4096)
-    pthread_attr_setstacksize(&attrs, 4096); // But not too small: FreeBSD makes it 2k
-#else
-    pthread_attr_setstacksize(&attrs, PTHREAD_STACK_MIN); // Only small stack.
-#endif
+    // In glibc 2.34 and later, PTHREAD_STACK_MIN may expand to a function call
+    size_t stacksize = PTHREAD_STACK_MIN; // Only small stack.
+    if (stacksize < 4096U) // But not too small: FreeBSD makes it 2k
+        stacksize = 4096U;
+    pthread_attr_setstacksize(&attrs, stacksize);
 #endif
     threadRunning = pthread_create(&detectionThreadId, &attrs, SignalDetectionThread, 0) == 0;
     pthread_attr_destroy(&attrs);

@@ -18,18 +18,24 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* Hash table type - Creates a hash table of specified initial size. This
-   version expands the hash table and rehashes when the table gets too full *)
+(** Hash table type - Creates a hash table of specified initial size. This
+   version expands the hash table and rehashes when the table gets too full
+**)
 
 structure HashArray:>
 sig
+    (** The hashtable type **)
     type 'a hash
-    
+    (** Create a hash table with a given initial size. **)
     val hash: int -> 'a hash
+    (** Add a new entry to the table or update an existing one.  The table will
+        grow if necessary. **)
     val update: 'a hash * string * 'a -> unit
+    (** Search for an entry.  Returns SOME if the entry exists or NONE if it does not. **)
     val sub: 'a hash * string -> 'a option
+    (** Delete an entry from the table. **)
     val delete: 'a hash * string -> unit
-    
+    (** Fold a function over all the entries in the table. **)
     val fold: (string * 'a * 'b -> 'b) -> 'b -> 'a hash -> 'b
 end =
 

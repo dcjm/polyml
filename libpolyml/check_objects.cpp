@@ -1,8 +1,7 @@
 /*
     Title:      Validate addresses in objects.
 
-    Copyright (c) 2006, 2012, 2017
-        David C.J. Matthews
+    Copyright (c) 2006, 2012, 2017, 2021  David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -118,9 +117,9 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
         /* We flush the instruction cache here in case we change any of the
           instructions when we update addresses. */
         machineDependent->FlushInstructionCache(pt, (n + 1) * sizeof(PolyWord));
-        machineDependent->ScanConstantsWithinCode((PolyObject *)base, (PolyObject *)base, n, &checkAddr);
+        machineDependent->ScanConstantsWithinCode((PolyObject *)base, n, &checkAddr);
         /* Skip to the constants. */
-        base->GetConstSegmentForCode(n, pt, n);
+        machineDependent->GetConstSegmentForCode((PolyObject*)base, n, pt, n);
     }
     else if (flags == F_CLOSURE_OBJ)
     {

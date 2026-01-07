@@ -77,7 +77,7 @@ private:
 /*********************************************************************/
 PolyObject *MTGCProcessUpdate::ScanObjectAddress(PolyObject *obj)
 {
-    LocalMemSpace *space = gMem.LocalSpaceForAddress((PolyWord*)obj-1);
+    LocalMemSpace *space = gMem.LocalSpaceForObjectAddress(obj);
     if (space != 0)
     {
         UpdateAddress(obj);

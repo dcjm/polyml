@@ -1,7 +1,7 @@
 (*
     Title:      ASN1 support.
     Author:     David Matthews
-    Copyright   David Matthews 2015-16, 2019
+    Copyright   David Matthews 2015-16, 2019, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,10 +17,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(*
+(**
 These functions provide assistance in the encoding and decoding of ASN1
 binary encoding.
-*)
+**)
 
 signature ASN1 =
 sig

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2000-2010, 2016-17 David C.J. Matthews
+    Copyright (c) 2000-2010, 2016-17, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -342,6 +342,13 @@ and () = RunCall.addOverload Real.~ "~"
 and () = RunCall.addOverload Real.abs "abs"
 and () = RunCall.addOverload Real./ "/";
 
+(* It seems this is sometimes required to ensure that a structure defined in
+   Initialise is properly built.  It doesn't do any harm.  *)
+structure Foreign =
+struct
+    open Foreign
+end;
+
 structure ForeignMemory =
 struct
     open ForeignMemory
@@ -350,11 +357,11 @@ struct
     val get64 =
         fn (s, i) =>
             if LargeWord.wordSize < 0w64
-            then raise RunCall.Foreign "64-bit operations not available" else get64(s, i)
+            then raise Foreign.Foreign "64-bit operations not available" else get64(s, i)
     and set64 =
         fn (s, i, v) =>
             if LargeWord.wordSize < 0w64
-            then raise RunCall.Foreign "64-bit operations not available" else set64(s, i, v)
+            then raise Foreign.Foreign "64-bit operations not available" else set64(s, i, v)
 end;
 
 (* This needs to be defined for StringSignatures but must not be defined in
@@ -384,6 +391,8 @@ fun length l =
     len l 0
     end
 
+(* This is needed for the 5.8.2 bootstrap only because a
+   conversion function for char is not installed in Initialise. *)
 local
     (* Temporary conversion function for characters. This is replaced in
        the Char structure. *)

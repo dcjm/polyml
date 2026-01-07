@@ -2,12 +2,10 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright David C. J. Matthews 2017-19
+    Copyright David C. J. Matthews 2017-22, 2026
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-
-     Further work copyright David C.J. Matthews 2006-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -83,6 +81,9 @@ typedef uintptr_t       POLYUNSIGNED;
 // libpolyml uses printf-style I/O instead of C++ standard IOstreams,
 // so we need specifier to format POLYUNSIGNED/POLYSIGNED values.
 #ifdef POLYML32IN64
+#if (POLYML32IN64 != 2 && POLYML32IN64 != 4)
+#error The value of POLYML32IN64 must be 2 (default space size) or 4 (large space size)
+#endif
 #if (defined(PRIu32))
 #  define POLYUFMT PRIu32
 #  define POLYSFMT PRId32
@@ -159,7 +160,7 @@ public:
     static POLYOBJECTPTR AddressToObjectPtr(void *address);
 #else
     static POLYOBJECTPTR AddressToObjectPtr(void *address)
-        { return (POLYOBJECTPTR)((PolyWord*)address - globalHeapBase); }
+        { return (POLYOBJECTPTR)(((PolyWord*)address - globalHeapBase)/(POLYML32IN64/2)); }
 #endif
 #endif
 
@@ -168,7 +169,7 @@ public:
     POLYUNSIGNED UnTaggedUnsigned(void) const { return contents.unsignedInt >> POLY_TAGSHIFT; }
 #ifdef POLYML32IN64
     PolyWord(POLYOBJPTR p) { contents.objectPtr = AddressToObjectPtr(p); }
-    PolyWord *AsStackAddr(PolyWord *base = globalHeapBase) const { return base + contents.objectPtr; }
+    PolyWord *AsStackAddr(PolyWord *base = globalHeapBase) const { return base + (((uintptr_t)contents.objectPtr) * (POLYML32IN64/2)); }
     POLYOBJPTR AsObjPtr(PolyWord *base = globalHeapBase) const { return (POLYOBJPTR)AsStackAddr(base); }
 #else
     // An object pointer can become a word directly.
@@ -290,8 +291,8 @@ inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK
 /* case 2 - forwarding pointer */
 inline bool OBJ_IS_POINTER(POLYUNSIGNED L)  { return (L & _OBJ_TOMBSTONE_BIT) != 0; }
 #ifdef POLYML32IN64
-inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_TOMBSTONE_BIT) << 1)); }
-inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_TOMBSTONE_BIT; }
+inline PolyObject* OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + (((uintptr_t)L & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64)); }
+inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject* pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_TOMBSTONE_BIT; }
 #else
 inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_TOMBSTONE_BIT) <<2); }
 inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_TOMBSTONE_BIT; }
@@ -331,25 +332,6 @@ public:
 
     bool ContainsNormalLengthWord(void) const { return OBJ_IS_LENGTH(LengthWord()); }
 
-    // Find the start of the constant section for a piece of code.
-    // The first of these is really only needed because we may have objects whose length
-    // words have been overwritten.
-    void GetConstSegmentForCode(POLYUNSIGNED obj_length, PolyWord * &cp, POLYUNSIGNED &count) const
-    {
-        PolyWord *last_word  = Offset(obj_length - 1); // Last word in the code
-        count = last_word->AsUnsigned(); // This is the number of consts
-        cp = last_word - count;
-    }
-    void GetConstSegmentForCode(PolyWord * &cp, POLYUNSIGNED &count) const
-    {
-        GetConstSegmentForCode(Length(), cp, count);
-    }
-    PolyWord *ConstPtrForCode(void) const
-    {
-        PolyWord *cp; POLYUNSIGNED count;
-        GetConstSegmentForCode(cp, count);
-        return cp;
-    }
     // Follow a chain of forwarding pointers
     PolyObject *FollowForwardingChain(void)
     {
@@ -358,6 +340,22 @@ public:
         else return this;
     }
 };
+
+// Stacks are native-words size even in 32-in-64.
+union stackItem
+{
+    stackItem(PolyWord v) { argValue = v.AsUnsigned(); }
+    stackItem() { argValue = TAGGED(0).AsUnsigned(); }
+
+    // These return the low order word.
+    PolyWord w()const { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
+    operator PolyWord () { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
+    POLYCODEPTR codeAddr; // Return addresses
+    stackItem* stackAddr; // Stack addresses
+    uintptr_t argValue; // Treat an address as an int
+    PolyObject* absAddress; // It could be an absolute address to the heap
+};
+
 
 /* There was a problem with version 2.95 on Sparc/Solaris at least.  The PolyObject
    class has no members so classes derived from it e.g. ML_Cons_Cell should begin at
@@ -410,6 +408,23 @@ typedef PolyException poly_exn;
 #define ZERO_X  "0x"
 #else
 #define ZERO_X  ""
+#endif
+
+
+// ARM instructions are always little-endian even in big-endian mode
+#ifdef WORDS_BIGENDIAN
+inline uint32_t reverseBytes32(uint32_t value)
+{
+    return (((value & 0x000000ff) << 24) |
+        ((value & 0x0000ff00) << 8) |
+        ((value & 0x00ff0000) >> 8) |
+        ((value & 0xff000000) >> 24));
+}
+inline uint32_t fromARMInstr(uint32_t instr) { return reverseBytes32(instr); }
+inline uint32_t toARMInstr(uint32_t instr) { return reverseBytes32(instr); }
+#else
+inline uint32_t fromARMInstr(uint32_t instr) { return instr; }
+inline uint32_t toARMInstr(uint32_t instr) { return instr; }
 #endif
 
 #endif

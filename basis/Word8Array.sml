@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Word8Array, Word8Vector and Byte Structures
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005, 2015-16, 2018
+    Copyright   David Matthews 1999, 2005, 2015-16, 2018, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -169,7 +169,7 @@ in
             val vec = LibrarySupport.allocBytes length;
             
             (* Copy the list elements into the array. *)
-            fun init (v, i, a :: l) = (RunCall.storeByte(v, i, a); init(v, i + 0w1, l))
+            fun init (v, i, a :: l) = (RunCall.storeByteInitialise(v, i, a); init(v, i + 0w1, l))
             |  init (_, _, []) = ();
             
         in
@@ -184,7 +184,7 @@ in
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()
-                else (RunCall.storeByte(vec, i, f(wordAsInt i)); init(i+0w1))
+                else (RunCall.storeByteInitialise(vec, i, f(wordAsInt i)); init(i+0w1))
         in
             init 0w0;
             Array(len, vec)

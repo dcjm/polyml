@@ -20,10 +20,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* Extend the PolyML structure.  In particular this adds onEntry which needs to
-   be used further on in the basis library.  We also add a few more items at
-   this point. *)
-
 local
 in
 
@@ -36,7 +32,7 @@ in
 
         local
             (* Initialise the list with the existing start-up function. *)
-            val onEntryList: (unit->unit) list ref = ref[]
+            val onEntryList: (unit->unit) list ref = LibrarySupport.onEntryList
             and onEntryMutex = Thread.Mutex.mutex()
 
             (* Run the list in reverse order. *)
@@ -64,8 +60,8 @@ in
             (* Protect this with a mutex in case two threads try to add entries at the
                same time.  Very unlikely since this is really only called when building
                the basis library. *)
-            fun onEntry (f: unit->unit) : unit =
-                ThreadLib.protect onEntryMutex (fn () => onEntryList := f :: !onEntryList) ()
+            val onEntry : (unit->unit) -> unit =
+                ThreadLib.protect onEntryMutex LibrarySupport.addOnEntry
         
             (* Export functions - write out the function and everything reachable from it. *)
             fun export(filename, f) = callExport(filename, runFunction f)

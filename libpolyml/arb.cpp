@@ -2,7 +2,7 @@
     Title:      Arbitrary Precision Package.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Further modification Copyright 2010, 2012, 2015, 2017 David C. J. Matthews
+    Further modification Copyright 2010, 2012, 2015, 2017, 2023 David C. J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -95,23 +95,26 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "profiling.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitraryPair(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAndArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySubtractArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyMultiplyArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyDivideArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRemainderArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2, POLYUNSIGNED arg3);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitraryPair(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYSIGNED PolyCompareArbitrary(POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGCDArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLCMArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLowOrderAsLargeWord(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOrArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAndArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShiftLeftArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED shift);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShiftRightArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED shift);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg);
 }
 
-static Handle mult_longc(TaskData* taskData, Handle, Handle);
+static Handle mult_longc(TaskData* taskData, Handle, Handle); 
 static Handle or_longc(TaskData *taskData, Handle,Handle);
 static Handle and_longc(TaskData *taskData, Handle,Handle);
 static Handle xor_longc(TaskData *taskData, Handle,Handle);
@@ -1672,7 +1675,7 @@ Handle lcm_arbitrary(TaskData *taskData, Handle x, Handle y)
     return mult_longc(taskData, x, div_longc(taskData, g, y));
 }
 
-POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyAddArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1697,7 +1700,7 @@ POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolySubtractArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1720,7 +1723,7 @@ POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyMultiplyArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1743,7 +1746,7 @@ POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyDivideArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1767,7 +1770,7 @@ POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord a
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyRemainderArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1791,7 +1794,7 @@ POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWor
 }
 
 // This is the older version that took a container as an argument.
-POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3)
+POLYUNSIGNED PolyQuotRemArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2, POLYUNSIGNED arg3)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1810,8 +1813,8 @@ POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord 
         Handle remHandle, divHandle;
         quotRem(taskData, pushedArg2, pushedArg1, remHandle, divHandle);
 
-        arg3.AsObjPtr()->Set(0, divHandle->Word());
-        arg3.AsObjPtr()->Set(1, remHandle->Word());
+        PolyWord::FromUnsigned(arg3).AsObjPtr()->Set(0, divHandle->Word());
+        PolyWord::FromUnsigned(arg3).AsObjPtr()->Set(1, remHandle->Word());
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
@@ -1820,7 +1823,7 @@ POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord 
 }
 
 // This is the newer version that returns a pair.  It's simpler and works with 32-in-64.
-POLYUNSIGNED PolyQuotRemArbitraryPair(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyQuotRemArbitraryPair(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1854,12 +1857,12 @@ POLYUNSIGNED PolyQuotRemArbitraryPair(PolyObject *threadId, PolyWord arg1, PolyW
 }
 
 // This can be a fast call.  It does not need to allocate or use handles.
-POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2)
+POLYSIGNED PolyCompareArbitrary(POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
-    return TAGGED(compareLong(arg2, arg1)).AsSigned();
+    return TAGGED(compareLong(PolyWord::FromUnsigned(arg2), PolyWord::FromUnsigned(arg1))).AsSigned();
 }
 
-POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyGCDArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1880,7 +1883,7 @@ POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyLCMArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1905,13 +1908,14 @@ POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
 // value.  If the value is negative it is treated as a twos complement value.
 // This is used Word.fromLargeInt and LargeWord.fromLargeInt with long-form
 // arbitrary precision values.
-POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyGetLowOrderAsLargeWord(POLYUNSIGNED threadId, POLYUNSIGNED argU)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
     uintptr_t p = 0;
+    PolyWord arg = PolyWord::FromUnsigned(argU);
 
     if (arg.IsTagged())
         p = arg.UnTagged();
@@ -1945,7 +1949,7 @@ POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyOrArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1967,7 +1971,7 @@ POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyAndArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyAndArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1989,7 +1993,7 @@ POLYUNSIGNED PolyAndArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyXorArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2011,6 +2015,240 @@ POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
+POLYUNSIGNED PolyShiftLeftArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED shift)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    PolyWord shiftVal = PolyWord::FromUnsigned(shift);
+    Handle result = 0;
+
+    try {
+        // The shift is a word value which should always be a tagged unsigned integer
+        if (!shiftVal.IsTagged())
+            raise_exception0(taskData, EXC_overflow);
+        POLYUNSIGNED shiftBy = shiftVal.UnTaggedUnsigned();
+        // Shift of zero returns the argument and shifting zero returns zero.
+        if (shiftBy == 0 || (pushedArg->Word().IsTagged() && pushedArg->Word().UnTagged() == 0))
+            result = pushedArg; // Shift of zero returns the argument
+        else
+        {
+            int sign;
+#ifdef USE_GMP
+            POLYUNSIGNED shiftLimbs = shiftBy / (sizeof(mp_limb_t) * 8), shiftBits = shiftBy & (sizeof(mp_limb_t) * 8 - 1);
+            mp_limb_t  extend;
+            mp_size_t  srcLimbs;
+            mp_limb_t* xb = convertToLong(pushedArg, &extend, &srcLimbs, &sign);
+            POLYUNSIGNED destLimbs = srcLimbs + shiftLimbs + (shiftBits == 0 ? 0 : 1);
+            POLYUNSIGNED destWords = WORDS(destLimbs * sizeof(mp_limb_t));
+            Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+            memset(DEREFBYTEHANDLE(z), 0, shiftLimbs * sizeof(mp_limb_t)); // Zero low-order limbs
+            // Can now dereference the handle
+            mp_limb_t* src = pushedArg->Word().IsTagged() ? xb : DEREFLIMBHANDLE(pushedArg);
+            if (shiftBits == 0) // Copy the bytes.
+                memcpy(DEREFLIMBHANDLE(z) + shiftLimbs, src, srcLimbs * sizeof(mp_limb_t));
+            else
+            {
+                mp_limb_t last = mpn_lshift(DEREFLIMBHANDLE(z) + shiftLimbs, src, srcLimbs, shiftBits);
+                DEREFLIMBHANDLE(z)[destLimbs - 1] = last;
+            }
+            result = make_canonical(taskData, z, sign);
+#else
+            POLYUNSIGNED shiftBytes = shiftBy >> 3, shiftBits = shiftBy & 0x7;
+            byte    extend[sizeof(PolyWord)];
+            POLYUNSIGNED    srcBytes;
+            byte* xb = convertToLong(pushedArg, extend, &srcBytes, &sign);
+            POLYUNSIGNED destBytes = srcBytes + shiftBytes + (shiftBits == 0 ? 0:1);
+            POLYUNSIGNED destWords = WORDS(destBytes);
+            // Allocate the space and set the last word to zero in case there are unset bytes.
+            Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+            z->WordP()->Set(destWords - 1, PolyWord::FromUnsigned(0));
+            memset(DEREFBYTEHANDLE(z), 0, shiftBytes); // Zero low-order bytes
+            // Can now dereference the handle.
+            byte* src = pushedArg->Word().IsTagged() ? xb : DEREFBYTEHANDLE(pushedArg);
+            if (shiftBits == 0) // Copy the bytes.
+                memcpy(DEREFBYTEHANDLE(z) + shiftBytes, src, srcBytes);
+            else
+            {
+                byte b = 0;
+                byte* dest = DEREFBYTEHANDLE(z) + shiftBytes;
+                while (srcBytes-- > 0)
+                {
+                    byte c = *(src++);
+                    *(dest++) = b | (c << shiftBits);
+                    b = c >> (8 - shiftBits);
+                }
+                *dest = b;
+            }
+            result = make_canonical(taskData, z, sign);
+#endif
+        }
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyShiftRightArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED shift)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    PolyWord shiftVal = PolyWord::FromUnsigned(shift);
+    Handle result = 0;
+
+    try {
+        // The shift is a word value which should always be a tagged unsigned integer
+        if (!shiftVal.IsTagged())
+            raise_exception0(taskData, EXC_overflow);
+        POLYUNSIGNED shiftBy = shiftVal.UnTaggedUnsigned();
+        if (shiftBy == 0)
+            result = pushedArg; // Shift of zero returns the argument
+        else if (pushedArg->Word().IsTagged())
+        {
+            // If the argument is short the result will be short.
+            POLYSIGNED v = pushedArg->Word().UnTagged();
+            result = taskData->saveVec.push(PolyWord::TaggedInt(v >> shiftBy));
+        }
+        else
+        {
+            int sign = OBJ_IS_NEGATIVE(GetLengthWord(pushedArg->Word())) ? -1 : 1;
+#if USE_GMP
+            POLYUNSIGNED srcLimbs = numLimbs(pushedArg->Word());
+            POLYUNSIGNED shiftLimbs = shiftBy / (sizeof(mp_limb_t)*8), shiftBits = shiftBy & (sizeof(mp_limb_t)*8 - 1);
+            if (shiftLimbs >= srcLimbs)
+                result = taskData->saveVec.push(sign < 0 ? TAGGED(-1): TAGGED(0));
+            else
+            {
+                bool hasRemainder = false;
+                POLYUNSIGNED destLimbs = srcLimbs - shiftLimbs;
+                POLYUNSIGNED destWords = WORDS(destLimbs * sizeof(mp_limb_t));
+                Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+                mp_ptr srcPtr = DEREFLIMBHANDLE(pushedArg);
+                for (POLYUNSIGNED p = 0; p < shiftLimbs; p++)
+                    if (srcPtr[p] != 0) hasRemainder = true;
+                if (shiftBits == 0)
+                    memcpy(DEREFLIMBHANDLE(z), DEREFLIMBHANDLE(pushedArg) + shiftLimbs, destLimbs * sizeof(mp_limb_t));
+                else
+                {
+                    mp_limb_t remainder =
+                        mpn_rshift(DEREFLIMBHANDLE(z), DEREFLIMBHANDLE(pushedArg) + shiftLimbs,
+                        destLimbs, shiftBits);
+                    if (remainder != 0) hasRemainder = true;
+                }
+                result = make_canonical(taskData, z, sign);
+                // If we have shifted out non-zero bits and the value is negative we need to subtract one.
+                if (hasRemainder && sign < 0)
+                {
+                    Handle one = taskData->saveVec.push(TAGGED(1));
+                    result = add_unsigned_long(taskData, one, result, -1); //
+                }
+            }
+#else
+            POLYUNSIGNED srcBytes = get_length(pushedArg->Word());
+            POLYUNSIGNED shiftBytes = shiftBy >> 3, shiftBits = shiftBy & 0x7;
+            if (shiftBytes >= srcBytes)
+                result = taskData->saveVec.push(sign < 0 ? TAGGED(-1) : TAGGED(0));
+            else
+            {
+                bool hasRemainder = false;
+                POLYUNSIGNED destBytes = srcBytes - shiftBytes;
+                POLYUNSIGNED destWords = WORDS(destBytes);
+                Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+                // Set the last word to zero so that any uncopied bytes are zeroed
+                z->WordP()->Set(destWords - 1, PolyWord::FromUnsigned(0));
+                byte* srcPtr = DEREFBYTEHANDLE(pushedArg);
+                for (POLYUNSIGNED p = 0; p < shiftBytes; p++)
+                    if (srcPtr[p] != 0) hasRemainder = true;
+                if (shiftBits == 0) // Copy the bytes.
+                    memcpy(DEREFBYTEHANDLE(z), srcPtr + shiftBytes, destBytes);
+                else
+                {
+                    // Shift each of the bytes.
+                    byte b = 0;
+                    byte* src = srcPtr + srcBytes;
+                    byte* dest = DEREFBYTEHANDLE(z) + destBytes;
+                    while (destBytes-- > 0)
+                    {
+                        byte c = *(--src);
+                        *(--dest) = b | (c >> shiftBits);
+                        b = c << (8 - shiftBits);
+                    }
+                    if (b != 0) hasRemainder = true;
+                }
+                result = make_canonical(taskData, z, sign);
+                // If we have shifted out non-zero bits and the value is negative we need to subtract one.
+                if (hasRemainder && OBJ_IS_NEGATIVE(GetLengthWord(pushedArg->Word())))
+                {
+                    Handle one = taskData->saveVec.push(TAGGED(1));
+                    result = add_unsigned_long(taskData, one, result, -1);
+                }
+            }
+#endif
+        }
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+
+#ifdef USE_GMP
+static int log2Word(mp_limb_t arg)
+{
+    int result = 0;
+    ASSERT(arg != 0);
+    while (arg >>= 1) result++;
+    return result;
+}
+
+POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg)
+{
+    PolyWord w = PolyWord::FromUnsigned(arg);
+    if (w.IsTagged())
+    {
+        POLYUNSIGNED v = w.UnTaggedUnsigned();
+        if (v == 0) return TAGGED(-1).AsUnsigned();
+        return TAGGED(log2Word(v)).AsUnsigned();
+    }
+    mp_size_t n = numLimbs(w) - 1;
+    mp_limb_t last = ((mp_limb_t*)w.AsCodePtr())[n];
+    return TAGGED(n * GMP_LIMB_BITS + log2Word(last)).AsUnsigned();
+}
+
+#else
+static int log2Word(POLYUNSIGNED arg)
+{
+    int result = 0;
+    ASSERT(arg != 0);
+    while (arg >>= 1) result++;
+    return result;
+}
+
+POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg)
+{
+    PolyWord w = PolyWord::FromUnsigned(arg);
+    if (w.IsTagged())
+    {
+        POLYUNSIGNED v = w.UnTaggedUnsigned();
+        if (v == 0) return TAGGED(-1).AsUnsigned();
+        return TAGGED(log2Word(v)).AsUnsigned();
+    }
+    POLYUNSIGNED n = get_length(w) - 1; // Position of last non-zero byte
+    return TAGGED(n * 8 + log2Word(w.AsCodePtr()[n])).AsUnsigned();
+}
+#endif
+
 struct _entrypts arbitraryPrecisionEPT[] =
 {
     { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
@@ -2027,6 +2265,9 @@ struct _entrypts arbitraryPrecisionEPT[] =
     { "PolyOrArbitrary",                (polyRTSFunction)&PolyOrArbitrary},
     { "PolyAndArbitrary",               (polyRTSFunction)&PolyAndArbitrary},
     { "PolyXorArbitrary",               (polyRTSFunction)&PolyXorArbitrary},
+    { "PolyShiftLeftArbitrary",         (polyRTSFunction)&PolyShiftLeftArbitrary},
+    { "PolyShiftRightArbitrary",        (polyRTSFunction)&PolyShiftRightArbitrary},
+    { "PolyLog2Arbitrary",              (polyRTSFunction)&PolyLog2Arbitrary},
 
     { NULL, NULL} // End of list.
 };

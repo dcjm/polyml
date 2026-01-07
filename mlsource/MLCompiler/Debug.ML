@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2013, 2015-16.
+    Modified David C.J. Matthews 2008, 2013, 2015-16, 2020-21.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,7 +18,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure Debug: DEBUGSIG =
+structure Debug: DEBUG =
 struct
     local
         open Universal
@@ -63,12 +63,17 @@ struct
         val lowlevelOptimiseTag: bool tag            = tag()
         (* Print assembly code in code-generator? default false *)
         val assemblyCodeTag: bool tag                = tag()
+        (* General switch for compiler debugging.  Generally does nothing. *)
+        val compilerDebugTag: int tag                = tag()
+
         (* Report unreferenced identifiers as warnings *)
         val reportUnreferencedIdsTag: bool tag       = tag()
         (* Report catch-all handlers as warnings *)
         val reportExhaustiveHandlersTag: bool tag    = tag()
         (* Use a narrow context to resolve overloading and flexible records. *)
         val narrowOverloadFlexRecordTag: bool tag    = tag()
+        (* Enable non-standard language extensions.  At the moment this is just record punning. *)
+        val languageExtensionsTag: bool tag               = tag()
         (* Create print functions for datatypes based on the constructors. *)
         val createPrintFunctionsTag: bool tag        = tag()
         (* Warning level for discarding values *)
@@ -76,7 +81,7 @@ struct
         val reportDiscardNone     = 0: FixedInt.int (* No reports *)
         and reportDiscardFunction = 1: FixedInt.int (* Only report discarded functions *)
         and reportDiscardNonUnit  = 2: FixedInt.int (* Report discarding any non unit values *)
-        
+         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
         (* ValueOps.printSpaceTag: ValueOps.nameSpace tag
@@ -102,6 +107,7 @@ struct
             tagInject lowlevelOptimiseTag true,
             tagInject assemblyCodeTag false,
             tagInject codetreeAfterOptTag false,
+            tagInject compilerDebugTag 0,
             tagInject errorDepthTag 6,
             tagInject printDepthFunTag (fn () => 0),
             tagInject lineLengthTag 77,
@@ -109,6 +115,7 @@ struct
             tagInject reportUnreferencedIdsTag false,
             tagInject reportExhaustiveHandlersTag false,
             tagInject narrowOverloadFlexRecordTag false,
+            tagInject languageExtensionsTag false,
             tagInject createPrintFunctionsTag true,
             tagInject reportDiscardedValuesTag reportDiscardFunction
         ]

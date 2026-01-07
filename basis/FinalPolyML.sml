@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019
+    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-21, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -250,9 +250,11 @@ local
     and codetreeAfterOpt = ref false
     and icode = ref false
     and parsetree = ref false
+    and compilerDebug = ref 0
     and reportUnreferencedIds = ref false
     and reportExhaustiveHandlers = ref false
     and narrowOverloadFlexRecord = ref false
+    and languageExtensions = ref false
     and createPrintFunctions = ref true
     and reportDiscardFunction = ref true
     and reportDiscardNonUnit = ref false
@@ -523,6 +525,7 @@ local
                     tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                     tagInject assemblyCodeTag (! assemblyCode),
                     tagInject codetreeAfterOptTag (! codetreeAfterOpt),
+                    tagInject compilerDebugTag (! compilerDebug),
                     tagInject profileAllocationTag (FixedInt.fromInt allocProfiling),
                     tagInject errorDepthTag (FixedInt.fromInt(! errorDepth)),
                     tagInject printDepthFunTag (FixedInt.fromInt o printDepth),
@@ -533,6 +536,7 @@ local
                     tagInject reportUnreferencedIdsTag (! reportUnreferencedIds),
                     tagInject reportExhaustiveHandlersTag (! reportExhaustiveHandlers),
                     tagInject narrowOverloadFlexRecordTag (! narrowOverloadFlexRecord),
+                    tagInject languageExtensionsTag (! languageExtensions),
                     tagInject createPrintFunctionsTag (! createPrintFunctions),
                     tagInject reportDiscardedValuesTag
                         (if ! reportDiscardNonUnit then 2 else if ! reportDiscardFunction then 1 else 0)
@@ -673,7 +677,7 @@ local
         end
     end
 
-    val suffixes = ref ["", ".ML", ".sml"]
+    val suffixes = ref ["", ".ML", ".sml", ".sig"]
  
 
     (*****************************************************************************)
@@ -764,35 +768,33 @@ local
     fun longName (directory, file) = OS.Path.joinDirFile{dir=directory, file = file}
     
     local
-        fun fileReadable (fileTuple as (directory, object)) =
-            (* Use OS.FileSys.isDir just to test if the file/directory exists. *)
-            if (OS.FileSys.isDir (longName fileTuple); false) handle OS.SysErr _ => true
-            then false
-            else
-            let
-                (* Check that the object is present in the directory with the name
-                 given and not a case-insensitive version of it.  This avoids
-                 problems with "make" attempting to recursively make Array etc
-                 because they contain signatures ARRAY. *)
-                open OS.FileSys
-                val d = openDir (if directory = "" then "." else directory)
-                fun searchDir () =
-                  case readDir d of
-                     NONE => false
-                  |  SOME f => f = object orelse searchDir ()
-                val present = searchDir()
-            in
-                closeDir d;
-                present
-            end
-    
+        (* Test whether a file really exists rather than a case-insensitive version. *)
+        fun reallyexists fileName =
+        let
+            open OS.FileSys
+            val {dir, file} = OS.Path.splitDirFile fileName
+            val dirName = if dir = "" then OS.Path.currentArc else dir
+            fun readAll () =
+                let
+                    val direc = openDir dirName
+                    fun read () =
+                        case readDir direc of
+                            NONE => false
+                        |   SOME f => f = file orelse read ()
+                in
+                    read () before closeDir direc
+                end
+        in
+            (OS.Path.isRoot dir orelse dir = "" orelse reallyexists dir) andalso readAll()
+        end
+
         fun findFileTuple _                   [] = NONE
         |   findFileTuple (directory, object) (suffix :: suffixes) =
         let
             val fileName  = object ^ suffix
             val fileTuple = (directory, fileName)
         in
-            if fileReadable fileTuple
+            if reallyexists(longName fileTuple)
             then SOME fileTuple
             else findFileTuple (directory, object) suffixes
         end
@@ -808,17 +810,23 @@ local
                 case kind of
                     NONE => [archSuffix, versionSuffix, ""]
                 |   SOME k => ["." ^ k ^ archSuffix, "." ^ k ^ versionSuffix, "." ^ k, archSuffix, versionSuffix, ""]
+            val standardSuffixes =
+                case kind of
+                    SOME "signature" => ".sig" :: ! suffixes
+                |   _ => !suffixes
             val addedSuffixes =
-                List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] (!suffixes)
+                List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] standardSuffixes
         in
             (* For each of the suffixes in the list try it. *)
             findFileTuple (directory, object) addedSuffixes
         end
+
+        (* See if the corresponding file is there and if it is a directory. *)
+        fun testForDirectory (name: string) : bool =
+            if reallyexists name
+            then OS.FileSys.isDir name handle OS.SysErr _ => false (* No such file. *)
+            else false
     end
-    
-    (* See if the corresponding file is there and if it is a directory. *)
-    fun testForDirectory (name: string) : bool =
-        OS.FileSys.isDir name handle OS.SysErr _ => false (* No such file. *)
 
     (* Time stamps. *)
     type timeStamp = Time.time;
@@ -1228,6 +1236,8 @@ in
             and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
             and lowlevelOptimise = lowlevelOptimise and reportExhaustiveHandlers = reportExhaustiveHandlers
             and narrowOverloadFlexRecord = narrowOverloadFlexRecord
+            and languageExtensions = languageExtensions
+            and compilerDebug = compilerDebug
             and createPrintFunctions = createPrintFunctions
             and reportDiscardFunction = reportDiscardFunction
             and reportDiscardNonUnit = reportDiscardNonUnit
@@ -1992,7 +2002,8 @@ in
                             tagInject icodeTag (! icode),
                             tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                             tagInject assemblyCodeTag (! assemblyCode),
-                            tagInject codetreeAfterOptTag (! codetreeAfterOpt)
+                            tagInject codetreeAfterOptTag (! codetreeAfterOpt),
+                            tagInject compilerDebugTag (! compilerDebug)
                         ], numLocals)
                 end
         end
@@ -2094,45 +2105,104 @@ in
         (* Saving and loading state. *)
         structure SaveState =
         struct
+            type moduleId = Word8Vector.vector
+
+            val showLoadedModules: unit -> moduleId list =
+                RunCall.rtsCallFull0 "PolyShowLoadedModules"
+
+            val getModuleInfo: string -> moduleId * (moduleId * string) list =
+                RunCall.rtsCallFull1 "PolyGetModuleInfo"
+
             local
                 val getOS: int = LibrarySupport.getOSType()
+                (* Path elements are separated by semicolons in Windows but colons in Unix. *)
+                val sepInPathList = if getOS = 1 then #";" else #":"
 
-                val loadMod: string -> Universal.universal list = RunCall.rtsCallFull1 "PolyLoadModule"
+                val loadMod: string -> Universal.universal list * moduleId = RunCall.rtsCallFull1 "PolyLoadModule"
                 and systemDir: unit -> string = RunCall.rtsCallFull0 "PolyGetModuleDirectory"
-            in
-                fun loadModuleBasic (fileName: string): Universal.universal list =
-                (* If there is a path separator use the name and don't search further. *)
-                if OS.Path.dir fileName <> ""
-                then loadMod fileName
-                else
-                let
-                    (* Path elements are separated by semicolons in Windows but colons in Unix. *)
-                    val sepInPathList = if getOS = 1 then #";" else #":"
-                    val pathList =
-                        case OS.Process.getEnv "POLYMODPATH" of
-                            NONE => []
-                        |   SOME s => String.fields (fn ch => ch = sepInPathList) s
 
-                    fun findFile [] = NONE
-                    |   findFile (hd::tl) =
-                        (* Try actually loading the file.  That way we really check we have a module. *)
-                        SOME(loadMod (OS.Path.joinDirFile{dir=hd, file=fileName}))
-                            handle Fail _ => findFile tl | OS.SysErr _ => findFile tl      
+                (* Get the full path name and the module info.  Raises an exception if the module
+                   cannot be found. *)
+                fun moduleFileName fileName =
+                    (* If there is a path separator in the name use the name and don't search further. *)
+                    if OS.Path.dir fileName <> ""
+                    then (fileName, getModuleInfo fileName)
+                    else
+                    let
+                        val pathList =
+                            case OS.Process.getEnv "POLYMODPATH" of
+                                NONE => []
+                            |   SOME s => String.fields (fn ch => ch = sepInPathList) s
+
+                        (* Append the system directory to the end unless it's empty *)
+                        val sysDir = systemDir()
+                        val fullPathList =
+                            if sysDir = "" then pathList else pathList @ [sysDir]
+
+                        fun findFile (hd::tl) =
+                            (* See if the file exists and is a valid module. *)
+                            let
+                                val fullName = OS.Path.joinDirFile{dir=hd, file=fileName}
+                            in
+                                (fullName, getModuleInfo fullName)
+                                    (* If this raises an exception keep looking. *)
+                                    handle Fail _ => findFile tl | OS.SysErr _ => findFile tl
+                            end
+                        |   findFile [] =
+                                raise Fail("Unable to find module ``" ^ fileName ^ "''")
+                    in
+                        findFile fullPathList
+                    end
+
+                (* Load the dependencies and then the module itself, accumulating the contents. *)
+                fun loadModAndDependencies(fileName, [], otherContents) =
+                        (* All the dependencies have been loaded - load the module itself. *)
+                    let
+                        val (contents, modId) = loadMod fileName
+                    in
+                        (contents @ otherContents, modId)
+                    end
+
+                |   loadModAndDependencies(fileName, (_, "")::otherModules, otherContents) =
+                        (* If the file name is empty we don't attempt to load it here.
+                           If it isn't already loaded we'll get an error when we attempt
+                           to load the parent. *)
+                        loadModAndDependencies(fileName, otherModules, otherContents)
+
+                |   loadModAndDependencies(fileName, (depModId, depFileName)::otherModules, otherContents) =
+                    let
+                        val loadedMods = showLoadedModules()
+
+                        val addContents =
+                            (* Have to load the module unless the module is already loaded *)
+                            if List.exists(fn id => id = depModId) loadedMods
+                            then otherContents
+                            else
+                            let
+                                val (fname, (modId, modDeps)) = moduleFileName depFileName
+                            in
+                                (* If the moduleId does not match ignore it and its dependencies.
+                                   That could happen if the module has been moved or the file name
+                                   information in the parent module is wrong.  It is possible to get
+                                   an apparent dependency loop in that case. *)
+                                if modId = depModId
+                                then #1 (loadModAndDependencies(fname, modDeps, otherContents))
+                                else otherContents
+                            end
+                    in
+                        (* Get the other dependencies and finally the module itself. *)
+                        loadModAndDependencies(fileName, otherModules, addContents)
+                    end
+            in
+                fun loadModuleBasic (fileName: string): Universal.universal list * moduleId =
+                let
+                    val (fname, (_, deps)) = moduleFileName fileName
                 in
-                    case findFile pathList of
-                        SOME l => l (* Found *)
-                    |   NONE => 
-                        let
-                            val sysDir = systemDir()
-                            val inSysDir =
-                                if sysDir = "" then NONE else findFile[sysDir]
-                        in
-                            case inSysDir of
-                                SOME l => l
-                            |   NONE => raise Fail("Unable to find module ``" ^ fileName ^ "''")
-                        end
+                    loadModAndDependencies(fname, deps, [])
                 end
             end
+            
+            val releaseModule: moduleId -> unit = RunCall.rtsCallFull1 "PolyReleaseModule"
 
             val saveChild: string * int -> unit = RunCall.rtsCallFull2 "PolySaveState"
 
@@ -2156,7 +2226,7 @@ in
                    before the children.  It's easier for the RTS if this is reversed. *)
                 fun loadHierarchy (s: string list): unit = loadHier (List.rev s)
             end
-            
+
             (* Module loading and storing. *)
             structure Tags =
             struct
@@ -2168,15 +2238,21 @@ in
                 val fixityTag: (string * PolyML.NameSpace.Infixes.fixity) Universal.tag = Universal.tag()
                 val startupTag: (unit -> unit) Universal.tag = Universal.tag()
             end
-            
+
             local
-                val saveMod: string * Universal.universal list -> unit = RunCall.rtsCallFull2 "PolyStoreModule"
+                val saveDepMod: string * Universal.universal list * (moduleId * string) list -> moduleId =
+                    RunCall.rtsCallFull3 "PolyStoreModule"
             in
-                fun saveModuleBasic(_, []) = raise Fail "Cannot create an empty module"
-                |   saveModuleBasic(name, contents) = saveMod(name, contents)
+                fun saveDependentModuleBasic(_, [], _) = raise Fail "Cannot create an empty module"
+                |   saveDependentModuleBasic(fileName, contents, dependencies) =
+                        saveDepMod(fileName, contents, dependencies)
+                
+                (* Simple version without dependencies *)
+                fun saveModuleBasic(name, contents) =
+                        saveDependentModuleBasic(name, contents, [])
             end
 
-            fun saveModule(s, {structs, functors, sigs, onStartup}) =
+            fun saveDependentModule(s, {structs, functors, sigs, onStartup}, dependencies) =
             let
                 fun dolookup (look, tag, kind) s =
                     case look globalNameSpace s of
@@ -2190,12 +2266,14 @@ in
                         SOME f => [Universal.tagInject Tags.startupTag f]
                     |   NONE => []
             in
-                saveModuleBasic(s, structVals @ functorVals @ sigVals @ startVal)
+                saveDependentModuleBasic(s, structVals @ functorVals @ sigVals @ startVal, dependencies)
             end
             
-            fun loadModule s =
+            fun saveModule(s, contents) = saveDependentModule(s, contents, [])
+            
+            fun loadModule s : moduleId =
             let
-                val ulist = loadModuleBasic s
+                val (ulist, modId) = loadModuleBasic s
                 (* Find and run the start-up function.  If it raises an exception we
                    don't go further. *)
                 val startFn = List.find (Universal.tagIs Tags.startupTag) ulist
@@ -2214,8 +2292,11 @@ in
                     signatures = extract Tags.signatureTag ulist,
                     functors = extract Tags.functorTag ulist,
                     types = extract Tags.typeTag ulist
-                }
+                };
+                
+                modId
             end
+
         end
         
         val loadModule = SaveState.loadModule

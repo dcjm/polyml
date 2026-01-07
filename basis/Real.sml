@@ -1,7 +1,7 @@
 (*
-    Title:      Standard Basis Library: Real Signature and structure.
+    Title:      Standard Basis Library: Real and Real32 structures.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2008, 2016-18
+    Copyright   David Matthews 2000, 2005, 2008, 2016-18, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,6 +16,135 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
+
+local
+    open RealNumbersAsBits
+
+    val floatMaxFiniteExp = 254
+    and doubleMaxFiniteExp = 2046
+
+    (* Functions common to Real and Real32 *)
+    local
+        open StringCvt
+    in
+        (* How many digits will the mantissa take?  It's possible
+           to unroll this loop since the maximum for float is 9 and for
+           double is 17.  We want to avoid long-format arbitrary precision
+           arithmetic as much as possible so we stop at 10 digits which
+           is the maximum short-format power of ten in 32-bit mode. *)
+        fun ndigits (i: LargeInt.int) =
+            if i >= 1000000000 then ndigits(i div 1000000000) + 9
+            else if i >= 100000000 then 9
+            else if i >= 10000000 then 8
+            else if i >= 1000000 then 7
+            else if i >= 100000 then 6
+            else if i >= 10000 then 5
+            else if i >= 1000 then 4
+            else if i >= 100 then 3
+            else if i >= 10 then 2
+            else 1
+
+        local
+            (* PolyRealDoubleToDecimal returns an arbitrary precision number for
+               the mantissa because it could be greater than 31 bits.  In 64-bit
+               mode it will always be short and we want to use fixed int
+               arithmetic if we can. *)
+            fun fixedDigitList (0, r) = r
+            |   fixedDigitList (n, r) =
+                    fixedDigitList (Int.quot(n, 10), Int.rem(n, 10) :: r)
+        in
+            fun digitList(n, r) =
+                if LibrarySupport.largeIntIsSmall n then fixedDigitList (Int.fromLarge n, r)
+                else
+                let
+                    val (qu, rm) = IntInf.quotRem(n, 10)
+                in
+                    digitList (qu, (Int.fromLarge rm) :: r)
+                end
+        end
+
+        (* Common functions to convert real/Real32.real to strings *)
+        (* "ndigs" is the number of digits after the decimal point.
+           For sciFmt that means that "ndigs+1" digits are produced.
+           For fixFmt at least "ndigs+1" digits are produced.  If
+           "ndigs" is 0 the value is printed as an integer without
+           any ".0".
+           In both cases ndigs > 0. *)
+        fun exactFmt convert r =
+        let
+            val {sign, exponent, mantissa, class} = convert r
+            open IEEEReal
+        in
+            case class of
+                NAN => "nan"
+            |   INF => if sign then "~inf" else "inf"
+            |   _ (* NORMAL, ZERO, SUBNORMAL *) =>
+                let
+                    val s = if sign then "~" else ""
+                    val exponent = exponent + ndigits mantissa
+                    val (e, exp) =
+                        if exponent = 0 then ("", "") else ("E", Int.toString exponent)
+                in
+                    String.concat[s, "0.", LargeInt.toString mantissa, e, exp]
+                end
+        end
+
+        local
+            val dble2str = RunCall.rtsCallFull3 "PolyRealDoubleToString" : real * char * int -> string
+        in
+            fun nonExactFmt (toDble, fmt, ndigs) r =
+            let
+                val dr = toDble r
+                val exp = doubleExponent dr
+            in
+                if exp > doubleMaxFiniteExp
+                then (* Non-finite *)
+                (
+                    if doubleMantissa dr <> 0
+                    then "nan"
+                    else if doubleSignBit dr then "~inf" else "inf"
+                )
+                else
+                let
+                    (* Use snprintf to do the conversion. *)
+                    val str = dble2str(dr, fmt, ndigs)
+                    (* G-format does not always put in a decimal point so
+                       we may need to add .0 to the end to make it look like
+                       an ML real. *)
+                    fun hasDecOrE(_, true) = true
+                    |   hasDecOrE(#".", _) = true
+                    |   hasDecOrE(#"E", _) = true
+                    |   hasDecOrE _ = false
+                in
+                    if fmt = #"G" andalso ndigs > 1 andalso not(CharVector.foldl hasDecOrE false str)
+                    then str ^ ".0"
+                    else str
+                end
+            end
+        end
+
+        (* Note: The definition says, reasonably, that negative values
+           for the number of digits raises Size.  The tests also check
+           for a very large value for the number of digits and seem to
+           expect Size to be raised in that case.  Note that the exception
+           is raised when fmt spec is evaluated and before it is applied
+           to an actual real argument. *)
+        fun fmtFunction (_, toDble) (SCI NONE) = nonExactFmt(toDble, #"E", 6)
+        |   fmtFunction (_, toDble) (SCI (SOME d) ) =
+                if d < 0 orelse d > 200 then raise General.Size
+                else nonExactFmt(toDble, #"E", d)
+        |   fmtFunction (_, toDble) (FIX NONE) = nonExactFmt(toDble, #"F", 6)
+        |   fmtFunction (_, toDble) (FIX (SOME d) ) =
+                if d < 0 orelse d > 200 then raise General.Size
+                else nonExactFmt(toDble, #"F", d)
+        |   fmtFunction (_, toDble) (GEN NONE) = nonExactFmt(toDble, #"G", 12)
+        |   fmtFunction (_, toDble) (GEN (SOME d) ) =
+                if d < 1 orelse d > 200 then raise General.Size
+                else nonExactFmt(toDble, #"G", d)
+        |   fmtFunction (toExact, _) EXACT = exactFmt toExact
+
+    end
+in
 
 structure Real: REAL =
 struct
@@ -63,65 +192,62 @@ struct
     
     end;
 
-
     infix 4 == != ?=;
     
     val op == = Real.==
     val op != : real * real -> bool = not o op ==
     
-    local
-        (* The General call is now only used to get constants. *)
-        val doRealReal : int*unit->real = RunCall.rtsCallFull2 "PolyRealGeneral"
-        and doRealInt  : int*unit->int = RunCall.rtsCallFull2 "PolyRealGeneral"
-        fun callReal n x = doRealReal(n, x)
-        and callRealToInt n x = doRealInt(n, x)
-    in
-        val radix : int = callRealToInt 11 ()
-        val precision : int = callRealToInt 12 ()
-        val maxFinite : real = callReal 13 ()
-        val minNormalPos : real = callReal 14 ()
-        val minPos: real = callReal 15 ()
-    end
+    val radix        = 2
+    val precision    = 53
+    val maxFinite    = doubleFromBinary{sign=false, exp=doubleMaxFiniteExp, mantissa = 0xFFFFFFFFFFFFF}
+    val minNormalPos = doubleFromBinary{sign=false, exp=1, mantissa = 0}
+    val minPos       = doubleFromBinary{sign=false, exp=0, mantissa = 1}
 
-    val posInf : real = one/zero;
-    val negInf : real = ~one/zero;
+    val posInf : real = one/zero
+    val negInf : real = ~one/zero
     
     (* Real is LargeReal. *)
     fun toLarge (x: real) : (*LargeReal.*)real =x
     fun fromLarge (_ : IEEEReal.rounding_mode) (x: (*LargeReal.*)real): real = x
 
-    local
-        open Real
-    in
-        (* isNan can be defined in terms of unordered. *)
-        fun isNan x = unordered(x, x)
-        
-        (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
-        fun isFinite x = x * zero == zero
-    
-        val copySign : (real * real) -> real = Real.rtsCallFastRR_R "PolyRealCopySign"
-        
-        (* Get the sign bit by copying the sign onto a finite value and then
-           testing.  This works for non-finite values and zeros. *)
-        fun signBit r = copySign(one, r) < zero
+    (* isNan can be defined in terms of unordered. *)
+    fun isNan x = Real.unordered(x, x)
+  
+    fun isFinite x = doubleExponent x <= doubleMaxFiniteExp
 
-        (* If we assume that all functions produce normalised results where
-           possible, the only subnormal values will be those smaller than
-           minNormalPos. *)
-        fun isNormal x = isFinite x andalso abs x >= minNormalPos
+    (* This could be implemented using signBit and doubleFromBinary *)
+    val copySign : (real * real) -> real = Real.rtsCallFastRR_R "PolyRealCopySign"
     
-        fun class x =
-            if isFinite x then if x == zero then ZERO
-               else if abs x >= minNormalPos then NORMAL
-               else SUBNORMAL
-            else if isNan x then NAN
-               else (* not finite and not Nan *) INF
-    
-        fun sign x = 
-            if isNan x then raise General.Domain
-            else if x == zero then 0 else if x < zero then ~1 else 1
+    val signBit = doubleSignBit
+
+    fun isNormal x =
+    let val exp = doubleExponent x in exp > 0 andalso exp <= doubleMaxFiniteExp end
+
+    fun class x =
+    let
+        val exp = doubleExponent x
+    in
+        if exp > doubleMaxFiniteExp
+        then
+        (
+            if doubleMantissa x <> 0
+            then NAN
+            else INF
+        )
+        else if exp = 0
+        then
+        (
+            if doubleMantissa x = 0
+            then ZERO
+            else SUBNORMAL
+        )
+        else NORMAL
     end
-        
+
+    fun sign x = 
+        if isNan x then raise General.Domain
+        else if x == zero then 0 else if x < zero then ~1 else 1
+
     fun sameSign (x, y) = signBit x = signBit y
 
     (* Returns the minimum.  In the case where one is a NaN it returns the
@@ -165,11 +291,6 @@ struct
 
     (* Convert to integer. *)
     local
-        (* The RTS function converts to at most a 64-bit value (even on 
-           32-bits).  That will convert all the bits of the mantissa
-           but if the exponent is large we may have to multiply by
-           some power of two. *)
-        val realToInt: real -> LargeInt.int  = RunCall.rtsCallFull1 "PolyRealBoxedToLongInt"
         (* These are defined to raise Domain rather than Overflow on Nans. *)
         fun checkNan x = if isNan x then raise Domain else x
     in
@@ -178,17 +299,38 @@ struct
         and realTrunc  = Real.rtsCallFastR_R "PolyRealTrunc"
         and realRound  = Real.rtsCallFastR_R "PolyRealRound"
 
-        fun toArbitrary x = 
-            if isNan x then raise General.Domain
-            else if not (isFinite x) then raise General.Overflow
-            else
+        local
+            val doubleBias = 1023 (* This is the exponent value for 1.0 *)
+            val doubleMantissaBits = precision - 1 (* One bit is implicit *)
+            val doubleImplicitBit = IntInf.<<(1, Word.fromInt doubleMantissaBits)
+        in
+            (* Convert a real number to arbitrary precision.  It might be possible to
+               include the rounding/truncation here. *)
+            fun toArbitrary x =
             let
-                val { man, exp } = toManExp x
+                open RealNumbersAsBits
+                val ieeeExp = doubleExponent x
+                and ieeeMant = doubleMantissa x
+                and ieeeSign = doubleSignBit x
             in
-                if exp <= precision
-                then realToInt x
-                else IntInf.<< (realToInt(fromManExp{man=man, exp=precision}), Word.fromInt(exp - precision))
-            end
+                if ieeeExp = 2047
+                then (* Non-finite *)
+                    if ieeeMant <> 0 then raise General.Domain else raise General.Overflow
+                else if ieeeExp < doubleBias
+                then 0 (* less than 1 *)
+                else
+                let
+                    (* Add the implicit bit to the mantissa and set the sign. *)
+                    val m2a = ieeeMant + doubleImplicitBit
+                    val m2s = if ieeeSign then ~m2a else m2a
+                    val shift = ieeeExp - doubleBias - doubleMantissaBits
+                in
+                    if shift < 0
+                    then IntInf.~>>(m2s, Word.fromInt(~shift))
+                    else IntInf.<<(m2s, Word.fromInt shift)
+               end
+           end
+        end
 
         fun toLargeInt IEEEReal.TO_NEGINF = toArbitrary o realFloor
          |  toLargeInt IEEEReal.TO_POSINF = toArbitrary o realCeil
@@ -219,8 +361,6 @@ struct
     end;
 
     local
-        val realConv: string->real = RunCall.rtsCallFull1 "PolyRealBoxedFromString"
-
         val posNan = abs(zero / zero)
         val negNan = ~posNan
     in
@@ -235,282 +375,33 @@ struct
           | fromDecimal { class = NAN, sign=false, ... } = SOME posNan
 
           | fromDecimal { class = _ (* NORMAL or SUBNORMAL *), sign, digits, exp} =
-            (let
-                fun toChar x =
-                    if x < 0 orelse x > 9 then raise General.Domain
-                    else Char.chr (x + Char.ord #"0")
-                (* Turn the number into a string. *)
-                val str = "0." ^ String.implode(List.map toChar digits) ^"E" ^
-                    Int.toString exp
-                (* Convert it to a real using the RTS conversion function.
-                   Change any Conversion exceptions into Domain. *)
-                val result = realConv str handle RunCall.Conversion _ => raise General.Domain
-            in
-                if sign then SOME (~result) else SOME result
-            end 
-                handle General.Domain => NONE
-            )
+            (SOME(RealToDecimalConversion.decimalToDouble(sign, exp, digits)) handle General.Domain => NONE)
     end
         
-    local
-        val dtoa: real*int*int -> string*int*int = RunCall.rtsCallFull3 "PolyRealBoxedToString"
-        open StringCvt
-
-        fun addZeros n =
-            if n <= 0 then "" else "0" ^ addZeros (n-1)
-
-        fun fixFmt ndigs r =
-        if isNan r then "nan"
-        else if not (isFinite r)
-        then if r < zero then "~inf" else "inf"
-        else
-        let
-            (* Try to get ndigs past the decimal point. *)
-            val (str, exp, sign) = dtoa(r, 3, ndigs)
-            val strLen = String.size str
-            (* If the exponents is negative or zero we need to put a zero
-               before the decimal point.  If the exponent is positive and
-               less than the number of digits we can take that
-               many characters off, otherwise we have to pad with zeros. *)
-            val numb =
-                if exp <= 0
-                then (* Exponent is zero or negative - all significant digits are
-                        after the decimal point.  Put in any zeros before
-                        the significant digits, then the significant digits
-                        and then any trailing zeros. *)
-                    if ndigs = 0 then "0"
-                    else "0." ^ addZeros(~exp) ^ str ^ addZeros(ndigs-strLen+exp)
-                else if strLen <= exp
-                then (* Exponent is not less than the length of the string -
-                        all significant digits are before the decimal point. Add
-                        any extra zeros before the decimal point then zeros after it. *)
-                    str ^ addZeros(exp-strLen) ^ 
-                        (if ndigs = 0 then "" else "." ^ addZeros ndigs)
-                else (* Significant digits straddle the decimal point - insert the
-                        decimal point and add any trailing zeros. *)
-                    String.substring(str, 0, exp) ^ "." ^
-                        String.substring(str, exp, strLen-exp) ^ 
-                            addZeros(ndigs-strLen+exp)
-        in
-            if sign <> 0 then "~" ^ numb else numb
-        end
-        
-        fun sciFmt ndigs r =
-        if isNan r then "nan"
-        else if not (isFinite r)
-        then if r < zero then "~inf" else "inf"
-        else
-        let
-            (* Try to get ndigs+1 digits.  1 before the decimal point and ndigs after. *)
-            val (str, exp, sign) = dtoa(r, 2, ndigs+1)
-            val strLen = String.size str
-            fun addZeros n =
-                if n <= 0 then "" else "0" ^ addZeros (n-1)
-            val numb =
-                if strLen = 0
-                then "0" ^ (if ndigs = 0 then "" else "." ^ addZeros ndigs) ^ "E0"
-                else 
-                   (if strLen = 1
-                    then str ^ (if ndigs = 0 then "" else "." ^ addZeros ndigs)
-                    else String.substring(str, 0, 1) ^ "." ^
-                            String.substring(str, 1, strLen-1) ^ addZeros (ndigs-strLen+1)
-                    ) ^ "E" ^ Int.toString (exp-1)
-        in
-            if sign <> 0 then "~" ^ numb else numb
-        end
-
-        fun genFmt ndigs r =
-        if isNan r then "nan"
-        else if not (isFinite r)
-        then if r < zero then "~inf" else "inf"
-        else
-        let
-            (* Try to get ndigs digits. *)
-            val (str, exp, sign) = dtoa(r, 2, ndigs)
-            val strLen = String.size str
-            val numb =
-            (* Have to use scientific notation if exp > ndigs.  Also use it
-               if the exponent is small (TODO: adjust this) *)
-                if exp > ndigs orelse exp < ~5
-                then (* Scientific format *)
-                   (if strLen = 1 then str
-                    else String.substring(str, 0, 1) ^ "." ^
-                            String.substring(str, 1, strLen-1)
-                    ) ^ "E" ^ Int.toString (exp-1)
-
-                else (* Fixed format (N.B. no trailing zeros are added after the
-                        decimal point apart from one if necessary) *)
-                    if exp <= 0
-                then (* Exponent is zero or negative - all significant digits are
-                        after the decimal point.  Put in any zeros before
-                        the significant digits, then the significant digits
-                        and then any trailing zeros. *)
-                    "0." ^ addZeros(~exp) ^ str
-                else if strLen <= exp
-                then (* Exponent is not less than the length of the string -
-                        all significant digits are before the decimal point. Add
-                        any extra zeros before the decimal point. Insert .0 at the
-                        end to make it a valid real number. *)
-                    str ^ addZeros(exp-strLen) ^ ".0"
-                else (* Significant digits straddle the decimal point - insert the
-                        decimal point. *)
-                    String.substring(str, 0, exp) ^ "." ^
-                        String.substring(str, exp, strLen-exp)
-        in
-            if sign <> 0 then "~" ^ numb else numb
-        end
-
-        fun strToDigitList str =
-        let
-            fun getDigs i l =
-                if i < 0 then l
-                else getDigs (i-1)
-                        ((Char.ord(String.sub(str, i)) - Char.ord #"0") :: l)
-        in
-            getDigs (String.size str - 1) []
-        end
-    in
-        fun toDecimal r =
-        let
-            val sign = signBit r
-            val kind = class r
-        in
-            case kind of
-                ZERO => { class = ZERO, sign = sign, digits=[], exp = 0 }
-              | INF  => { class = INF, sign = sign, digits=[], exp = 0 }
-              | NAN => { class = NAN, sign = sign, digits=[], exp = 0 }
-              | _ => (* NORMAL/SUBNORMAL *)
-                let
-                    val (str, exp, sign) = dtoa(r, 0, 0)
-                    val digits = strToDigitList str
-                in
-                    { class = kind, sign = sign <> 0, digits = digits, exp = exp }
-                end
-        end
-
-        (* Note: The definition says, reasonably, that negative values
-           for the number of digits raises Size.  The tests also check
-           for a very large value for the number of digits and seem to
-           expect Size to be raised in that case.  Note that the exception
-           is raised when fmt spec is evaluated and before it is applied
-           to an actual real argument.
-           In all cases, even EXACT format, this should produce "nan" for a NaN
-           and ignore the sign bit. *)
-        fun fmt (SCI NONE) = sciFmt 6
-          | fmt (SCI (SOME d) ) =
-                if d < 0 orelse d > 200 then raise General.Size
-                else sciFmt d
-          | fmt (FIX NONE) = fixFmt 6
-          | fmt (FIX (SOME d) ) =
-                if d < 0 orelse d > 200 then raise General.Size
-                else fixFmt d
-          | fmt (GEN NONE) = genFmt 12
-          | fmt (GEN (SOME d) ) =
-                if d < 1 orelse d > 200 then raise General.Size
-                else genFmt d
-          | fmt EXACT = (fn r => if isNan r then "nan" else IEEEReal.toString(toDecimal r))
-          
-        val toString = fmt (GEN NONE)
-    end
-
-
-    fun scan getc src =
+    fun toDecimal r =
     let
-        (* Return a list of digits. *)
-        fun getdigits inp src =
-            case getc src of
-                NONE => (List.rev inp, src)
-              | SOME(ch, src') =>
-                    if ch >= #"0" andalso ch <= #"9"
-                    then getdigits ((Char.ord ch - Char.ord #"0") :: inp) src'
-                    else (List.rev inp, src)
-
-        (* Read an unsigned integer.  Returns NONE if no digits have been read. *)
-        fun getNumber sign digits acc src =
-            case getc src of
-                NONE => if digits = 0 then NONE else SOME(if sign then ~acc else acc, src)
-              | SOME(ch, src') =>
-                    if ch >= #"0" andalso ch <= #"9"
-                    then getNumber sign (digits+1) (acc*10 + Char.ord ch - Char.ord #"0") src'
-                    else if digits = 0 then NONE else SOME(if sign then ~acc else acc, src')
-
-        (* Return the signed exponent. *)
-        fun getExponent src =
-            case getc src of
-                NONE => NONE
-              | SOME(ch, src') =>
-                if ch = #"+"
-                then getNumber false 0 0 src'
-                else if ch = #"-" orelse ch = #"~"
-                then getNumber true 0 0 src'
-                else getNumber false 0 0 src
-
-        fun read_number sign src =
-            case getc src of
-                NONE => NONE
-              | SOME(ch, _) =>
-                    if not (ch >= #"0" andalso ch <= #"9" orelse ch = #".")
-                    then NONE (* Bad *)
-                    else (* Digits or decimal. *)
-                    let
-                        (* Get the digits before the decimal point (if any) *)
-                        val (intPart, srcAfterDigs) = getdigits [] src
-                        (* Get the digits after the decimal point (if any).
-                           If there is a decimal point we only accept it if
-                           there is at least one digit after it. *)
-                        val (decimals, srcAfterMant) =
-                            case getc srcAfterDigs of
-                                NONE => ([], srcAfterDigs)
-                             |  SOME (#".", srcAfterDP) =>
-                                    ( (* Check that the next character is a digit. *)
-                                    case getc srcAfterDP of
-                                        NONE => ([], srcAfterDigs)
-                                      | SOME(ch, _) =>
-                                            if ch >= #"0" andalso ch <= #"9"
-                                            then getdigits [] srcAfterDP
-                                            else ([], srcAfterDigs)
-                                    )
-                             |  SOME (_, _) => ([], srcAfterDigs)
-                        (* The exponent is optional.  If it doesn't form a valid
-                           exponent we return zero as the value and the
-                           continuation is the beginning of the "exponent". *)
-                        val (exponent, srcAfterExp) =
-                            case getc srcAfterMant of
-                                NONE => (0, srcAfterMant)
-                             |  SOME (ch, src'''') =>
-                                if ch = #"e" orelse ch = #"E"
-                                then 
-                                    (
-                                    case getExponent src'''' of
-                                        NONE => (0, srcAfterMant)
-                                      | SOME x => x 
-                                    )
-                                else (0, srcAfterMant)
-                        (* Generate a decimal representation ready for conversion.
-                           We don't bother to strip off leading or trailing zeros. *)
-                        val decimalRep = {class=NORMAL, sign=sign,
-                                digits=List.@(intPart, decimals),
-                                exp=exponent + List.length intPart}
-                    in
-                        case fromDecimal decimalRep of
-                           SOME r => SOME(r, srcAfterExp)
-                         | NONE => NONE
-                    end
+        val {sign, exponent, mantissa, class} = RealToDecimalConversion.doubleToMinimal r
     in
-        case getc src of
-            NONE => NONE
-         |  SOME(ch, src') =>
-            if Char.isSpace ch (* Skip white space. *)
-            then scan getc src' (* Recurse *)
-            else if ch = #"+" (* Remove the + sign *)
-            then read_number false src'
-            else if ch = #"-" orelse ch = #"~"
-            then read_number true src'
-            else (* See if it's a valid digit. *)
-                read_number false src
+        { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
     end
-    
-    val fromString = StringCvt.scanString scan
+
+    val fmt = fmtFunction (RealToDecimalConversion.doubleToMinimal, toLarge)
+
+    val toString = fmt (StringCvt.GEN NONE)
+
+    (* Define these in terms of IEEEReal.scan since that deals with all the
+       special cases. *)
+    fun scan getc src =
+        case IEEEReal.scan getc src of
+            NONE => NONE
+        |   SOME (ieer, rest) =>
+            (
+                case fromDecimal ieer of
+                    NONE => NONE
+                |   SOME r => SOME(r, rest)
+            )
+
+    val fromString = Option.composePartial (fromDecimal, IEEEReal.fromString)
 
     (* Converter to real values. This replaces the basic conversion
        function for reals installed in the bootstrap process.
@@ -518,6 +409,8 @@ struct
     local
         fun convReal (s: string) : real =
         let
+            (* Conversion doesn't involve any real rounding so this should
+               no longer be relevant. *)
             (* Set the rounding mode to TO_NEAREST whatever the current
                rounding mode.  Otherwise the result of compiling a piece of
                code with a literal constant could depend on what the rounding
@@ -586,6 +479,345 @@ struct
        needed to work with rounding to something other than TO_NEAREST. *)
     val nextAfter = Real.rtsCallFastRR_R "PolyRealNextAfter"
 
+end (* Real *)
+
+
+structure Real32: REAL where type real = Real32.real =
+(* Real32 uses some definitions from the Real structure above. *)
+struct
+    open IEEEReal
+
+    (* On both the X86 and ARM there is only a single conversion from
+       double to float using the current rounding mode.  If we want
+       a specific rounding mode we need to set the rounding. *)
+    fun fromLarge mode value =
+    let
+        val current = getRoundingMode()
+        val () = setRoundingMode mode
+        val result = Real32.fromReal value
+        val () = setRoundingMode current
+    in
+        result
+    end
+    
+    val fromRealRound = fromLarge TO_NEAREST
+
+    (* Defined to use the current rounding mode. *)
+    val fromLargeInt = Real32.fromReal o Real.fromLargeInt
+
+    val fromInt: int -> Real32.real =
+        (* We have to select the appropriate conversion.  This will be
+           reduced down to the appropriate function but has to be
+           type-correct whether int is arbitrary precision or fixed
+           precision.  Hence the "o Large/FixedInt.fromInt". *)
+        if Bootstrap.intIsArbitraryPrecision
+        then fromLargeInt o LargeInt.fromInt
+        else Real32.fromFixedInt o FixedInt.fromInt
+    
+    val zero = fromInt 0 and one = fromInt 1 and four = fromInt 4
+
+    val radix           = 2
+    val precision       = 24
+    val maxFinite       = floatFromBinary{sign=false, exp=floatMaxFiniteExp, mantissa = 0x7FFFFF}
+    val minNormalPos    = floatFromBinary{sign=false, exp=1, mantissa = 0}
+    val minPos          = floatFromBinary{sign=false, exp=0, mantissa = 1}
+
+    local
+        open Real32
+    in
+        val posInf : real = one/zero
+        val negInf : real = ~one/zero
+
+        val op != : real * real -> bool = not o op ==
+    end
+
+    infix 4 == != ?=;
+
+    (* isNan can be defined in terms of unordered. *)
+    fun isNan x = Real32.unordered(x, x)
+
+    fun isFinite x = floatExponent x <= floatMaxFiniteExp
+
+    local
+        open Real32
+    in
+        val copySign : (real * real) -> real = rtsCallFastFF_F "PolyRealFCopySign"
+    end
+    
+    val signBit = floatSignBit
+    
+    fun isNormal x =
+    let val exp = floatExponent x in exp > 0 andalso exp <= floatMaxFiniteExp end
+
+    fun class x =
+    let
+        val exp = floatExponent x
+    in
+        if exp > floatMaxFiniteExp
+        then
+        (
+            if floatMantissa x <> 0
+            then NAN
+            else INF
+        )
+        else if exp = 0
+        then
+        (
+            if floatMantissa x = 0
+            then ZERO
+            else SUBNORMAL
+        )
+        else NORMAL
+    end
+
+    local
+        open Real32
+    in
+        fun sign x = 
+            if isNan x then raise General.Domain
+            else if x == zero then 0 else if x < zero then ~1 else 1
+    end
+        
+    fun sameSign (x, y) = signBit x = signBit y
+
+    local
+ 
+        local
+            val floatBias = 127 (* This is the exponent value for 1.0 *)
+            val floatMantissaBits = precision - 1 (* One bit is implicit *)
+            val floatImplicitBit = IntInf.<<(1, Word.fromInt floatMantissaBits)
+        in
+            (* Convert a real number to arbitrary precision.  It might be possible to
+               include the rounding/truncation here. *)
+            fun toArbitrary x =
+            let
+                open RealNumbersAsBits
+                val ieeeExp = floatExponent x
+                and ieeeMant = floatMantissa x
+                and ieeeSign = floatSignBit x
+            in
+                if ieeeExp = 255
+                then (* Non-finite *)
+                    if ieeeMant <> 0 then raise General.Domain else raise General.Overflow
+                else if ieeeExp < floatBias
+                then 0 (* less than 1 *)
+                else
+                let
+                    (* Add the implicit bit to the mantissa and set the sign. *)
+                    val m2a = Int.toLarge ieeeMant + floatImplicitBit
+                    val m2s = if ieeeSign then ~m2a else m2a
+                    val shift = ieeeExp - floatBias - floatMantissaBits
+                in
+                    if shift < 0
+                    then IntInf.~>>(m2s, Word.fromInt(~shift))
+                    else IntInf.<<(m2s, Word.fromInt shift)
+               end
+           end
+        end
+
+        open Real32
+    in
+        (* Returns the minimum.  In the case where one is a NaN it returns the
+           other. In that case the comparison will be false. *)
+        fun min (a: real, b: real): real = if a < b orelse isNan b then a else b
+        (* Similarly for max. *)
+        fun max (a: real, b: real): real = if a > b orelse isNan b then a else b
+
+        fun checkFloat x =
+            if isFinite x then x
+            else if isNan x then raise General.Div else raise General.Overflow
+
+        (* On certain platforms e.g. mips, toLarge does not preserve
+           the sign on nans.  We deal with the non-finite cases here. *)
+
+        (* Use the Real versions for the moment. *)
+        fun toManExp r =
+            if not (isFinite r) orelse r == zero
+                (* Nan, infinities and +/-0 all return r in the mantissa.
+                   We include 0 to preserve its sign. *)
+            then {man=r, exp=0}
+            else
+            let
+                val {man, exp} = Real.toManExp(toLarge r)
+            in
+                {man = fromRealRound man, exp = exp }
+            end
+
+        and fromManExp {man, exp} =
+            if not (isFinite man) orelse man == zero
+            (* Nan, infinities and +/-0 in the mantissa all return
+               their argument. *)
+            then man
+            else fromRealRound(Real.fromManExp{man=toLarge man, exp=exp})
+    
+        fun compare (r1, r2) =
+            if r1 == r2 then General.EQUAL
+            else if r1 < r2 then General.LESS
+            else if r1 > r2 then General.GREATER
+            else raise Unordered
+
+        fun compareReal (r1, r2) =
+            if r1 == r2 then EQUAL
+            else if r1 < r2 then LESS
+            else if r1 > r2 then GREATER
+            else UNORDERED
+
+        fun op ?= (x, y) = unordered(x, y) orelse x == y
+
+        (* Although these may be built in in some architectures it's
+           probably not worth treating them specially at the moment. *)
+        fun *+ (x: real, y: real, z: real): real = x*y+z
+        and *- (x: real, y: real, z: real): real = x*y-z
+
+        val realFloor = rtsCallFastF_F "PolyRealFFloor"
+        and realCeil  = rtsCallFastF_F "PolyRealFCeil"
+        and realTrunc  = rtsCallFastF_F "PolyRealFTrunc"
+        and realRound  = rtsCallFastF_F "PolyRealFRound"
+
+        val rem = rtsCallFastFF_F "PolyRealFRem"
+
+        (* Split a real into whole and fractional parts. The fractional part must have
+           the same sign as the number even if it is zero. *)
+        fun split r =
+        let
+            val whole = realTrunc r
+            val frac = r - whole
+        in
+            { whole = whole,
+              frac =
+                if not (isFinite r)
+                then if isNan r then r else (* Infinity *) if r < zero then ~zero else zero
+                else if frac == zero then if signBit r then ~zero else zero
+                else frac }
+        end
+
+        (* Get the fractional part of a real. *)
+        fun realMod r = #frac(split r)
+    
+        val nextAfter = rtsCallFastFF_F "PolyRealFNextAfter"
+
+        fun toLargeInt IEEEReal.TO_NEGINF = toArbitrary o realFloor
+         |  toLargeInt IEEEReal.TO_POSINF = toArbitrary o realCeil
+         |  toLargeInt IEEEReal.TO_ZERO = toArbitrary o realTrunc
+         |  toLargeInt IEEEReal.TO_NEAREST = toArbitrary o realRound
+
+        (* These are defined to raise Domain rather than Overflow on Nans. *)
+        fun checkNan x = if isNan x then raise Domain else x
+        (* If int is fixed we use the hardware conversions otherwise we use the real to arbitrary conversions. *)
+        val floor   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toArbitrary o realFloor else FixedInt.toInt o floorFix o checkNan
+        and ceil    =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toArbitrary o realCeil else FixedInt.toInt o ceilFix o checkNan
+        and trunc   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toArbitrary o realTrunc else FixedInt.toInt o truncFix o checkNan
+        and round   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toArbitrary o realRound else FixedInt.toInt o roundFix o checkNan
+    
+        fun toInt IEEEReal.TO_NEGINF = floor
+         |  toInt IEEEReal.TO_POSINF = ceil
+         |  toInt IEEEReal.TO_ZERO = trunc
+         |  toInt IEEEReal.TO_NEAREST = round
+    end
+   
+    fun toDecimal r =
+    let
+        val {sign, exponent, mantissa, class} = RealToDecimalConversion.floatToMinimal r
+    in
+        { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
+    end
+
+    val fmt = fmtFunction (RealToDecimalConversion.floatToMinimal, Real32.toLarge)
+
+    val toString = fmt (StringCvt.GEN NONE)
+    
+    open Real32 (* Inherit the type and the built-in functions. *)
+        
+    (* Convert from decimal.  This is defined to use TO_NEAREST.
+       We need to handle NaNs specially because fromRealRound loses
+       the sign on a NaN. *)
+    local
+        val posNan = abs(zero / zero)
+        val negNan = ~posNan
+    in
+        fun fromDecimal { class = INF, sign=true, ...} = SOME negInf
+        |   fromDecimal { class = INF, sign=false, ...} = SOME posInf
+        |   fromDecimal { class = NAN, sign=true, ... } = SOME negNan
+        |   fromDecimal { class = NAN, sign=false, ... } = SOME posNan
+        |   fromDecimal { sign, exp, digits, ... } =
+            (SOME(RealToDecimalConversion.decimalToFloat(sign, exp, digits)) handle General.Domain => NONE)
+    end
+
+    (* Define these in terms of IEEEReal.scan since that deals with all the special cases. *)
+    fun scan getc src =
+        case IEEEReal.scan getc src of
+            NONE => NONE
+        |   SOME (ieer, rest) =>
+            (
+                case fromDecimal ieer of
+                    NONE => NONE
+                |   SOME r => SOME(r, rest)
+            )
+
+    val fromString = Option.composePartial (fromDecimal, IEEEReal.fromString)
+
+
+    structure Math =
+    struct
+        type real = real
+
+        val sqrt  = rtsCallFastF_F "PolyRealFSqrt"
+        and sin   = rtsCallFastF_F "PolyRealFSin"
+        and cos   = rtsCallFastF_F "PolyRealFCos"
+        and atan  = rtsCallFastF_F "PolyRealFArctan"
+        and exp   = rtsCallFastF_F "PolyRealFExp"
+        and ln    = rtsCallFastF_F "PolyRealFLog"
+        and tan   = rtsCallFastF_F "PolyRealFTan"
+        and asin  = rtsCallFastF_F "PolyRealFArcSin"
+        and acos  = rtsCallFastF_F "PolyRealFArcCos"
+        and log10 = rtsCallFastF_F "PolyRealFLog10"
+        and sinh  = rtsCallFastF_F "PolyRealFSinh"
+        and cosh  = rtsCallFastF_F "PolyRealFCosh"
+        and tanh  = rtsCallFastF_F "PolyRealFTanh"
+
+        val atan2 = rtsCallFastFF_F "PolyRealFAtan2"
+        val pow = rtsCallFastFF_F "PolyRealFPow"
+
+        (* Derived values. *)
+        val e = exp one
+        val pi = four * atan one
+    end
+    
+
+    (* Converter for literal constants.  Copied from Real. *)
+    local
+        fun convReal (s: string) : real =
+        let
+            (* Conversion doesn't involve any real rounding so this should
+               no longer be relevant. *)
+            (* Set the rounding mode to TO_NEAREST whatever the current
+               rounding mode.  Otherwise the result of compiling a piece of
+               code with a literal constant could depend on what the rounding
+               mode was set to. We should always support TO_NEAREST. *)
+            val oldRounding = IEEEReal.getRoundingMode()
+            val () = IEEEReal.setRoundingMode IEEEReal.TO_NEAREST
+            val scanResult = StringCvt.scanString scan s
+            val () = IEEEReal.setRoundingMode oldRounding
+        in
+            case scanResult of
+                NONE => raise RunCall.Conversion "Invalid real constant"
+              | SOME res => res
+        end
+    in
+        (* Install this as a conversion function for real literals. *)
+        val (): unit = RunCall.addOverload convReal "convReal"
+    end
+   
+end (* Real32 *)
+
 end;
 
 structure Math = Real.Math;
@@ -599,7 +831,26 @@ val floor : real -> int = Real.floor
 val ceil : real -> int = Real.ceil 
 val round : real -> int =Real.round;
 
-(* Install print function. *)
+(* Overloads for Real32.real.  The overloads for real were added in InitialBasis. *)
+val () = RunCall.addOverload Real32.>= ">="
+and () = RunCall.addOverload Real32.<= "<="
+and () = RunCall.addOverload Real32.>  ">"
+and () = RunCall.addOverload Real32.<  "<"
+and () = RunCall.addOverload Real32.+ "+"
+and () = RunCall.addOverload Real32.- "-"
+and () = RunCall.addOverload Real32.* "*"
+and () = RunCall.addOverload Real32.~ "~"
+and () = RunCall.addOverload Real32.abs "abs"
+and () = RunCall.addOverload Real32./ "/";
+
+
+(* Install print functions. *)
+local
+    fun print_real32 _ _ (r: Real32.real) =
+        PolyML.PrettyString(Real32.fmt (StringCvt.GEN(SOME 7)) r)
+in
+    val () = PolyML.addPrettyPrinter print_real32
+end;
 local
     fun print_real _ _ (r: real) =
         PolyML.PrettyString(Real.fmt (StringCvt.GEN(SOME 10)) r)

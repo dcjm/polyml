@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development copyright (c) David C.J. Matthews 2011, 2015
+    Further development copyright (c) David C.J. Matthews 2011, 2015, 2020-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -57,12 +57,13 @@
 #include "run_time.h"
 #include "sys.h"
 #include "rtsentry.h"
+#include "machine_dep.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(PolyObject *threadId, PolyWord mode);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(POLYUNSIGNED threadId, POLYUNSIGNED mode);
 }
 
-static POLYUNSIGNED mainThreadCounts[MTP_MAXENTRY];
+static long mainThreadCounts[MTP_MAXENTRY];
 static const char* const mainThreadText[MTP_MAXENTRY] =
 {
     "UNKNOWN",
@@ -79,7 +80,8 @@ static const char* const mainThreadText[MTP_MAXENTRY] =
     "Setting signal handler",
     "Cygwin spawn",
     "Storing module",
-    "Loading module"
+    "Loading module",
+    "Releasing module"
 };
 
 // Entries for store profiling
@@ -111,6 +113,14 @@ static PolyWord psRTSString[MTP_MAXENTRY], psExtraStrings[EST_MAX_ENTRY], psGCTo
 ProfileMode profileMode;
 // If we are just profiling a single thread, this is the thread data.
 static TaskData *singleThreadProfile = 0;
+
+// The queue is processed every 400ms and an entry can be
+// added every ms of CPU time by each thread.
+#define PCQUEUESIZE 4000
+
+static long queuePtr = 0;
+static POLYCODEPTR pcQueue[PCQUEUESIZE];
+static PLock queueLock;
 
 typedef struct _PROFENTRY
 {
@@ -165,9 +175,9 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
     ASSERT(code->IsCodeObject());
     PolyWord *consts;
     POLYUNSIGNED constCount;
-    code->GetConstSegmentForCode(consts, constCount);
-    if (constCount < 3 || ! consts[2].IsDataPtr()) return 0;
-    PolyObject *profObject = consts[2].AsObjPtr();
+    machineDependent->GetConstSegmentForCode(code, consts, constCount);
+    if (constCount < 2 || consts[1].AsUnsigned() == 0 || ! consts[1].IsDataPtr()) return 0;
+    PolyObject *profObject = consts[1].AsObjPtr();
     if (profObject->IsMutable() && profObject->IsByteObject() && profObject->Length() == 1)
         return profObject;
     else return 0;
@@ -175,8 +185,7 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
 
 // Adds incr to the profile count for the function pointed at by
 // pc or by one of its callers.
-// This is called from a signal handler in the case of time profiling.
-void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
+void addSynchronousCount(POLYCODEPTR fpc, POLYUNSIGNED incr)
 {
     // Check that the pc value is within the heap.  It could be
     // in the assembly code.
@@ -184,15 +193,17 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
     if (codeObj)
     {
         PolyObject *profObject = getProfileObjectForCode(codeObj);
-        PLocker locker(&countLock);
         if (profObject)
+        {
+            PLocker locker(&countLock);
             profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
-        return;
+        }
     }
     // Didn't find it.
+    else
     {
         PLocker locker(&countLock);
-        mainThreadCounts[MTP_USER_CODE] += incr;
+        mainThreadCounts[MTP_USER_CODE]++;
     }
 }
 
@@ -235,7 +246,7 @@ void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
 
             if (obj->IsCodeObject())
             {
-                PolyWord *firstConstant = obj->ConstPtrForCode();
+                PolyWord *firstConstant = machineDependent->ConstPtrForCode(obj);
                 PolyWord name = firstConstant[0];
                 PolyObject *profCount = getProfileObjectForCode(obj);
                 if (profCount)
@@ -340,21 +351,62 @@ Handle ProfileRequest::extractAsList(TaskData *taskData)
     return list;
 }
 
+// We have had an asynchronous interrupt and found a potential PC but
+// we're in a signal handler.
+void incrementCountAsynch(POLYCODEPTR pc)
+{
+    PLocker locker(&queueLock);
+    int q = queuePtr++;
+    if (q < PCQUEUESIZE) pcQueue[q] = pc;
+}
+
+// Called by the main thread to process the queue of PC values
+void processProfileQueue()
+{
+    while (1)
+    {
+        POLYCODEPTR pc = 0;
+        {
+            PLocker locker(&queueLock);
+            if (queuePtr == 0) return;
+            if (queuePtr < PCQUEUESIZE)
+                pc = pcQueue[queuePtr];
+            queuePtr--;
+        }
+        if (pc != 0)
+            addSynchronousCount(pc, 1);
+        else
+        {
+            PLocker locker(&countLock);
+            mainThreadCounts[MTP_USER_CODE]++;
+        }
+    }
+}
+
+// Handle a SIGVTALRM or the simulated equivalent in Windows.  This may be called
+// at any time so we have to be careful.  In particular in Linux this may be
+// executed by a thread while holding a mutex so we must not do anything, such
+// calling malloc, that could require locking.
 void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
 {
     if (singleThreadProfile != 0 && singleThreadProfile != taskData)
         return;
 
-    /* If we are in the garbage-collector add the count to "gc_count"
-        otherwise try to find out where we are. */
     if (mainThreadPhase == MTP_USER_CODE)
     {
-        if (taskData == 0 || ! taskData->AddTimeProfileCount(context))
+        if (taskData == 0 || !taskData->AddTimeProfileCount(context))
+        {
+            PLocker lock(&countLock);
             mainThreadCounts[MTP_USER_CODE]++;
+        }
         // On Mac OS X all virtual timer interrupts seem to be directed to the root thread
         // so all the counts will be "unknown".
     }
-    else mainThreadCounts[mainThreadPhase]++;
+    else
+    {
+        PLocker lock(&countLock);
+        mainThreadCounts[mainThreadPhase]++;
+    }
 }
 
 // Called from the GC when allocation profiling is on.
@@ -363,7 +415,7 @@ void AddObjectProfile(PolyObject *obj)
     ASSERT(obj->ContainsNormalLengthWord());
     POLYUNSIGNED length = obj->Length();
 
-    if (obj->IsWordObject() && OBJ_HAS_PROFILE(obj->LengthWord()))
+    if ((obj->IsWordObject() || obj->IsClosureObject()) && OBJ_HAS_PROFILE(obj->LengthWord()))
     {
         // It has a profile pointer.  The last word should point to the
         // closure or code of the allocating function.  Add the size of this to the count.
@@ -383,10 +435,6 @@ void AddObjectProfile(PolyObject *obj)
     }
     else if (obj->IsCodeObject())
         extraStoreCounts[EST_CODE] += length+1;
-    else if (obj->IsClosureObject())
-    {
-        ASSERT(0);
-    }
     else if (obj->IsByteObject())
     {
         // Try to separate strings from other byte data.  This is only
@@ -450,7 +498,7 @@ static Handle profilerc(TaskData *taskData, Handle mode_handle)
     return request.extractAsList(taskData);
 }
 
-POLYUNSIGNED PolyProfiling(PolyObject *threadId, PolyWord mode)
+POLYUNSIGNED PolyProfiling(POLYUNSIGNED threadId, POLYUNSIGNED mode)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

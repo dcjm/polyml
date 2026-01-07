@@ -135,8 +135,6 @@ sig
     val kill : killpid_arg * signal -> unit
     val alarm : Time.time -> Time.time
     val pause : unit -> unit
-    (* QUESTION: Why does sleep return a Time.time ? Is it intended to be the
-       time remaining?  Assume so. *)
     val sleep : Time.time -> Time.time
 end;
 
@@ -593,13 +591,9 @@ structure Posix :>
     =
 struct
     local
-        val processEnvGeneralCall = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        and osSpecificGeneralCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
-        and timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
+        val osSpecificGeneralCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
-        fun processEnvGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(processEnvGeneralCall(RunCall.unsafeCast(code, arg)))
-        and osSpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(osSpecificGeneralCall(RunCall.unsafeCast(code, arg)))
-        and timingGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
+        fun osSpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(osSpecificGeneralCall(RunCall.unsafeCast(code, arg)))
     end
 
     fun getConst i : SysWord.word = osSpecificGeneral (4, i)
@@ -620,8 +614,9 @@ struct
     struct
         type syserror = OS.syserror (* Implemented as a SysWord.word value. *)
         val errorMsg = OS.errorMsg
-        fun toWord (s: syserror): SysWord.word = RunCall.unsafeCast s
-        and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast w
+
+        val toWord = LibrarySupport.syserrorToWord
+        and fromWord = LibrarySupport.syserrorFromWord
 
         val toobig = fromWord(getConst 0)
         and acces = fromWord(getConst 1)
@@ -859,43 +854,50 @@ struct
 
         local
             val doCall = osSpecificGeneral
-            fun toAbsolute t =
-                if t < Time.zeroTime
-                then raise OS.SysErr("Invalid time", NONE)
-                else t + Time.now()
-            (* Because of rounding we may get a negative time.  In that
-               case we return zero. *)
-            fun endTime t =
-            let
-                val now = Time.now()
-            in
-                if t > now then t-now else Time.zeroTime
-            end
         in
             (* This previously used absolute times.  Now uses relative. *)
             fun alarm t = doCall(20, t)
-
-            fun sleep t =
-            let
-                val finish = toAbsolute t
-            in
-                (* We need to pass in the absolute time here.  That's
-                   because the process scheduler retries the
-                   function until a signal occurs or the time expires. *)
-                (* The result is zero if it returns successfully.  If
-                   an exception is raised we return the remaining
-                   time.  We assume that this only happens because
-                   the process is interrupted.  We don't handle the
-                   Interrupt exception, though. *)
-                (doCall(22, finish); Time.zeroTime) handle OS.SysErr _ => 
-                    endTime finish
-            end
         end
 
         local
-            val doCall = osSpecificGeneral
+            (* The underlying call waits for up to a second.  It takes the count of signals that
+               have been received and returns the last count.  This is necessary in case
+               a signal is received while we are in ML between calls to the RTS. *)
+            val doCall: int * int -> int = RunCall.rtsCallFull2 "PolyPosixSleep"
         in
-            fun pause() = doCall(21, ())
+            (* Sleep for a period.  Returns the unused wait time. *)
+            fun sleep sleepTime =
+            let
+                val endTime = sleepTime + Time.now()
+                val maxWait = 1000 (* Wait for up to a second *)
+                val initialCount = doCall (0, 0)
+                fun doWait () =
+                let
+                    val timeToGo =
+                        LargeInt.min(Time.toMilliseconds(endTime-Time.now()), LargeInt.fromInt maxWait)
+                in
+                    if timeToGo <= 0 orelse doCall(LargeInt.toInt timeToGo, initialCount) <> initialCount
+                    then (* Time has expired or we were interrupted. *)
+                    let
+                        val now = Time.now()
+                    in
+                        if endTime > now
+                        then endTime-now
+                        else Time.fromSeconds 0
+                    end
+                    else doWait() (* Resume the wait *)
+                end
+            in
+                doWait()
+            end
+
+            and pause() =
+            let
+                val initialCount = doCall(0, 0)
+                fun doPause() = if doCall(1000, initialCount) <> initialCount then () else doPause()
+            in
+                doPause()
+            end
         end
     end;
  
@@ -923,7 +925,7 @@ struct
 
         val getenv = OS.Process.getEnv
 
-        fun environ() = processEnvGeneral(21, ())
+        val environ = RunCall.rtsCallFull0 "PolyGetEnvironment"
 
         local
             val doCall = osSpecificGeneral
@@ -960,19 +962,17 @@ struct
 
         val time = Time.now
 
-        fun times() =
-        let
-            (* Apart from the child times all these could be obtained
-               by calling the Timer functions. *)
-            val doCall: int*unit -> Time.time = timingGeneral
-            fun getUserTime() = doCall(7, ())
-            and getSysTime() = doCall(8, ())
-            and getRealTime() = doCall(10, ())
-            and getChildUserTime() = doCall(11, ())
-            and getChildSysTime() = doCall(12, ())
+        local
+            (* Apart from the child times all these could be obtained by calling the Timer functions. *)
+            val getUserTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetUser"
+            and getSysTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetSystem"
+            and getRealTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetReal"
+            and getChildUserTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetChildUser"
+            and getChildSysTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetChildSystem"
         in
-            { elapsed=getRealTime(), utime=getUserTime(), stime=getSysTime(),
-              cutime=getChildUserTime(), cstime=getChildSysTime()}
+            fun times() =
+                { elapsed=getRealTime(), utime=getUserTime(), stime=getSysTime(),
+                  cutime=getChildUserTime(), cstime=getChildSysTime()}
         end
 
         local

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015 David C.J. Matthews
+    Copyright (c) 2013-2015, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -37,11 +37,11 @@ structure BASEPARSETREE : BaseParseTreeSig
 structure PRINTTREE: PrintParsetreeSig
 structure EXPORTTREE: ExportParsetreeSig
 structure LEX : LEXSIG
-structure CODETREE : CODETREESIG
+structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG;
 structure TYPETREE : TYPETREESIG
 structure VALUEOPS : VALUEOPSSIG;
-structure PRETTY : PRETTYSIG
+structure PRETTY : PRETTY
 structure COPIER: COPIERSIG
 structure DATATYPEREP: DATATYPEREPSIG
 
@@ -102,6 +102,35 @@ sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
 ): TypeCheckParsetreeSig =
    
 struct
+
+    local
+        fun allValLongNamesFromStruct
+            (STRUCTVALS.Struct {name = structName, signat, ...} : STRUCTVALS.structVals) : string list =
+        let
+            val longNames = ref []
+            val tsvEnv : COPIER.tsvEnv = {
+                enterType = fn _ => (),
+                enterStruct = fn (_, structVal) =>
+                    (longNames := List.map (fn s => structName ^ "." ^ s) (allValLongNamesFromStruct structVal) @ !longNames),
+                enterVal = fn (name, _) =>
+                    (longNames := structName ^ "." ^ name :: !longNames)
+            }
+            val () = COPIER.openSignature (signat, tsvEnv, structName ^ ".");
+        in
+            !longNames
+        end
+    in
+        fun allValLongNamesWithPrefix prefix env =
+        let
+            fun longNamesFromStruct name =
+                (case #lookupStruct env name of
+                  NONE => []
+                | SOME structVal => allValLongNamesFromStruct structVal)
+        in
+            List.filter (fn s => String.isPrefix prefix s) (#allValNames env () @ List.concat (List.map longNamesFromStruct (#allStructNames env ())))
+        end
+    end
+
     open MISC
     open LEX
     open CODETREE
@@ -119,7 +148,7 @@ struct
   
     val emptyType            = EmptyType
     val badType              = BadType
-  
+
    (* Second pass of ML parse tree. *)
    
     (* This is pass 2 of the compiler. It walks over the parse tree
@@ -322,6 +351,22 @@ struct
             applyList badType l
         end
 
+        fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+        fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+        fun tcLocations  (TypeConstrs {locations, ...}) = locations
+
+        val tcEquality = isEquality o tcIdentifier;
+        fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
+
+        fun valName (Value{name, ...}) = name
+        fun valTypeOf (Value{typeOf, ...}) = typeOf
+
+        fun tsConstr(TypeConstrSet(ts, _)) = ts
+
+        fun isConstructor (Value{class=Constructor _, ...}) = true
+        |   isConstructor (Value{class=Exception, ...})     = true
+        |   isConstructor _                                  = false;
+
         (* Variables, constructors and fn are non-expansive.
            [] is a derived form of "nil" so must be included.
            Integer and string constants are also constructors but
@@ -468,6 +513,15 @@ struct
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
+        fun makeTypeConstructor (name, typeVars, uid, locations) =
+            TypeConstrs
+            {
+                name       = name,
+                typeVars   = typeVars,
+                identifier = uid,
+                locations = locations
+            }
+
         fun processPattern(pat, enterResult, level, notConst, mkVar, isRec) =
         let
             val mapProcessPattern =
@@ -499,7 +553,7 @@ struct
                                 giveError (pat, lex, location))
 
                     (* Remember the possible names here. *)
-                    val () = possible := #allValNames env
+                    val () = possible := (fn () => allValLongNamesWithPrefix name env)
 
                     val instanceType = 
                         (* If the result is a constructor use it. *)
@@ -535,7 +589,7 @@ struct
                         else
                         let
                             val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
-                            val var =  mkVar(name, mkTypeVar (level, false, false, false), props)
+                            val var =  mkVar(name, mkTypeVar (NotGeneralisable level, false, false, false), props)
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -574,7 +628,7 @@ struct
                             let (* Look up the value and return the type. *)
                             
                                 (* Remember the possible names here. *)
-                                val () = possible := #allValNames env
+                                val () = possible := (fn () => allValLongNamesWithPrefix name env)
 
                                 val constrVal =
                                     lookupValue 
@@ -737,7 +791,7 @@ struct
                 |   _ => ();
                 expType := instanceType;
                 value  := expValue;
-                possible := #allValNames env;
+                possible := (fn () => allValLongNamesWithPrefix name env);
                 instanceType (* Result is the instance type. *)
             end
 
@@ -767,7 +821,7 @@ struct
                 val () =
                     if nonExpansive v
                     then ()
-                    else (unifyTypes (funType, mkTypeVar(level, false, false, false)); ())
+                    else (unifyTypes (funType, mkTypeVar(NotGeneralisable level, false, false, false)); ())
                 (* Test to see if we have a function. *)
                 val fType =
                     case eventual funType of
@@ -1180,7 +1234,8 @@ struct
                    enterStruct   = #enter newStrEnv,
                    enterSig      = #enterSig env,
                    enterFunct    = #enterFunct env,
-                   allValNames   = fn () => (stringsOfSearchList newValEnv () @ #allValNames env ())
+                   allValNames   = fn () => (stringsOfSearchList newValEnv () @ #allValNames env ()),
+                   allStructNames = fn () => #allStructNames env ()
                 };
         
               (* Process the local declarations and discard the result. *)
@@ -1215,7 +1270,8 @@ struct
                        #enterStruct env   pair),
                   enterSig      = #enterSig env,
                   enterFunct    = #enterFunct env,
-                  allValNames   = #allValNames localEnv
+                  allValNames   = #allValNames localEnv,
+                  allStructNames = #allStructNames localEnv
                 };
               (* Now the body, returning its result if it is an expression. *)
                 val resType = assignSeq(bodyEnv, newLetDepth, body, not isLocal)
@@ -1271,7 +1327,7 @@ struct
                                 |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
                                 expType := excType; (* And remember the type. *)
-                                possible := #allValNames env;
+                                possible := (fn () => allValLongNamesWithPrefix prevName env);
                                 (* The result is an exception with the same type. *)
                                 mkEx (name, excType, locations)
                             end
@@ -1450,7 +1506,8 @@ struct
                   enterSig      = #enterSig env,
                   enterFunct    = #enterFunct env,
                   allValNames   =
-                    fn () => (stringsOfSearchList newEnv () @ #allValNames env ())
+                    fn () => (stringsOfSearchList newEnv () @ #allValNames env ()),
+                  allStructNames = fn () => #allStructNames env ()
                 };
         
               (* Now the body. *)
@@ -1466,10 +1523,10 @@ struct
         and assValDeclaration (valdecs: valbind list, explicit, implicit) =
         (* assignTypes for a val-declaration. *)
         let
-            val newLevel = level + 1;
+            val newLevel = level + 1
       
             (* Set the scope of explicit type variables. *)
-            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, newLevel));
+            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable newLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
@@ -1477,7 +1534,7 @@ struct
             val () = 
                 #apply implicit
                     (fn (name, tv) =>
-                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, newLevel));
+                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable newLevel));
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1553,7 +1610,8 @@ struct
                             allValNames   =
                                 if isRecursive
                                 then fn () => (stringsOfSearchList recEnv () @ #allValNames env ())
-                                else #allValNames env
+                                else #allValNames env,
+                            allStructNames = #allStructNames env
                         }
 
                         val expType = assignValues(newLevel, letDepth, newEnv, exp, exp);
@@ -1619,7 +1677,7 @@ struct
       
             (* Set the scope of explicit type variables. *)
             val () =
-                #apply explicit(fn (_, tv) => setTvarLevel (tv, funLevel));
+                #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable funLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
@@ -1627,7 +1685,7 @@ struct
             val () = 
                 #apply implicit
                   (fn (name, tv) =>
-                      case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, funLevel));
+                      case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable funLevel));
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1654,7 +1712,7 @@ struct
                     (* Declare a new identifier with this name. *)
                     val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
                     val funVar =
-                        mkValVar (name, mkTypeVar (funLevel, false, false, false), locations)
+                        mkValVar (name, mkTypeVar (NotGeneralisable funLevel, false, false, false), locations)
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -1770,7 +1828,8 @@ struct
                             enterFunct    = #enterFunct env,
                             allValNames   =
                                 fn () => (stringsOfSearchList varEnv () @
-                                          stringsOfSearchList newEnv () @ #allValNames env ())
+                                          stringsOfSearchList newEnv () @ #allValNames env ()),
+                            allStructNames = fn () => #allStructNames env ()
                         };
            
                         (* Now the body. *)
@@ -1976,10 +2035,11 @@ struct
             in
                 tcRef := tset;
                 enterType(tset, name); (* Checks for duplicates. *)
-                #enterType env (name, tset) (* Put in the global environment. *)
+                #enterType env (name, tset); (* Put in the global environment. *)
+                tset
             end
 
-            val () = ListPair.app enterWithType (withtypes, decTypes);
+            val withTypeConstrSets = ListPair.map enterWithType (withtypes, decTypes)
         
             (* For the constructors *)
             fun messFn (name, _, Value{locations, ...}) =
@@ -2041,8 +2101,9 @@ struct
                 tcon := tset;
                 tset
             end (* genValueConstrs *)
-      
-            val listOfTypeSets = ListPair.map genValueConstrs (typeList, listOfTypes);
+
+            val listOfTypeSets =
+                ListPair.map genValueConstrs (typeList, listOfTypes) @ withTypeConstrSets
 
             (* Third pass - Check to see if equality testing is allowed for
                these types. *)
@@ -2096,7 +2157,8 @@ struct
                             enterStruct   = #enterStruct env,
                             enterSig      = #enterSig env,
                             enterFunct    = #enterFunct env,
-                            allValNames   = allValNames
+                            allValNames   = allValNames,
+                            allStructNames = #allStructNames env
                         }
                     end;
   
@@ -2135,7 +2197,8 @@ struct
             enterStruct   = #enterStruct gEnv,
             enterSig      = #enterSig gEnv,
             enterFunct    = #enterFunct gEnv,
-            allValNames   = #allValNames gEnv
+            allValNames   = #allValNames gEnv,
+            allStructNames = #allStructNames gEnv
           };
     in
       assignValues(1, 0, env, v, v)

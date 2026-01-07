@@ -102,6 +102,7 @@
 #include "diagnostics.h"
 #include "gctaskfarm.h"
 #include "heapsizing.h"
+#include "gc_progress.h"
 
 #ifdef POLYML32IN64
 #define ENDOFLIST ((PolyObject*)globalHeapBase)
@@ -207,6 +208,241 @@ void SortVector::AddToVector(PolyObject *obj, POLYUNSIGNED length)
 #define NUM_BYTE_VECTORS    23
 #define NUM_WORD_VECTORS    11
 
+// The stack is allocated as a series of blocks chained together.
+#define RSTACK_SEGMENT_SIZE 1000
+
+class RScanStack {
+public:
+    RScanStack() : nextStack(0), lastStack(0), sp(0) {}
+    ~RScanStack() { delete(nextStack); }
+
+    RScanStack *nextStack;
+    RScanStack *lastStack;
+    unsigned sp;
+    struct { PolyObject *obj; PolyWord *base; } stack[RSTACK_SEGMENT_SIZE];
+};
+
+class RecursiveScanWithStack : public ScanAddress
+{
+public:
+    RecursiveScanWithStack() : stack(0) {}
+    ~RecursiveScanWithStack() { delete(stack); }
+
+public:
+    virtual PolyObject *ScanObjectAddress(PolyObject *base);
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
+    // Have to redefine this for some reason.
+    void ScanAddressesInObject(PolyObject *base)
+    {
+        ScanAddressesInObject(base, base->LengthWord());
+    }
+
+protected:
+    // Test the word at the location to see if it points to
+    // something that may have to be scanned.  We pass in the
+    // pointer here because the called may side-effect it.
+    virtual bool TestForScan(PolyWord *) = 0;
+    // If we are definitely scanning the address we mark it.
+    virtual void MarkAsScanning(PolyObject *) = 0;
+    // Called when the object has been completed.
+    virtual void Completed(PolyObject *) {}
+
+protected:
+    void PushToStack(PolyObject *obj, PolyWord *base);
+    void PopFromStack(PolyObject *&obj, PolyWord *&base);
+
+    bool StackIsEmpty(void)
+    {
+        return stack == 0 || (stack->sp == 0 && stack->lastStack == 0);
+    }
+
+    RScanStack *stack;
+};
+
+// This gets called in two circumstances.  It may be called for the roots
+// in which case the stack will be empty and we want to process it completely
+// or it is called for a constant address in which case it will have been
+// called from RecursiveScan::ScanAddressesInObject and that can process
+// any addresses.
+PolyObject *RecursiveScanWithStack::ScanObjectAddress(PolyObject *obj)
+{
+    PolyWord pWord = obj;
+    // Test to see if this needs to be scanned.
+    // It may update the word.
+    bool test = TestForScan(&pWord);
+    obj = pWord.AsObjPtr();
+
+    if (test)
+    {
+        MarkAsScanning(obj);
+        if (obj->IsByteObject())
+            Completed(obj); // Don't need to put it on the stack
+                            // If we already have something on the stack we must being called
+                            // recursively to process a constant in a code segment.  Just push
+                            // it on the stack and let the caller deal with it.
+        else if (StackIsEmpty())
+            RecursiveScanWithStack::ScanAddressesInObject(obj, obj->LengthWord());
+        else
+            PushToStack(obj, (PolyWord*)obj);
+    }
+
+    return obj;
+}
+
+// This is called via ScanAddressesInRegion to process the permanent mutables.  It is
+// also called from ScanObjectAddress to process root addresses.
+// It processes all the addresses reachable from the object.
+// This is almost the same as MTGCProcessMarkPointers::ScanAddressesInObject. 
+void RecursiveScanWithStack::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
+{
+    if (OBJ_IS_BYTE_OBJECT(lengthWord))
+        return; // Ignore byte cells and don't call Completed on them
+
+    PolyWord *baseAddr = (PolyWord*)obj;
+
+    while (true)
+    {
+        ASSERT(OBJ_IS_LENGTH(lengthWord));
+
+        // Get the length and base address.  N.B.  If this is a code segment
+        // these will be side-effected by GetConstSegmentForCode.
+        POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
+
+        if (OBJ_IS_CODE_OBJECT(lengthWord) || OBJ_IS_CLOSURE_OBJECT(lengthWord))
+        {
+            // It's better to process the whole code object in one go.
+            // For the moment do that for closure objects as well.
+            ScanAddress::ScanAddressesInObject(obj, lengthWord);
+            length = 0; // Finished
+        }
+
+        // else it's a normal object,
+
+        // If there are only two addresses in this cell that need to be
+        // followed we follow them immediately and treat this cell as done.
+        // If there are more than two we push the address of this cell on
+        // the stack, follow the first address and then rescan it.  That way
+        // list cells are processed once only but we don't overflow the
+        // stack by pushing all the addresses in a very large vector.
+        PolyWord *endWord = (PolyWord*)obj + length;
+        PolyObject *firstWord = 0;
+        PolyObject *secondWord = 0;
+        PolyWord *restartFrom = baseAddr;
+
+        while (baseAddr != endWord)
+        {
+            PolyWord wordAt = *baseAddr;
+
+            if (wordAt.IsDataPtr() && wordAt != PolyWord::FromUnsigned(0))
+            {
+                // Normal address.  We can have words of all zeros at least in the
+                // situation where we have a partially constructed code segment where
+                // the constants at the end of the code have not yet been filled in.
+                if (TestForScan(baseAddr)) // Test value at baseAddr (may side-effect it)
+                {
+                    PolyObject *wObj = (*baseAddr).AsObjPtr();
+                    if (wObj->IsByteObject())
+                    {
+                        // Can do this now - don't need to push it
+                        MarkAsScanning(wObj);
+                        Completed(wObj);
+                    }
+                    else if (firstWord == 0)
+                    {
+                        firstWord = wObj;
+                        // We mark the word immediately.  We can have
+                        // two words in an object that are the same
+                        // and we don't want to process it again.
+                        MarkAsScanning(firstWord);
+                    }
+                    else if (secondWord == 0)
+                    {
+                        secondWord = wObj;
+                        restartFrom = baseAddr;
+                    }
+                    else break;  // More than two words.
+                }
+            }
+            baseAddr++;
+        }
+
+        if (baseAddr == endWord)
+        {
+            // We have done everything except possibly firstWord and secondWord.
+            // Note: Unfortunately the way that ScanAddressesInRegion works means that
+            // we call Completed on the addresses of cells in the permanent areas without
+            // having called TestForScan.
+            Completed(obj);
+            if (secondWord != 0)
+            {
+                MarkAsScanning(secondWord);
+                // Put this on the stack.  If this is a list node we will be
+                // pushing the tail.
+                PushToStack(secondWord, (PolyWord*)secondWord);
+            }
+        }
+        else // Put this back on the stack while we process the first word
+            PushToStack(obj, restartFrom);
+
+        if (firstWord != 0)
+        {
+            // Process it immediately.
+            obj = firstWord;
+            baseAddr = (PolyWord*)obj;
+        }
+        else if (StackIsEmpty())
+            return;
+        else
+            PopFromStack(obj, baseAddr);
+
+        lengthWord = obj->LengthWord();
+    }
+}
+
+void RecursiveScanWithStack::PushToStack(PolyObject *obj, PolyWord *base)
+{
+    if (stack == 0 || stack->sp == RSTACK_SEGMENT_SIZE)
+    {
+        if (stack != 0 && stack->nextStack != 0)
+            stack = stack->nextStack;
+        else
+        {
+            // Need a new segment
+            try {
+                RScanStack *s = new RScanStack;
+                s->lastStack = stack;
+                if (stack != 0)
+                    stack->nextStack = s;
+                stack = s;
+            }
+            catch (std::bad_alloc &) {
+                // Ignore stack overflow
+                return;
+            }
+        }
+    }
+    stack->stack[stack->sp].obj = obj;
+    stack->stack[stack->sp].base = base;
+    stack->sp++;
+}
+
+void RecursiveScanWithStack::PopFromStack(PolyObject *&obj, PolyWord *&base)
+{
+    if (stack->sp == 0)
+    {
+        // Chain to the previous stack if any
+        ASSERT(stack->lastStack != 0);
+        // Before we do, delete any further one to free some memory
+        delete(stack->nextStack);
+        stack->nextStack = 0;
+        stack = stack->lastStack;
+        ASSERT(stack->sp == RSTACK_SEGMENT_SIZE);
+    }
+    --stack->sp;
+    obj = stack->stack[stack->sp].obj;
+    base = stack->stack[stack->sp].base;
+}
+
 class GetSharing: public RecursiveScanWithStack
 {
 public:
@@ -221,7 +457,6 @@ public:
 protected:
     virtual bool TestForScan(PolyWord *);
     virtual void MarkAsScanning(PolyObject *);
-    virtual void StackOverflow(void) { } // Ignore stack overflow
     virtual void Completed(PolyObject *);
 
 private:
@@ -635,6 +870,8 @@ void GetSharing::SortData()
                 postShared - lastShared, (double)(postShared - lastShared) / (double) (lastCount-postCount) * 100.0,
                 postCount, carryOver, (double)carryOver / (double)(lastCount-postCount) * 100.0);
 
+		gcProgressSetPercent((unsigned)((double)(totalVisited - postCount) / (double)totalVisited * 100.0));
+
         // Condition for exiting the loop.  There are some heuristics here.
         // If we remove less than 10% in a pass it's probably not worth continuing
         // unless the carry over is large.  The "carry over" is the number of words updated as
@@ -704,6 +941,7 @@ void GetSharing::SortData()
 void GCSharingPhase(void)
 {
     mainThreadPhase = MTP_GCPHASESHARING;
+    gcProgressBeginSharingGC();
 
     GetSharing sharer;
 

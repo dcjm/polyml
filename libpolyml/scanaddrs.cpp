@@ -1,7 +1,7 @@
 /*
     Title:      Address scanner
 
-    Copyright (c) 2006-8, 2012, 2019 David C.J. Matthews
+    Copyright (c) 2006-8, 2012, 2019, 2021, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -79,11 +79,11 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
         if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
             // Scan constants within the code.
-            machineDependent->ScanConstantsWithinCode(obj, obj, length, this);
-        
+            machineDependent->ScanConstantsWithinCode(obj, length, this);
             // Skip to the constants and get ready to scan them.
-            obj->GetConstSegmentForCode(length, baseAddr, length);
-
+            machineDependent->GetConstSegmentForCode(obj, length, baseAddr, length);
+            // Adjust to the read-write area if necessary.
+            baseAddr = gMem.SpaceForAddress(baseAddr)->writeAble(baseAddr);
         }
 
         else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
@@ -164,9 +164,9 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
     while (pt < end)
     {
 #ifdef POLYML32IN64
-        if ((((uintptr_t)pt) & 4) == 0)
+        if (((pt - (PolyWord*)0) & (POLYML32IN64-1)) != POLYML32IN64 - 1)
         {
-            // Skip any padding.  The length word should be on an odd-word boundary.
+            // Skip any padding.  The length word should be in the last word of the unit.
             pt++;
             continue;
         }
@@ -198,21 +198,20 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
 }
 
 // Extract a constant from the code.
-PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base)
+PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement)
 {
     switch (code)
     {
-    case PROCESS_RELOC_DIRECT: // 32 or 64 bit address of target
+    case PROCESS_RELOC_DIRECT: // Absolute address 
         {
-            POLYUNSIGNED valu;
-            unsigned i;
+            uintptr_t valu;
             byte *pt = addressOfConstant;
-            if (pt[3] & 0x80) valu = 0-1; else valu = 0;
-            for (i = sizeof(PolyWord); i > 0; i--)
+            if (pt[sizeof(uintptr_t)-1] & 0x80) valu = 0-1; else valu = 0;
+            for (unsigned i = sizeof(uintptr_t); i > 0; i--)
                 valu = (valu << 8) | pt[i-1];
-            if (valu == 0 || PolyWord::FromUnsigned(valu).IsTagged())
+            if (valu == 0 || PolyWord::FromUnsigned((POLYUNSIGNED)valu).IsTagged())
                 return 0;
-            else return PolyWord::FromUnsigned(valu).AsObjPtr(base);
+            else return (PolyObject*)valu;
         }
     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
@@ -221,9 +220,44 @@ PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocatio
             // Get the displacement. This is signed.
             if (pt[3] & 0x80) disp = -1; else disp = 0; // Set the sign just in case.
             for(unsigned i = 4; i > 0; i--) disp = (disp << 8) | pt[i-1];
-            byte *absAddr = pt + disp + 4; // The address is relative to AFTER the constant
+            byte *absAddr = pt + disp + 4 + displacement; // The address is relative to AFTER the constant
             return (PolyObject*)absAddr;
         }
+    case PROCESS_RELOC_ARM64ADRPLDR64:
+    case PROCESS_RELOC_ARM64ADRPLDR32:
+    case PROCESS_RELOC_ARM64ADRPADD:
+    {
+            // This is a pair of instructions.
+            uint32_t* pt = (uint32_t*)addressOfConstant;
+            uint32_t instr0 = fromARMInstr(pt[0]), instr1 = fromARMInstr(pt[1]);
+            ASSERT((instr0 & 0x9f000000) == 0x90000000);
+            int scale = code == PROCESS_RELOC_ARM64ADRPLDR64 ? 8 : code == PROCESS_RELOC_ARM64ADRPLDR32 ? 4 : 1;
+            // ADRP: This is complicated. The offset is encoded in two parts.
+            intptr_t disp = instr0 & 0x00800000 ? -1 : 0; // Sign bit
+            disp = (disp << 19) + ((instr0 & 0x00ffffe0) >> 5); // Add in immhi
+            disp = (disp << 2) + ((instr0 >> 29) & 3); // Add in immlo
+            disp = disp << 12; // It's a page address
+            // The second word is LDR or ADD with a 12-bit unsigned offset.
+            // This is a scaled offset so the value is actually the offset / scale.
+            disp += ((instr1 >> 10) & 0xfff) * scale;
+            uintptr_t addr = (uintptr_t)addressOfConstant;
+            addr = addr & -4096; // Clear the bottom 12 bits
+            return (PolyObject*)(addr + disp);
+        }
+#ifdef POLYML32IN64
+    case PROCESS_RELOC_C32ADDR:
+    {
+        uint32_t valu;
+        byte* pt = addressOfConstant;
+        if (pt[sizeof(uint32_t) - 1] & 0x80) valu = (uint32_t)0 - 1; else valu = 0;
+        for (unsigned i = sizeof(uint32_t); i > 0; i--)
+            valu = (valu << 8) | pt[i - 1];
+        PolyWord wVal = PolyWord::FromUnsigned((POLYUNSIGNED)valu);
+        if (valu == 0 || wVal.IsTagged())
+            return 0;
+        else return wVal.AsObjPtr();
+    }
+#endif
     default:
         ASSERT(false);
         return 0;
@@ -234,14 +268,16 @@ PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocatio
 // been exported using the C exporter.
 void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanRelocationKind code)
 {
+    MemSpace* space = gMem.SpaceForAddress(addressOfConstant);
+    byte* addressToWrite = space->writeAble(addressOfConstant);
     switch (code)
     {
-    case PROCESS_RELOC_DIRECT: // 32 or 64 bit address of target
+    case PROCESS_RELOC_DIRECT: // Absolute address
         {
-            POLYUNSIGNED valu = ((PolyWord)p).AsUnsigned();
-            for (unsigned i = 0; i < sizeof(PolyWord); i++)
+            uintptr_t valu = (uintptr_t)p;
+            for (unsigned i = 0; i < sizeof(uintptr_t); i++)
             {
-                addressOfConstant[i] = (byte)(valu & 255); 
+                addressToWrite[i] = (byte)(valu & 255);
                 valu >>= 8;
             }
         }
@@ -254,21 +290,60 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
             ASSERT(newDisp < (intptr_t)0x80000000 && newDisp >= -(intptr_t)0x80000000);
 #endif
             for (unsigned i = 0; i < 4; i++) {
-                addressOfConstant[i] = (byte)(newDisp & 0xff);
+                addressToWrite[i] = (byte)(newDisp & 0xff);
                 newDisp >>= 8;
             }
+            // When we have shifted it 32-bits the result there should
+            // be no significant bits left.
+            ASSERT(newDisp == 0 || newDisp == -1);
+        }
+        break;
+    case PROCESS_RELOC_ARM64ADRPLDR64:
+    case PROCESS_RELOC_ARM64ADRPLDR32:
+    case PROCESS_RELOC_ARM64ADRPADD:
+    {
+            // This is a pair of instructions.
+            uint32_t* pt = (uint32_t*)addressOfConstant;
+            uint32_t instr0 = fromARMInstr(pt[0]), instr1 = fromARMInstr(pt[1]);
+            int scale = code == PROCESS_RELOC_ARM64ADRPLDR64 ? 8 : code == PROCESS_RELOC_ARM64ADRPLDR32 ? 4 : 1;
+            intptr_t target = (intptr_t)p;
+            // LDR: The offset we put in here is a number of 8-byte words relative to
+            // the 4k-page.
+            uint32_t* ptW = (uint32_t*)addressToWrite;
+            ptW[1] = toARMInstr((instr1 & 0xffc003ff) | (((target & 0xfff) / scale) << 10));
+            // ADRP - 4k page address relative to the instruction.
+            intptr_t disp = (target >> 12) - ((intptr_t)addressOfConstant >> 12);
+            ptW[0] = toARMInstr((instr0 & 0x9f00001f) | ((disp & 3) << 29) | (((disp >> 2) & 0x7ffff) << 5));
+        break;
+    }
+#ifdef POLYML32IN64
+    case PROCESS_RELOC_C32ADDR:
+    {
+        PolyWord pw(p); // Convert address to object reference
+        uint32_t valu = (uint32_t)pw.AsUnsigned();
+        for (unsigned i = 0; i < sizeof(uint32_t); i++)
+        {
+            addressToWrite[i] = (byte)(valu & 255);
+            valu >>= 8;
         }
         break;
     }
+#endif
+    default:
+        ASSERT(false);
+    }
 }
 
-void ScanAddress::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
+void ScanAddress::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement)
 {
-    PolyObject *p = GetConstantValue(addressOfConstant, code);
+    PolyObject *p = GetConstantValue(addressOfConstant, code, displacement);
 
     if (p != 0)
     {
-        PolyObject *oldValue = p;
+        // If this is relative and the displacement is non-zero i.e. the
+        // constant itself has moved, we may have to update it
+        // even if it actually goes to the same place.
+        PolyObject *oldValue = GetConstantValue(addressOfConstant, code, 0);
         // If this was a relative address we must have a code address.
         if (code == PROCESS_RELOC_I386RELATIVE)
             ScanCodeAddressAt(&p);
@@ -285,212 +360,4 @@ void ScanAddress::ScanRuntimeWord(PolyWord *w)
         ASSERT(w->IsDataPtr());
         *w = ScanObjectAddress(w->AsObjPtr()); 
     }
-}
-
-// This gets called in two circumstances.  It may be called for the roots
-// in which case the stack will be empty and we want to process it completely
-// or it is called for a constant address in which case it will have been
-// called from RecursiveScan::ScanAddressesInObject and that can process
-// any addresses.
-PolyObject *RecursiveScan::ScanObjectAddress(PolyObject *obj)
-{
-    PolyWord pWord = obj;
-    // Test to see if this needs to be scanned.
-    // It may update the word.
-    bool test = TestForScan(&pWord);
-    obj = pWord.AsObjPtr();
-
-    if (test)
-    {
-        MarkAsScanning(obj);
-        if (obj->IsByteObject())
-            Completed(obj); // Don't need to put it on the stack
-        // If we already have something on the stack we must being called
-        // recursively to process a constant in a code segment.  Just push
-        // it on the stack and let the caller deal with it.
-        else if (StackIsEmpty())
-            RecursiveScan::ScanAddressesInObject(obj, obj->LengthWord());
-        else
-            PushToStack(obj, (PolyWord*)obj);
-    }
-
-    return obj;
-}
-
-// This is called via ScanAddressesInRegion to process the permanent mutables.  It is
-// also called from ScanObjectAddress to process root addresses.
-// It processes all the addresses reachable from the object.
-// This is almost the same as MTGCProcessMarkPointers::ScanAddressesInObject. 
-void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
-{
-    if (OBJ_IS_BYTE_OBJECT(lengthWord))
-        return; // Ignore byte cells and don't call Completed on them
-
-    PolyWord *baseAddr = (PolyWord*)obj;
-
-    while (true)
-    {
-        ASSERT (OBJ_IS_LENGTH(lengthWord));
-
-        // Get the length and base address.  N.B.  If this is a code segment
-        // these will be side-effected by GetConstSegmentForCode.
-        POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
-
-        if (OBJ_IS_CODE_OBJECT(lengthWord) || OBJ_IS_CLOSURE_OBJECT(lengthWord))
-        {
-            // It's better to process the whole code object in one go.
-            // For the moment do that for closure objects as well.
-            ScanAddress::ScanAddressesInObject(obj, lengthWord);
-            length = 0; // Finished
-        }
-
-        // else it's a normal object,
-
-        // If there are only two addresses in this cell that need to be
-        // followed we follow them immediately and treat this cell as done.
-        // If there are more than two we push the address of this cell on
-        // the stack, follow the first address and then rescan it.  That way
-        // list cells are processed once only but we don't overflow the
-        // stack by pushing all the addresses in a very large vector.
-        PolyWord *endWord = (PolyWord*)obj + length;
-        PolyObject *firstWord = 0;
-        PolyObject *secondWord = 0;
-        PolyWord *restartFrom = baseAddr;
-
-        while (baseAddr != endWord)
-        {
-            PolyWord wordAt = *baseAddr;
-
-            if (wordAt.IsDataPtr() && wordAt != PolyWord::FromUnsigned(0))
-            {
-                // Normal address.  We can have words of all zeros at least in the
-                // situation where we have a partially constructed code segment where
-                // the constants at the end of the code have not yet been filled in.
-                if (TestForScan(baseAddr)) // Test value at baseAddr (may side-effect it)
-                {
-                    PolyObject *wObj = (*baseAddr).AsObjPtr();
-                    if (wObj->IsByteObject())
-                    {
-                        // Can do this now - don't need to push it
-                        MarkAsScanning(wObj);
-                        Completed(wObj);
-                    }
-                    else if (firstWord == 0)
-                    {
-                        firstWord = wObj;
-                        // We mark the word immediately.  We can have
-                        // two words in an object that are the same
-                        // and we don't want to process it again.
-                        MarkAsScanning(firstWord);
-                    }
-                    else if (secondWord == 0)
-                    {
-                        secondWord = wObj;
-                        restartFrom = baseAddr;
-                    }
-                    else break;  // More than two words.
-                }
-            }
-            baseAddr++;
-        }
-
-        if (baseAddr == endWord)
-        {
-            // We have done everything except possibly firstWord and secondWord.
-            // Note: Unfortunately the way that ScanAddressesInRegion works means that
-            // we call Completed on the addresses of cells in the permanent areas without
-            // having called TestForScan.
-            Completed(obj);
-            if (secondWord != 0)
-            {
-                MarkAsScanning(secondWord);
-                // Put this on the stack.  If this is a list node we will be
-                // pushing the tail.
-                PushToStack(secondWord, (PolyWord*)secondWord);
-            }
-        }
-        else // Put this back on the stack while we process the first word
-            PushToStack(obj, restartFrom);
-
-        if (firstWord != 0)
-        {
-            // Process it immediately.
-            obj = firstWord;
-            baseAddr = (PolyWord*)obj;
-        }
-        else if (StackIsEmpty())
-            return;
-        else
-            PopFromStack(obj, baseAddr);
-
-        lengthWord = obj->LengthWord();
-    }
-}
-
-// The stack is allocated as a series of blocks chained together.
-#define RSTACK_SEGMENT_SIZE 1000
-
-class RScanStack {
-public:
-    RScanStack(): nextStack(0), lastStack(0), sp(0) {}
-    ~RScanStack() { delete(nextStack); }
-
-    RScanStack *nextStack;
-    RScanStack *lastStack;
-    unsigned sp;
-    struct { PolyObject *obj; PolyWord *base; } stack[RSTACK_SEGMENT_SIZE];
-};
-
-RecursiveScanWithStack::~RecursiveScanWithStack()
-{
-    delete(stack);
-}
-
-bool RecursiveScanWithStack::StackIsEmpty(void)
-{
-    return stack == 0 || (stack->sp == 0 && stack->lastStack == 0);
-}
-
-void RecursiveScanWithStack::PushToStack(PolyObject *obj, PolyWord *base)
-{
-    if (stack == 0 || stack->sp == RSTACK_SEGMENT_SIZE)
-    {
-        if (stack != 0 && stack->nextStack != 0)
-            stack = stack->nextStack;
-        else
-        {
-            // Need a new segment
-            try {
-                RScanStack *s = new RScanStack;
-                s->lastStack = stack;
-                if (stack != 0)
-                    stack->nextStack = s;
-                stack = s;
-            }
-            catch (std::bad_alloc &) {
-                StackOverflow();
-                return;
-            }
-        }
-    }
-    stack->stack[stack->sp].obj = obj;
-    stack->stack[stack->sp].base = base;
-    stack->sp++;
-}
-
-void RecursiveScanWithStack::PopFromStack(PolyObject *&obj, PolyWord *&base)
-{
-    if (stack->sp == 0)
-    {
-        // Chain to the previous stack if any
-        ASSERT(stack->lastStack != 0);
-        // Before we do, delete any further one to free some memory
-        delete(stack->nextStack);
-        stack->nextStack = 0;
-        stack = stack->lastStack;
-        ASSERT(stack->sp == RSTACK_SEGMENT_SIZE);
-    }
-    --stack->sp;
-    obj = stack->stack[stack->sp].obj;
-    base = stack->stack[stack->sp].base;
 }

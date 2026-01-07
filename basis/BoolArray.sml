@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: BoolArray and BoolVector Structures
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005, 2016
+    Copyright   David Matthews 1999, 2005, 2016, 2022
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -144,7 +144,7 @@ local
        offset is a multiple of 8 but more difficult to handle the other cases. *)
     fun move_bits(src: Bootstrap.byteVector, dest: Bootstrap.byteVector, dest_off, len, last_bits) =
     let
-        val dest_byte = intAsWord(Int.quot(dest_off, 8)) (* Byte offset *)
+        val dest_byte = intAsWord dest_off div 0w8 (* Byte offset *)
         val dest_bit = intAsWord dest_off - dest_byte*0w8 (* Bit offset *)
 
         fun do_move last byte len : word =
@@ -294,15 +294,14 @@ in
                 (* Copy all the source vectors into the destination. *)
                 fun copy_list (Vector(src_len, src_vec)::t) dest_off bits =
                     let
-                        val next = move_bits(src_vec, new_vec,
-                                             dest_off, src_len, bits)
+                        val next = move_bits(src_vec, new_vec, dest_off, src_len, bits)
                     in
                         copy_list t (dest_off+src_len) next
                     end
                  |  copy_list [] dest_off bits =
                     (* At the end of the lists store any extra in the last byte. *)
                     if bits = 0w0 then ()
-                    else RunCall.storeByte(new_vec, intAsWord(Int.quot(dest_off, 8)), bits)
+                    else RunCall.storeByte(new_vec, intAsWord dest_off div 0w8, bits)
             in
                 copy_list l 0 0w0;
                 RunCall.clearMutableBit new_vec;

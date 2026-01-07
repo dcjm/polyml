@@ -87,6 +87,7 @@ struct
        arguments includes the command or not.  Assume that only the "real"
        arguments are provided and pass the last component of the command
        name in the exece call. *)
+(*
     fun executeInEnv (cmd, args, env) =
     let
         open Posix
@@ -127,6 +128,31 @@ struct
             IO.close(#outfd fromChild);
             {pid=pid, infd= #infd fromChild, outfd= #outfd toChild, result = ref NONE}
             )
+    end
+*)
+
+    (* The ML code proved problematic so it has been replaced with C code.
+       It's not clear what the problem was but it could be with garbage collection in
+       the child before the exec. *)
+    local
+        val unixExec = RunCall.rtsCallFull3 "PolyUnixExecute"
+    in
+        fun executeInEnv(cmd, args, env) =
+        let
+            open Posix
+            (* Test first for presence of the file and then that we
+               have correct access rights.  This allows us to report the
+               problem in the call rather than having exec fail. *)
+            val s = FileSys.stat cmd (* Raises SysErr if the file doesn't exist. *)
+            val () =
+                if not (FileSys.ST.isReg s) orelse not (FileSys.access(cmd, [FileSys.A_EXEC]))
+                then raise OS.SysErr(OS.errorMsg Error.acces, SOME Error.acces)
+                else ()
+
+            val (pid, toChild, fromChild) = unixExec(cmd, OS.Path.file cmd :: args, env)
+        in
+            {pid=pid, infd=fromChild, outfd=toChild, result = ref NONE}
+        end
     end
 
     fun execute (cmd, args) =

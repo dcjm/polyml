@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2009, 2015.
+    Modified David C. J. Matthews 2009, 2015, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -37,7 +37,7 @@ sig
     (* Standard type constructors. *)
   
     type typeVarForm
-    type uniqueId
+    eqtype uniqueId
     
     type typeIdDescription = { location: location, name: string, description: string }
     type references =
@@ -50,10 +50,31 @@ sig
     datatype typeId =
         TypeId of { access: valAccess, description: typeIdDescription, idKind: typeIdKind }
 
+    (* A type constructor can be one of these kinds.
+       Free ids are used for datatypes in the core language,
+       Bound ids are used in signatures,
+       Type functions (type abbreviations) refer to other types.
+       To allow type functions to be unified without unrolling first we need to record which
+       type variables are actually used and how they are used for equality.  It is possible
+       that a type variable is never used (e.g. type 'a t = int) in which case "bool t" and
+       "string t" both unify and "(int->int) t" admits equality.  The typeFunCount records
+       the depth of the sequence of type functions e.g. type s(*1*) = int*int type t(*2*) = s
+       so when unifying "x:s" and "y:t" we unwrap "t" rather than "s". *)
     and typeIdKind =
         Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
     |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
-    |   TypeFn of typeVarForm list * types
+    |   TypeFn of
+        {
+            tyVars: typeVarForm list,
+            resType: types,
+            usedTvs: BoolVector.vector,
+            typeFunCount: int,
+            equality: typeFnEq ref,
+            uid: uniqueId
+        }
+
+    and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
+
 
         (* A type is the union of these different cases. *)
     and types = 
@@ -182,11 +203,9 @@ sig
         fullList: labelFieldList
     }
 
-
     (* type identifiers. *)
     val isEquality:   typeId -> bool
     val offsetId:     typeId -> int
-    val idAccess:     typeId -> valAccess
     val sameTypeId:   typeId * typeId -> bool
     val setEquality:  typeId * bool -> unit
 
@@ -195,8 +214,9 @@ sig
     val makeFreeIdEqUpdate: int * valAccess * bool * typeIdDescription -> typeId
     val makeBoundId: int * valAccess * int * bool * bool * typeIdDescription -> typeId
     val makeBoundIdWithEqUpdate: int * valAccess * int * bool * bool * typeIdDescription -> typeId
-    val makeTypeFunction: typeIdDescription * (typeVarForm list * types) -> typeId
     
+    val makeUniqueId: unit -> uniqueId
+
     (* Types *)
     val badType:   types
     val emptyType: types
@@ -207,25 +227,12 @@ sig
     val recordFields   : labelledRec -> string list
     val recordIsFrozen : labelledRec -> bool
 
-    val tcName:            typeConstrs -> string
-    val tcArity:           typeConstrs -> int
-    val tcTypeVars:        typeConstrs -> typeVarForm list
-    val tcEquality:        typeConstrs -> bool
-    val tcSetEquality:     typeConstrs * bool -> unit
-    val tcIdentifier:      typeConstrs -> typeId
-    val tcLocations:       typeConstrs -> locationProp list
-    val tcIsAbbreviation:  typeConstrs -> bool
-
-    val makeTypeConstructor:
-        string * typeVarForm list * typeId * locationProp list -> typeConstrs
-
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
 
-    val tsConstr: typeConstrSet -> typeConstrs
-    val tsConstructors: typeConstrSet -> values list
+    datatype tvLevel = Generalisable | NotGeneralisable of int
 
-    val tvLevel:        typeVarForm -> int
+    val tvLevel:        typeVarForm -> tvLevel
     val tvEquality:     typeVarForm -> bool
     val tvPrintity:     typeVarForm -> bool
     val tvNonUnifiable: typeVarForm -> bool
@@ -233,19 +240,15 @@ sig
     val tvSetValue:     typeVarForm * types -> unit
 
     val sameTv: typeVarForm * typeVarForm -> bool
-
+    
     val makeTv:
-        {value: types, level: int, equality: bool, nonunifiable: bool, printable: bool } -> typeVarForm
+        {value: types, level: tvLevel, equality: bool, nonunifiable: bool, printable: bool } -> typeVarForm
 
-    val generalisable: int
+    val generalisable: tvLevel (* Backwards compatibility. *)
 
     (* Access to values, structures etc. *)
-    val makeGlobal:   codetree -> valAccess
     val makeLocal:    unit -> valAccess
     val makeSelected: int * structVals -> valAccess
-
-    val vaGlobal:   valAccess -> codetree
-    val vaLocal:    valAccess -> { addr: int ref, level: level ref }
 
     val makeEmptyGlobal:   string -> structVals
     val makeGlobalStruct:  string * signatures * codetree * locationProp list -> structVals
@@ -262,12 +265,8 @@ sig
     val makeSignature: string * univTable * int * locationProp list * (int -> typeId) * typeId list -> signatures
 
     (* Values. *)
-    val valName: values -> string
-    val valTypeOf: values -> types
     val undefinedValue: values
     val isUndefinedValue: values -> bool
-    val isConstructor: values -> bool
-    val isValueConstructor: values -> bool
 
     val makeOverloaded: string * types * typeDependent -> values
     val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values
@@ -295,7 +294,8 @@ sig
             enterStruct:  string * structVals  -> unit,
             enterSig:     string * signatures  -> unit,
             enterFunct:   string * functors    -> unit,
-            allValNames:  unit -> string list
+            allValNames:  unit -> string list,
+            allStructNames: unit -> string list
         }
 
     val makeEnv: univTable -> env
@@ -326,7 +326,10 @@ sig
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm
-        and  level = level
+        and  level      = level
+        and  tvLevel    = tvLevel
+        and  typeFnEq   = typeFnEq
+
     end
 end;
 

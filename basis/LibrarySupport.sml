@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Support functions
-    Copyright   David C.J. Matthews 2000, 2015-18
+    Copyright   David C.J. Matthews 2000, 2015-20, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -60,10 +60,24 @@ sig
     val w8vectorAsAddress : Word8Array.vector -> address
     val maxAllocation: word
     and maxString: word
-    val noOverwriteRef: 'a -> 'a ref
     val emptyVector: word
     val quotRem: LargeInt.int*LargeInt.int -> LargeInt.int*LargeInt.int
     val getOSType: unit -> int
+    eqtype syserror
+    val syserrorToWord: syserror -> LargeWord.word
+    val syserrorFromWord : LargeWord.word -> syserror
+    exception SysErr of (string * syserror option)
+    
+    val onEntryList: (unit->unit) list ref (* This is picked up by InitialPolyML *)
+    val addOnEntry: (unit->unit) -> unit
+    val atExitList: (unit->unit) list ref (* This is picked up by OS.Process *)
+    val addAtExit: (unit->unit) -> unit
+    
+    val volatileListRef: unit -> 'a list ref
+    val volatileWordRef: unit -> word ref
+    val volatileOptionRef: unit -> 'a option ref
+    
+    val log2Word: word -> word
 end
 =
 struct
@@ -181,12 +195,17 @@ struct
                 vec
             end
 
-        (* Create non-overwritable mutables for mutexes and condition variables.
-           A non-overwritable mutable in the executable or a saved state is not
-           overwritten when a saved state further down the hierarchy is loaded. 
-           This is also used for imperative streams, really only so that stdIn
-           works properly across SaveState.loadState calls. *)
-        fun noOverwriteRef (a: 'a) : 'a ref = RunCall.allocateWordMemory(0w1, 0wx48, a)
+        (* Volatile refs.  They are cleared to 0/nil/NONE in an exported or saved state
+           and their current value is not written to a child state, unlike normal refs.
+           They are used for things like mutexes, condition variables and the list of
+           currently open streams which should always be reset. *)
+        local
+            fun volatileRef() : 'a ref = RunCall.allocateWordMemory(0w1, 0wx48, 0w0)
+        in
+            val volatileListRef = volatileRef
+            and volatileWordRef = volatileRef
+            and volatileOptionRef = volatileRef
+        end
     end
 
     (* Create an empty vector.  This is used wherever we want an empty vector.
@@ -196,5 +215,24 @@ struct
     val quotRem = LargeInt.quotRem
     
     val getOSType: unit -> int = RunCall.rtsCallFast0 "PolyGetOSType"
+    
+    (* syserror is the same as SysWord.word and these are needed in Posix at least. *)
+    type syserror = LargeWord.word
+    fun syserrorToWord i = i
+    and syserrorFromWord i = i
+    
+    exception SysErr = RunCall.SysErr
+    
+    (* The onEntry list.  PolyML.onEntry adds a mutex here. *)
+    val onEntryList: (unit->unit) list ref = ref[]
+    fun addOnEntry f = onEntryList := f :: !onEntryList
+    
+    (* The atExit list - This is a volatile since it should be reset
+       at the start, unlike the onEntry list. *)
+    val atExitList = volatileListRef()
+    fun addAtExit f = atExitList := f :: !atExitList
+    
+    (* This is needed in IntInf so needs to be captured before LargeInt is redefined. *)
+    val log2Word = LargeInt.log2Word
 end;
 

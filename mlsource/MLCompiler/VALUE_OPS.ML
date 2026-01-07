@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9, 2013, 2015-16, 2020.
+    Modified David C.J. Matthews 2008-9, 2013, 2015-16, 2020-21, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -27,7 +27,7 @@
 functor VALUE_OPS (
 
 structure LEX : LEXSIG;
-structure CODETREE : CODETREESIG
+structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG;
 structure TYPESTRUCT : TYPETREESIG
 structure PRINTTABLE : PRINTTABLESIG
@@ -39,7 +39,7 @@ sig
     val app: (string * universal -> unit) -> univTable -> unit
 end;
 
-structure DEBUG : DEBUGSIG
+structure DEBUG : DEBUG
 
 structure MISC :
 sig
@@ -49,7 +49,7 @@ sig
     val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
 end;
 
-structure PRETTY : PRETTYSIG
+structure PRETTY : PRETTY
 structure ADDRESS : AddressSig
 
 structure UTILITIES :
@@ -667,7 +667,6 @@ struct
      
     | codeAccess _ = raise InternalError "No access"
 
-
 (*****************************************************************************)
 (*                  datatype access functions                                *)
 (*****************************************************************************)
@@ -678,9 +677,9 @@ struct
        word, string or char for conversion functions.) *)
     fun getOverloadInstance(name, instance, isConv): codetree*string =
     let
-        val constr = typeConstrFromOverload(instance, isConv)
+        val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload(instance, isConv)
     in
-        (getOverload(name, constr, fn _ => raise InternalError "getOverloadInstance: Missing"), tcName constr)
+        (getOverload(name, constr, fn _ => raise InternalError "getOverloadInstance: Missing"), tcName)
     end
 
     (* This is only used in addPrettyPrint.  There's no point in
@@ -766,8 +765,7 @@ struct
             (* The parameter is the reference used to control the print depth
                when the value is actually printed. *)
             val prettyOut = getPrintOutput (LEX.debugParams lex)
-        in
-            mkProc(
+            val printFun =
                 mkProc(
                     CODETREE.mkEnv
                     (
@@ -780,8 +778,11 @@ struct
                         ],
                         arg1 (* Returns its argument. *)
                     ),
-                    1, "print()", [], 0),
-                1, "print(P)", [], 0)
+                    1, "print()", [], 0)            
+        in
+            if justForEqualityTypes
+            then printFun
+            else mkProc(printFun, 1, "print(P)", [], 0)
         end
 
   |  codeVal (Value{access = Overloaded Print, ...}, level: level, typeVarMap, [{value=argType, ...}], lex, _) =
@@ -822,10 +823,14 @@ struct
         raise InternalError "Overloaded Print - wrong instance type"
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, [], _, _) =
+        let
         (* If this appears in a structure produce a default version. *)
-            mkInlproc(
-                mkProc(mkConst(toMachineWord "?"), 1, "makestring()", [], 0),
-                1, "makestring(P)", [], 0)
+            val makestringFn = mkProc(mkConst(toMachineWord "?"), 1, "makestring()", [], 0)
+        in
+            if justForEqualityTypes
+            then makestringFn
+            else mkProc(makestringFn, 1, "makestring(P)", [], 0)
+        end
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, level: level, typeVarMap, [{value=argType, ...}], _, _) =
         let
@@ -864,11 +869,16 @@ struct
         raise InternalError "Overloaded GetPretty - wrong instance type"
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, [], _, _) =
-        (* If this appears in a structure create a function that raises an exception if run. *)
-        mkProc(
-            mkConst (toMachineWord
-                        (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction")),
-            1, "AddPretty(P)", [], 0)
+        let
+            (* If this appears in a structure create a function that raises an exception if run. *)
+            val defAddPretty =
+                mkConst (toMachineWord
+                        (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
+        in
+            if justForEqualityTypes
+            then defAddPretty
+            else mkProc(defAddPretty, 1, "AddPretty(P)", [], 0)
+        end
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, level: level, _, [{value=installType, ...}, {value=argPrints, ...}], lex, loc) =
         let 
@@ -892,10 +902,10 @@ struct
                  different modules may be at different points in the chain. *)
               (* This does mean that it's not possible to install a
                  pretty printer for a type constructor rather than a datatype. *)
-            fun followTypes (TypeConstruction{constr, args, ...}) =
-                if not (tcIsAbbreviation constr)
-                then SOME(tcIdentifier constr, constr, List.length args)
-                else followTypes (makeEquivalent (constr, args))
+            fun followTypes (TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
+                    followTypes (makeEquivalent (constr, args))
+            |   followTypes (TypeConstruction{constr as TypeConstrs {identifier,...}, args, ...}) =
+                    SOME(identifier, constr, List.length args)
             |   followTypes (TypeVar tv) =
                 (
                     case tvValue tv of
@@ -909,14 +919,14 @@ struct
             val () =
                 case constrId of
                     NONE => ()
-                |   SOME (_, constr, arity) =>
+                |   SOME (_, constr as TypeConstrs {name=tcName,...}, arity) =>
                     let
                         (* Check that the function tuple matches the arguments of the type
                            we're installing for. *)
                         (* Each entry should be a function of type 'a * int -> pretty *)
                         fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.fixedIntType], pretty)
                         (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
-                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true, false))
+                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (NotGeneralisable 0, false, true, false))
                         val tupleType =
                             case typeVars of
                                 [] => (* No arg so must have unit. *)
@@ -926,7 +936,7 @@ struct
                         val addPPType = mkFunctionType(argPrints, mkFunctionType(installType, pretty))
                         val testType = mkFunctionType(tupleType,
                             mkFunctionType(
-                                mkTypeConstruction(tcName constr, constr, typeVars, [DeclaredAt loc]),
+                                mkTypeConstruction(tcName, constr, typeVars, [DeclaredAt loc]),
                                 pretty))
                     in
                         checkPPType(addPPType, testType, "addPrettyPrint", lex, loc,
@@ -940,7 +950,7 @@ struct
                by this version. *)
         in
             case constrId of
-                SOME (typeId, _, arity) =>
+                SOME (TypeId { access=typeIdAccess, ...}, _, arity) =>
                     let
                         (* We need to transform the user-supplied function into the form required for
                            the reference.   The user function has type int -> 'b -> 'a -> pretty
@@ -990,7 +1000,7 @@ struct
                         mkProc(
                             mkStoreOperation(LoadStoreMLWord{isImmutable=false},
                                 TypeValue.extractPrinter(
-                                    codeAccess(idAccess typeId, nLevel)), CodeZero, printFunction
+                                    codeAccess(typeIdAccess, nLevel)), CodeZero, printFunction
                                 ), 1, "addPP", getClosure nLevel, 0)
                     end
 
@@ -1027,6 +1037,7 @@ struct
        (* Get the exception id, put it in the packet with the exception name
           the argument and, currently, an empty location as the exception location. *)
          val exIden = codeVal (value, level, typeVarMap, instance, lex, lineno);
+        fun valName (Value{name, ...}) = name
      in
          mkTuple (exIden :: mkStr (valName value) :: argument :: [mkConst(toMachineWord NoLocation)])
      end
@@ -1166,6 +1177,8 @@ struct
      or a function to make a packet. If it is a nullary constructor make
      an exception packet now, otherwise generate a function to construct
      an exception packet. *)
+    fun valTypeOf (Value{typeOf, ...}) = typeOf
+
     fun codeExFunction (value, level, typeVarMap, instance, lex, lineno) =
     case getFnArgType(valTypeOf value) of (* N.B. Not "instance" *)
         NONE => applyFunction (value, CodeZero, level, typeVarMap, List.map addStatus instance, lex, lineno)
@@ -1266,6 +1279,7 @@ struct
        has been resolved. *)
     fun getLiteralValue(converter, literal, instance, error): machineWord option =
         let
+            fun valName (Value{name, ...}) = name
             val (conv, name) =
                  getOverloadInstance(valName converter, instance, true)
         in

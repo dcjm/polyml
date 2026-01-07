@@ -1,7 +1,7 @@
 /*
-    Title:      Basic IO.
+    Title:      Basic IO for Unix and similar
 
-    Copyright (c) 2000, 2015-2020 David C. J. Matthews
+    Copyright (c) 2000, 2015-2020, 2022, 2025 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
@@ -99,6 +99,7 @@ DCJM May 2000.
 #include <stdio.h>
 #endif
 #include <limits>
+#include <climits> // For PATH_MAX
 
 #ifndef INFTIM
 #define INFTIM (-1)
@@ -160,9 +161,10 @@ DCJM May 2000.
 #endif
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(PolyObject *threadId, PolyWord fd);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED strm, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(POLYUNSIGNED threadId, POLYUNSIGNED streamVec, POLYUNSIGNED bitVec, POLYUNSIGNED maxMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(POLYUNSIGNED threadId, POLYUNSIGNED fd);
 }
 
 static bool isAvailable(TaskData *taskData, int ioDesc)
@@ -473,66 +475,32 @@ WaitPoll::WaitPoll(POLYUNSIGNED nDesc, struct pollfd *fds, unsigned maxMillisecs
 
 void WaitPoll::Wait(unsigned maxMillisecs)
 {
-    if (nDescr == 0) pollResult = 0;
-    else
-    {
-        if (maxTime < maxMillisecs) maxMillisecs = maxTime;
-        pollResult = poll(fdVec, nDescr, maxMillisecs);
-        if (pollResult < 0) errorResult = ERRORNUMBER;
-    }
+    // N.B. We use this for OS.Process.sleep with empty descriptor list.
+    if (maxTime < maxMillisecs) maxMillisecs = maxTime;
+    pollResult = poll(fdVec, nDescr, maxMillisecs);
+    if (pollResult < 0) errorResult = ERRORNUMBER;
 }
 
-static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(POLYUNSIGNED threadId, POLYUNSIGNED streamVector, POLYUNSIGNED bitVector, POLYUNSIGNED maxMillisecs)
 {
-    Handle hSave = taskData->saveVec.mark();
-    PolyObject  *strmVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
-    PolyObject  *bitVec =  DEREFHANDLE(args)->Get(1).AsObjPtr();
-    POLYUNSIGNED nDesc = strmVec->Length();
-    ASSERT(nDesc ==  bitVec->Length());
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    POLYUNSIGNED maxMilliseconds = PolyWord::FromUnsigned(maxMillisecs).UnTaggedUnsigned();
+    Handle result = 0;
 
-    while (1) // Until timeout or we get a result.
-    {
+    try {
+        PolyObject  *strmVec = PolyWord::FromUnsigned(streamVector).AsObjPtr();
+        PolyObject  *bitVec = PolyWord::FromUnsigned(bitVector).AsObjPtr();
+        POLYUNSIGNED nDesc = strmVec->Length();
+        ASSERT(nDesc == bitVec->Length());
+
         struct pollfd * fds = 0;
-        unsigned maxMillisecs = 1000;
-        // Set the wait time.  This code is almost the same as selectCall in network.cpp.
-        switch (blockType)
-        {
-        case 0:
-            {
-                struct timeval tvTime, tvNow;
-                /* We have a value in microseconds.  We need to split
-                   it into seconds and microseconds. */
-                Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
-                Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-                tvTime.tv_sec =
-                    get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
-                tvTime.tv_usec =
-                    get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
-                // If the timeout time is earlier than the current time we just poll
-                // otherwise we block for up to a second.
-                if (gettimeofday(&tvNow, NULL) != 0)
-                    raise_syscall(taskData, "gettimeofday failed", errno);
-                if (tvNow.tv_sec > tvTime.tv_sec || (tvNow.tv_sec == tvTime.tv_sec && tvNow.tv_usec >= tvTime.tv_usec))
-                    maxMillisecs = 0;
-                else
-                {
-                    subTimevals(&tvTime, &tvNow);
-                    if (tvTime.tv_sec >= 1) maxMillisecs = 1000; // Don't overflow if it's very long
-                    else maxMillisecs = tvTime.tv_usec / 1000;
-                }
-                break;
-            }
-        case 1: /* Block until one of the descriptors is ready. */
-            maxMillisecs = 1000; // Max 1 second
-            break;
-        case 2: // Just a simple poll
-            maxMillisecs = 0;
-            break;
-        }
 
         if (nDesc > 0)
             fds = (struct pollfd *)alloca(nDesc * sizeof(struct pollfd));
-        
+
         /* Set up the request vector. */
         for (unsigned i = 0; i < nDesc; i++)
         {
@@ -546,29 +514,31 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         }
 
         // Poll the descriptors.
-        WaitPoll pollWait(nDesc, fds, maxMillisecs);
+        WaitPoll pollWait(nDesc, fds, maxMilliseconds);
         processes->ThreadPauseForIO(taskData, &pollWait);
 
         if (pollWait.PollResult() < 0)
             raise_syscall(taskData, "poll failed", pollWait.PollError());
-        else if (pollWait.PollResult() > 0 || maxMillisecs == 0)
+        // Construct the result vectors.
+        result = alloc_and_save(taskData, nDesc);
+        for (unsigned i = 0; i < nDesc; i++)
         {
-            // There was a result or the time expired or it was just a poll.
-            // Construct the result vectors.
-            Handle resVec = alloc_and_save(taskData, nDesc);
-            for (unsigned i = 0; i < nDesc; i++)
-            {
-                int res = 0;
-                if (fds[i].revents & POLLIN) res = POLL_BIT_IN;
-                if (fds[i].revents & POLLOUT) res = POLL_BIT_OUT;
-                if (fds[i].revents & POLLPRI) res = POLL_BIT_PRI;
-                DEREFWORDHANDLE(resVec)->Set(i, TAGGED(res));
-            }
-            return resVec;
+            int res = 0;
+            if (fds[i].revents & POLLIN) res = POLL_BIT_IN;
+            if (fds[i].revents & POLLOUT) res = POLL_BIT_OUT;
+            if (fds[i].revents & POLLPRI) res = POLL_BIT_PRI;
+            DEREFWORDHANDLE(result)->Set(i, TAGGED(res));
         }
-        // else try again.
-        taskData->saveVec.reset(hSave);
     }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 // Directory functions.
@@ -643,7 +613,7 @@ static Handle change_dirc(TaskData *taskData, Handle name)
 }
 
 // External call
-POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyChDir(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -677,21 +647,34 @@ Handle isDir(TaskData *taskData, Handle name)
 /* Get absolute canonical path name. */
 Handle fullPath(TaskData *taskData, Handle filename)
 {
-    TempString cFileName;
-
+    TempCString cFileName;
     /* Special case of an empty string. */
     if (PolyStringLength(filename->Word()) == 0) cFileName = strdup(".");
     else cFileName = Poly_string_to_C_alloc(filename->Word());
-    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
     TempCString resBuf(realpath(cFileName, NULL));
     if (resBuf == NULL)
-        raise_syscall(taskData, "realpath failed", ERRORNUMBER);
+    {
+#ifdef PATH_MAX
+        if (errno == EINVAL)
+        {
+            // Some very old systems e.g. Solaris 10 don't support NULL for the second arg.
+            resBuf = (char*)malloc(PATH_MAX);
+            if (resBuf == NULL)
+                raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (realpath(cFileName, resBuf) == NULL)
+                raise_syscall(taskData, "realpath failed", errno);
+        }
+        else
+#endif
+            raise_syscall(taskData, "realpath failed", errno);
+    }
     /* Some versions of Unix don't check the final component
         of a file.  To be consistent try doing a "stat" of
         the resulting string to check it exists. */
     struct stat fbuff;
     if (stat(resBuf, &fbuff) != 0)
-        raise_syscall(taskData, "stat failed", ERRORNUMBER);
+        raise_syscall(taskData, "stat failed", errno);
     return(SAVE(C_string_to_Poly(taskData, resBuf)));
 }
 
@@ -858,12 +841,12 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         return fileKind(taskData, strm);
     case 22: /* Return the polling options allowed on this descriptor. */
         return pollTest(taskData, strm);
-    case 23: /* Poll the descriptor, waiting forever. */
-        return pollDescriptors(taskData, args, 1);
-    case 24: /* Poll the descriptor, waiting for the time requested. */
-        return pollDescriptors(taskData, args, 0);
-    case 25: /* Poll the descriptor, returning immediately.*/
-        return pollDescriptors(taskData, args, 2);
+//    case 23: /* Poll the descriptor, waiting forever. */
+//        return pollDescriptors(taskData, args, 1);
+//    case 24: /* Poll the descriptor, waiting for the time requested. */
+//        return pollDescriptors(taskData, args, 0);
+//    case 25: /* Poll the descriptor, returning immediately.*/
+//        return pollDescriptors(taskData, args, 2);
     case 26: /* Get binary as a vector. */
         return readString(taskData, strm, args, false);
 
@@ -1085,7 +1068,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     default:
         {
             char msg[100];
-            sprintf(msg, "Unknown io function: %d", c);
+            snprintf(msg, sizeof(msg), "Unknown io function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
             return 0;
         }
@@ -1094,7 +1077,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
 // General interface to IO.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg)
+POLYUNSIGNED PolyBasicIOGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED strm, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1120,7 +1103,7 @@ POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord st
 }
 
 // Create a persistent file descriptor value for Posix.FileSys.stdin etc.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(PolyObject *threadId, PolyWord fd)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(POLYUNSIGNED threadId, POLYUNSIGNED fd)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1131,7 +1114,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(PolyObject *threadId
     try {
         result = alloc_and_save(taskData,
             WORDS(SIZEOF_VOIDP), F_BYTE_OBJ | F_MUTABLE_BIT | F_NO_OVERWRITE);
-        *(POLYSIGNED*)(result->Word().AsCodePtr()) = fd.UnTagged() + 1;
+        *(POLYSIGNED*)(result->Word().AsCodePtr()) = PolyWord::FromUnsigned(fd).UnTagged() + 1;
     }
     catch (...) { } // If an ML exception is raised - could have run out of memory
 
@@ -1145,6 +1128,7 @@ struct _entrypts basicIOEPT[] =
 {
     { "PolyChDir",                      (polyRTSFunction)&PolyChDir},
     { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral},
+    { "PolyPollIODescriptors",          (polyRTSFunction)&PolyPollIODescriptors },
     { "PolyPosixCreatePersistentFD",    (polyRTSFunction)&PolyPosixCreatePersistentFD},
 
     { NULL, NULL} // End of list.

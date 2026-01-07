@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-19
+    Copyright David C. J. Matthews 2016-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,18 +16,18 @@
 *)
 
 functor X86AllocateRegisters(
-    structure ICODE: ICodeSig
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    structure CONFLICTSETS: X86GETCONFLICTSETSIG
-    structure INTSET: INTSETSIG
+    structure X86ICode: X86ICODE
+    structure Identify: X86IDENTIFYREFERENCES
+    structure ConflictSets: X86GETCONFLICTSET
+    structure IntSet: INTSET
     
-    sharing ICODE.Sharing = IDENTIFY.Sharing = CONFLICTSETS.Sharing = INTSET
-): X86ALLOCATEREGISTERSSIG =
+    sharing X86ICode.Sharing = Identify.Sharing = ConflictSets.Sharing = IntSet
+): X86ALLOCATEREGISTERS =
 struct
-    open ICODE
-    open IDENTIFY
-    open CONFLICTSETS
-    open INTSET
+    open X86ICode
+    open Identify
+    open ConflictSets
+    open IntSet
 
     open Address
     
@@ -36,16 +36,19 @@ struct
     local
         val regs =
             case targetArch of
-                Native32Bit     => [edi, esi, edx, ecx, ebx, eax]
-            |   Native64Bit     => [edi, esi, edx, ecx, ebx, eax, r14, r13, r12, r11, r10, r9, r8]
-            |   ObjectId32Bit   => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
+                Native32Bit         => [edi, esi, edx, ecx, ebx, eax]
+            |   Native64Bit         => [edi, esi, edx, ecx, ebx, eax, r14, r13, r12, r11, r10, r9, r8]
+            |   ObjectId32Bit2Word  => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
+            |   ObjectId32Bit4Word  => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
     in
         val generalRegisters = List.map GenReg regs
+        val nGenRegs = List.length generalRegisters
     end
     
     val floatingPtRegisters =
         case fpMode of
-            FPModeSSE2 => List.map XMMReg [xmm6, xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
+            (* XMM0-5 are the only volatile SSE2 registers in Windows X64. *)
+            FPModeSSE2 => List.map XMMReg [xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
             (* We can't include fp7 because we need one spare. *)
             (* For the moment we only have FP0 here.  There are problems with using the
                others because we need to ensure the stack is empty if we call any
@@ -134,9 +137,9 @@ struct
             |   addHints{instr=TailRecursiveCall{regArgs, ...}, ...} =
                     List.app (fn (arg, reg) => case decache arg of RegisterArgument(PReg pr) => addRealHint(pr, reg) | _ => ()) regArgs
         
-            |   addHints{instr=FunctionCall{regArgs, dest=PReg dreg, realDest, ...}, ...} =
+            |   addHints{instr=FunctionCall{regArgs, results, ...}, ...} =
                 (
-                    addRealHint(dreg, realDest);
+                    List.app (fn (PReg pr, reg) => addRealHint(pr, reg)) results;
                     List.app (fn (arg, reg) => case decache arg of RegisterArgument(PReg pr) => addRealHint(pr, reg) | _ => ()) regArgs
                 )
         
@@ -158,7 +161,8 @@ struct
             |   addHints{instr=BeginHandler{packetReg=PReg pReg, workReg=_}, ...} =
                     (* The exception packet is in rax. *) addRealHint(pReg, GenReg eax)
         
-            |   addHints{instr=ReturnResultFromFunction { resultReg=PReg resReg, realReg, ... }, ...} = addRealHint(resReg, realReg)
+            |   addHints{instr=ReturnResultFromFunction { results, ... }, ...} =
+                    List.app(fn(PReg resReg, realReg) => addRealHint(resReg, realReg)) results
         
             |   addHints{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg, ...}, ...} =
                     (* Can only be one way round. *)
@@ -218,6 +222,15 @@ struct
             |   addHints{instr=LongArbArithmetic{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg, ...}, ...} =
                     (* Can only be one way round. *)
                     addSourceAndDestinationHint {dst=resReg, src=op1Reg}
+
+            |   addHints{instr=AtomicExchangeAndAdd{resultReg=PReg resReg, source=PReg op1Reg, ...}, ...} =
+                    addSourceAndDestinationHint{dst=resReg, src=op1Reg}
+
+            |   addHints{instr=AtomicExchange{resultReg=PReg resReg, source=PReg op1Reg, ...}, ...} =
+                    addSourceAndDestinationHint{dst=resReg, src=op1Reg}
+
+            |   addHints{instr=AtomicCompareAndExchange{resultReg=PReg resReg, compare=PReg cmpReg, ...}, ...} =
+                    (addRealHint(resReg, GenReg eax); addRealHint(cmpReg, GenReg eax))
 
             |   addHints _ = ()
         
@@ -377,7 +390,8 @@ struct
         |   allocateArgIndex(MemIndex2(PReg r)) = allocateGeneralReg r
         |   allocateArgIndex(MemIndex4(PReg r)) = allocateGeneralReg r
         |   allocateArgIndex(MemIndex8(PReg r)) = allocateGeneralReg r
-        |   allocateArgIndex ObjectIndex = ()
+        |   allocateArgIndex ObjectIndex2 = ()
+        |   allocateArgIndex ObjectIndex4 = ()
 
         (* Return the register part of a cached item.  We must still, unfortunately, ensure that a register is
            allocated for base registers because we're assuming that a register is allocated on the last
@@ -442,8 +456,10 @@ struct
                         allocateArgIndex index
                     end
             )
-        
+
         |   registerAllocate{instr=LoadMemReg { dest=PReg pr, ...}, ...} = allocateGeneralReg pr
+
+        |   registerAllocate{instr=StoreMemReg { source=PReg pr, ...}, ...} = allocateGeneralReg pr
 
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
@@ -462,7 +478,7 @@ struct
                 List.app allocateRegArg regArgs
             end
 
-        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, realDest, saveRegs, ...}, ...}) =
+        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, results, saveRegs, ...}, ...}) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
@@ -471,8 +487,11 @@ struct
                 |   allocateRegArg(_, FPReg _) = raise InternalError "allocateRegArg" (* Never used. *)
             in
                 List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
-                (* Result will be in rax/fp0/xmm0. *)
-                allocateRegister(dReg, SOME realDest, [realDest]);
+                (* Try to use the destination register but don't force it.  We may have already
+                   allocated a different register in which case we'll have to move the result there. *)
+                List.app(fn (PReg dReg, realDest) =>
+                    allocateRegister(dReg, SOME realDest,
+                            case realDest of GenReg _ => generalRegisters | _ => floatingPtRegisters)) results;
                 List.app allocateArgGeneral stackArgs;
                 (* We've already hinted the arguments. *)
                 List.app allocateRegArg regArgs
@@ -554,8 +573,9 @@ struct
                 allocateGeneralReg wReg
             )
 
-        |   registerAllocate({instr=ReturnResultFromFunction { resultReg=PReg resReg, realReg, ... }, ...}) =
-                allocateRegister(resReg, SOME realReg, [realReg] (* It MUST be in this register *))
+        |   registerAllocate({instr=ReturnResultFromFunction { results, ... }, ...}) =
+                List.app(fn (PReg resReg, realReg) => 
+                    allocateRegister(resReg, SOME realReg, [realReg] (* It MUST be in this register *))) results
 
         |   registerAllocate{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...} =
@@ -671,8 +691,20 @@ struct
                 allocateArgGeneral divisor
             )
 
-        |   registerAllocate({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg}, ...}) =
-                (allocateGeneralReg sReg; allocateGeneralReg bReg)
+        |   registerAllocate({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg, resultReg=PReg rReg}, ...}) =
+                (allocateGeneralReg sReg; allocateGeneralReg bReg; allocateGeneralReg rReg)
+
+        |   registerAllocate({instr=AtomicExchange{base=PReg bReg, source=PReg sReg, resultReg=PReg rReg}, ...}) =
+                (allocateGeneralReg sReg; allocateGeneralReg bReg; allocateGeneralReg rReg)
+
+        |   registerAllocate({instr=AtomicCompareAndExchange{base=PReg bReg, compare=PReg cReg,
+                                                             toStore=PReg tsReg, resultReg=PReg rReg, ...}, ...}) =
+            (
+                (* The value we're comparing with and the result are both RAX. *)
+                allocateRegister(cReg, SOME(GenReg eax), generalRegisters);
+                allocateRegister(rReg, SOME(GenReg eax), generalRegisters);
+                allocateGeneralReg tsReg; allocateGeneralReg bReg
+            )
 
         |   registerAllocate({instr=BoxValue{boxKind, source=PReg sReg, dest=PReg dReg, saveRegs}, ...}) =
             (
@@ -728,7 +760,7 @@ struct
         |   registerAllocate({instr=X87Float{dest=PReg resReg, source}, ...}) =
                 (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
 
-        |   registerAllocate({instr=SSE2Float{dest=PReg resReg, source}, ...}) =
+        |   registerAllocate({instr=SSE2IntToReal{dest=PReg resReg, source, ...}, ...}) =
                 (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
 
         |   registerAllocate({instr=SSE2FPUnary{resultReg=PReg resReg, source, ...}, ...}) =
@@ -794,6 +826,14 @@ struct
 
         |   registerAllocate({instr=TouchArgument{source=PReg srcReg}, ...}) =
                 allocateRegister(srcReg, NONE, generalRegisters)
+        
+        |   registerAllocate({instr=PauseCPU, ...}) = ()
+
+        |   registerAllocate({instr=BitScanReverse{source, dest=PReg destReg, ...}, ...}) =
+            (
+                allocateRegister(destReg, NONE, generalRegisters);
+                allocateArgGeneral source
+            )
 
         |   registerAllocate({instr=LongArbComparison{ arg1=PReg arg1Reg, arg2, saveRegs, ... }, ...}) =
             (

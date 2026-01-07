@@ -1,8 +1,8 @@
 /*
     Title:      Operating Specific functions: Unix version.
 
-    Copyright (c) 2000-8, 2016-17, 2019 David C. J. Matthews
-    Portions of this code are derived from the original stream io
+    Copyright (c) 2000-8, 2016-17, 2019, 2020, 2021, 2025 David C. J. Matthews
+    Portions of this code are derived from the original tream io
     package copyright CUTS 1983-2000.
 
     This library is free software; you can redistribute it and/or
@@ -89,17 +89,19 @@
 #include <sys/ioctl.h>
 #endif
 
-#ifdef HAVE_SYS_SIGNAL_H
-#include <sys/signal.h>
+#ifdef HAVE_SIGNAL_H
+#include <signal.h>
+#endif
+
+#ifdef HAVE_TIME_H
+#include <time.h>
 #endif
 
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 
-#ifdef HAVE_SYS_TERMIOS_H
-#include <sys/termios.h>
-#elif (defined(HAVE_TERMIOS_H))
+#ifdef HAVE_TERMIOS_H
 #include <termios.h>
 #endif
 
@@ -133,8 +135,10 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixSleep(POLYUNSIGNED threadId, POLYUNSIGNED maxTime, POLYUNSIGNED sigCount);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyUnixExecute(POLYUNSIGNED threadId, POLYUNSIGNED cmd, POLYUNSIGNED args, POLYUNSIGNED env);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -390,9 +394,8 @@ static void restoreSignals(void)
     sigprocmask(SIG_SETMASK, &sigset, NULL);
 }
 
-Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
+static Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    unsigned lastSigCount = receivedSignalCount; // Have we received a signal?
     int c = get_C_long(taskData, code->Word());
     switch (c)
     {
@@ -411,12 +414,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             pid_t pid = fork();
             if (pid < 0) raise_syscall(taskData, "fork failed", errno);
+            // Have to clean up the RTS in the child.  It's single threaded among other things.
             if (pid == 0)
-            {
-                // In the child process the only thread is this one.
-                processes->SetSingleThreaded();
-                GCSetSingleThreadAfterFork();
-            }
+                ForkChildModules();
             return Make_fixed_precision(taskData, pid);
         }
 
@@ -593,52 +593,6 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return result;
         }
 
-    case 21: /* Pause until signal. */
-            /* This never returns.  When a signal is handled it will
-               be interrupted. */
-       while (true)
-       {
-            processes->ThreadPause(taskData);
-            if (lastSigCount != receivedSignalCount)
-                raise_syscall(taskData, "Call interrupted by signal", EINTR);
-       }
-
-    case 22: /* Sleep until given time or until a signal.  Note: this is called
-            with an absolute time as an argument and returns a relative time as
-            result.  This RTS call is tried repeatedly until either the time has
-            expired or a signal has occurred. */
-        while (true)
-        {
-            struct timeval tv;
-            /* We have a value in microseconds.  We need to split
-               it into seconds and microseconds. */
-            Handle hSave = taskData->saveVec.mark();
-            Handle hTime = args;
-            Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-            unsigned long secs = get_C_ulong(taskData, div_longc(taskData, hMillion, hTime)->Word());
-            unsigned long usecs = get_C_ulong(taskData, rem_longc(taskData, hMillion, hTime)->Word());
-            taskData->saveVec.reset(hSave);
-            /* Has the time expired? */
-            if (gettimeofday(&tv, NULL) != 0)
-                raise_syscall(taskData, "gettimeofday failed", errno);
-            /* If the timeout time is earlier than the current time
-               we must return, otherwise we block.  This can be interrupted
-               by a signal. */
-            if ((unsigned long)tv.tv_sec < secs ||
-                ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec < usecs))
-            {
-                processes->ThreadPause(taskData);
-                if (lastSigCount != receivedSignalCount)
-                    raise_syscall(taskData, "Call interrupted by signal", EINTR);
-                // And loop
-            }
-            else
-            {
-                processes->TestAnyEvents(taskData); // Check for interrupts anyway
-                return Make_fixed_precision(taskData, 0);
-            }
-        }
-    
     case 23: /* Set uid. */
         {
             uid_t uid = get_C_long(taskData, args->Word());
@@ -1172,7 +1126,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     default:
         {
             char msg[100];
-            sprintf(msg, "Unknown unix-specific function: %d", c);
+            snprintf(msg, sizeof(msg), "Unknown unix-specific function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
         }
     }
@@ -1180,7 +1134,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
 // General interface to Unix OS-specific.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyOSSpecificGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1203,6 +1157,56 @@ POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord
 POLYUNSIGNED PolyGetOSType()
 {
     return TAGGED(0).AsUnsigned(); // Return 0 for Unix
+}
+
+// Wait for the shorter of the times.
+// TODO: This should really wait for some event from the signal thread.
+class WaitUpto : public Waiter
+{
+public:
+    WaitUpto(unsigned mSecs) : maxTime(mSecs), result(0), errcode(0) {}
+    virtual void Wait(unsigned maxMillisecs)
+    {
+        struct timespec tWait;
+        if (maxTime < maxMillisecs)
+            maxMillisecs = maxTime;
+        tWait.tv_sec = maxMillisecs / 1000;
+        tWait.tv_nsec = (maxMillisecs % 1000) * 1000 * 1000;
+        result = nanosleep(&tWait, NULL);
+        if (result != 0) errcode = errno;
+    }
+    unsigned maxTime;
+    int result;
+    int errcode;
+};
+
+// This waits for a period of up to a second.  The actual time calculations are
+// done in ML.  Takes the signal count as an argument and returns the last signal
+// count.  This ensures that it does not miss any signals that arrive while in ML.
+POLYUNSIGNED PolyPosixSleep(POLYUNSIGNED threadId, POLYUNSIGNED maxMillisecs, POLYUNSIGNED sigCount)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    POLYUNSIGNED maxMilliseconds = PolyWord::FromUnsigned(maxMillisecs).UnTaggedUnsigned();
+
+    try {
+        if (UNTAGGED_UNSIGNED(PolyWord::FromUnsigned(sigCount)) == receivedSignalCount)
+        {
+            WaitUpto waiter(maxMilliseconds);
+            processes->ThreadPauseForIO(taskData, &waiter);
+            if (waiter.result != 0)
+            {
+                if (waiter.errcode != EINTR)
+                    raise_syscall(taskData, "sleep failed", waiter.errcode);
+            }
+        }
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    return TAGGED(receivedSignalCount).AsUnsigned();
 }
 
 Handle waitForProcess(TaskData *taskData, Handle args)
@@ -2002,10 +2006,80 @@ static int findPathVar(TaskData *taskData, PolyWord ps)
     raise_syscall(taskData, "pathconf argument not found", EINVAL);
 }
 
+// Unix.executeInEnv.  This was previously implemented in ML but
+// there were problems, possibly associated with garbage collection.
+// Generally, the state after fork is problematic for the rest of the
+// run-time system so it is generally better to avoid Posix.Process.fork,
+POLYUNSIGNED PolyUnixExecute(POLYUNSIGNED threadId, POLYUNSIGNED cmd, POLYUNSIGNED args, POLYUNSIGNED env)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCmd = taskData->saveVec.push(cmd);
+    Handle pushedArgs = taskData->saveVec.push(args);
+    Handle pushedEnv = taskData->saveVec.push(env);
+    char* path = Poly_string_to_C_alloc(pushedCmd->WordP());
+    char** argl = stringListToVector(pushedArgs);
+    char** envl = stringListToVector(pushedEnv);
+    Handle result = 0;
+    int toChild[2] = { -1, -1 }, fromChild[2] = { -1, -1 };
+
+    try {
+        // Create input and output pipes
+        if (pipe(toChild) < 0) raise_syscall(taskData, "pipe failed", errno);
+        if (pipe(fromChild) < 0) raise_syscall(taskData, "pipe failed", errno);
+        pid_t pid = fork();
+        if (pid < 0) raise_syscall(taskData, "fork failed", errno);
+        if (pid == 0)
+        {
+            // In the child
+            close(toChild[1]); // Write side to child - this is used in parent
+            close(fromChild[0]); // Read side from child  - this is used in parent
+            dup2(toChild[0], 0); // Read side becomes stdin
+            dup2(fromChild[1], 1); // Write side becomes stdout
+            close(toChild[0]);
+            close(fromChild[1]);
+            restoreSignals(); // The child inherits the parent's mask.
+            execve(path, argl, envl);
+            // If we get here the exec must have failed and we must stop with 126.
+            _exit(126);
+        }
+        // In the parent
+        close(toChild[0]); // These are used in the child
+        close(fromChild[1]);
+        Handle childPid = Make_fixed_precision(taskData, pid);
+        Handle writeStr = wrapFileDescriptor(taskData, toChild[1]);
+        Handle readStr = wrapFileDescriptor(taskData, fromChild[0]);
+        result = ALLOC(3);
+        DEREFHANDLE(result)->Set(0, childPid->Word());
+        DEREFHANDLE(result)->Set(1, writeStr->Word());
+        DEREFHANDLE(result)->Set(2, readStr->Word());
+    }
+    catch (...)
+    {
+        // If an ML exception is raised
+        if (toChild[0] != -1) close(toChild[0]);
+        if (toChild[1] != -1) close(toChild[1]);
+        if (fromChild[0] != -1) close(fromChild[0]);
+        if (fromChild[1] != -1) close(fromChild[1]);
+    }
+    free(path);
+    freeStringVector(argl);
+    freeStringVector(envl);
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts osSpecificEPT[] =
 {
     { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
     { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
+    { "PolyPosixSleep",                 (polyRTSFunction)&PolyPosixSleep},
+    { "PolyUnixExecute",                (polyRTSFunction)&PolyUnixExecute},
 
     { NULL, NULL} // End of list.
 };

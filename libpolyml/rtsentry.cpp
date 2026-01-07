@@ -1,7 +1,7 @@
 /*
     Title:  rtsentry.cpp - Entry points to the run-time system
 
-    Copyright (c) 2016, 2017 David C. J. Matthews
+    Copyright (c) 2016, 2017, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -64,9 +64,12 @@
 #include "poly_specific.h"
 #include "objsize.h"
 #include "network.h"
+#include "machine_dep.h"
 #include "exporter.h"
 #include "statistics.h"
 #include "savestate.h"
+#include "bytecode.h"
+#include "modules.h"
 
 extern struct _entrypts rtsCallEPT[];
 
@@ -92,6 +95,9 @@ static entrypts entryPointTable[] =
     exporterEPT,
     statisticsEPT,
     savestateEPT,
+    machineSpecificEPT,
+    byteCodeEPT,
+    modulesEPT,
     NULL
 };
 
@@ -99,7 +105,7 @@ extern "C" {
 #ifdef _MSC_VER
     __declspec(dllexport)
 #endif
-    POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg);
+    POLYUNSIGNED PolyCreateEntryPointObject(POLYUNSIGNED threadId, POLYUNSIGNED arg);
 };
 
 // Create an entry point containing the address of the entry and the
@@ -162,7 +168,7 @@ bool setEntryPoint(PolyObject *p)
 }
 
 // External call
-POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyCreateEntryPointObject(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -174,7 +180,14 @@ POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg)
     try {
         result = creatEntryPointObject(taskData, pushedArg, true /* Always functions */);
         if (!setEntryPoint(result->WordP()))
-            raise_fail(taskData, "entry point not found");
+        {
+            // Include the name of the symbol.  It's often helpful.
+            char buff[100];
+            strncpy(buff, "entry point not found: ", sizeof(buff) - 1);
+            size_t length = strlen(buff);
+            Poly_string_to_C(pushedArg->Word(), buff+ length, sizeof(buff) - length-1);
+            raise_fail(taskData, buff);
+        }
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset

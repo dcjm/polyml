@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-20
+    Copyright David C. J. Matthews 2016-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,16 +16,16 @@
 *)
 
 functor X86PushRegisters(
-    structure ICODE: ICodeSig
-    structure INTSET: INTSETSIG
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
-) : X86PUSHREGISTERSIG
+    structure X86ICode: X86ICODE
+    structure IntSet: INTSET
+    structure Identify: X86IDENTIFYREFERENCES
+    sharing X86ICode.Sharing = Identify.Sharing = IntSet
+) : X86PUSHREGISTERS
 =
 struct
-    open ICODE
-    open INTSET
-    open IDENTIFY
+    open X86ICode
+    open IntSet
+    open Identify
     
     (* Curried subscript functions *)
     fun asub a i = Array.sub(a, i)
@@ -397,7 +397,8 @@ struct
                             let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex4 sreg, c1, c2) end
                     |   mapIndexEx(MemIndex8 r) =
                             let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex8 sreg, c1, c2) end
-                    |   mapIndexEx(ObjectIndex) = (ObjectIndex, [], [])
+                    |   mapIndexEx(ObjectIndex2) = (ObjectIndex2, [], [])
+                    |   mapIndexEx(ObjectIndex4) = (ObjectIndex4, [], [])
 
                     fun mapIndex index =
                     let
@@ -464,7 +465,7 @@ struct
                     |   mapSourceEx(i as IntegerConstant _, _) = (i, [], [])
 
                     |   mapSourceEx(MemoryLocation{base, offset, index, cache, ...}, kind) =
-                        if (case index of NoMemIndex => true | ObjectIndex => true | _ => false)
+                        if (case index of NoMemIndex => true | ObjectIndex2 => true | ObjectIndex4 => true | _ => false)
                         then
                         let
                             val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
@@ -587,7 +588,7 @@ struct
                             val () = Array.update(pregMap, dReg, ToStack(! stackCount, container))
                             val () = pushItemToStack(NewEntry{pregNo=dReg})
                         in
-                            if targetArch = ObjectId32Bit andalso
+                            if (targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word) andalso
                                 (case sourceVal of MemoryLocation _ => true | AddressConstant _ => true | _ => false)
                             then
                             let
@@ -622,7 +623,7 @@ struct
                                 case source of
                                     MemoryLocation{base, offset, index, ...} =>
                                     (* Only cache if we have a fixed offset (not indexed). *)
-                                    if (case index of NoMemIndex => true | ObjectIndex => true | _ => false)
+                                    if (case index of NoMemIndex => true | ObjectIndex2 => true | ObjectIndex4 => true | _ => false)
                                     then
                                     let
                                         (* The cache kind must match the kind of register we're loading.
@@ -675,11 +676,18 @@ struct
                                     indexCode @ baseCode @ sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=LoadMemReg { offset, dest}, ...}, code) =
+                    |   pushRegisters({instr=LoadMemReg { offset, dest, kind}, ...}, code) =
                         let
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ LoadMemReg { offset=offset, dest=destVal} :: code
+                            destCode @ LoadMemReg { offset=offset, dest=destVal, kind=kind} :: code
+                        end
+
+                    |   pushRegisters({instr=StoreMemReg { offset, source, kind}, ...}, code) =
+                        let
+                            val (sourceValue, sourceCode) = mapSrcReg source
+                        in
+                            StoreMemReg { offset=offset, source=sourceValue, kind=kind} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...}, code) =
@@ -706,7 +714,7 @@ struct
                             pushCode @ BeginFunction {regArgs=newRegArgs, stackArgs=newStackArgs} :: code
                         end
 
-                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest, realDest, ...}, ...}, code) =
+                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, results, ...}, ...}, code) =
                         let
                             (* It's possible that this could lead to having to spill registers in order
                                to load others.  Leave that problem for the moment. *)
@@ -725,13 +733,21 @@ struct
                                 (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
                             end
                             val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
-                            val (destVal, destCode) = mapDestReg dest
+                            fun pushResults((preg, rreg), (others, code)) =
+                            let
+                                val (newReg, newCode) = mapDestReg preg
+                            in
+                                ((newReg, rreg) :: others, newCode @ code)
+                            end
+                            val (destVals, destCode) = List.foldr pushResults ([], []) results
                             (* Now clear the cache table. *)
                             val () = clearCache()
+                            (* Stack arguments are pushed in addition to anything on the stack. *)
+                            val () = maxStack := Int.max(!maxStack, !stackCount + List.length newStackArgs)
                         in
                             destCode @
                                     FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs,
-                                                  dest=destVal, realDest=realDest, saveRegs=[]} ::
+                                                  results=destVals, saveRegs=[]} ::
                                         regArgLoads @ stackArgLoads @ code
                         end
 
@@ -774,6 +790,8 @@ struct
                                 (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
                             end
                             val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
+                            (* Stack arguments replace existing arguments but could grow the stack. *)
+                            val () = maxStack := Int.max(!maxStack, List.length newStackArgs)
 
                         in
                             TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
@@ -966,14 +984,20 @@ struct
                             pktCode @ BeginHandler{packetReg=pktReg, workReg=newWorkReg} :: code
                         end
 
-                    |   pushRegisters({instr=ReturnResultFromFunction{resultReg, realReg, numStackArgs}, ...}, code) =
+                    |   pushRegisters({instr=ReturnResultFromFunction{results, numStackArgs}, ...}, code) =
                         let
-                            val (resultValue, loadResult) = mapSrcReg resultReg
+                            fun getResults((preg, rreg), (others, code)) =
+                            let
+                                val (newReg, newCode) = mapSrcReg preg
+                            in
+                                ((newReg, rreg) :: others, newCode @ code)
+                            end
+                            val (resultValues, loadResults) = List.foldr getResults ([], []) results
                             val resetCode =
                                 if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount, preserveCC=false}]
                         in
-                            ReturnResultFromFunction{resultReg=resultValue, realReg=realReg, numStackArgs=numStackArgs} ::
-                                resetCode @ loadResult @ code
+                            ReturnResultFromFunction{results=resultValues, numStackArgs=numStackArgs} ::
+                                resetCode @ loadResults @ code
                         end
 
                     |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, opSize}, ...}, code) =
@@ -1091,15 +1115,36 @@ struct
                                         divisorCode @ dividendCode @ code
                         end
 
-                    |   pushRegisters({instr=AtomicExchangeAndAdd{base, source}, ...}, code) =
+                    |   pushRegisters({instr=AtomicExchangeAndAdd{base, source, resultReg}, ...}, code) =
                         let
                             val (baseVal, baseCode) = mapSrcReg(base)
                             val (sourceVal, sourceCode) = mapSrcReg source
-                            (* The "source" is also a result and must be in a register.  It's an untagged reg
-                               so it shouldn't have been marked as to be pushed. *)
-                            val _ = case sourceCode of [] => () | _ => raise InternalError "pushRegisters - AtomicExchangeAndAdd"
+                            val (destVal, destCode) = mapDestReg resultReg
                         in
-                            AtomicExchangeAndAdd{base=baseVal, source=sourceVal} :: baseCode @ code
+                            destCode @
+                                AtomicExchangeAndAdd{base=baseVal, source=sourceVal, resultReg=destVal} :: sourceCode @ baseCode @ code
+                        end
+
+                    |   pushRegisters({instr=AtomicExchange{base, source, resultReg}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg(base)
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @
+                                AtomicExchange{base=baseVal, source=sourceVal, resultReg=destVal} :: sourceCode @ baseCode @ code
+                        end
+
+                    |   pushRegisters({instr=AtomicCompareAndExchange{base, compare, toStore, resultReg, ccRef}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg(base)
+                            val (compareVal, compareCode) = mapSrcReg compare
+                            val (toStoreVal, toStoreCode) = mapSrcReg toStore
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @
+                                AtomicCompareAndExchange{base=baseVal, compare=compareVal, toStore=toStoreVal, resultReg=destVal, ccRef=ccRef} ::
+                                    toStoreCode @ compareCode @ baseCode @ code
                         end
 
                     |   pushRegisters({instr=BoxValue{boxKind, source, dest as PReg dReg, ...}, ...}, code) =
@@ -1121,7 +1166,12 @@ struct
                                         |   BoxX87Float => MoveFloat
                                         |   BoxSSE2Double => MoveDouble
                                         |   BoxSSE2Float => MoveFloat
-                                    val indexKind = case targetArch of ObjectId32Bit => ObjectIndex | _ => NoMemIndex
+                                    val indexKind =
+                                        case targetArch of
+                                            ObjectId32Bit2Word => ObjectIndex2
+                                        |   ObjectId32Bit4Word => ObjectIndex4
+                                        |   Native32Bit => NoMemIndex
+                                        |   Native64Bit => NoMemIndex
 
                                     (* The value we're putting in the cache is untagged. *)
                                     val _ = setMemoryCache(dest, 0, indexKind, newCacheReg, false, moveKind)
@@ -1203,12 +1253,12 @@ struct
                             destCode @ X87Float{dest=destVal, source=sourceVal} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=SSE2Float{dest, source}, ...}, code) =
+                    |   pushRegisters({instr=SSE2IntToReal{dest, source, isDouble}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSource(source, movePolyWord)
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ SSE2Float{dest=destVal, source=sourceVal} :: sourceCode @ code
+                            destCode @ SSE2IntToReal{dest=destVal, source=sourceVal, isDouble=isDouble} :: sourceCode @ code
                         end
     
                     |   pushRegisters({instr=SSE2FPUnary{opc, resultReg, source}, ...}, code) =
@@ -1354,6 +1404,16 @@ struct
                         in
                             destCode @ LongArbArithmetic{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, saveRegs=[]} ::
                                     op2Code @ op1Code @ code
+                        end
+
+                    |   pushRegisters({instr=PauseCPU, ...}, code) = PauseCPU :: code
+
+                    |   pushRegisters({instr=BitScanReverse{source, dest}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource(source, movePolyWord)
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ BitScanReverse{source=sourceVal, dest=destVal} :: sourceCode @ code
                         end
 
                     (* Find the common cache state. *)

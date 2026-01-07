@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2011-12, 16, 19.
+    Further development Copyright David C.J. Matthews 2011-12, 16, 19, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -100,8 +100,8 @@ extern void subTimevals(struct timeval *result, const struct timeval *x);
 extern float timevalToSeconds(const struct timeval *x);
 #endif
 
-extern time_t getBuildTime(void);
-
 extern struct _entrypts timingEPT[];
+
+extern time_t getBuildTime(void);
 
 #endif

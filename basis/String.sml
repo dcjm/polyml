@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: String Structure
-    Copyright   David Matthews 1999, 2005, 2016, 2018
+    Copyright   David Matthews 1999, 2005, 2016, 2018, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -36,7 +36,7 @@ local
         fun singleCharString(c: word): string =
         let
             val v = allocString 0w1
-            val () = RunCall.storeByte(v, wordSize, c)
+            val () = RunCall.storeByteInitialise(v, wordSize, c)
             val () = RunCall.clearMutableBit v
         in
             v
@@ -46,13 +46,13 @@ local
         val intAsWord: int -> word = RunCall.unsafeCast
         fun setEntries i =
             if i < 256
-            then (RunCall.storeWord(charMap, intAsWord i, singleCharString(intAsWord i)); setEntries(i+1))
+            then (RunCall.storeWordInitialise(charMap, intAsWord i, singleCharString(intAsWord i)); setEntries(i+1))
             else ();
         val () = setEntries 0
         val () = RunCall.clearMutableBit charMap
     in
         (* Since we've covered the full range from 0 to 255 we don't need a bounds check. *)
-        fun charAsString (ch: char): string = RunCall.loadWord(charMap, RunCall.unsafeCast ch)
+        fun charAsString (ch: char): string = RunCall.loadWordFromImmutable(charMap, RunCall.unsafeCast ch)
     end
 
     val bcopy: string*string*word*word*word -> unit = RunCall.moveBytes
@@ -264,7 +264,7 @@ local
                     fun copy (_, []:char list) = ()
                       | copy (i, H :: T) =
                         (
-                        RunCall.storeByte (dest, i, H);
+                        RunCall.storeByteInitialise (dest, i, H);
                         copy (i + 0w1, T)
                         )
                 in
@@ -412,7 +412,7 @@ local
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()
-                else (RunCall.storeByte(vec, i+wordSize, f(wordAsInt i)); init(i+0w1))
+                else (RunCall.storeByteInitialise(vec, i+wordSize, f(wordAsInt i)); init(i+0w1))
         in
             init 0w0;
             RunCall.clearMutableBit vec;
@@ -444,7 +444,7 @@ local
                     
                 fun domap i =
                     if i >= byte_limit then ()
-                    else (RunCall.storeByte(new_vec, i, f(RunCall.loadByteFromImmutable(vec, i))); domap(i+0w1))
+                    else (RunCall.storeByteInitialise(new_vec, i, f(RunCall.loadByteFromImmutable(vec, i))); domap(i+0w1))
             in
                 domap wordSize;
                 RunCall.clearMutableBit new_vec;
@@ -556,7 +556,7 @@ local
                 fun setCh n =
                     if n = extra then ()
                     (* Set the character part of the string. *)
-                    else ( RunCall.storeByte(str, n+wordSize, c); setCh(n+0w1) )
+                    else ( RunCall.storeByteInitialise(str, n+wordSize, c); setCh(n+0w1) )
             in
                 setCh 0w0;
                 (* Copy the character part of the string over. *)
@@ -581,7 +581,7 @@ local
                 fun setCh n =
                     if n = iW then ()
                     (* Set the character part of the string. *)
-                    else ( RunCall.storeByte(str, n+wordSize, c); setCh(n+0w1) )
+                    else ( RunCall.storeByteInitialise(str, n+wordSize, c); setCh(n+0w1) )
             in
                 (* Copy the character part of the string over. *)
                 mem_move(s, str, wordSize, wordSize, len);
@@ -835,7 +835,7 @@ in
                 
                 fun domap j =
                     if j >= len then ()
-                    else (RunCall.storeByte(new_vec, j+wordSize,
+                    else (RunCall.storeByteInitialise(new_vec, j+wordSize,
                             f(wordAsInt(j), RunCall.loadByteFromImmutable(vec, j+wordSize)));
                           domap(j+0w1))
             in
@@ -1122,7 +1122,7 @@ in
             val vec = LibrarySupport.allocBytes len
             fun init i = 
                 if len <= i then ()
-                else (RunCall.storeByte(vec, i, ini); init(i+0w1))
+                else (RunCall.storeByteInitialise(vec, i, ini); init(i+0w1))
         in
             init 0w0;
             Array(len, vec)
@@ -1166,7 +1166,7 @@ in
                 val vec = LibrarySupport.allocBytes length
                 
                 (* Copy the list elements into the array. *)
-                fun init (v, i, a :: l) = (RunCall.storeByte(v, i, a); init(v, i + 0w1, l))
+                fun init (v, i, a :: l) = (RunCall.storeByteInitialise(v, i, a); init(v, i + 0w1, l))
                 |  init (_, _, []) = ()
                 
             in
@@ -1184,7 +1184,7 @@ in
             (* Initialise it to the function values. *)
             fun init i = 
                 if len <= i then ()
-                else (RunCall.storeByte(vec, i, f(wordAsInt i)); init(i+0w1))
+                else (RunCall.storeByteInitialise(vec, i, f(wordAsInt i)); init(i+0w1))
         in
             init 0w0;
             Array(len, vec)

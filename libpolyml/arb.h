@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further modification Copyright 2015-16, 2019-20 David C. J. Matthews
+    Further modification Copyright 2015-16, 2019, 2020 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -46,6 +46,11 @@ extern Handle Make_arb_from_pair_scaled(TaskData *taskData, unsigned hi, unsigne
 #if defined(_WIN32)
 extern Handle Make_arb_from_Filetime(TaskData *taskData, const FILETIME &ft);
 #endif
+
+// Used in the interpreter.
+extern Handle add_longc(TaskData* taskData, Handle, Handle);
+extern Handle sub_longc(TaskData* taskData, Handle, Handle);
+extern Handle mult_longc(TaskData* taskData, Handle, Handle);
 
 // Currently used in basicio.cpp
 extern Handle div_longc(TaskData *taskData, Handle,Handle);

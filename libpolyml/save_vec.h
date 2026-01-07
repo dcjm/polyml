@@ -67,6 +67,11 @@ public:
     // Add a word to the save vec
     Handle push(PolyWord valu);
 
+    // Overloading for common RTS case.
+    Handle push(POLYUNSIGNED valu) {
+        return push(PolyWord::FromUnsigned(valu));
+    }
+
     // Mark a position
     Handle mark(void) { return save_vec_addr; }
 

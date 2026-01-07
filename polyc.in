@@ -14,7 +14,6 @@ COMPILER="${DEFAULT_COMPILER}"
 
 @NATIVE_WINDOWS_FALSE@EXTRALDFLAGS=""
 @NATIVE_WINDOWS_TRUE@@ARCHX86_64_TRUE@EXTRALDFLAGS="-Wl,-u,WinMain"
-@NATIVE_WINDOWS_TRUE@@ARCHINTERPRET64_TRUE@EXTRALDFLAGS="-Wl,-u,WinMain"
 @NATIVE_WINDOWS_TRUE@@ARCHI386_TRUE@EXTRALDFLAGS="-Wl,-u,_WinMain@16 -Wl,--large-address-aware"
 @NATIVE_WINDOWS_TRUE@@ARCHINTERPRET_TRUE@EXTRALDFLAGS="-Wl,-u,_WinMain@16 -Wl,--large-address-aware"
 @NATIVE_WINDOWS_TRUE@@WINDOWSGUI_TRUE@EXTRALDFLAGS+=" -mwindows"
@@ -28,9 +27,6 @@ COMPILER="${DEFAULT_COMPILER}"
 @NATIVE_WINDOWS_TRUE@TEMPORARYDIR="${temp:-/tmp}"
 @NATIVE_WINDOWS_FALSE@TEMPORARYDIR="${TMPDIR:-/tmp}"
 
-# Extra options for Mac OS X
-@MACOSLDOPTS_TRUE@EXTRALDFLAGS="-Wl,-no_pie"
-
 TMPOBJFILE="${TEMPORARYDIR}/polyobj.$$.$SUFFIX"
 trap 'rm -f "$TMPOBJFILE"' 0
 
@@ -43,9 +39,9 @@ link()
 {
     if [ X"$2" = "X" ]
     then
-        "${LINK}" ${EXTRALDFLAGS} ${CFLAGS} "$1" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
     else
-        "${LINK}" ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
     fi
 }
 

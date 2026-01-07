@@ -49,6 +49,10 @@ enum {
 
     PSS_CODE_SPACE,                 // Space for code
     PSS_STACK_SPACE,                // Space for stack
+
+    PSC_GC_STATE,                   // Whether in GC, ML or other phase
+    PSC_GC_PERCENT,                 // How far through the GC.
+
     N_PS_INTS
 };
 
@@ -82,6 +86,7 @@ public:
 
     void incCount(int which);
     void decCount(int which);
+    void setCount(int which, POLYUNSIGNED count);
 
     void setSize(int which, size_t s);
     void incSize(int which, size_t s);
@@ -90,7 +95,7 @@ public:
 
     void setUserCounter(unsigned which, POLYSIGNED value);
 
-#if (defined(_WIN32))
+#ifdef _WIN32
     // Native Windows
     void copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime, const FILETIME &gcRtime);
     FILETIME gcUserTime, gcSystemTime, gcRealTime, startTime;
@@ -98,6 +103,8 @@ public:
     // Unix and Cygwin
     void copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime, const struct timeval &gcRtime);
     struct timeval gcUserTime, gcSystemTime, gcRealTime, startTime;
+    bool createSharedStats(const char *baseName, const char *subDirName);
+    int openSharedStats(const char* baseName, const char* subDirName, int pid);
 #endif
     
     void updatePeriodicStats(size_t freeSpace, unsigned threadsInML);
@@ -106,7 +113,7 @@ public:
 
 private:
     PLock accessLock;
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
     // File mapping handle
     HANDLE hFileMap;
     bool createWindowsSharedStats();
@@ -122,7 +129,7 @@ private:
     struct { unsigned char *secAddr; unsigned char *usecAddr; } timeAddrs[N_PS_TIMES];
     unsigned char *userAddrs[N_PS_USER];
 
-    Handle returnStatistics(TaskData *taskData, unsigned char *stats);
+    Handle returnStatistics(TaskData *taskData, const unsigned char *stats, size_t size);
     void addCounter(int cEnum, unsigned statId, const char *name);
     void addSize(int cEnum, unsigned statId, const char *name);
     void addTime(int cEnum, unsigned statId, const char *name);

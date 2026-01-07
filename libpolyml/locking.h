@@ -113,7 +113,10 @@ public:
     void Signal(void);
 private:
 #if (!defined(_WIN32))
-    sem_t localSema, *sema;
+    sem_t *sema;
+#ifndef MACOSX
+    sem_t localSema;
+#endif
     bool isLocal;
 #else
     HANDLE sema;

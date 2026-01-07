@@ -78,13 +78,6 @@ struct
      |  monthToMonthNo Nov = 10
      |  monthToMonthNo Dec = 11
 
-    local
-        val timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
-        fun timingGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
-    in
-        fun callTiming (code: int) args = timingGeneral (code,args)
-    end
-    
     (* Get the local time offset which applied at the specific time.
        The time is in seconds since the epoch. The result may be the
        current time offset if it is outside the range for which we have
@@ -92,9 +85,13 @@ struct
        it avoids having to multiply and divide arbitrary precision values
        in the RTS.  May raise Size if the value is too large (or small).  In
        that case we use the current time offset. *)
-    fun localOffsetApplying (t: LargeInt.int) : LargeInt.int =
-        callTiming 4 t 
-            handle General.Size => callTiming 4 (Time.toSeconds(Time.now()))
+    local
+        val getLocalOffset: LargeInt.int -> LargeInt.int = RunCall.rtsCallFull1 "PolyTimingLocalOffset"
+    in
+        fun localOffsetApplying (t: LargeInt.int) : LargeInt.int =
+            getLocalOffset t 
+                handle General.Size => getLocalOffset (Time.toSeconds(Time.now()))
+    end
 
     (* Get the current local time offset. *)
     fun localOffset (): Time.time =
@@ -102,8 +99,8 @@ struct
 
     local
         (* Time values are since 1st January of this year. *)
-        val baseYear: int = callTiming 2 0 (* 1601 or 1970 *)
-        val yearOffset: int = callTiming 3 0 (* The offset of zeroTime within that year. 0 on both Unix and Windows *)
+        val baseYear: int = RunCall.rtsCallFull0 "PolyTimingBaseYear" () (* 1601 or 1970 *)
+        val yearOffset: int = RunCall.rtsCallFull0 "PolyTimingYearOffset" ()  (* The offset of zeroTime within that year. 0 on both Unix and Windows *)
 
         (* Get the day in the year.  Either of day or year may be unnormalised
            but that shouldn't affect the result (except if year is negative???) *)
@@ -270,15 +267,17 @@ struct
 
     (* QUESTION: The definition of isDst is very vague. I am assuming that it
        means that, for a local time, did/will Summer Time apply at that time?  *)
+    val getSummer: LargeInt.int -> int = RunCall.rtsCallFull1 "PolyTimingSummerApplies"
+
     fun isDst (d as {offset=NONE, ...} : date): bool option =
-        let
-            val isSummer =
-                callTiming 5 (Time.toSeconds(toTime d)) handle Size => ~1
-        in
-            if isSummer < 0 then NONE
-            else SOME (isSummer > 0)
-        end
-      | isDst {offset=SOME _, ...} = SOME false (* ?? *)
+    let
+        val isSummer =
+            getSummer (Time.toSeconds(toTime d)) handle Size => ~1
+    in
+        if isSummer < 0 then NONE
+        else SOME (isSummer > 0)
+    end
+    |   isDst {offset=SOME _, ...} = SOME false (* ?? *)
 
     (* Compare the dates ignoring time zone information. *)
     fun compare({year=y1, month=m1, day=d1, hour=h1, minute=n1, second=s1, ...}:date,
@@ -445,6 +444,8 @@ struct
             int2str 4 year]
     end
 
+    val convertDate = RunCall.rtsCallFull1 "PolyTimingConvertDateStuct"
+
     fun fmt s (date as {year, month, day, hour, minute, second, offset}) =
     let
         (* Edit the string to remove any undefined escape combinations.
@@ -473,10 +474,10 @@ struct
         val summer =
             case offset of
                 SOME _ => ~1
-            |   NONE => callTiming 5 (Time.toSeconds(toTime date))
+            |   NONE => getSummer (Time.toSeconds(toTime date))
                             handle Size => ~1
     in
-        callTiming 6 (newFormat, year, month, day, hour, minute, second,
+        convertDate (newFormat, year, month, day, hour, minute, second,
             dayOfWeek date, yearDay date, summer)
             handle RunCall.Size => raise Date
     end

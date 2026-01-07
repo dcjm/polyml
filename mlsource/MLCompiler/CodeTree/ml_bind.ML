@@ -18,73 +18,73 @@
 
 local
     structure CodetreeFunctions =
-        CODETREE_FUNCTIONS(structure BASECODETREE = BaseCodeTree and STRONGLY = StronglyConnected)
+        CodetreeFunctions(structure BaseCodeTree = BaseCodeTree and Strongly = StronglyConnected)
 
     structure CodetreeBackend =
-        CODETREE_STATIC_LINK_AND_CASES(
-            structure PRETTY        = Pretty
-            structure GCODE         = GCode
-            structure DEBUG         = Debug
-            structure BASECODETREE  = BaseCodeTree
-            structure BACKENDTREE = BackendIntermediateCode
-            structure CODETREE_FUNCTIONS = CodetreeFunctions
-            structure CODE_ARRAY   = CODE_ARRAY
+        CodetreeStaticLinkAndCases(
+            structure Pretty        = Pretty
+            structure GCode         = GCode
+            structure Debug         = Debug
+            structure BaseCodeTree  = BaseCodeTree
+            structure BackendTree = BackendIntermediateCode
+            structure CodetreeFunctions = CodetreeFunctions
+            structure CodeArray   = CodeArray
         )
 
      structure CodetreeLamdbaLift =
-        CODETREE_LAMBDA_LIFT (
-            structure   BASECODETREE        = BaseCodeTree
-            and         CODETREE_FUNCTIONS  = CodetreeFunctions
-            and         BACKEND             = CodetreeBackend
-            and         PRETTY              = Pretty
-            and         DEBUG               = Debug
-            and         CODE_ARRAY          = CODE_ARRAY
+        CodetreeLambdaLift (
+            structure   BaseCodeTree        = BaseCodeTree
+            and         CodetreeFunctions  = CodetreeFunctions
+            and         Backend             = CodetreeBackend
+            and         Pretty              = Pretty
+            and         Debug               = Debug
+            and         CodeArray           = CodeArray
         )
 
     structure CodetreeCodegenConstantFns =
-        CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
-            structure   BASECODETREE        = BaseCodeTree
-            and         CODETREE_FUNCTIONS  = CodetreeFunctions
-            and         BACKEND             = CodetreeLamdbaLift
-            and         PRETTY              = Pretty
-            and         DEBUG               = Debug
-            and         CODE_ARRAY          = CODE_ARRAY
+        CodetreeCodegenConstantFunctions (
+            structure   BaseCodeTree        = BaseCodeTree
+            and         CodetreeFunctions   = CodetreeFunctions
+            and         Backend             = CodetreeLamdbaLift
+            and         Pretty              = Pretty
+            and         Debug               = Debug
+            and         CodeArray           = CodeArray
         )
 
     structure CodetreeRemoveRedundant =
-        CODETREE_REMOVE_REDUNDANT(
-            structure BASECODETREE = BaseCodeTree
-            structure CODETREE_FUNCTIONS = CodetreeFunctions
+        CodetreeRemoveRedundant(
+            structure BaseCodeTree = BaseCodeTree
+            structure CodetreeFunctions = CodetreeFunctions
         )
 
     structure CodetreeSimplifier =
-        CODETREE_SIMPLIFIER(
-            structure BASECODETREE = BaseCodeTree
-            and       CODETREE_FUNCTIONS = CodetreeFunctions
-            and       REMOVE_REDUNDANT   = CodetreeRemoveRedundant
-            and       DEBUG              = Debug
+        CodetreeSimplifier(
+            structure BaseCodeTree = BaseCodeTree
+            and       CodetreeFunctions = CodetreeFunctions
+            and       RemoveRedundant   = CodetreeRemoveRedundant
+            and       Debug              = Debug
         )
 
     structure CodetreeOptimiser =
-        CODETREE_OPTIMISER(
-            structure PRETTY        = Pretty
-            structure DEBUG         = Debug
-            structure BASECODETREE  = BaseCodeTree
-            structure CODETREE_FUNCTIONS = CodetreeFunctions
-            structure BACKEND       = CodetreeCodegenConstantFns
-            structure REMOVE_REDUNDANT = CodetreeRemoveRedundant
-            structure SIMPLIFIER    = CodetreeSimplifier
+        CodetreeOptimiser(
+            structure Pretty        = Pretty
+            structure Debug         = Debug
+            structure BaseCodeTree  = BaseCodeTree
+            structure CodetreeFunctions = CodetreeFunctions
+            structure Backend       = CodetreeCodegenConstantFns
+            structure RemoveRedundant = CodetreeRemoveRedundant
+            structure Simplifier    = CodetreeSimplifier
         )
 
 in
     structure CodeTree = 
-        CODETREE (
-            structure PRETTY        = Pretty
-            structure DEBUG         = Debug
-            structure BASECODETREE  = BaseCodeTree
-            structure CODETREE_FUNCTIONS = CodetreeFunctions
-            structure BACKEND = CodetreeCodegenConstantFns
-            structure OPTIMISER     = CodetreeOptimiser
+        CodeTreeConstruction (
+            structure Pretty        = Pretty
+            structure Debug         = Debug
+            structure BaseCodeTree  = BaseCodeTree
+            structure CodetreeFunctions = CodetreeFunctions
+            structure Backend = CodetreeCodegenConstantFns
+            structure Optimiser     = CodetreeOptimiser
         )
 end;
 

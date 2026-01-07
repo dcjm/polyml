@@ -1,7 +1,7 @@
 /*
     Title:      Task farm for Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010, 2019 David C. J. Matthews
+    Copyright (c) 2010, 2019, 2021 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -150,6 +150,10 @@ void GCTaskFarm::AddWorkOrRunNow(gctask work, void *arg1, void *arg2)
 
 void GCTaskFarm::ThreadFunction()
 {
+#ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+    // On MacOS this thread needs to be marked to write rather than execute.
+    pthread_jit_write_protect_np(false);
+#endif
     GCTaskId myTaskId;
 #if (defined(_WIN32))
     DWORD startActive = GetTickCount();

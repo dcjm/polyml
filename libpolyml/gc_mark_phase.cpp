@@ -96,7 +96,7 @@ public:
     void ScanAddressesInObject(PolyObject *base)
         { ScanAddressesInObject(base, base->LengthWord()); }
 
-    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement);
     // ScanCodeAddressAt should never be called.
     POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { ASSERT(0); return 0; }
 
@@ -209,7 +209,7 @@ void MTGCProcessMarkPointers::Reset()
 // in the range to be rescanned.
 void MTGCProcessMarkPointers::StackOverflow(PolyObject *obj)
 {
-    MarkableSpace *space = (MarkableSpace*)gMem.SpaceForAddress((PolyWord*)obj-1);
+    MarkableSpace *space = (MarkableSpace*)gMem.SpaceForObjectAddress(obj);
     ASSERT(space != 0 && (space->spaceType == ST_LOCAL || space->spaceType == ST_CODE));
     PLocker lock(&space->spaceLock);
     // Have to include this in the range to rescan.
@@ -314,7 +314,7 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
         *pt = obj;
     }
 
-    MemSpace *sp = gMem.SpaceForAddress((PolyWord*)obj-1);
+    MemSpace *sp = gMem.SpaceForObjectAddress(obj);
     if (sp == 0 || (sp->spaceType != ST_LOCAL && sp->spaceType != ST_CODE))
         return false; // Ignore it if it points to a permanent area
 
@@ -356,14 +356,17 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     // We may have a forwarding pointer if this has been moved by the
     // minor GC.
     if (obj->ContainsForwardingPtr())
+    {
         obj = FollowForwarding(obj);
+        sp = gMem.SpaceForAddress((PolyWord*)obj - 1);
+    }
 
     ASSERT(obj->ContainsNormalLengthWord());
 
     POLYUNSIGNED L = obj->LengthWord();
     if (L & _OBJ_GC_MARK)
         return obj; // Already marked
-    obj->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
+    sp->writeAble(obj)->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
 
     if (profileMode == kProfileLiveData || (profileMode == kProfileLiveMutables && obj->IsMutable()))
         AddObjectProfile(obj);
@@ -382,6 +385,12 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
         PushToStack(obj); // Can't check this because it may have forwarding ptrs.
     else
     {
+        // Normally a root but this can happen if we're following constants in code.
+        // In that case we want to make sure that we don't recurse too deeply and
+        // overflow the C stack.  Push the address to the stack before calling
+        // ScanAddressesInObject so that if we come back here msp will be non-zero.
+        // ScanAddressesInObject will empty the stack.
+        PushToStack(obj);
         MTGCProcessMarkPointers::ScanAddressesInObject(obj, L);
         // We can only check after we've processed it because if we
         // have addresses left over from an incomplete partial GC they
@@ -436,9 +445,8 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         else if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
-            // Legacy: The code-generator now uses PolyCopyByteVecToClosure to allocate mutable
-            // code cells in the code area.  Previously they were allocated in the heap and copied
-            // into the code area only when they were locked.
+            // Code addresses in the native code versions.
+            // Closure cells are normal (word) objects and code addresses are normal addresses.
             // It's better to process the whole code object in one go.
             ScanAddress::ScanAddressesInObject(obj, lengthWord);
             endWord = baseAddr; // Finished
@@ -446,6 +454,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
         {
+            // Closure cells in 32-in-64.
             // The first word is the absolute address of the code ...
             PolyObject *codeAddr = *(PolyObject**)obj;
             // except that it is possible we haven't yet set it.
@@ -505,7 +514,10 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         else if (secondWord != 0)
         {
             // Mark it now because we will process it.
-            secondWord->SetLengthWord(secondWord->LengthWord() | _OBJ_GC_MARK);
+            PolyObject* writeAble = secondWord;
+            if (secondWord->IsCodeObject())
+                writeAble = gMem.SpaceForObjectAddress(secondWord)->writeAble(secondWord);
+            writeAble->SetLengthWord(secondWord->LengthWord() | _OBJ_GC_MARK);
             // Put this on the stack.  If this is a list node we will be
             // pushing the tail.
             PushToStack(secondWord);
@@ -514,7 +526,10 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         if (firstWord != 0)
         {
             // Mark it and process it immediately.
-            firstWord->SetLengthWord(firstWord->LengthWord() | _OBJ_GC_MARK);
+            PolyObject* writeAble = firstWord;
+            if (firstWord->IsCodeObject())
+                writeAble = gMem.SpaceForObjectAddress(firstWord)->writeAble(firstWord);
+            writeAble->SetLengthWord(firstWord->LengthWord() | _OBJ_GC_MARK);
             obj = firstWord;
         }
         else if (msp == 0)
@@ -539,7 +554,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
 // Process a constant within the code.  This is a direct copy of ScanAddress::ScanConstant
 // with the addition of the locking.
-void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
+void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement)
 {
     // If we have newly compiled code the constants may be in the
     // local heap.  MTGCProcessMarkPointers::ScanObjectAddress can
@@ -556,7 +571,7 @@ void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfCons
 
     if (lock != 0)
         lock->Lock();
-    PolyObject *p = GetConstantValue(addressOfConstant, code);
+    PolyObject *p = GetConstantValue(addressOfConstant, code, displacement);
     if (lock != 0)
         lock->Unlock();
 
@@ -688,7 +703,7 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
     while (pt < top)
     {
 #ifdef POLYML32IN64
-        if ((((uintptr_t)pt) & 4) == 0)
+        if (((pt-(PolyWord*)0) & (POLYML32IN64-1)) != (POLYML32IN64-1)) // Align to length word
         {
             pt++;
             continue;
@@ -748,7 +763,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
 {
     CodeSpace *space = (CodeSpace*)arg1;
 #ifdef POLYML32IN64
-    PolyWord *pt = space->bottom+1;
+    PolyWord *pt = space->bottom + POLYML32IN64-1;
 #else
     PolyWord *pt = space->bottom;
 #endif
@@ -767,7 +782,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
         {
             // It's marked - retain it.
             ASSERT(L & _OBJ_CODE_OBJ);
-            obj->SetLengthWord(L & ~(_OBJ_GC_MARK)); // Clear the mark bit
+            space->writeAble(obj)->SetLengthWord(L & ~(_OBJ_GC_MARK)); // Clear the mark bit
             lastFree = 0;
             lastFreeSpace = 0;
         }
@@ -781,7 +796,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
             {
                 lastFreeSpace += length + 1;
                 PolyObject *freeSpace = (PolyObject*)(lastFree + 1);
-                freeSpace->SetLengthWord(lastFreeSpace - 1, F_BYTE_OBJ);
+                space->writeAble(freeSpace)->SetLengthWord(lastFreeSpace - 1, F_BYTE_OBJ);
             }
         }
 #endif
@@ -797,7 +812,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
                 lastFreeSpace = length + 1;
             }
             PolyObject *freeSpace = (PolyObject*)(lastFree+1);
-            freeSpace->SetLengthWord(lastFreeSpace-1, F_BYTE_OBJ);
+            space->writeAble(freeSpace)->SetLengthWord(lastFreeSpace-1, F_BYTE_OBJ);
             if (lastFreeSpace > space->largestFree) space->largestFree = lastFreeSpace;
         }
         pt += length+1;

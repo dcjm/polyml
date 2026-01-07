@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: constants
     Author:     David Matthews
-    Copyright   David Matthews 2015, 2016-17
+    Copyright   David Matthews 2015, 2016-17, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,51 +18,38 @@
 *)
 
 (* This is defined separately so that the values are computed and
-   available as constants for the Foreign structure. *)
+   available as compile-time constants for the Foreign structure. *)
 structure ForeignConstants =
 struct
+    (* Assume that the alignment requirements for these types are the
+       same as the size.  *)
     local
-        val ffiGeneralCall = RunCall.rtsCallFull2 "PolyFFIGeneral"
-        fun ffiGeneral(code: int, arg: 'a): 'b = RunCall.unsafeCast(ffiGeneralCall(RunCall.unsafeCast(code, arg)))
+        val sizeFloat: word     = RunCall.rtsCallFast1 "PolySizeFloat" ()
+        and sizeDouble: word    = RunCall.rtsCallFast1 "PolySizeDouble" ()
+        and sizeShort: word     = RunCall.rtsCallFast1 "PolySizeShort" ()
+        and sizeInt: word       = RunCall.rtsCallFast1 "PolySizeInt" ()
+        and sizeLong: word      = RunCall.rtsCallFast1 "PolySizeLong" ()
+        and sizeLonglong: word  = RunCall.rtsCallFast1 "PolySizeLonglong" ()
+        and sizeSsize: word     = RunCall.rtsCallFast1 "PolySizeSsize" ()
+        and sizeSize: word      = RunCall.rtsCallFast1 "PolySizeSize" ()
+        and sizePtrdiff: word   = RunCall.rtsCallFast1 "PolySizePtrdiff" ()
+        and sizeIntptr: word    = RunCall.rtsCallFast1 "PolySizeIntptr" ()
+        and sizeUintptr: word   = RunCall.rtsCallFast1 "PolySizeUintptr" ()
     in
-    local
-        fun getSizeAndAlign (n: int) =
-        let
-            val ffiType = ffiGeneral (52, n)
-            val (size: word, align: word, _, _) = (* Just get the first two fields. *)
-                ffiGeneral (53, ffiType)
-        in
-            {size=size, align=align}
-        end
-    in
-        val saVoid      = getSizeAndAlign 0
-        and saUint8     = getSizeAndAlign 1
-        and saSint8     = getSizeAndAlign 2
-        and saUint16    = getSizeAndAlign 3
-        and saSint16    = getSizeAndAlign 4
-        and saUint32    = getSizeAndAlign 5
-        and saSint32    = getSizeAndAlign 6
-        and saUint64    = getSizeAndAlign 7
-        and saSint64    = getSizeAndAlign 8
-        and saFloat     = getSizeAndAlign 9
-        and saDouble    = getSizeAndAlign 10
-        and saPointer   = getSizeAndAlign 11
-        and saUChar     = getSizeAndAlign 12
-        and saSChar     = getSizeAndAlign 13
-        and saUShort    = getSizeAndAlign 14
-        and saSShort    = getSizeAndAlign 15
-        and saUint      = getSizeAndAlign 16
-        and saSint      = getSizeAndAlign 17
-        and saUlong     = getSizeAndAlign 18
-        and saSlong     = getSizeAndAlign 19
+        val saFloat     = {size=sizeFloat, align=sizeFloat}
+        and saDouble    = {size=sizeDouble, align=sizeDouble}
+        and saShort     = {size=sizeShort, align=sizeShort}
+        and saInt       = {size=sizeInt, align=sizeInt}
+        and saLong      = {size=sizeLong, align=sizeLong}
+        and saLonglong  = {size=sizeLonglong, align=sizeLonglong}
+        and saSsize     = {size=sizeSsize, align=sizeSsize}
+        and saSize      = {size=sizeSize, align=sizeSize}
+        and saPtrdiff   = {size=sizePtrdiff, align=sizePtrdiff}
+        and saIntptr    = {size=sizeIntptr, align=sizeIntptr}
+        and saUintptr   = {size=sizeUintptr, align=sizeUintptr}
     end
-    
+
     val bigEndian : bool = LibrarySupport.bigEndian
     and wordSize : word = RunCall.bytesPerWord
     and sysWordSize: word = LibrarySupport.sysWordSize
-    
-    (* Minimum argument size. *)
-    val ffiMinArgSize: Word.word = ffiGeneral (51, 15)
-    end
-
 end;

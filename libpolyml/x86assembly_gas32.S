@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2020
+   Copyright (c) David C. J. Matthews 2000-2021
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -74,24 +74,23 @@ EXTNAME(id):
 #define Arg_SaveCStack          0x18  /* Save C Stack pointer */
 #define Arg_ThreadId            0x1c  /* My thread id */
 #define Arg_StackPtr            0x20  /* Stack Pointer */
-#define Arg_SaveRAX             0x34
-#define Arg_SaveRBX             0x38
-#define Arg_SaveRCX             0x3c
-#define Arg_SaveRDX             0x40
-#define Arg_SaveRSI             0x44
-#define Arg_SaveRDI             0x48
-#define Arg_SaveFP              0x4c
+#define Arg_TrapHandlerEntry    0x34
+#define Arg_SaveRAX             0x38
+#define Arg_SaveRBX             0x3c
+#define Arg_SaveRCX             0x40
+#define Arg_SaveRDX             0x44
+#define Arg_SaveRSI             0x48
+#define Arg_SaveRDI             0x4c
+#define Arg_SaveFP              0x50
 
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
+#define RETURN_ENTER_INTERPRETER    4
 #define RETURN_ARB_EMULATION        5
-#define RETURN_CALLBACK_RETURN      6
-#define RETURN_CALLBACK_EXCEPTION   7
-#define RETURN_KILL_SELF            9
 
 # Mark the stack as non-executable when supported
-#ifdef HAVE_GNU_STACK
+#if (defined(__linux__) && defined(__ELF__))
 .section .note.GNU-stack, "", @progbits
 #endif
 
@@ -102,18 +101,10 @@ EXTNAME(id):
 
 #define CALL_EXTRA(index) \
         movb  $index,Arg_ReturnReason(%ebp); \
-        jmp   SaveFullState;
+        jmp   CallTrapHandler;
 
-/* Load the registers from the ML stack and jump to the code.
-  This is used to start ML code.
-  The argument is the address of the MemRegisters struct and goes into %rbp.
-  This is the general code for switching control to ML.  There are a number of cases to consider:
-  1.  Initial entry to root function or a new thread.  Needs to load EDX at least.
-  2.  Normal return from an RTS call.  Could just do a simple return.
-  3.  Exception raised in RTS call.
-  4.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
-  5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
-      either because the stack can't be grown or because Interrupt has been raised. */
+/*  Enter ML code.  This is now only ever used to start a new thread.
+    It is probably unnecessary to save the callee-save regs or load the ML regs. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushl   %ebp                            # Standard entry sequence
     movl    8(%esp),%ebp                    # Address of argument vector
@@ -123,9 +114,6 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     subl    $(Fr_Size-12),%esp              # Allocate frame
     movl    %esp,Arg_SaveCStack(%ebp)
     movl    Arg_StackPtr(%ebp),%esp
-    movl    Arg_ExceptionPacket(%ebp),%eax
-    cmpl    $1,%eax                             # Did we raise an exception?
-    jnz     raisexlocal
     FRSTOR  Arg_SaveFP(%ebp)
     movb    Arg_Pflags(%ebp),%ah
     sahf
@@ -136,12 +124,12 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movl    Arg_SaveRSI(%ebp),%esi
     movl    Arg_SaveRDI(%ebp),%edi
     cld                                     # Clear this just in case
-    ret
+    jmp     *(%edx)
 
 
-/* Code to save the state and switch to C
-   This saves the full register state. */
-SaveFullState:
+/* Save all the registers and enter the trap handler.
+   It is probably unnecessary to save the FP state now. */
+CallTrapHandler:
     movl    %eax,Arg_SaveRAX(%ebp)
     movl    %ebx,Arg_SaveRBX(%ebp)
     movl    %ecx,Arg_SaveRCX(%ebp)
@@ -152,26 +140,27 @@ SaveFullState:
     fldcw   Arg_SaveFP(%ebp)                # ...load because we need the same rounding mode in the RTS
     movl    %esp,Arg_StackPtr(%ebp)         # Save ML stack pointer
     movl    Arg_SaveCStack(%ebp),%esp       # Restore C stack pointer
-    addl    $(Fr_Size-12),%esp
-    popl    %esi
-    popl    %edi
-    popl    %ebx
-    popl    %ebp
+    subl    $12,%esp                        # Align stack ptr - GCC prefers this
+    pushl   Arg_ThreadId(%ebp)
+    calll   *Arg_TrapHandlerEntry(%ebp)
+    addl    $16,%esp
+    movl    Arg_StackPtr(%ebp),%esp
+    movl    Arg_ExceptionPacket(%ebp),%eax
+    cmpl    $1,%eax                             # Did we raise an exception?
+    jnz     raisexlocal
+    FRSTOR  Arg_SaveFP(%ebp)
+    movl    Arg_SaveRAX(%ebp),%eax              # Load the registers
+    movl    Arg_SaveRBX(%ebp),%ebx              # Load the registers
+    movl    Arg_SaveRCX(%ebp),%ecx
+    movl    Arg_SaveRDX(%ebp),%edx
+    movl    Arg_SaveRSI(%ebp),%esi
+    movl    Arg_SaveRDI(%ebp),%edi
+    cld                                     # Clear this just in case
     ret
 
-/* Used when entering new code.  The argument and closure are on the stack
-   in case there is a GC before we enter the code. */
-INLINE_ROUTINE(X86AsmPopArgAndClosure)
-    popl    %edx
-    popl    %eax
-    jmp     *(%edx)
-
-INLINE_ROUTINE(X86AsmRaiseException)
 raisexlocal:
     movl    Arg_HandlerRegister(%ebp),%ecx    # Get next handler into %rcx
     jmp     *(%ecx)
-
-# Additional assembly code routines
 
 INLINE_ROUTINE(X86AsmCallExtraRETURN_HEAP_OVERFLOW)
     CALL_EXTRA(RETURN_HEAP_OVERFLOW)
@@ -181,31 +170,20 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
 
 INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
     CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
-
-# RTS call to kill the current thread. 
-INLINE_ROUTINE(X86AsmKillSelf)
-    CALL_EXTRA(RETURN_KILL_SELF)
-
-INLINE_ROUTINE(X86AsmCallbackReturn)
-    CALL_EXTRA(RETURN_CALLBACK_RETURN)
-
-INLINE_ROUTINE(X86AsmCallbackException)
-    CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
-
+    
 INLINE_ROUTINE(X86AsmCallExtraRETURN_ARB_EMULATION)
     CALL_EXTRA(RETURN_ARB_EMULATION)
 
-# This implements atomic addition in the same way as atomic_increment
-INLINE_ROUTINE(X86AsmAtomicIncrement)
-#ifndef HOSTARCHITECTURE_X86_64
-    movl    4(%esp),%eax
-#else
-    movl    %edi,%eax   # On X86_64 the argument is passed in %edi
-#endif
+INLINE_ROUTINE(X86AsmCallExtraRETURN_ENTER_INTERPRETER)
+    CALL_EXTRA(RETURN_ENTER_INTERPRETER)
+
+# Additional assembly code routines
+
+# Fallback exchange if we can't use inline.
+INLINE_ROUTINE(X86AsmAtomicExchange)
 # Use %ecx and %eax because they are volatile (unlike %ebx on X86/64/Unix)
-    movl    $2,%ecx
-    lock; xaddl %ecx,(%eax)
-    addl    $2,%ecx
-    movl    %ecx,%eax
+    movl    4(%esp),%ecx
+    movl    8(%esp),%eax
+    xchg    %eax,(%ecx)
     ret
 

@@ -8,14 +8,7 @@ AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -version-info 11:0:0
-
-DIST_SUBDIRS = libffi
-
-if INTERNAL_LIBFFI
-SUBDIRS = libffi
-libpolyml_la_LIBADD = libffi/libffi_convenience.la
-endif
+libpolyml_la_LDFLAGS = -version-info 16:0:0
 
 if NO_UNDEFINED
 # Force all references to be defined to build the DLL.
@@ -26,20 +19,14 @@ endif
 if ARCHI386
 ARCHSOURCE = x86_dep.cpp x86assembly_gas32.S
 else
-if ARCHINTERPRET
-ARCHSOURCE = interpret.cpp
-else
-if ARCHINTERPRET64
-ARCHSOURCE = interpret.cpp
-else
 if ARCHX86_64
 ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 else
-if ARCHX8632IN64
-ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
+if ARCHARM_64
+ARCHSOURCE = arm64.cpp arm64assembly.S
 else
-endif
-endif
+ARCHSOURCE = interpreter.cpp
+AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
 endif
 endif
 endif
@@ -58,15 +45,16 @@ endif
 endif
 
 if NATIVE_WINDOWS
-OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp
+OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp osmemwin.cpp
 else
-OSSOURCE = basicio.cpp unix_specific.cpp
+OSSOURCE = basicio.cpp unix_specific.cpp osmemunix.cpp
 endif
 
 noinst_HEADERS = \
 	arb.h \
 	basicio.h \
 	bitmap.h \
+	bytecode.h \
 	check_objects.h \
 	diagnostics.h \
 	elfexport.h \
@@ -74,14 +62,16 @@ noinst_HEADERS = \
 	exporter.h \
 	gc.h \
 	gctaskfarm.h \
+	gc_progress.h \
 	globals.h \
-    heapsizing.h \
+	heapsizing.h \
 	int_opcodes.h \
 	io_internal.h \
 	locking.h \
 	machine_dep.h \
 	machoexport.h \
 	memmgr.h \
+    modules.h \
 	mpoly.h \
 	network.h \
 	noreturn.h \
@@ -97,7 +87,6 @@ noinst_HEADERS = \
 	process_env.h \
 	processes.h \
 	profiling.h \
-	realconv.h \
 	reals.h \
 	rts_module.h \
 	rtsentry.h \
@@ -112,13 +101,14 @@ noinst_HEADERS = \
 	timing.h \
 	version.h \
 	winguiconsole.h \
-    winstartup.h \
+	winstartup.h \
 	xcall_numbers.h \
 	xwindows.h
 
 libpolyml_la_SOURCES = \
     arb.cpp \
     bitmap.cpp \
+	bytecode.cpp \
     check_objects.cpp \
     diagnostics.cpp \
     errors.cpp \
@@ -127,16 +117,17 @@ libpolyml_la_SOURCES = \
     gc_check_weak_ref.cpp \
     gc_copy_phase.cpp \
     gc_mark_phase.cpp \
+    gc_progress.cpp \
     gc_share_phase.cpp \
     gc_update_phase.cpp \
     gctaskfarm.cpp \
     heapsizing.cpp \
     locking.cpp \
     memmgr.cpp \
+    modules.cpp \
     mpoly.cpp \
     network.cpp \
     objsize.cpp \
-    osmem.cpp \
     pexport.cpp \
     poly_specific.cpp \
     polyffi.cpp \
@@ -145,7 +136,6 @@ libpolyml_la_SOURCES = \
     processes.cpp \
     profiling.cpp \
     quick_gc.cpp \
-    realconv.cpp \
     reals.cpp \
     rts_module.cpp \
     rtsentry.cpp \

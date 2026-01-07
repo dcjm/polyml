@@ -32,3 +32,9 @@ let
 in
     f (FT f)
 end;
+
+(* A further example.  This time because the first function is a separate top-level
+   declaration it is actually a constant but with inline code.  See issue #216. *)
+datatype loop = L of loop -> loop;
+val loop = fn (l as L f) => f l;
+val go = fn () => loop (L loop);

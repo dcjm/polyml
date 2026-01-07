@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011-12, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12, 2016-18, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -45,6 +45,7 @@
 #include "diagnostics.h"
 #include "statistics.h"
 #include "processes.h"
+#include "machine_dep.h"
 
 
 #ifdef POLYML32IN64
@@ -55,6 +56,15 @@ PolyWord *globalHeapBase, *globalCodeBase;
 // heap resizing policy option requested on command line
 unsigned heapsizingOption = 0;
 
+// If we are building for the interpreted version we don't need or want the
+// code to be executable.
+static const enum OSMem::_MemUsage executableCodeWhereNecessary =
+#ifdef CODEISNOTEXECUTABLE
+    OSMem::UsageData;
+#else
+    OSMem::UsageExecutableCode;
+#endif
+
 MemSpace::MemSpace(OSMem *alloc): SpaceTree(true)
 {
     spaceType = ST_PERMANENT;
@@ -63,12 +73,17 @@ MemSpace::MemSpace(OSMem *alloc): SpaceTree(true)
     top = 0;
     isCode = false;
     allocator = alloc;
+    shadowSpace = 0;
 }
 
 MemSpace::~MemSpace()
 {
     if (allocator != 0 && bottom != 0)
-        allocator->Free(bottom, (char*)top - (char*)bottom);
+    {
+        if (isCode)
+            allocator->FreeCodeArea(bottom, shadowSpace, (char*)top - (char*)bottom);
+        else allocator->FreeDataArea(bottom, (char*)top - (char*)bottom);
+    }
 }
 
 MarkableSpace::MarkableSpace(OSMem *alloc): MemSpace(alloc), spaceLock("Local space")
@@ -97,9 +112,9 @@ bool LocalMemSpace::InitSpace(PolyWord *heapSpace, uintptr_t size, bool mut)
         fullGCRescanEnd = highestWeak = bottom;
 #ifdef POLYML32IN64
     // The address must be on an odd-word boundary so that after the length
-    // word is put in the actual cell address is on an even-word boundary.
-    lowerAllocPtr[0] = PolyWord::FromUnsigned(0);
-    lowerAllocPtr = bottom + 1;
+    // word is put in the actual cell address is on the correct boundary.
+    for (unsigned i = 0; i < POLYML32IN64 - 1; i++)
+        *lowerAllocPtr++ = PolyWord::FromUnsigned(0);
 #endif
     spaceOwner = 0;
 
@@ -140,26 +155,32 @@ MemMgr::~MemMgr()
 bool MemMgr::Initialise()
 {
 #ifdef POLYML32IN64
-    // Allocate a single 16G area but with no access.
+    // Reserve a single 16/32G area but with no access.
     void *heapBase;
-    if (!osHeapAlloc.Initialise((size_t)16 * 1024 * 1024 * 1024, &heapBase))
+    if (!osHeapAlloc.Initialise(OSMem::UsageData, (size_t)8 * POLYML32IN64 * 1024 * 1024 * 1024, &heapBase))
         return false;
     globalHeapBase = (PolyWord*)heapBase;
-
     // Allocate a 4 gbyte area for the stacks.
     // It's important that the stack and code areas have addresses with
     // non-zero top 32-bits.
-    if (!osStackAlloc.Initialise((size_t)4 * 1024 * 1024 * 1024))
+    if (!osStackAlloc.Initialise(OSMem::UsageStack, (size_t)4 * 1024 * 1024 * 1024, 0))
         return false;
-
-    // Allocate a 2G area for the code.
-    void *codeBase;
-    if (!osCodeAlloc.Initialise((size_t)2 * 1024 * 1024 * 1024, &codeBase))
+#else
+    if (!osHeapAlloc.Initialise(OSMem::UsageData) || !osStackAlloc.Initialise(OSMem::UsageStack))
         return false;
+#endif
+#if (defined(POLYML32IN64) || defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64))
+    // Reserve a 2G area for the code.  N.B. If we need to use a shadow area this size may be reduced.
+    void* codeBase;
+    if (!osCodeAlloc.Initialise(executableCodeWhereNecessary,
+        (size_t)2 * 1024 * 1024 * 1024, &codeBase))
+        return false;
+#ifdef POLYML32IN64
     globalCodeBase = (PolyWord*)codeBase;
+#endif
     return true;
 #else
-    return osHeapAlloc.Initialise() && osStackAlloc.Initialise() && osCodeAlloc.Initialise();
+    return osCodeAlloc.Initialise(executableCodeWhereNecessary);
 #endif
 }
 
@@ -175,8 +196,8 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
         size_t rSpace = reservedSpace*sizeof(PolyWord);
 
         if (reservedSpace != 0) {
-            reservation = osHeapAlloc.Allocate(rSpace, PERMISSION_READ);
-            if (reservation == 0) {
+            reservation = osHeapAlloc.AllocateDataArea(rSpace);
+            if (reservation == NULL) {
                 // Insufficient space for the reservation.  Can't allocate this local space.
                 if (debugOptions & DEBUG_MEMMGR)
                     Log("MMGR: New local %smutable space: insufficient reservation space\n", mut ? "": "im");
@@ -187,13 +208,12 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
 
         // Allocate the heap itself.
         size_t iSpace = size * sizeof(PolyWord);
-        PolyWord *heapSpace =
-            (PolyWord*)osHeapAlloc.Allocate(iSpace, PERMISSION_READ | PERMISSION_WRITE);
+        PolyWord* heapSpace = (PolyWord*)osHeapAlloc.AllocateDataArea(iSpace);
         // The size may have been rounded up to a block boundary.
         size = iSpace / sizeof(PolyWord);
         bool success = heapSpace != 0 && space->InitSpace(heapSpace, size, mut) && AddLocalSpace(space);
 
-        if (reservation != 0) osHeapAlloc.Free(reservation, rSpace);
+        if (reservation != 0) osHeapAlloc.FreeDataArea(reservation, rSpace);
         if (success)
         {
             if (debugOptions & DEBUG_MEMMGR)
@@ -277,9 +297,9 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
     return true;
 }
 
-// Create an entry for a permanent space.
-PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
-                                             unsigned flags, unsigned index, unsigned hierarchy /*= 0*/)
+// Create an entry for a permanent space that already exists in the executable.
+PermanentMemSpace* MemMgr::PermanentSpaceFromExecutable(PolyWord *base, uintptr_t words,
+                                             unsigned flags, unsigned index, ModuleId sourceModule)
 {
     try {
         PermanentMemSpace *space = new PermanentMemSpace(0/* Not freed */);
@@ -291,7 +311,8 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
         space->byteOnly = flags & MTF_BYTES ? true : false;
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
-        space->hierarchy = hierarchy;
+        space->moduleIdentifier = sourceModule;
+        space->isWriteProtected = !space->isMutable;
         if (index >= nextIndex) nextIndex = index+1;
 
         // Extend the permanent memory table and add this space to it.
@@ -311,21 +332,24 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
     }
 }
 
-PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, unsigned hierarchy)
+PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, ModuleId sourceModule)
 {
     try {
-        OSMem *alloc = flags & MTF_EXECUTABLE ? &osCodeAlloc : &osHeapAlloc;
+        OSMem *alloc = flags & MTF_EXECUTABLE ? (OSMem*)&osCodeAlloc : (OSMem*)&osHeapAlloc;
         PermanentMemSpace *space = new PermanentMemSpace(alloc);
-        unsigned int perms = PERMISSION_READ | PERMISSION_WRITE;
-        if (flags & MTF_EXECUTABLE) perms |= PERMISSION_EXEC;
         size_t actualSize = byteSize;
-        PolyWord *base = (PolyWord*)alloc->Allocate(actualSize, perms);
+        PolyWord* base;
+        void* newShadow=0;
+        if (flags & MTF_EXECUTABLE)
+            base = (PolyWord*)alloc->AllocateCodeArea(actualSize, newShadow);
+        else base = (PolyWord*)alloc->AllocateDataArea(actualSize);
         if (base == 0)
         {
             delete(space);
             return 0;
         }
         space->bottom = base;
+        space->shadowSpace = (PolyWord*)newShadow;
         space->topPointer = space->top = space->bottom + actualSize/sizeof(PolyWord);
         space->spaceType = ST_PERMANENT;
         space->isMutable = flags & MTF_WRITEABLE ? true : false;
@@ -333,7 +357,7 @@ PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigne
         space->byteOnly = flags & MTF_BYTES ? true : false;
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
-        space->hierarchy = hierarchy;
+        space->moduleIdentifier = sourceModule;
         if (index >= nextIndex) nextIndex = index + 1;
 
         // Extend the permanent memory table and add this space to it.
@@ -353,16 +377,16 @@ PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigne
     }
 }
 
+// Called to set the permissions on permanent spaces from the executable.
 bool MemMgr::CompletePermanentSpaceAllocation(PermanentMemSpace *space)
 {
     // Remove write access unless it is mutable.
-    // Don't remove write access unless this is top-level. Share-data assumes only hierarchy 0 is write-protected.
-    if (!space->isMutable && space->hierarchy == 0)
+    if (!space->isMutable)
     {
         if (space->isCode)
-            osCodeAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
-                PERMISSION_READ | PERMISSION_EXEC);
-        else osHeapAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom, PERMISSION_READ);
+            osCodeAlloc.DisableWriteForCode(space->bottom, space->shadowSpace, (char*)space->top - (char*)space->bottom);
+        else osHeapAlloc.EnableWrite(false, space->bottom, (char*)space->top - (char*)space->bottom);
+        space->isWriteProtected = true;
     }
     return true;
 }
@@ -398,7 +422,7 @@ void MemMgr::RemoveEmptyLocals()
 PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code)
 {
     try {
-        OSMem *alloc = code ? &osCodeAlloc : &osHeapAlloc;
+        OSMem *alloc = code ? (OSMem*)&osCodeAlloc : (OSMem*)&osHeapAlloc;
         PermanentMemSpace *space = new PermanentMemSpace(alloc);
         space->spaceType = ST_EXPORT;
         space->isMutable = mut;
@@ -407,8 +431,14 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         space->index = nextIndex++;
         // Allocate the memory itself.
         size_t iSpace = size*sizeof(PolyWord);
-        space->bottom  =
-            (PolyWord*)alloc->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+        if (code)
+        {
+            void* shadow;
+            space->bottom = (PolyWord*)alloc->AllocateCodeArea(iSpace, shadow);
+            if (space->bottom != 0)
+                space->shadowSpace = (PolyWord*)shadow;
+        }
+        else space->bottom = (PolyWord*)alloc->AllocateDataArea(iSpace);
 
         if (space->bottom == 0)
         {
@@ -424,11 +454,10 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         space->topPointer = space->bottom;
 #ifdef POLYML32IN64
         // The address must be on an odd-word boundary so that after the length
-        // word is put in the actual cell address is on an even-word boundary.
-        space->topPointer[0] = PolyWord::FromUnsigned(0);
-        space->topPointer = space->bottom + 1;
+        // word is put in the actual cell address is on the correct boundary.
+        for (unsigned i = 0; i < POLYML32IN64 - 1; i++)
+            *(space->writeAble(space->topPointer++)) = PolyWord::FromUnsigned(0);
 #endif
-
         if (debugOptions & DEBUG_MEMMGR)
             Log("MMGR: New export %smutable %s%sspace %p, size=%luk words, bottom=%p, top=%p\n", mut ? "" : "im",
                 noOv ? "no-overwrite " : "", code ? "code " : "", space,
@@ -469,7 +498,7 @@ void MemMgr::DeleteExportSpaces(void)
 // If we have saved the state rather than exported a function we turn the exported
 // spaces into permanent ones, removing existing permanent spaces at the same or
 // lower level.
-bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
+bool MemMgr::DemoteOldPermanentSpaces(ModuleId modId)
 {
     // Save permanent spaces at a lower hierarchy.  Others are converted into
     // local spaces.  Most or all items will have been copied from these spaces
@@ -477,8 +506,8 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
     std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin();
     while (i != pSpaces.end())
     {
-        PermanentMemSpace *pSpace = *i;
-        if (pSpace->hierarchy < hierarchy)
+        PermanentMemSpace* pSpace = *i;
+        if (pSpace->moduleIdentifier != modId)
             i++;
         else
         {
@@ -490,10 +519,10 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 if (pSpace->isCode)
                 {
                     // Enable write access.  Permanent spaces are read-only.
-                    osCodeAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
-                        PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
-                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->spaceSize(), &osCodeAlloc);
-                    if (! space->headerMap.Create(space->spaceSize()))
+ //                   osCodeAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
+ //                       PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
+                    CodeSpace* space = new CodeSpace(pSpace->bottom, pSpace->shadowSpace, pSpace->spaceSize(), &osCodeAlloc);
+                    if (!space->headerMap.Create(space->spaceSize()))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
                             Log("MMGR: Unable to create header map for state space %p\n", pSpace);
@@ -508,26 +537,26 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                     if (debugOptions & DEBUG_MEMMGR)
                         Log("MMGR: Converted saved state space %p into code space %p\n", pSpace, space);
                     // Set the bits in the header map.
-                    for (PolyWord *ptr = space->bottom; ptr < space->top; )
+                    for (PolyWord* ptr = space->bottom; ptr < space->top; )
                     {
-                        PolyObject *obj = (PolyObject*)(ptr+1);
+                        PolyObject* obj = (PolyObject*)(ptr + 1);
                         // We may have forwarded this if this has been
                         // copied to the exported area. Restore the original length word.
                         if (obj->ContainsForwardingPtr())
                         {
 #ifdef POLYML32IN64
-                            PolyObject *forwardedTo = obj;
+                            PolyObject* forwardedTo = obj;
                             // This is relative to globalCodeBase not globalHeapBase
                             while (forwardedTo->ContainsForwardingPtr())
-                                forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                                forwardedTo = (PolyObject*)(globalCodeBase + (((uintptr_t)(forwardedTo->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
-                            PolyObject *forwardedTo = obj->FollowForwardingChain();
+                            PolyObject* forwardedTo = obj->FollowForwardingChain();
 #endif
                             obj->SetLengthWord(forwardedTo->LengthWord());
                         }
                         // Set the "start" bit if this is allocated.  It will be a byte seg if not.
                         if (obj->IsCodeObject())
-                            space->headerMap.SetBit(ptr-space->bottom);
+                            space->headerMap.SetBit(ptr - space->bottom);
                         ASSERT(!obj->IsClosureObject());
                         ptr += obj->Length() + 1;
                     }
@@ -535,9 +564,9 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 else
                 {
                     // Enable write access.  Permanent spaces are read-only.
-                    osHeapAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
-                        PERMISSION_READ | PERMISSION_WRITE);
-                    LocalMemSpace *space = new LocalMemSpace(&osHeapAlloc);
+//                    osHeapAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
+//                        PERMISSION_READ | PERMISSION_WRITE);
+                    LocalMemSpace* space = new LocalMemSpace(&osHeapAlloc);
                     space->top = pSpace->top;
                     // Space is allocated in local areas from the top down.  This area is full and
                     // all data is in the old generation.  The area can be recovered by a full GC.
@@ -545,7 +574,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                         space->fullGCLowerLimit = pSpace->bottom;
                     space->isMutable = pSpace->isMutable;
                     space->isCode = false;
-                    if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+                    if (!space->bitmap.Create(space->top - space->bottom) || !AddLocalSpace(space))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
                             Log("MMGR: Unable to convert saved state space %p into local space\n", pSpace);
@@ -554,7 +583,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
 
                     if (debugOptions & DEBUG_MEMMGR)
                         Log("MMGR: Converted saved state space %p into local %smutable space %p\n",
-                                pSpace, pSpace->isMutable ? "im": "", space);
+                            pSpace, pSpace->isMutable ? "im" : "", space);
                     currentHeapSize += space->spaceSize();
                     globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
                 }
@@ -565,15 +594,21 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
             }
         }
     }
+    return true;
+}
+
+// Turn export spaces into permanent spaces.  Used for saved states and also for modules.
+bool MemMgr::PromoteNewExportSpaces(ModuleId newModId)
+{
     // Save newly exported spaces.
     for(std::vector<PermanentMemSpace *>::iterator j = eSpaces.begin(); j < eSpaces.end(); j++)
     {
         PermanentMemSpace *space = *j;
-        space->hierarchy = hierarchy; // Set the hierarchy of the new spaces.
         space->spaceType = ST_PERMANENT;
+        space->moduleIdentifier = newModId;
         // Put a dummy object to fill up the unused space.
         if (space->topPointer != space->top)
-            FillUnusedSpace(space->topPointer, space->top - space->topPointer);
+            FillUnusedSpace(space->writeAble(space->topPointer), space->top - space->topPointer);
         // Put in a dummy object to fill the rest of the space.
         pSpaces.push_back(space);
     }
@@ -582,21 +617,13 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
     return true;
 }
 
-
-// Before we import a hierarchical saved state we need to turn any previously imported
-// spaces into local spaces.
-bool MemMgr::DemoteImportSpaces()
-{
-    return PromoteExportSpaces(1); // Only truly permanent spaces are retained.
-}
-
 // Return the space for a given index
-PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index)
+PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index, ModuleId modId)
 {
     for (std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
     {
         PermanentMemSpace *space = *i;
-        if (space->index == index)
+        if (space->index == index && space->moduleIdentifier == modId)
             return space;
     }
     return NULL;
@@ -610,10 +637,11 @@ void MemMgr::FillUnusedSpace(PolyWord *base, uintptr_t words)
     while (words > 0)
     {
 #ifdef POLYML32IN64
-        // Make sure that any dummy object we insert is properly aligned.
-        if (((uintptr_t)pDummy) & 4)
+        // Make sure that any dummy object we insert is properly aligned. 
+        if (((pDummy - (PolyWord*)0) & (POLYML32IN64 - 1)) != 0)
         {
-            *pDummy++ = PolyWord::FromUnsigned(0);
+            pDummy[-1] = PolyWord::FromUnsigned(0); // Put it in the length word
+            pDummy++;
             words--;
             continue;
         }
@@ -658,7 +686,7 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
                 if (available < maxWords) maxWords = available;
 #ifdef POLYML32IN64
                 // If necessary round down to an even boundary
-                if (maxWords & 1)
+                while (maxWords & (POLYML32IN64-1))
                 {
                     maxWords--;
                     space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
@@ -667,9 +695,6 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
                 PolyWord *result = space->lowerAllocPtr; // Return the address.
                 if (doAllocation)
                     space->lowerAllocPtr += maxWords; // Allocate it.
-#ifdef POLYML32IN64
-                ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
-#endif
                 return result;
             }
         }
@@ -692,7 +717,7 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         // When we create the allocation space we take one word so that the first
         // length word is on an odd-word boundary.  We need to allow for that otherwise
         // we may have available < minWords.
-        if (minWords >= spaceSize) spaceSize = minWords+1; // If we really want a large space.
+        if (minWords >= spaceSize) spaceSize = minWords + (POLYML32IN64-1); // If we really want a large space.
 #else
         if (minWords > spaceSize) spaceSize = minWords; // If we really want a large space.
 #endif
@@ -705,8 +730,8 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         {
             maxWords = available;
 #ifdef POLYML32IN64
-            // If necessary round down to an even boundary
-            if (maxWords & 1)
+            // If necessary round down to the correct boundary
+            while (maxWords & (POLYML32IN64 - 1))
             {
                 maxWords--;
                 space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
@@ -716,30 +741,28 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         PolyWord *result = space->lowerAllocPtr; // Return the address.
         if (doAllocation)
             space->lowerAllocPtr += maxWords; // Allocate it.
-#ifdef POLYML32IN64
-        ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
-#endif
         return result;
     }
     return 0; // There isn't space even for the minimum.
 }
 
-CodeSpace::CodeSpace(PolyWord *start, uintptr_t spaceSize, OSMem *alloc): MarkableSpace(alloc)
+CodeSpace::CodeSpace(PolyWord *start, PolyWord *shadow, uintptr_t spaceSize, OSMem *alloc): MarkableSpace(alloc)
 {
     bottom = start;
+    shadowSpace = shadow;
     top = start+spaceSize;
     isMutable = true; // Make it mutable just in case.  This will cause it to be scanned.
     isCode = true;
     spaceType = ST_CODE;
 #ifdef POLYML32IN64
-    // Dummy word so that the cell itself, after the length word, is on an 8-byte boundary.
-    *start = PolyWord::FromUnsigned(0);
-    largestFree = spaceSize - 2;
-    firstFree = start+1;
+    // Dummy words so that the cell itself, after the length word, is on the correct boundary.
+    for (unsigned i = 0; i < POLYML32IN64-1; i++)
+        *(writeAble(start++)) = PolyWord::FromUnsigned(0);
+    largestFree = spaceSize - POLYML32IN64;
 #else
     largestFree = spaceSize - 1;
-    firstFree = start;
 #endif
+    firstFree = start;
 }
 
 CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
@@ -748,13 +771,14 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
     CodeSpace *allocSpace = 0;
     // Allocate a new mutable, code space. N.B.  This may round up "actualSize".
     size_t actualSize = size * sizeof(PolyWord);
+    void* shadow;
     PolyWord *mem =
-        (PolyWord*)osCodeAlloc.Allocate(actualSize,
-            PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
+        (PolyWord*)osCodeAlloc.AllocateCodeArea(actualSize, shadow);
     if (mem != 0)
     {
         try {
-            allocSpace = new CodeSpace(mem, actualSize / sizeof(PolyWord), &osCodeAlloc);
+            allocSpace = new CodeSpace(mem, (PolyWord*)shadow, actualSize / sizeof(PolyWord), &osCodeAlloc);
+            allocSpace->shadowSpace = (PolyWord*)shadow;
             if (!allocSpace->headerMap.Create(allocSpace->spaceSize()))
             {
                 delete allocSpace;
@@ -768,14 +792,14 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
             else if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
             // Put in a byte cell to mark the area as unallocated.
-            FillUnusedSpace(allocSpace->firstFree, allocSpace->top- allocSpace->firstFree);
+            FillUnusedSpace(allocSpace->writeAble(allocSpace->firstFree), allocSpace->top- allocSpace->firstFree);
         }
         catch (std::bad_alloc&)
         {
         }
         if (allocSpace == 0)
         {
-            osCodeAlloc.Free(mem, actualSize);
+            osCodeAlloc.FreeCodeArea(mem, shadow, actualSize);
             mem = 0;
         }
     }
@@ -820,22 +844,14 @@ PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
                             // Free and large enough
                             PolyWord *next = pt+requiredSize+1;
                             POLYUNSIGNED spare = length - requiredSize;
-#ifdef POLYML32IN64
-                            // Maintain alignment.
-                            if (((requiredSize + 1) & 1) && spare != 0)
-                            {
-                                *next++ = PolyWord::FromUnsigned(0);
-                                spare--;
-                            }
-#endif
                             if (spare != 0)
-                                FillUnusedSpace(next, spare);
+                                FillUnusedSpace(space->writeAble(next), spare);
                             space->isMutable = true; // Set this - it ensures the area is scanned on GC.
                             space->headerMap.SetBit(pt-space->bottom); // Set the "header" bit
                             // Set the length word of the code area and copy the byte cell in.
                             // The code bit must be set before the lock is released to ensure
                             // another thread doesn't reuse this.
-                            obj->SetLengthWord(requiredSize,  F_CODE_OBJ|F_MUTABLE_BIT);
+                            space->writeAble(obj)->SetLengthWord(requiredSize,  F_CODE_OBJ|F_MUTABLE_BIT);
                             return obj;
                         }
                         else if (length >= actualLargest) actualLargest = length+1;
@@ -852,9 +868,9 @@ PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
             // Allocate a new area and add it at the end of the table.
             uintptr_t spaceSize = requiredSize + 1;
 #ifdef POLYML32IN64
-            // We need to allow for the extra alignment word otherwise we
+            // We need to allow for the extra alignment words otherwise we
             // may allocate less than we need.
-            spaceSize += 1;
+            spaceSize += POLYML32IN64-1;
 #endif
             CodeSpace *allocSpace = NewCodeSpace(spaceSize);
             if (allocSpace == 0)
@@ -955,8 +971,7 @@ StackSpace *MemMgr::NewStackSpace(uintptr_t size)
     try {
         StackSpace *space = new StackSpace(&osStackAlloc);
         size_t iSpace = size*sizeof(PolyWord);
-        space->bottom =
-            (PolyWord*)osStackAlloc.Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+        space->bottom = (PolyWord*)osStackAlloc.AllocateDataArea(iSpace);
         if (space->bottom == 0)
         {
             if (debugOptions & DEBUG_MEMMGR)
@@ -1006,11 +1021,8 @@ void MemMgr::ProtectImmutable(bool on)
             LocalMemSpace *space = *i;
             if (!space->isMutable)
             {
-                if (space->isCode)
-                    osCodeAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
-                        on ? PERMISSION_READ | PERMISSION_EXEC : PERMISSION_READ | PERMISSION_EXEC | PERMISSION_WRITE);
-                else osHeapAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
-                    on ? PERMISSION_READ : PERMISSION_READ | PERMISSION_WRITE);
+                if (!space->isCode)
+                    osHeapAlloc.EnableWrite(!on, space->bottom, (char*)space->top - (char*)space->bottom);
             }
         }
     }
@@ -1020,7 +1032,8 @@ bool MemMgr::GrowOrShrinkStack(TaskData *taskData, uintptr_t newSize)
 {
     StackSpace *space = taskData->stack;
     size_t iSpace = newSize*sizeof(PolyWord);
-    PolyWord *newSpace = (PolyWord*)osStackAlloc.Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+
+    PolyWord *newSpace = (PolyWord*)osStackAlloc.AllocateDataArea(iSpace);
     if (newSpace == 0)
     {
         if (debugOptions & DEBUG_MEMMGR)
@@ -1047,7 +1060,7 @@ bool MemMgr::GrowOrShrinkStack(TaskData *taskData, uintptr_t newSize)
     size_t oldSize = (char*)space->top - (char*)space->bottom;
     space->bottom = newSpace; // Switch this before freeing - We could get a profile trap during the free
     space->top = newSpace+newSize;
-    osStackAlloc.Free(oldBottom, oldSize);
+    osStackAlloc.FreeDataArea(oldBottom, oldSize);
     return true;
 }
 
@@ -1241,7 +1254,7 @@ void MemMgr::ReportHeapSizes(const char *phase)
 #ifdef POLYML32IN64
                 // This is relative to globalCodeBase not globalHeapBase
                 while (obj->ContainsForwardingPtr())
-                    obj = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                    obj = (PolyObject*)(globalCodeBase + (((uintptr_t)(obj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
                 obj = obj->FollowForwardingChain();
 #endif
@@ -1316,7 +1329,7 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
         PolyObject *lastObj = obj;
         // This is relative to globalCodeBase not globalHeapBase.
         while (lastObj->ContainsForwardingPtr())
-            lastObj = (PolyObject*)(globalCodeBase + ((lastObj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+            lastObj = (PolyObject*)(globalCodeBase + (((uintptr_t)(lastObj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
         PolyObject *lastObj = obj->FollowForwardingChain();
 #endif
@@ -1355,8 +1368,9 @@ POLYOBJECTPTR PolyWord::AddressToObjectPtr(void *address)
 {
     ASSERT(address >= globalHeapBase);
     uintptr_t offset = (PolyWord*)address - globalHeapBase;
-    ASSERT(offset <= 0x7fffffff); // Currently limited to 8Gbytes
-    ASSERT((offset & 1) == 0);
+    ASSERT((offset & 1) == 0); // The tag bit should not be set
+    offset = offset / (POLYML32IN64 / 2);
+    ASSERT(offset < (uintptr_t)0x100000000);
     return (POLYOBJECTPTR)offset;
 }
 #endif

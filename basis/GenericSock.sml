@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Generic socket structure and signature.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2016
+    Copyright   David Matthews 2000, 2016, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,14 +39,23 @@ end;
 structure GenericSock : GENERIC_SOCK =
 struct
     local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+        val doCreateSocket: Socket.AF.addr_family * Socket.SOCK.sock_type * int -> OS.IO.iodesc =
+            RunCall.rtsCallFull3 "PolyNetworkCreateSocket"
     in
-        fun socket' (af, st, p: int) = RunCall.unsafeCast(doCall(14, (af, st, p)))
+        fun socket' (af, st, p) = LibraryIOSupport.SOCK(doCreateSocket(af, st, p))
     end
+
     local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+        val doCreateSocketPair:
+            Socket.AF.addr_family * Socket.SOCK.sock_type * int -> OS.IO.iodesc * OS.IO.iodesc =
+                RunCall.rtsCallFull3 "PolyNetworkCreateSocketPair"
     in
-        fun socketPair' (af, st, p: int) = RunCall.unsafeCast(doCall(55, (af, st, p)))
+        fun socketPair' (af, st, p: int) =
+        let
+            val (a, b) = doCreateSocketPair (af, st, p)
+        in
+            (LibraryIOSupport.SOCK a, LibraryIOSupport.SOCK b)
+        end
     end
     (* We assume that the default protocol is always zero. *)
     fun socket(af, st) = socket'(af, st, 0)

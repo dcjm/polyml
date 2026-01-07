@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-20 David C.J. Matthews
+    Copyright (c) David C.J. Matthews 2016-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,13 +16,13 @@
 *)
 
 functor X86ICodeIdentifyReferences(
-    structure ICODE: ICodeSig
-    structure DEBUG: DEBUGSIG
-    structure INTSET: INTSETSIG
-): X86IDENTIFYREFSSIG =
+    structure X86ICode: X86ICODE
+    structure Debug: DEBUG
+    structure IntSet: INTSET
+): X86IDENTIFYREFERENCES =
 struct
-    open ICODE
-    open INTSET
+    open X86ICode
+    open IntSet
 
     type regState =
     { 
@@ -70,7 +70,8 @@ struct
     |   argIndex(MemIndex2 arg) = [arg]
     |   argIndex(MemIndex4 arg) = [arg]
     |   argIndex(MemIndex8 arg) = [arg]
-    |   argIndex ObjectIndex = []
+    |   argIndex ObjectIndex2 = []
+    |   argIndex ObjectIndex4 = []
 
     fun argStacks(StackLocation { container, ...}) = [container]
     |   argStacks(ContainerAddr { container, ...}) = [container]
@@ -88,10 +89,13 @@ struct
     |   getInstructionState(LoadMemReg { dest, ...}) =
             { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(StoreMemReg { source, ...}) =
+            { sources=[source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(FunctionCall{regArgs, stackArgs, dest, ...}) =
+    |   getInstructionState(FunctionCall{regArgs, stackArgs, results, ...}) =
         let
             (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
             fun getSources argSource =
@@ -102,7 +106,7 @@ struct
                 List.foldl regSource stackSources regArgs
             end
         in
-            { sources=getSources argRegs, dests=[dest], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=getSources argRegs, dests=List.map #1 results, sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
     |   getInstructionState(TailRecursiveCall{regArgs, stackArgs, workReg, ...}) =
@@ -180,8 +184,8 @@ struct
     |   getInstructionState(BeginHandler{ workReg, packetReg, ...}) =
             { sources=[], dests=[packetReg, workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(ReturnResultFromFunction{resultReg, ...}) =
-            { sources=[resultReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+    |   getInstructionState(ReturnResultFromFunction{results, ...}) =
+            { sources=List.map #1 results, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(ArithmeticFunction{resultReg, operand1, operand2, ccRef, ...}) =
             { sources=operand1 :: argRegs operand2, dests=[resultReg],
@@ -231,8 +235,14 @@ struct
             { sources=dividend :: argRegs divisor, dests=[quotient, remainder],
               sStacks=argStacks divisor, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(AtomicExchangeAndAdd{base, source}) =
-            { sources=[base, source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+    |   getInstructionState(AtomicExchangeAndAdd{base, source, resultReg}) =
+            { sources=[base, source], dests=[resultReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(AtomicExchange{base, source, resultReg}) =
+            { sources=[base, source], dests=[resultReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(AtomicCompareAndExchange{base, compare, toStore, resultReg, ccRef}) =
+            { sources=[base, compare, toStore], dests=[resultReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
     |   getInstructionState(BoxValue{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -264,7 +274,7 @@ struct
     |   getInstructionState(X87Float{dest, source}) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(SSE2Float{dest, source}) =
+    |   getInstructionState(SSE2IntToReal{dest, source, ...}) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(SSE2FPUnary{resultReg, source, ...}) =
@@ -312,6 +322,12 @@ struct
     |   getInstructionState(LongArbArithmetic{resultReg, operand1, operand2, ...}) =
             { sources=operand1 :: argRegs operand2, dests=[resultReg],
               sStacks=argStacks operand2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState PauseCPU =
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+    
+    |   getInstructionState(BitScanReverse{ source, dest }) =
+            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
@@ -515,9 +531,9 @@ struct
                                    it becomes an export.  If it is not it becomes part of our
                                    passThrough. *)
                                 val (addToExp, addToImp) =
-                                    INTSET.partition (fn i => member(i, ourDeclarations)) theirImports
+                                    IntSet.partition (fn i => member(i, ourDeclarations)) theirImports
                                 val (addToStackExp, addToStackImp) =
-                                    INTSET.partition (fn i => member(i, ourStackDeclarations)) theirStackImports
+                                    IntSet.partition (fn i => member(i, ourStackDeclarations)) theirStackImports
                                 (* Merge the input states from each of the successors. *)
                                 val () =
                                     case (theirInState, Array.sub(ccRequiredOut, blockNo)) of
@@ -717,21 +733,13 @@ struct
                                     JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=SOME check, workReg=workReg}
                                 end
                         
-                            |   FunctionCall{regArgs, stackArgs=[], dest, realDest, callKind as ConstantCode m, saveRegs=_} =>
+                            |   FunctionCall{regArgs, stackArgs=[], results as [(dest, _)], callKind as ConstantCode m, saveRegs=_} =>
                                 (* If this is arbitrary precision push the registers rather than marking them as "save".
                                    stringOfWord returns 'CODE "PolyAddArbitrary"' etc. *)
                                 if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
-                                then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
-                                        realDest=realDest, saveRegs=getSaveSet(regNo dest) }
+                                then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind,
+                                        results=results, saveRegs=getSaveSet(regNo dest) }
                                 else instr
-                        
-                            |   instr as LoadArgument{dest=PReg dreg, ...} =>
-                                (
-                                    if member(dreg, activeAfterThis)
-                                    then ()
-                                    else print("Register " ^ Int.toString dreg ^ " inactive-" ^ PolyML.makestring instr ^ "\n");
-                                    instr
-                                )
 
                             |   LongArbComparison{arg1, arg2, ccRef, saveRegs= _} =>
                                     LongArbComparison{arg1=arg1, arg2=arg2, ccRef=ccRef, saveRegs=getSaveSet(~1 (* No destination *))}
@@ -754,6 +762,7 @@ struct
                                 else case Vector.sub(pregProps, i) of
                                     RegPropCacheTagged => raise InternalError "pushRegisters: cache reg"
                                 |   RegPropCacheUntagged => raise InternalError "pushRegisters: cache reg"
+                                |   RegPropMultiple => raise InternalError "pushRegisters: merge reg"
                                 |  _ => Array.update(requirePushOrDiscard, i, true)
                         in
                             (* We need to push everything active after this

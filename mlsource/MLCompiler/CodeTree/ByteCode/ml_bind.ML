@@ -19,17 +19,17 @@
 
 local
     structure CodeCons =
-        INTCODECONS (
-            structure DEBUG   = Debug
-            structure MISC    = Misc
-            structure PRETTY  = Pretty
+        IntCodeCons (
+            structure Debug   = Debug
+            structure Pretty  = Pretty
+            structure CodeArray    = CodeArray
         )
 in
     structure ByteCode = 
-        INTGCODE (
-            structure CODECONS     = CodeCons
-            structure BACKENDTREE  = BackendIntermediateCode
-            structure CODE_ARRAY   = CODE_ARRAY
+        IntGCode (
+            structure CodeCons     = CodeCons
+            structure BackendTree  = BackendIntermediateCode
+            structure CodeArray    = CodeArray
         )
 end;
  

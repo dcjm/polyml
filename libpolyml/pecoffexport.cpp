@@ -2,7 +2,7 @@
     Title:     Export memory as a PE/COFF object
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006, 2011, 2016-18 David C. J. Matthews
+    Copyright (c) 2006, 2011, 2016-18, 2020-21, 2025 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -68,32 +68,68 @@
 #define ASSERT(x)
 #endif
 
-#if (SIZEOF_VOIDP == 8)
-#define DIRECT_WORD_RELOCATION      IMAGE_REL_AMD64_ADDR64
-#define RELATIVE_32BIT_RELOCATION   IMAGE_REL_AMD64_REL32
-#else
+#if (defined(HOSTARCHITECTURE_X86))
 #define DIRECT_WORD_RELOCATION      IMAGE_REL_I386_DIR32
 #define RELATIVE_32BIT_RELOCATION   IMAGE_REL_I386_REL32
+#define IMAGE_MACHINE_TYPE          IMAGE_FILE_MACHINE_I386
+#elif (defined(HOSTARCHITECTURE_X86_64))
+#define DIRECT_WORD_RELOCATION      IMAGE_REL_AMD64_ADDR64
+#define RELATIVE_32BIT_RELOCATION   IMAGE_REL_AMD64_REL32
+#define IMAGE_MACHINE_TYPE          IMAGE_FILE_MACHINE_AMD64
+#elif (defined(HOSTARCHITECTURE_AARCH64))
+#define DIRECT_WORD_RELOCATION      IMAGE_REL_ARM64_ADDR64
+#define RELATIVE_32BIT_RELOCATION   IMAGE_REL_AMD64_REL32 // Leave for the moment
+#define IMAGE_MACHINE_TYPE          IMAGE_FILE_MACHINE_ARM64
+#else
+#error "Unknown architecture: unable to configure exporter for PECOFF"
 #endif
+
+// ARM64 ADRP relocations have a maximum offset of 1Mbyte.
+// We define symbols within each segment and make the offsets
+// relative to those symbols.  This isn't necessary for X86
+// but there's no harm in doing it there.
+const unsigned SYMBOLSPACING = 0x100000;
+
+void PECOFFExport::writeRelocation(const IMAGE_RELOCATION* reloc)
+{
+    fwrite(reloc, sizeof(*reloc), 1, exportFile);
+    if (relocationCount == 0)
+        firstRelocation = *reloc;
+    relocationCount++;
+}
 
 void PECOFFExport::addExternalReference(void *relocAddr, const char *name, bool/* isFuncPtr*/)
 {
     externTable.makeEntry(name);
     IMAGE_RELOCATION reloc;
     // Set the offset within the section we're scanning.
-    setRelocationAddress(relocAddr, &reloc.VirtualAddress);
+    setRelocationAddress(relocAddr, &reloc);
     reloc.SymbolTableIndex = symbolNum++;
     reloc.Type = DIRECT_WORD_RELOCATION;
-    fwrite(&reloc, sizeof(reloc), 1, exportFile);
-    relocationCount++;
+    writeRelocation(&reloc);
 }
 
-// Generate the address relative to the start of the segment.
-void PECOFFExport::setRelocationAddress(void *p, DWORD *reloc)
+// Set the VirtualAddrss field to the offset within the current segment
+// where the relocation must be applied.
+void PECOFFExport::setRelocationAddress(void *p, IMAGE_RELOCATION*reloc)
 {
     unsigned area = findArea(p);
     DWORD offset = (DWORD)((char*)p - (char*)memTable[area].mtOriginalAddr);
-    *reloc = offset;
+    reloc->VirtualAddress = offset;
+}
+
+// Set the symbol in the relocation to the symbol for the target address
+// and return the offset relative to that symbol.
+POLYUNSIGNED PECOFFExport::setSymbolAndGetOffset(void* p, IMAGE_RELOCATION* reloc)
+{
+    unsigned area = findArea(p);
+    POLYUNSIGNED symbol = 0;
+    for (unsigned i = 0; i < area; i++)
+        symbol += (memTable[i].mtLength + SYMBOLSPACING-1) / SYMBOLSPACING;
+    POLYUNSIGNED offset = (POLYUNSIGNED)((char*)p - (char*)memTable[area].mtOriginalAddr);
+    symbol += offset / SYMBOLSPACING;
+    reloc->SymbolTableIndex = (DWORD)symbol;
+    return offset % SYMBOLSPACING;
 }
 
 // Create a relocation entry for an address at a given location.
@@ -101,14 +137,11 @@ PolyWord PECOFFExport::createRelocation(PolyWord p, void *relocAddr)
 {
     IMAGE_RELOCATION reloc;
     // Set the offset within the section we're scanning.
-    setRelocationAddress(relocAddr, &reloc.VirtualAddress);
+    setRelocationAddress(relocAddr, &reloc);
     void *addr = p.AsAddress();
-    unsigned addrArea = findArea(addr);
-    POLYUNSIGNED offset = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
-    reloc.SymbolTableIndex = addrArea;
+    POLYUNSIGNED offset = setSymbolAndGetOffset(addr, &reloc);
     reloc.Type = DIRECT_WORD_RELOCATION;
-    fwrite(&reloc, sizeof(reloc), 1, exportFile);
-    relocationCount++;
+    writeRelocation(&reloc);
     return PolyWord::FromUnsigned(offset);
 }
 
@@ -145,44 +178,95 @@ void PECOFFExport::writeSymbol(const char *symbolName, __int32 value, int sectio
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
+void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code, intptr_t displacement)
 {
 #ifndef POLYML32IN64
     IMAGE_RELOCATION reloc;
-    PolyObject *p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code, displacement);
 
     if (p == 0)
         return;
 
-    void *a = p;
-    unsigned aArea = findArea(a);
+    setRelocationAddress(addr, &reloc);
+    POLYUNSIGNED offset = setSymbolAndGetOffset(p, &reloc);
 
-    // We don't need a relocation if this is relative to the current segment
-    // since the relative address will already be right.
-    if (code == PROCESS_RELOC_I386RELATIVE && aArea == findArea(addr))
-        return;
-
-    setRelocationAddress(addr, &reloc.VirtualAddress);
-    // Set the value at the address to the offset relative to the symbol.
-    uintptr_t offset = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
-    reloc.SymbolTableIndex = aArea;
-
-    // The value we store here is the offset whichever relocation method
-    // we're using.
-    unsigned maxSize = code == PROCESS_RELOC_I386RELATIVE ? 4: sizeof(PolyWord);
-    for (unsigned i = 0; i < maxSize; i++)
+    switch (code)
     {
-        addr[i] = (byte)(offset & 0xff);
-        offset >>= 8;
+    case PROCESS_RELOC_DIRECT:
+    {
+        // The value we store here is the offset whichever relocation method
+        // we're using.
+        for (unsigned i = 0; i < sizeof(PolyWord); i++)
+        {
+            addr[i] = (byte)(offset & 0xff);
+            offset >>= 8;
+        }
+        reloc.Type = DIRECT_WORD_RELOCATION;
+        writeRelocation(&reloc);
+        break;
     }
 
-    if (code == PROCESS_RELOC_I386RELATIVE)
+    case PROCESS_RELOC_I386RELATIVE:
+    {
+        // We don't need a relocation if this is relative to the current segment
+        // since the relative address will already be right.
+        if (findArea(p) == findArea(addr)) return;
+        for (unsigned i = 0; i < 4; i++)
+        {
+            addr[i] = (byte)(offset & 0xff);
+            offset >>= 8;
+        }
         reloc.Type = RELATIVE_32BIT_RELOCATION;
-    else
-        reloc.Type = DIRECT_WORD_RELOCATION;
+        writeRelocation(&reloc);
+        break;
+    }
 
-    fwrite(&reloc, sizeof(reloc), 1, exportFile);
-    relocationCount++;
+#if defined(HOSTARCHITECTURE_AARCH64)
+    case PROCESS_RELOC_ARM64ADRPLDR64:
+    case PROCESS_RELOC_ARM64ADRPLDR32:
+    case PROCESS_RELOC_ARM64ADRPADD:
+    {
+        // The first word is the ADRP, the second is LDR or ADD
+        setRelocationAddress(addr, &reloc);
+        reloc.Type = IMAGE_REL_ARM64_PAGEBASE_REL21;
+        writeRelocation(&reloc);
+        setRelocationAddress(addr+4, &reloc);
+        uint32_t* pt = (uint32_t*)addr;
+        uint32_t instr1 = pt[1];
+        int scale;
+        if ((instr1 & 0xfbc00000) == 0xf9400000)
+        {
+            reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
+            scale = 8; // LDR of 64-bit quantity
+        }
+        else if ((instr1 & 0xfbc00000) == 0xb9400000)
+        {
+            reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
+            scale = 4; // LDR of 32-bit quantity
+        }
+        else if ((instr1 & 0xff800000) == 0x91000000)
+        {
+            reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12A;
+            scale = 1;
+        }
+        writeRelocation(&reloc);
+        // There doesn't seem to be any documentation to say how to
+        // fill in the target.  It turns out that the offset relative to
+        // the symbol is encoded in the ADRP as a BYTE offset, despite the
+        // final value, after relocation, being a page offset.  The low-order
+        // bits of the offset are encoded in the LDR as a normal page offset.
+        ASSERT(offset <= 0x1fffff);
+
+        pt[0] = toARMInstr((fromARMInstr(pt[0]) & 0x9f00001f) | ((offset & 3) << 29) | ((offset >> 2) << 5));
+        pt[1] = toARMInstr((fromARMInstr(pt[1]) & 0xffc003ff) | (((offset & 0xfff) / scale) << 10));
+        break;
+    }
+#endif
+
+    default:
+        ASSERT(0); // Unknown code
+    }
+
 #endif
 }
 
@@ -201,7 +285,6 @@ void PECOFFExport::exportStore(void)
     IMAGE_FILE_HEADER fhdr;
     IMAGE_SECTION_HEADER *sections = 0;
     IMAGE_RELOCATION reloc;
-    unsigned i;
     // These are written out as the description of the data.
     exportDescription exports;
     time_t now = getBuildTime();
@@ -211,22 +294,20 @@ void PECOFFExport::exportStore(void)
     // Write out initial values for the headers.  These are overwritten at the end.
     // File header
     memset(&fhdr, 0, sizeof(fhdr));
-#if (SIZEOF_VOIDP == 8)
-    fhdr.Machine = IMAGE_FILE_MACHINE_AMD64; // x86-64
-#else
-    fhdr.Machine = IMAGE_FILE_MACHINE_I386; // i386
-#endif
+    fhdr.Machine = IMAGE_MACHINE_TYPE; // x86-64
     fhdr.NumberOfSections = memTableEntries+1; // One for each area plus one for the tables.
     fhdr.TimeDateStamp = (DWORD)now;
     //fhdr.NumberOfSymbols = memTableEntries+1; // One for each area plus "poly_exports"
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 
     // External symbols are added after the memory table entries and "poly_exports".
-    symbolNum = memTableEntries+1; // The first external symbol
+    symbolNum = 0;
 
     // Section headers.
-    for (i = 0; i < memTableEntries; i++)
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
+        symbolNum += (unsigned)((memTable[i].mtLength+ SYMBOLSPACING-1) / SYMBOLSPACING);
+
         memset(&sections[i], 0, sizeof(IMAGE_SECTION_HEADER));
         sections[i].SizeOfRawData = (DWORD)memTable[i].mtLength;
         sections[i].Characteristics = IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_8BYTES;
@@ -238,12 +319,15 @@ void PECOFFExport::exportStore(void)
             strcpy((char*)sections[i].Name, ".data");
             sections[i].Characteristics |= IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_INITIALIZED_DATA;
         }
+#ifndef CODEISNOTEXECUTABLE
+        // Not if we're building the interpreted version.
         else if (memTable[i].mtFlags & MTF_EXECUTABLE)
         {
             // Immutable data areas are marked as executable.
             strcpy((char*)sections[i].Name, ".text");
             sections[i].Characteristics |= IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE;
         }
+#endif
         else
         {
             // Immutable data areas are marked as executable.
@@ -251,6 +335,8 @@ void PECOFFExport::exportStore(void)
             sections[i].Characteristics |= IMAGE_SCN_CNT_INITIALIZED_DATA;
         }
     }
+    unsigned polyExportSymbol = symbolNum++; // Symbol for polyexports
+
     // Extra section for the tables.
     memset(&sections[memTableEntries], 0, sizeof(IMAGE_SECTION_HEADER));
     sprintf((char*)sections[memTableEntries].Name, ".data");
@@ -261,15 +347,10 @@ void PECOFFExport::exportStore(void)
 
     fwrite(sections, sizeof(IMAGE_SECTION_HEADER), memTableEntries+1, exportFile); // Write it for the moment.
 
-    for (i = 0; i < memTableEntries; i++)
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
-        // Relocations.  The first entry is special and is only used if
-        // we have more than 64k relocations.  It contains the number of relocations but is
-        // otherwise ignored.
         sections[i].PointerToRelocations = ftell(exportFile);
-        memset(&reloc, 0, sizeof(reloc));
-        fwrite(&reloc, sizeof(reloc), 1, exportFile);
-        relocationCount = 1;
+        relocationCount = 0;
 
         // Create the relocation table and turn all addresses into offsets.
         char *start = (char*)memTable[i].mtOriginalAddr;
@@ -279,22 +360,37 @@ void PECOFFExport::exportStore(void)
             p++;
             PolyObject *obj = (PolyObject*)p;
             POLYUNSIGNED length = obj->Length();
-            // Update any constants before processing the object
-            // We need that for relative jumps/calls in X86/64.
             if (length != 0 && obj->IsCodeObject())
-                machineDependent->ScanConstantsWithinCode(obj, this);
-            relocateObject(obj);
+            {
+                POLYUNSIGNED constCount;
+                PolyWord* cp;
+                // Get the constant area pointer first because ScanConstantsWithinCode
+                // may alter it.
+                machineDependent->GetConstSegmentForCode(obj, cp, constCount);
+                // Update any constants before processing the object
+                // We need that for relative jumps/calls in X86/64.
+                machineDependent->RelocateConstantsWithinCode(obj, this);
+                if (cp > (PolyWord*)obj && cp < ((PolyWord*)obj) + length)
+                {
+                    // Process the constants if they're in the area but not if they've been moved.
+                    for (POLYUNSIGNED i = 0; i < constCount; i++) relocateValue(&(cp[i]));
+                }
+            }
+            else relocateObject(obj);
             p += length;
         }
             // If there are more than 64k relocations set this bit and set the value to 64k-1.
         if (relocationCount >= 65535) {
+            // We're going to overwrite the first relocation so we have to write the
+            // copy we saved here.
+            writeRelocation(&firstRelocation); // Increments relocationCount
             sections[i].NumberOfRelocations = 65535;
             sections[i].Characteristics |= IMAGE_SCN_LNK_NRELOC_OVFL;
             // We have to go back and patch up the first (dummy) relocation entry
             // which contains the count.
             fseek(exportFile, sections[i].PointerToRelocations, SEEK_SET);
             memset(&reloc, 0, sizeof(reloc));
-            reloc.VirtualAddress = relocationCount;
+            reloc.RelocCount = relocationCount;
             fwrite(&reloc, sizeof(reloc), 1, exportFile);
             fseek(exportFile, 0, SEEK_END); // Return to the end of the file.
         }
@@ -310,23 +406,23 @@ void PECOFFExport::exportStore(void)
     // Address of "memTable" within "exports". We can't use createRelocation because
     // the position of the relocation is not in either the mutable or the immutable area.
     reloc.Type = DIRECT_WORD_RELOCATION;
-    reloc.SymbolTableIndex = memTableEntries; // Relative to poly_exports
+    reloc.SymbolTableIndex = polyExportSymbol; // Relative to poly_exports
     reloc.VirtualAddress = offsetof(exportDescription, memTable);
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
 
     // Address of "rootFunction" within "exports"
     reloc.Type = DIRECT_WORD_RELOCATION;
-    unsigned rootAddrArea = findArea(rootFunction);
-    reloc.SymbolTableIndex = rootAddrArea;
+    POLYUNSIGNED rootOffset = setSymbolAndGetOffset(rootFunction, &reloc);
     reloc.VirtualAddress = offsetof(exportDescription, rootFunction);
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
 
-    for (i = 0; i < memTableEntries; i++)
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
         reloc.Type = DIRECT_WORD_RELOCATION;
-        reloc.SymbolTableIndex = i; // Relative to base symbol
+        // Add 1 to the address before we start so that there is a valid address.
+        setSymbolAndGetOffset((PolyWord*)memTable[i].mtCurrentAddr + 1, &reloc); // The offset is always zero.
         reloc.VirtualAddress =
             sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtCurrentAddr);
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -337,7 +433,7 @@ void PECOFFExport::exportStore(void)
     sections[memTableEntries].NumberOfRelocations = relocationCount;
 
     // Now the binary data.
-    for (i = 0; i < memTableEntries; i++)
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
         sections[i].PointerToRawData = ftell(exportFile);
         fwrite(memTable[i].mtOriginalAddr, 1, memTable[i].mtLength, exportFile);
@@ -349,8 +445,8 @@ void PECOFFExport::exportStore(void)
     exports.memTableSize = sizeof(memoryTableEntry);
     exports.memTableEntries = memTableEntries;
     exports.memTable = (memoryTableEntry *)sizeof(exports); // It follows immediately after this.
-    exports.rootFunction = (void*)((char*)rootFunction - (char*)memTable[rootAddrArea].mtOriginalAddr);
-    exports.timeStamp = now;
+    exports.rootFunction = (void*)rootOffset; // Actual address is set by relocation
+    exports.execIdentifier = exportModId;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
 #ifdef POLYML32IN64
@@ -361,25 +457,39 @@ void PECOFFExport::exportStore(void)
 
     // Set the address values to zero before we write.  They will always
     // be relative to their base symbol.
-    for (i = 0; i < memTableEntries; i++)
+    for (unsigned i = 0; i < memTableEntries; i++)
         memTable[i].mtCurrentAddr = 0;
 
     fwrite(&exports, sizeof(exports), 1, exportFile);
-    fwrite(memTable, sizeof(memoryTableEntry), memTableEntries, exportFile);
+
+    for (unsigned i = 0; i < memTableEntries; i++)
+    {
+        memoryTableEntry memt;
+        memset(&memt, 0, sizeof(memt));
+        memt.mtCurrentAddr = memTable[i].mtCurrentAddr;
+        memt.mtOriginalAddr = memTable[i].mtOriginalAddr;
+        memt.mtLength = memTable[i].mtLength;
+        memt.mtFlags = memTable[i].mtFlags;
+        fwrite(&memt, sizeof(memoryTableEntry), 1, exportFile);
+    }
     // First the symbol table.  We have one entry for the exports and an additional
     // entry for each of the sections.
     fhdr.PointerToSymbolTable = ftell(exportFile);
 
     // The section numbers are one-based.  Zero indicates the "common" area.
     // First write symbols for each section and for poly_exports.
-    for (i = 0; i < memTableEntries; i++)
+    // For each section write symbols at regular intervals.
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
-        char buff[50];
-        sprintf(buff, "area%0d", i);
-        writeSymbol(buff, 0, i+1, false);
+        for (unsigned j = 0; j < (memTable[i].mtLength+SYMBOLSPACING-1) / SYMBOLSPACING; j++)
+        {
+            char buff[50];
+            sprintf(buff, "area%0dp%0d", i, j);
+            writeSymbol(buff, j * SYMBOLSPACING, i + 1, false);
+        }
     }
 
-    // Exported symbol for table.
+    // Exported symbol for table. The symbol refers to extra segment.
     writeSymbol("poly_exports", 0, memTableEntries+1, true);
 
     // External references.

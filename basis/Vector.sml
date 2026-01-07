@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Vector Structure
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005, 2016
+    Copyright   David Matthews 1999, 2005, 2016, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -33,9 +33,9 @@ local
     (* All the arrays are initially created containing zeros and then initialised. *)
     fun alloc len = RunCall.allocateWordMemory(Word.fromInt len, 0wx40, 0w0)
     
-    fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.loadWord (vecAsWord v, intAsWord i)
+    fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.loadWordFromImmutable (vecAsWord v, intAsWord i)
     and unsafeUpdate(v: 'a vector, i: int, new: 'a): unit =
-        RunCall.storeWord (vecAsWord v, intAsWord i, RunCall.unsafeCast new)
+        RunCall.storeWordInitialise (vecAsWord v, intAsWord i, RunCall.unsafeCast new)
 in
 
 structure Vector: VECTOR =
@@ -83,7 +83,7 @@ struct
         (* Copy the list elements into the vector. *)
         fun init (v, i, a :: l) =
             (
-            RunCall.storeWord(v, intAsWord i, RunCall.unsafeCast a);
+            RunCall.storeWordInitialise(v, intAsWord i, RunCall.unsafeCast a);
             init(v, i + 1, l)
             )
         |  init (_, _, []) = ();
@@ -102,7 +102,7 @@ struct
         (* Initialise it to the function values. *)
         fun init i = 
             if length <= i then ()
-            else (RunCall.storeWord(vec, intAsWord i, RunCall.unsafeCast(f i)); init(i+1))
+            else (RunCall.storeWordInitialise(vec, intAsWord i, RunCall.unsafeCast(f i)); init(i+1))
     in
         init 0;
         RunCall.clearMutableBit vec;

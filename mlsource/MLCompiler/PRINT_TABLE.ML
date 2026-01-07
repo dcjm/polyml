@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
     
-    Further development: Copyright David C.J. Matthews 2016
+    Further development: Copyright David C.J. Matthews 2016, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,9 +38,9 @@
 
       
 functor PRINT_TABLE (
-structure CODETREE: CODETREESIG
+structure CODETREE: CODETREE
 structure STRUCTVALS : STRUCTVALSIG
-structure PRETTY : PRETTYSIG
+structure PRETTY : PRETTY
 ): PRINTTABLESIG =
 
 struct
@@ -51,17 +51,16 @@ struct
 
   (* Create a ref to hold the list *)
   val overloadTable : overloadEntry list ref = ref []
-    
+
   (* The most recent ref refers to the current level of the hierarchy,
      so is the one we should update. *)
-  fun addOverload (name, cons, overload) = 
+  fun addOverload (name, cons as TypeConstrs {identifier=consId,...}, overload) = 
     let
         (* Remove any existing occurrences of the type. The only reason
            is to allow any existing function to be garbage-collected. *)
         fun filter [] = []
-          | filter ((this as (n, t, _)) :: rest) =
-                if n = name andalso
-                     sameTypeId (tcIdentifier cons, tcIdentifier t)
+          | filter ((this as (n,  TypeConstrs {identifier=tId,...}, _)) :: rest) =
+                if n = name andalso sameTypeId (consId, tId)
                 then filter rest
                 else this :: filter rest
     in
@@ -79,12 +78,11 @@ struct
   end;
 
   (* Return the first matching overload or call mkDefault.  *)
-  fun getOverload(name, constr, mkDefault) =
+  fun getOverload(name, TypeConstrs {identifier=consId,...}, mkDefault) =
   let
-      fun searchList []         = mkDefault()
-      |   searchList ((n,t,v)::rest) = 
-            if name = n andalso
-                sameTypeId (tcIdentifier constr, tcIdentifier t)
+      fun searchList [] = mkDefault()
+      |   searchList ((n, TypeConstrs {identifier=tId,...}, v)::rest) = 
+            if name = n andalso sameTypeId (consId, tId)
             then v else searchList rest
   in
       searchList (! overloadTable) 

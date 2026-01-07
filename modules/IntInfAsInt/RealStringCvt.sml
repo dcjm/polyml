@@ -97,7 +97,7 @@ in
     end
 end;
 
-useBasis "RealSignature.sml"; (* This uses IEEEReal and the new StringCvt and decimal_approx *)
+useBasis "REAL.sig"; (* This uses IEEEReal and the new StringCvt and decimal_approx *)
 structure Real: REAL = Real;
 structure LargeReal = Real;
 

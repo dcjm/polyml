@@ -30,7 +30,7 @@ typedef char TCHAR;
 #endif
 
 #include "noreturn.h"
-#include "../polyexports.h"
+#include "memmgr.h"
 
 extern struct _userOptions {
     unsigned    user_arg_count;
@@ -45,7 +45,7 @@ NORETURNFN(extern void finish(int n));
 
 extern char *RTSArgHelp(void);
 
-extern time_t exportTimeStamp;
+extern ModuleId exportSignature;
 
 #if (defined(_WIN32))
 extern int polymain(int argc, TCHAR **argv, exportDescription *exports);

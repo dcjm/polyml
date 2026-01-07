@@ -21,6 +21,8 @@
 #ifndef POLYSTRING_H
 #define POLYSTRING_H
 
+#include <string>
+
 #include "globals.h" // For PolyObject
 
 class SaveVecEntry;
@@ -40,12 +42,16 @@ inline POLYUNSIGNED PolyStringLength(PolyWord ps) { return ((PolyStringObject*)p
 // We often want to be able to allocate a temporary C string from a Poly string
 // and have it automatically deallocated when the context has been exited.
 
+// Functions to return std::string and std::wstring have now been added and this should
+// reduce the need for TempString and TempCString.
+
 extern PolyWord EmptyString(TaskData *mdTaskData);
 
 /* PolyStringObject functions */
 extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffLen = -1);
 extern POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen);
 extern char *Poly_string_to_C_alloc(PolyWord ps, size_t extraChars = 0);
+extern std::string PolyStringToCString(PolyWord ps);
 
 extern Handle convert_string_list(TaskData *mdTaskData, int count, char **strings);
 
@@ -78,14 +84,18 @@ extern bool setWindowsCodePage(const TCHAR *codePageArg);
 #define TCHAR char
 #endif
 
+#define std_tstring std::wstring
+
 extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer, size_t buffLen = -1);
 extern POLYUNSIGNED Poly_string_to_C(PolyWord ps, WCHAR *buff, POLYUNSIGNED bufflen);
 extern WCHAR *Poly_string_to_U_alloc(PolyWord ps, size_t extraChars = 0);
+extern std::wstring PolyStringToUString(PolyWord ps);
 
 extern Handle convert_string_list(TaskData *mdTaskData, int count, WCHAR **strings);
 
 // Poly_string_to_T_alloc returns a Unicode string in Unicode and char string otherwise.
 #define Poly_string_to_T_alloc  Poly_string_to_U_alloc
+#define PolyStringToTString PolyStringToUString
 
 // Unicode on Windows, character strings elsewhere.
 class TempString
@@ -105,14 +115,13 @@ private:
 #else
 #define Poly_string_to_T_alloc  Poly_string_to_C_alloc
 #define TempString TempCString
+#define std_tstring std::string
+#define PolyStringToTString PolyStringToCString
+
 #endif
 
 extern char **stringListToVector(Handle list);
 extern void freeStringVector(char **vec);
 extern void print_string(PolyWord s);
-
-// These should no longer be used in the RTS except internally.
-extern Handle strconcatc(TaskData *mdTaskData, Handle x, Handle y);
-
 
 #endif /* POLYSTRING_H */

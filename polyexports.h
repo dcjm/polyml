@@ -1,7 +1,7 @@
 /*
     Title:  polyexports.h 
 
-    Copyright (c) 2006, 2011, 2015, 2019 David C.J. Matthews
+    Copyright (c) 2006, 2011, 2015, 2019, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,11 +24,6 @@ This header contains the structures used in saved state created by "export".
 #ifndef _STANDALONE_H
 #define _STANDALONE_H 1
 
-// Get time_t
-#ifdef HAVE_TIME_H
-#include <time.h>
-#endif
-
 // Get uintptr_t
 #if HAVE_STDINT_H
 #  include <stdint.h>
@@ -49,13 +44,16 @@ This header contains the structures used in saved state created by "export".
 #  include <windows.h>
 #endif
 
+struct _moduleId {
+    uint32_t modA, modB;
+};
+
 // There are several entries 
 typedef struct _memTableEntry {
     void *mtCurrentAddr;             // The address of the area of memory
     void *mtOriginalAddr;            // The original address, for saved states and 32-in-64.
     uintptr_t mtLength;              // The length in bytes of the area
     unsigned mtFlags;               // Flags describing the area.
-    unsigned mtIndex;               // An index to identify permanent spaces.
 } memoryTableEntry;
 
 #define MTF_WRITEABLE         0x00000001  // The area is writeable by ML code
@@ -69,7 +67,7 @@ typedef struct _exportDescription {
     unsigned memTableEntries;      // The number of entries in the memory table
     memoryTableEntry *memTable;    // Pointer to the memory table.
     void *rootFunction;            // Points to the start-up function
-    time_t timeStamp;              // Creation time stamp
+    struct _moduleId execIdentifier;       // Identifier for executable - derived from hash
     unsigned architecture;         // Machine architecture
     unsigned rtsVersion;           // Run-time system version
     void *originalBaseAddr;        // Original base address (32-in-64 only)

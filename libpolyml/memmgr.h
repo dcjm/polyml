@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010-12, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-12, 2016-18, 2020, 2021, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,6 +24,7 @@
 #include "bitmap.h"
 #include "locking.h"
 #include "osmem.h"
+#include "../polyexports.h" // For struct _moduleId
 #include <vector>
 
 // utility conversion macros
@@ -80,7 +81,9 @@ public:
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
     OSMem           *allocator; // Used to free the area.  May be null.
-    
+
+    PolyWord        *shadowSpace; // Extra writable area for code if necessary
+
     uintptr_t spaceSize(void)const { return top-bottom; } // No of words
 
     // These next two are used in the GC to limit scanning for
@@ -90,22 +93,74 @@ public:
     // Used when printing debugging info
     virtual const char *spaceTypeString() { return isMutable ? "mutable" : "immutable"; }
 
+    // Return the writeable address if this is in read-only code.
+    byte* writeAble(byte* p) {
+        if (shadowSpace != 0)
+            return (p - (byte*)bottom + (byte*)shadowSpace);
+        else return p;
+    }
+
+    PolyWord* writeAble(PolyWord* p) {
+        if (shadowSpace != 0)
+            return (p - bottom + shadowSpace);
+        else return p;
+    }
+
+    PolyObject* writeAble(PolyObject* p) {
+        return (PolyObject*)writeAble((PolyWord *) p);
+    }
+
     friend class MemMgr;
 };
 
+// Wrapper class for struct _moduleId.  polyexport.h needs to be compatible with C.
+class ModuleId
+{
+public:
+    ModuleId() : modId({ 0,0 }) {}
+    ModuleId(uint32_t a, uint32_t b) : modId({ a,b }) {}
+    ModuleId(struct _moduleId m) : modId(m) {}
+
+    operator struct _moduleId() const { return modId; }
+
+    ModuleId& operator=(const struct _moduleId& c)
+    {
+        modId = c;
+        return *this;
+    }
+
+    bool operator==(const ModuleId& b) const
+    {
+        return modId.modA == b.modId.modA && modId.modB == b.modId.modB;
+    }
+    bool operator<(const ModuleId& b) const
+    {
+        return modId.modA < b.modId.modA || (modId.modA == b.modId.modA && modId.modB < b.modId.modB);
+    }
+    bool operator!=(const ModuleId& b) const
+    {
+        return !(*this == b);
+    }
+
+    struct _moduleId modId;
+};
+
+
 // Permanent memory space.  Either linked into the executable program or
-// loaded from a saved state file.
+// loaded from a saved state file or module.
 class PermanentMemSpace: public MemSpace
 {
 protected:
-    PermanentMemSpace(OSMem *alloc): MemSpace(alloc), index(0), hierarchy(0), noOverwrite(false),
-        byteOnly(false), topPointer(0) {}
+    PermanentMemSpace(OSMem *alloc): MemSpace(alloc), index(0), isWriteProtected(false), noOverwrite(false),
+        byteOnly(false), constArea(false), topPointer(0) {
+    }
 
 public:
     unsigned    index;      // An identifier for the space.  Used when saving and loading.
-    unsigned    hierarchy;  // The hierarchy number: 0=from executable, 1=top level saved state, ...
+    bool        isWriteProtected; // Immutable spaces in the executable are really write protected
     bool        noOverwrite; // Don't save this in deeper hierarchies.
     bool        byteOnly; // Only contains byte data - no need to scan for addresses.
+    bool        constArea; // Contains constants rather than code.  Special case for exporting PIE.
 
     // When exporting or saving state we copy data into a new area.
     // This area grows upwards unlike the local areas that grow down.
@@ -113,6 +168,8 @@ public:
 
     Bitmap      shareBitmap; // Used in sharedata
     Bitmap      profileCode; // Used when profiling
+
+    ModuleId    moduleIdentifier; // The identifier of the source module, usually the executable itself.
 
     friend class MemMgr;
 };
@@ -172,7 +229,7 @@ public:
 
 #ifdef POLYML32IN64
     // We will generally set a zero cell for alignment.
-    bool isEmpty(void)const { return allocatedSpace() <= 1; }
+    bool isEmpty(void)const { return allocatedSpace() <= POLYML32IN64-1; }
 #else
     bool isEmpty(void)const { return allocatedSpace() == 0; }
 #endif
@@ -202,7 +259,7 @@ public:
 class CodeSpace: public MarkableSpace
 {
     public:
-        CodeSpace(PolyWord *start, uintptr_t spaceSize, OSMem *alloc);
+    CodeSpace(PolyWord *start, PolyWord *shadow, uintptr_t spaceSize, OSMem *alloc);
 
     Bitmap  headerMap; // Map to find the headers during GC or profiling.
     uintptr_t largestFree; // The largest free space in the area
@@ -220,14 +277,13 @@ public:
     LocalMemSpace *CreateAllocationSpace(uintptr_t size);
     // Create and initialise a new local space and add it to the table.
     LocalMemSpace *NewLocalSpace(uintptr_t size, bool mut);
-    // Create an entry for a permanent space.
-    PermanentMemSpace *NewPermanentSpace(PolyWord *base, uintptr_t words,
-        unsigned flags, unsigned index, unsigned hierarchy = 0);
+    // Create an entry for a permanent space from the executable.
+    PermanentMemSpace *PermanentSpaceFromExecutable(PolyWord *base, uintptr_t words,
+        unsigned flags, unsigned index, ModuleId sourceModule);
 
     // Create a permanent space but allocate memory for it.
     // Sets bottom and top to the actual memory size.
-    PermanentMemSpace *AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags,
-                            unsigned index, unsigned hierarchy = 0);
+    PermanentMemSpace *AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, ModuleId sourceModule);
     // Called after an allocated permanent area has been filled in.
     bool CompletePermanentSpaceAllocation(PermanentMemSpace *space);
 
@@ -269,10 +325,10 @@ public:
     // Create and delete export spaces
     PermanentMemSpace *NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code);
     void DeleteExportSpaces(void);
-    bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
-    bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
+    bool PromoteNewExportSpaces(ModuleId newModId); // Turn export spaces into permanent spaces.
+    bool DemoteOldPermanentSpaces(ModuleId modId); // Turn any old permanent spaces with this ID into local spaces.
 
-    PermanentMemSpace *SpaceForIndex(unsigned index); // Return the space for a given index
+    PermanentMemSpace *SpaceForIndex(unsigned index, ModuleId modId); // Return the space for a given index
 
     // As a debugging check, write protect the immutable areas apart from during the GC.
     void ProtectImmutable(bool on);
@@ -299,6 +355,16 @@ public:
         return 0;
     }
 
+    // SpaceForAddress must NOT be applied to a PolyObject *.  That's because
+    // it works nearly all the time except when a zero-sized object is placed
+    // at the end of page.  Then the base address will be the start of the
+    // next page.
+    void SpaceForAddress(PolyObject *pt) {}
+
+    // Use this instead.
+    MemSpace* SpaceForObjectAddress(PolyObject* pt)
+        { return SpaceForAddress(((PolyWord*)pt) - 1); }
+
     // Find a local address for a space.
     // N.B.  The argument should generally be the length word.  See
     // comment on SpaceForAddress.
@@ -309,6 +375,13 @@ public:
             return (LocalMemSpace*)s;
         else return 0;
     }
+
+    // LocalSpaceForAddress must NOT be applied to PolyObject*.
+    // See comment on SpaceForAddress above.
+    void LocalSpaceForAddress(PolyObject* pt) {}
+
+    LocalMemSpace* LocalSpaceForObjectAddress(PolyObject* pt)
+        { return LocalSpaceForAddress(((PolyWord*)pt) - 1); }
 
     void SetReservation(uintptr_t words) { reservedSpace = words; }
 
@@ -396,7 +469,21 @@ private:
     void AddTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
     void RemoveTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
 
-    OSMem osHeapAlloc, osStackAlloc, osCodeAlloc;
+#ifdef POLYML32IN64
+    OSMemInRegion osHeapAlloc, osStackAlloc, osCodeAlloc;
+#else
+    OSMemUnrestricted osHeapAlloc, osStackAlloc;
+#if (defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64))
+    // On the X86/64 and the ARM64 we need to put the code in a 2GB area.
+    // This allows 32-bit relative displacements for branches in X86 and
+    // also ensures that if we split the constant area for PIC the offsets
+    // are within the range.
+    OSMemInRegion osCodeAlloc;
+#else
+    OSMemUnrestricted osCodeAlloc;
+#endif
+
+#endif
 };
 
 extern MemMgr gMem;

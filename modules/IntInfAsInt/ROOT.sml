@@ -93,6 +93,6 @@ local
 
     val startVal = [Universal.tagInject Tags.startupTag (fn () => RunCall.setDefaultIntTypeArbitrary true)]
 in
-    val () = saveModuleBasic("IntInfAsInt", structVals @ functorVals @ sigVals @ typeVals @ valueVals @ startVal)
+    val _ = saveModuleBasic("IntInfAsInt", structVals @ functorVals @ sigVals @ typeVals @ valueVals @ startVal)
 end;
 

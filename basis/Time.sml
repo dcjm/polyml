@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Time Signature and structure.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2017
+    Copyright   David Matthews 2000, 2005, 2017, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -58,17 +58,9 @@ struct
     type time = LargeInt.int (* Becomes abstract *)
     exception Time
 
-    local
-        val timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
-        fun timingGeneral(code: int, arg:'a):'b =
-            RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
-    in
-        fun callTiming (code: int) args = timingGeneral (code,args)
-    end
-
     (* Get the number of ticks per microsecond and compute the corresponding
        values for milliseconds and seconds. *)
-    val ticksPerMicrosecond = callTiming 0 0
+    val ticksPerMicrosecond = RunCall.rtsCallFull0 "PolyTimingTicksPerMicroSec" ()
     val ticksPerMillisecond = ticksPerMicrosecond * 1000
     val ticksPerSecond = ticksPerMillisecond * 1000
 
@@ -188,7 +180,11 @@ struct
     val op + : (time * time) -> time = LargeInt.+
     val op - : (time * time) -> time = LargeInt.-
 
-    fun now () = callTiming 1 0 handle RunCall.SysErr _ => raise Time
+    local
+        val getNow: unit -> time = RunCall.rtsCallFull0 "PolyTimingGetNow"
+    in
+        fun now () = getNow() handle RunCall.SysErr _ => raise Time
+    end
 
 end;
 

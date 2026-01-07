@@ -6,6 +6,8 @@ EXPORTS
 	DupNString
 	SumTree
 	ReturnR2
+    ReturnR4
+    ReturnR6
 	MakeCallback
 	MakeCallback2
 	MakeCallback3
@@ -13,3 +15,4 @@ EXPORTS
 	FreeIt
     UpdateArg
     ReturnFn
+	ManyArguments

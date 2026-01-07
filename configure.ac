@@ -1,9 +1,9 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT([Poly/ML],[5.8.1],[polyml AT polyml DOT org],[polyml])
+AC_INIT([Poly/ML],[5.9.2],[polyml AT polyml DOT org],[polyml])
 AM_INIT_AUTOMAKE
-AC_PREREQ(2.69)
+AC_PREREQ([2.72])
 # libtoolize recommends this line.
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -41,10 +41,19 @@ poly_need_macosopt=no
 case "${host_os}" in
     darwin*)
         AC_SUBST([OSFLAG], [-DMACOSX])
-        poly_need_macosopt=yes
         ;;
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
+        ;;
+    haiku*)
+        # Haiku error codes are negative by default; defining
+        # B_USE_POSITIVE_POSIX_ERRORS translates the constants on header
+        # files, and posix_error_mapper takes care of ensuring error
+        # codes are positive at runtime.
+        AC_CHECK_LIB([posix_error_mapper], [_errnop],
+            [AC_SUBST([OSFLAG], [-DB_USE_POSITIVE_POSIX_ERRORS])
+             LIBS="-lposix_error_mapper $LIBS"],
+            [AC_MSG_FAILURE([Cannot link against posix_error_mapper])])
         ;;
     *mingw* | *cygwin*)
         poly_no_undefined=yes
@@ -61,7 +70,7 @@ AM_MAINTAINER_MODE
 
 # Check we're in the right directory
 AC_CONFIG_SRCDIR([polyexports.h])
-AC_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADERS([config.h])
 
 
 # Checks for programs.
@@ -83,8 +92,6 @@ AM_PROG_AS
 AC_SYS_LARGEFILE
 
 # Checks for libraries.
-AC_CHECK_LIB(gcc, main)
-AC_CHECK_LIB(gcc_s, main)
 AC_CHECK_LIB(stdc++, main)
 
 # These can sometimes be in the standard libraries
@@ -103,17 +110,17 @@ fi
 
 AC_FUNC_ALLOCA
 AC_HEADER_DIRENT
-AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS([stdio.h time.h fcntl.h float.h limits.h locale.h malloc.h netdb.h netinet/in.h stddef.h])
 AC_CHECK_HEADERS([stdlib.h string.h sys/file.h sys/ioctl.h sys/param.h sys/socket.h sys/systeminfo.h])
 AC_CHECK_HEADERS([sys/time.h unistd.h values.h dlfcn.h signal.h ucontext.h])
 AC_CHECK_HEADERS([assert.h ctype.h direct.h errno.h excpt.h fenv.h fpu_control.h grp.h])
-AC_CHECK_HEADERS([ieeefp.h io.h math.h memory.h netinet/tcp.h poll.h pwd.h siginfo.h])
+AC_CHECK_HEADERS([ieeefp.h io.h math.h memory.h netinet/tcp.h arpa/inet.h poll.h pwd.h siginfo.h])
 AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
-AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h termios.h sys/termios.h sys/times.h])
+AC_CHECK_HEADERS([sys/sockio.h sys/stat.h termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
-AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h asm/elf.h machine/reloc.h])
+AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h machine/reloc.h i386/elf_machdep.h])
+AC_CHECK_HEADERS([mach-o/x86_64/reloc.h mach-o/arm64/reloc.h private/system/arch/x86_64/arch_elf.h])
 AC_CHECK_HEADERS([windows.h tchar.h semaphore.h])
 AC_CHECK_HEADERS([stdint.h inttypes.h])
 
@@ -152,38 +159,6 @@ if test "x$with_gmp" != "xno"; then
          fi
         ])
 fi
-
-# libffi
-# libffi must be configured even if we are not building with it so that things like "make dist" work.
-AC_CONFIG_SUBDIRS([libpolyml/libffi])
-# Use the internal version unless --with-system-libffi is given.
-AC_ARG_WITH([system-libffi],
-            [AS_HELP_STRING([--with-system-libffi],
-              [use the version of libffi installed on your system rather than the version supplied with poly @<:@default=no@:>@])],
-            [],
-            [with_system_libffi=no])
-
-# Libffi uses pkg-config.
-if test "x$with_system_libffi" = "xyes"; then
-    PKG_CHECK_MODULES([FFI], [libffi],
-        [LIBS="$FFI_LIBS $LIBS" CFLAGS="$FFI_CFLAGS $CFLAGS"],
-        [AC_CHECK_LIB([ffi], [ffi_prep_closure_loc],
-             [
-                 [LIBS="-lffi $LIBS"]
-                 AC_CHECK_HEADER([ffi.h], [],
-                     [ AC_MSG_FAILURE([--with-system-libffi was given, but ffi.h header file cannot be found]) ])
-             ],
-             [AC_MSG_FAILURE([--with-system-libffi was given, but the ffi library is not installed])]
-       )
-       ]
-    )
-else
-# Use internal libffi
-    CFLAGS="$CFLAGS -Ilibffi/include"
-    CXXFLAGS="$CXXFLAGS -Ilibffi/include"
-fi
-
-AM_CONDITIONAL([INTERNAL_LIBFFI], [test "x$with_system_libffi" != "xyes"])
 
 # Special configuration for Windows or Unix.
 poly_windows_enablegui=false
@@ -227,9 +202,9 @@ else
             AC_MSG_FAILURE([pthread library is not installed])
         ])
 
-    # Solaris needs -lsocket, -lnsl and -lrt
+    # Solaris needs -lsocket, -lnsl and -lrt, Haiku needs -lnetwork
     AC_SEARCH_LIBS([gethostbyname], [nsl])
-    AC_SEARCH_LIBS([getsockopt], [socket])
+    AC_SEARCH_LIBS([getsockopt], [socket network])
     AC_SEARCH_LIBS([sem_wait], [rt])
 
     # Check for X and Motif headers and libraries
@@ -319,7 +294,6 @@ AC_TYPE_OFF_T
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 AC_TYPE_SSIZE_T
-AC_HEADER_TIME
 AC_STRUCT_TM
 
 # Check for the various sub-second fields of the stat structure.
@@ -337,6 +311,10 @@ AC_CHECK_TYPES([SYSTEM_LOGICAL_PROCESSOR_INFORMATION],,,[#include "windows.h"])
 
 AC_CHECK_TYPES(long long)
 AC_CHECK_TYPES(ssize_t)
+AC_CHECK_TYPES([ptrdiff_t], [],
+  [AC_DEFINE_UNQUOTED([ptrdiff_t], [int],
+     [Define to `int' if <sys/types.h> does not define.])])
+
 
 AC_CHECK_SIZEOF(void*)
 AC_CHECK_SIZEOF(long)
@@ -351,7 +329,6 @@ AC_C_BIGENDIAN
 AC_FUNC_ERROR_AT_LINE
 AC_FUNC_GETGROUPS
 AC_FUNC_GETPGRP
-AC_PROG_GCC_TRADITIONAL
 AC_FUNC_SELECT_ARGTYPES
 AC_FUNC_STAT
 AC_FUNC_STRTOD
@@ -362,6 +339,7 @@ AC_CHECK_FUNCS([sysctl sysctlbyname])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
 AC_CHECK_FUNCS([ctermid tcdrain])
 AC_CHECK_FUNCS([_ftelli64])
+AC_CHECK_FUNCS([pthread_jit_write_protect_np])
 
 # Where are the registers when we get a signal?  Used in time profiling.
 #Linux:
@@ -408,6 +386,16 @@ case "${host_cpu}" in
                 polyarch=interpret
             fi
             ;;
+      aarch64* | arm*)
+            # MacOS seems to return "arm" on 64-bit ARM.
+            if test X"$ac_cv_sizeof_voidp" = X8; then
+                AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64-bit)])
+                polyarch=aarch64
+            else
+                AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32-bit)])
+                polyarch=interpret
+            fi
+            ;;
       sparc64*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC64], [1], [Define if the host is a Sparc (64-bit)])
             polyarch=interpret
@@ -422,14 +410,6 @@ case "${host_cpu}" in
             ;;
       power* | ppc*)
             AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a PowerPC (32-bit)])
-            polyarch=interpret
-            ;;
-      arm*)
-            AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32-bit)])
-            polyarch=interpret
-            ;;
-      aarch64*)
-            AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64-bit)])
             polyarch=interpret
             ;;
       hppa*)
@@ -481,6 +461,10 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_RISCV64], [1], [Define if the host is a RISC-V (64-bit)])
             polyarch=interpret
             ;;
+      loongarch64)
+            AC_DEFINE([HOSTARCHITECTURE_LOONGARCH64], [1], [Define if the host is a LoongArch (64-bit)])
+            polyarch=interpret
+            ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 
@@ -501,29 +485,41 @@ if test "x$with_portable" = "xno" ; then
     fi
 fi
 
-if test "x$polyarch" != "xinterpret" ; then
-# Check for .note.GNU-stack support, used for marking the stack as non-executable.
-# Only do this check if we're using the native X86 versions.  We don't need this if
-# we're using the interpreter and the assembler on other architectures may choke.
-    AC_MSG_CHECKING([whether as supports .note.GNU-stack])
-    AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[__asm__(".section .note.GNU-stack,\"\",@progbits");]])],
-        [AC_MSG_RESULT([yes])] [AC_DEFINE([HAVE_GNU_STACK], [1],
-            [Define to 1 if you have .note.GNU-stack support in the assembler.])],
-        [AC_MSG_RESULT([no])])
+# Check for libffi only if we're building the interpreted version
+if test "x$polyarch" = "xinterpret" ; then
+    AC_CHECK_LIB([ffi], [ffi_prep_closure_loc])
+    AC_CHECK_HEADERS([ffi.h])
+fi
+
+if test  X"$ac_cv_sizeof_voidp" = X8 ; then
+    bootstrap64="yes"
+else
+    bootstrap64="no"
 fi
 
 # Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
 AC_ARG_ENABLE([compact32bit],
         [AS_HELP_STRING([--enable-compact32bit],
             [use 32-bit values rather than native 64-bits.])])
+AC_ARG_ENABLE([compact32bit_large],
+	[AS_HELP_STRING([--enable-compact32bit_large],
+            [use 32-bit values with a larger heap size.])])
 
-if test "x$enable_compact32bit" = "xyes"; then
-    if test X"$polyarch" = "Xx86_64" ; then
-        AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
-        polyarch=x86_32in64
+
+if test "x$enable_compact32bit_large" = "xyes"; then
+    if test X"$ac_cv_sizeof_voidp" = X8 ; then
+        AC_DEFINE([POLYML32IN64], [4], [Define if this should use 32-bit values in 64-bit architectures and set to the unit size])
+        bootstrap64="no"
     else
-        AC_MSG_ERROR([--enable-compact32bit is only available on X86/64])
-   fi
+        AC_MSG_ERROR([--enable-compact32bit is only available on a 64-bit architecture])
+    fi
+elif test "x$enable_compact32bit" = "xyes"; then
+    if test X"$ac_cv_sizeof_voidp" = X8 ; then
+        AC_DEFINE([POLYML32IN64], [2], [Define if this should use 32-bit values in 64-bit architectures and set to the unit size])
+        bootstrap64="no"
+    else
+        AC_MSG_ERROR([--enable-compact32bit is only available on a 64-bit architecture])
+    fi
 fi
 
 # Put this test at the end where it's less likely to be missed.
@@ -547,9 +543,10 @@ fi
 
 AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
 AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
-AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4])
-AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8])
-AM_CONDITIONAL([ARCHX8632IN64], [test "$polyarch" = x86_32in64])
+AM_CONDITIONAL([ARCHARM_64], [test "$polyarch" = aarch64])
+AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret])
+# Are we bootstrapping from the 32-bit or 64-bit pre-built compiler?
+AM_CONDITIONAL([BOOT64], [test "$bootstrap64" = yes])
 # If we are targeting Windows rather than *nix we need the pre=built compiler with Windows conventions.
 AM_CONDITIONAL([WINDOWSCALLCONV], [test "$poly_use_windowscc" = yes])
 
@@ -557,8 +554,6 @@ AM_CONDITIONAL([WINDOWSCALLCONV], [test "$poly_use_windowscc" = yes])
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 AM_CONDITIONAL([WINDOWSGUI], [test x$poly_windows_enablegui = xtrue])
-
-AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
 
 # If we're building only the static version of libpolyml
 # then polyc and polyml.pc have to include the dependent libraries.

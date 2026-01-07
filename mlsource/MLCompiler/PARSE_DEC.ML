@@ -125,20 +125,7 @@ sharing type
 sharing type
   LEX.lexan
 = PARSETYPE.lexan
-) : 
-
-(*****************************************************************************)
-(*                  PARSEDEC export signature                                *)
-(*****************************************************************************)
-sig
-  type lexan;
-  type symset;
-  type fixStatus;
-  type program
-  
-  val parseDec: symset * lexan * { enterFix:  string * fixStatus -> unit,
-                                   lookupFix: string -> fixStatus option } -> program;
-end =
+) : PARSEDECSIG =
 
 (*****************************************************************************)
 (*                  PARSEDEC functor body                                    *)
@@ -226,8 +213,26 @@ struct
      size name > 1 andalso String.str(String.sub(name, 1)) = "'";
 
  (* Global declarations *)
-   
- fun parseDec (fsys, lex, {enterFix, lookupFix}) : program =
+
+ type fixes =
+     { enterFix:  string * fixStatus -> unit,
+       lookupFix: string -> fixStatus option }
+
+ type params =
+     { recordPunning: bool }
+
+ local
+
+     fun assertIdentNotNumericLabel (lex : lexan) (ident : string) (errMessage : string) : unit =
+     if 0 < size ident
+         andalso String.str(String.sub(ident, 0)) >= "1"
+         andalso String.str(String.sub(ident, 0)) <= "9"
+     then errorMessage (lex, location lex, errMessage)
+     else ();
+
+ in
+
+ fun parseDec (fsys, lex, {enterFix, lookupFix}, {recordPunning}) : program =
  let
    (* These procedures to parse type declarations are used in both
       signature and expression parsing. *)
@@ -898,12 +903,7 @@ struct
                                             |   _ =>(* sugared form - label is also identifier *)
                                                 (
                                                     (* Sugared form not allowed for numeric labels. *)
-                                                    if 0 < size ident
-                                                        andalso String.str(String.sub(ident, 0)) >= "1" 
-                                                        andalso String.str(String.sub(ident, 0)) <= "9"
-                                                    then errorMessage (lex, location lex,
-                                                        " = pat expected after numeric label")
-                                                    else ();
+                                                    assertIdentNotNumericLabel lex ident " = pat expected after numeric label";
                                                     (* May have constraint and/or be layered. *)
                                                     constraintOrLayered (mkIdent (ident, idLoc), idLoc) fsys
                                                 )
@@ -1111,8 +1111,23 @@ struct
                                 let
                                     val (ident, idLoc) = getLabel (fsys ++ equalsSign, lex);
                                     val () = #enter dupCheck (ident, idLoc) (* Check for dups. *)
-                                    val () = getsym (SYMBOLS.EqualsSign, lex);
-                                    val (labExp, labLoc) = expression (fsys ++ commaRightCurlySy) env
+                                    val (labExp, labLoc) =
+                                        case sy lex of
+                                            EqualsSign => (* Simple case -- lab = expression *)
+                                            (
+                                                getsym (SYMBOLS.EqualsSign, lex);
+                                                expression (fsys ++ commaRightCurlySy) env
+                                            )
+                                        |   _ =>
+                                            (
+                                                if recordPunning then (* sugared form - label is also variable symbol *)
+                                                    ()
+                                                else
+                                                    errorMessage (lex, location lex, " = expr expected after label. If you want to use record punning, please specify it in the parser's parameters.");
+                                                (* Sugared form not allowed for numeric labels. *)
+                                                assertIdentNotNumericLabel lex ident " = expr expected after numeric label";
+                                                (mkIdent (ident, idLoc), idLoc)
+                                            )
                                     val locs = locSpan(idLoc, labLoc)
                                 in
                                     (mkLabelRecEntry(ident, idLoc, labExp, locs), locs)
@@ -2254,6 +2269,8 @@ in (* body of parseDec *)
         mkProgram([mkTopDec aDec], locSpan(startLoc, location lex))
     end
 end; (* parseDec *)
+
+end
 
 end (* PARSEDEC *);
 

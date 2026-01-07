@@ -1,7 +1,7 @@
 (*
     Title:      Install a pretty printer for the exn type
     Author:     David Matthews
-    Copyright   David Matthews 2009, 2016
+    Copyright   David Matthews 2009, 2016, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -50,10 +50,10 @@ local
             case exn of
                 RunCall.Conversion s => stringException(exnName, s)
             |   Fail s => stringException(exnName, s)
-            |   RunCall.Foreign s => stringException(exnName, s)
+            |   Foreign.Foreign s => stringException(exnName, s)
             |   RunCall.Thread s => stringException(exnName, s)
             |   RunCall.XWindows s => stringException(exnName, s)
-            |   OS.SysErr param =>
+            |   LibrarySupport.SysErr param =>
                     parameterException("SysErr",
                         if depth <= 1 then PrettyString "..." else PolyML.prettyRepresentation(param, depth-1))
             |   _ => (* Anything else is nullary. *)

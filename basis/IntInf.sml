@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: IntInf structure and signature.
-    Copyright   David Matthews 2000, 2016-17
+    Copyright   David Matthews 2000, 2016-17, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,6 +34,8 @@ structure IntInf : INT_INF =
 struct
     type int = LargeInt.int
     
+    val largeIntToWord: int -> word = RunCall.unsafeCast (* Masked out by signature *)
+
     val quotRem = LibrarySupport.quotRem
 
     fun divMod (x, y) =
@@ -50,47 +52,44 @@ struct
 
     (* Return the position of the highest bit set in the value. *)
     local
-        val isShort: int -> bool = RunCall.isShort
-        fun loadByte(l: LargeInt.int, i: Int.int):word = RunCall.loadByteFromImmutable(l, Word.fromInt i)
-        val segLength: LargeInt.int -> Int.int = Word.toInt o RunCall.memoryCellLength
-
-        (* Compute log2 for a short value.  The top bit of i will always be
-           zero since we've checked that it's positive so it will always
-           terminate. *)
-        fun log2Word(i: word, j: word, n: Int.int) =
-            if Word.>(j, i) then n-1
-            else log2Word(i, Word.<<(j, 0w1), n+1)
-
-        (* The value is represented as little-endian byte segment.
-           High-order bytes may be zero so we work back until we
-           find a non-zero byte and then find the bit-position
-           within it. *)
-        fun log2Long(i, byte) =
-        let
-            val b = loadByte(i, byte)
-        in
-            if b = 0w0 then log2Long(i, byte-1)
-            else log2Word(b, 0w2, 1) + byte*8
-        end
-            
+        val log2Long: int -> Int.int = RunCall.rtsCallFast1 "PolyLog2Arbitrary";
     in
         fun log2 (i: int) : Int.int =
             if i <= 0 then raise Domain
-            else if isShort i
-            then log2Word(Word.fromLargeInt i, 0w2, 1)
-            else (* i is actually a pointer to a byte segment. *)
-            let
-                val bytes = segLength i * Word.toInt RunCall.bytesPerWord
-            in
-               log2Long(i, bytes-1)
-            end
+            else if LibrarySupport.largeIntIsSmall i
+            then Word.toInt(LibrarySupport.log2Word(largeIntToWord i))
+            else log2Long i
     end
 
+    local
     (* These are implemented in the RTS. *)
-    val orb  : int * int -> int = RunCall.rtsCallFull2 "PolyOrArbitrary"
-    and xorb : int * int -> int = RunCall.rtsCallFull2 "PolyXorArbitrary"
-    and andb : int * int -> int = RunCall.rtsCallFull2 "PolyAndArbitrary"
-
+        val orbFn  : int * int -> int = RunCall.rtsCallFull2 "PolyOrArbitrary"
+        and xorbFn : int * int -> int = RunCall.rtsCallFull2 "PolyXorArbitrary"
+        and andbFn : int * int -> int = RunCall.rtsCallFull2 "PolyAndArbitrary"
+        
+        open LibrarySupport
+    in
+        (* Handle the short cases using the word operations.
+           The special cases of or-ing with a short negative value
+           and and-ing with a short positive also always produce short
+           results but extracting the low-order word from the long-format
+           argument involves an RTS call so it's not worthwhile. *)
+        fun orb(i, j) =
+            if largeIntIsSmall i andalso largeIntIsSmall j
+            then Word.toLargeIntX(Word.orb(largeIntToWord i, largeIntToWord j))
+            else orbFn(i, j)
+        
+        fun andb(i, j) =
+            if largeIntIsSmall i andalso largeIntIsSmall j
+            then Word.toLargeIntX(Word.andb(largeIntToWord i, largeIntToWord j))
+            else andbFn(i, j)
+        
+        fun xorb(i, j) =
+            if largeIntIsSmall i andalso largeIntIsSmall j
+            then Word.toLargeIntX(Word.xorb(largeIntToWord i, largeIntToWord j))
+            else xorbFn(i, j)
+    end
+    
     (* notb is defined as ~ (i+1) and there doesn't seem to be much advantage
        in implementing it any other way. *)
     fun notb i = ~(i + 1)
@@ -125,20 +124,26 @@ struct
             else if i = 1 then 1
             else raise Size
     end
-
-    (* These could be implemented in the RTS although I doubt if it's
-       really worth it. *)
+    
     local
-        val maxShift = Word.fromInt Word.wordSize
-        val fullShift = pow(2, Word.wordSize)
+        val shiftR: LargeInt.int * word -> LargeInt.int = RunCall.rtsCallFull2 "PolyShiftRightArbitrary"
+        and shiftL: LargeInt.int * word -> LargeInt.int = RunCall.rtsCallFull2 "PolyShiftLeftArbitrary"
+        val maxShortShift = LibrarySupport.wordSize * 0w8 - 0w2
     in
         fun << (i: int, j: Word.word) =
-           if j < maxShift
-           then i * Word.toLargeInt(Word.<<(0w1, j))
-           else <<(i * fullShift, j-maxShift)
+            (* We can use a word shift provided the value is short and will not shift any bits out or
+               into the sign bit.  This will only work for positive integers.  It would be possible
+               to use this for negative integers by negating the argument and the result. *)
+            if i = 0 orelse j = 0w0 then i
+            else if LibrarySupport.largeIntIsSmall i andalso LibrarySupport.log2Word(largeIntToWord i) + j < maxShortShift
+            then Word.toLargeIntX(Word.<<(largeIntToWord i, j))
+            else shiftL(i, j)
+
+        fun ~>> (i: int, j: Word.word) =
+            if LibrarySupport.largeIntIsSmall i
+            then Word.toLargeIntX(Word.~>>(largeIntToWord i, j))
+            else shiftR(i, j)
     end
-    
-    fun ~>> (i: int, j: Word.word) = LargeInt.div(i, pow(2, Word.toInt j))
 
     open LargeInt (* Inherit everything from LargeInt.  Do this last because it overrides the overloaded functions. *)
 end;

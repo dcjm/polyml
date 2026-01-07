@@ -61,3 +61,10 @@ check(Real32.unordered(pNan, pNan));
 check(Real32.unordered(mNan, 1.0));
 check(Real32.unordered(1.0, mNan));
 check(Real32.unordered(mNan, mNan));
+
+(* Additional checks from issue 183.  These were previously wrong because the code
+   converted to Real. *)
+check(Real32.fmt StringCvt.EXACT 0.1 = "0.1");
+check(Real32.fmt StringCvt.EXACT 0.100000002 = "0.1");
+check(Real32.fmt StringCvt.EXACT 0.100000007 = "0.10000001");
+

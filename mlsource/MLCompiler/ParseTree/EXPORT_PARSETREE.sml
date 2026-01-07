@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016 David C.J. Matthews
+    Copyright (c) 2013, 2016, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,7 +38,7 @@ functor EXPORT_PARSETREE (
     structure STRUCTVALS : STRUCTVALSIG
     structure EXPORTTREE: EXPORTTREESIG
     structure TYPETREE : TYPETREESIG
-    structure DEBUGGER : DEBUGGERSIG
+    structure DEBUGGER : DEBUGGER
 
     sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing
            = EXPORTTREE.Sharing = BASEPARSETREE.Sharing = PRINTTREE.Sharing
@@ -66,13 +66,14 @@ struct
         datatype lType = DataT of datatypebind | TypeB of typebind | Decl of parsetree * breakPoint option ref
        
         (* Common code for datatypes, abstypes and type bindings. *)
-        fun exportTypeBinding(navigation, this as DataT(DatatypeBind{name, nameLoc, fullLoc, constrs, tcon=ref(TypeConstrSet(tcon, _)), ...})) =
+        fun exportTypeBinding(navigation,
+                this as DataT(DatatypeBind{name, nameLoc, fullLoc, constrs, tcon=ref(TypeConstrSet(TypeConstrs {locations, ...}, _)), ...})) =
             let
                 fun asParent () = exportTypeBinding(navigation, this)
                 (* Ignore any type variables before the type name. *)
                 fun getName () =
                     getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getConstrs}, name, nameLoc, 
-                                    definingLocationProps(tcLocations tcon))
+                                    definingLocationProps locations)
                 and getConstrs () =
                     let
                         fun exportConstrs(navigation, {constrName, idLocn, constrVal=ref(Value{locations, ...}), ... }) =
@@ -88,13 +89,13 @@ struct
             end
 
         |   exportTypeBinding(navigation,
-                this as TypeB(TypeBind{name, nameLoc, decType = SOME decType, fullLoc, tcon=ref(TypeConstrSet(tcon, _)), ...})) =
+                this as TypeB(TypeBind{name, nameLoc, decType = SOME decType, fullLoc, tcon=ref(TypeConstrSet(TypeConstrs {locations, ...}, _)), ...})) =
             let
                 fun asParent () = exportTypeBinding(navigation, this)
                 (* Ignore any type variables before the type name. *)
                 fun getName () =
                     getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getType}, name, nameLoc,
-                        definingLocationProps(tcLocations tcon))
+                        definingLocationProps locations)
                 and getType () =
                     typeExportTree({parent=SOME asParent, previous=SOME getName, next=NONE}, decType)
             in
@@ -103,14 +104,14 @@ struct
 
            (* TypeBind is also used in a signature in which case decType could be NONE. *)
         |   exportTypeBinding(navigation,
-                this as TypeB(TypeBind{name, nameLoc, decType = NONE, fullLoc, tcon=ref(TypeConstrSet(tcon, _)), ...})) =
+                this as TypeB(TypeBind{name, nameLoc, decType = NONE, fullLoc, tcon=ref(TypeConstrSet(TypeConstrs {locations, ...}, _)), ...})) =
             let
                 fun asParent () = exportTypeBinding(navigation, this)
                 (* Ignore any type variables before the type name. *)
                 (* Retain this as a child entry in case we decide to add the type vars later. *)
                 fun getName () =
                     getStringAsTree({parent=SOME asParent, previous=NONE, next=NONE}, name, nameLoc,
-                        definingLocationProps(tcLocations tcon))
+                        definingLocationProps locations)
             in
                 (fullLoc, PTfirstChild getName :: exportNavigationProps navigation)
             end
@@ -144,20 +145,13 @@ struct
         end
     in
         case p of
-            Ident{location, expType=ref expType, value, possible, name, ...} =>
+            Ident{location, expType=ref expType, value, possible, ...} =>
             let
                 (* Include the type and declaration properties if these
                    have been set. *)
                 val (decProp, references, possProp) =
                     case value of
-                        ref (Value{name = "<undefined>", ...}) =>
-                        let
-                            (* Generate possible completions.  For the moment just consider
-                               simple prefixes. *)
-                            val completions = List.filter (String.isPrefix name) (! possible ())
-                        in
-                            ([], NONE, [PTcompletions completions])
-                        end
+                        ref (Value{name = "<undefined>", ...}) => ([], NONE, [PTcompletions (! possible ())])
                     |   ref (Value{locations, references, ...}) =>
                         let
                             (* If this is in a pattern it could be the defining location of the id.

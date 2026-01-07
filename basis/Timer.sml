@@ -45,17 +45,10 @@ struct
 
     local
         open Time
-
-        local
-            val timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
-        in
-            fun doCall(code: int, arg:'a):'b =
-                RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
-        end
-        fun getUserTime() = doCall(7, ())
-        and getSysTime() = doCall(8, ())
-        and getGCUTime() = doCall(9, ())
-        and getGCSTime() = doCall(13, ())
+        val getUserTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetUser"
+        and getSysTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetSystem"
+        and getGCUTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetGCUser"
+        and getGCSTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetGCSystem"
     in
         fun startCPUTimer () =
             {userTime=getUserTime(),
@@ -76,9 +69,10 @@ struct
                 { gc = { usr = gc_usr, sys = gc_sys },
                   nongc = { usr = usr-gc_usr, sys = sys-gc_sys } }
             end
+        
+        val startRealTimer: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetReal"
 
         fun totalRealTimer() = Time.zeroTime
-        and startRealTimer() = doCall(10, ())
         and checkRealTimer t = startRealTimer() - t
     end
 

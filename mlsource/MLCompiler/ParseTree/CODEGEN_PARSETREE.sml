@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015 David C.J. Matthews
+    Copyright (c) 2013-2015, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,9 +21,6 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development:
-    Copyright (c) 2000-13 David C.J. Matthews
-
     Title:      Parse Tree Structure and Operations.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
     Copyright   Cambridge University 1985
@@ -36,14 +33,14 @@ functor CODEGEN_PARSETREE (
     structure EXPORTTREE: ExportParsetreeSig
     structure MATCHCOMPILER: MatchCompilerSig
     structure LEX : LEXSIG
-    structure CODETREE : CODETREESIG
-    structure DEBUGGER : DEBUGGERSIG
+    structure CODETREE : CODETREE
+    structure DEBUGGER : DEBUGGER
     structure TYPETREE : TYPETREESIG
     structure TYPEIDCODE: TYPEIDCODESIG
     structure STRUCTVALS : STRUCTVALSIG
     structure VALUEOPS : VALUEOPSSIG
     structure DATATYPEREP: DATATYPEREPSIG
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
 
     structure MISC :
     sig
@@ -280,6 +277,13 @@ struct
     (* Create an entry in the static environment for the function. *)
 (*    fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
         DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)*)
+
+    fun valName (Value{name, ...}) = name
+    fun valTypeOf (Value{typeOf, ...}) = typeOf
+
+    fun isConstructor (Value{class=Constructor _, ...}) = true
+    |   isConstructor (Value{class=Exception, ...})     = true
+    |   isConstructor _                                  = false;
 
     (* Find all the variables declared by each pattern. *)
     fun getVariablesInPatt (Ident {value = ref ident, ...}, varl) =
@@ -1004,8 +1008,11 @@ struct
             (* The debugging environment for the declarations should include
                the constructors but the result shouldn't.  For the moment
                ignore the constructors. *)
+            fun tcEquality(TypeConstrSet(TypeConstrs {identifier,...}, _)) = isEquality identifier
+            fun tcSetEquality(TypeConstrs {identifier,...}, eq) = setEquality(identifier, eq)
+
             val typeCons = List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-            val eqStatus = if isAbsType then absEq else List.map (tcEquality o tsConstr) typeCons
+            val eqStatus = if isAbsType then absEq else List.map tcEquality typeCons
 
             local
                 fun getConstrCode(DatatypeBind {tcon = ref (tc as TypeConstrSet(_, constrs)), typeVars, ...}, eqStatus) =
@@ -1066,7 +1073,7 @@ struct
             (* Mark these in the type value cache.  If they are used in subsequent polymorphic IDs
                we must create them after this. *)
             val newTypeVarMap =
-                markTypeConstructors(List.map tsConstr typeCons, mkAddr, level, typeVarMap)
+                markTypeConstructors(List.map (fn TypeConstrSet(ts, _) => ts) typeCons, mkAddr, level, typeVarMap)
 
             (* Process the with..end part. We have to restore the equality attribute for abstypes
                here in case getPolymorphism requires it. *)
@@ -1284,7 +1291,7 @@ struct
                             in
                                 if resTupleSize = 1
                                 then parms @ polyParms
-                                else parms @ polyParms @ [GeneralType]
+                                else parms @ polyParms @ [ContainerType resTupleSize]
                             end
                         |    makeArgs(parms, t::ts) = makeArgs (t @ parms, ts)
                     in
@@ -1467,7 +1474,7 @@ struct
                             in
                                 (mkEnv(
                                     [mkContainer(containerAddr, resTupleSize,
-                                       mkCall(loadInnerFun, parms @ polyParms @ [(loadContainer, GeneralType)], GeneralType))],
+                                       mkCall(loadInnerFun, parms @ polyParms @ [(loadContainer, ContainerType resTupleSize)], GeneralType))],
                                     mkTupleFromContainer(containerAddr, resTupleSize)),
                                  containerAddr+1 (* One local *))
                             end

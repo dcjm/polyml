@@ -62,3 +62,5 @@ let val v = Word8Array.fromList [0w1,0w2,0w3] in check(fn () => v = v) end;
 check (fn () => Word8Array.fromList [0w1,0w2,0w3] <> Word8Array.fromList [0w1,0w2,0w3]);
 check (fn () => Word8Array.fromList [0w1,0w3,0w3] <> Word8Array.fromList [0w1,0w2,0w3]);
 
+check (fn () => Vector.concat[Vector.fromList[1], Vector.fromList[2,3], Vector.fromList[4]] = Vector.fromList[1,2,3,4]);
+

@@ -1,7 +1,7 @@
 /*
     Title:      Quick copying garbage collector
 
-    Copyright (c) 2011-12, 2016-17 David C. J. Matthews
+    Copyright (c) 2011-12, 2016-17, 2019, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -56,6 +56,7 @@ these has filled up it fails and a full garbage collection must be done.
 #include "heapsizing.h"
 #include "gctaskfarm.h"
 #include "statistics.h"
+#include "gc_progress.h"
 
 // This protects access to the gMem.lSpace table.
 static PLock localTableLock("Minor GC tables");
@@ -154,24 +155,8 @@ static bool atomiclySetForwarding(LocalMemSpace *space, ptrasint *pt, ptrasint t
     uintptr_t result = InterlockedCompareExchange(address, update, testVal);
     return result == testVal;
 # endif
-#elif((defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X32) || defined(POLYML32IN64)) && defined(__GNUC__))
-    uintptr_t result;
-    __asm__ __volatile__ (
-        "lock; cmpxchgl %1,%2"
-        :"=a"(result)
-        :"r"(update),"m"(pt[-1]),"0"(testVal)
-        :"memory", "cc"
-    );
-    return result == testVal;
-#elif(defined(HOSTARCHITECTURE_X86_64) && defined(__GNUC__))
-    uintptr_t result;
-    __asm__ __volatile__ (
-        "lock; cmpxchgq %1,%2"
-        :"=a"(result)
-        :"r"(update),"m"(pt[-1]),"0"(testVal)
-        :"memory", "cc"
-    );
-    return result == testVal;
+#elif (defined(__GNUC__))
+    return __sync_bool_compare_and_swap(pt - 1, testVal, update);
 #else
     // Fallback on other targets.
     PLocker lock(&space->spaceLock);
@@ -192,7 +177,6 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     if (lSpace == 0)
         return 0; // Unable to move it.
     PolyObject *newObject = (PolyObject*)(lSpace->lowerAllocPtr+1);
-
     // It's possible that another thread may have actually copied the 
     // object since we loaded the length word so we check it again.
     // If this is a mutable we must ensure that checking the forwarding
@@ -228,15 +212,11 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
         }
         else obj->SetForwardingPtr(newObject);
     }
-
     lSpace->lowerAllocPtr += n+1;
 #ifdef POLYML32IN64
-    // Maintain the odd-word alignment of lowerAllocPtr
-    if ((n & 1) == 0 && lSpace->lowerAllocPtr < lSpace->upperAllocPtr)
-    {
-        *lSpace->lowerAllocPtr = PolyWord::FromUnsigned(0);
-        lSpace->lowerAllocPtr++;
-    }
+    // Maintain the correct alignment of lowerAllocPtr
+    while (lSpace->lowerAllocPtr < lSpace->upperAllocPtr && ((lSpace->lowerAllocPtr - (PolyWord*)0) & (POLYML32IN64 - 1)) != POLYML32IN64 - 1)
+        *lSpace->lowerAllocPtr++ = PolyWord::FromUnsigned(0);
 #endif
     CopyObjectToNewAddress(obj, newObject, L);
     objectCopied = true;
@@ -410,7 +390,7 @@ PolyObject *QuickGCScanner::ScanObjectAddress(PolyObject *base)
 #ifdef POLYML32IN64
     // If this is a code address we can't turn it into a PolyWord.
     // Check that it's a local address.
-    MemSpace *space = gMem.SpaceForAddress((PolyWord*)base - 1);
+    MemSpace *space = gMem.SpaceForObjectAddress(base);
     ASSERT(space != 0);
     if (space->spaceType != ST_LOCAL)
         return base;
@@ -480,9 +460,9 @@ void ThreadScanner::ScanOwnedAreas()
                     while (p < mid)
                     {
 #ifdef POLYML32IN64
-                        if ((((uintptr_t)p) & 4) == 0)
+                        if (((p-(PolyWord*)0) & (POLYML32IN64-1)) != POLYML32IN64 - 1)
                         {
-                            p++; // Should be on an odd-word boundary
+                            p++; // Should be on the correct boundary 
                             continue;
                         }
 #endif
@@ -501,14 +481,16 @@ void ThreadScanner::ScanOwnedAreas()
                             break;
                     }
                 }
-                PolyObject *obj = (PolyObject*)(space->partialGCScan+1);
+
 #ifdef POLYML32IN64
-                if ((((uintptr_t)obj) & 4) != 0)  // Should be on an even-word boundary
+                // Align so that the cell starts on the correct boundary
+                if (((space->partialGCScan - (PolyWord*)0) & (POLYML32IN64 - 1)) != POLYML32IN64 - 1)
                 {
                     space->partialGCScan++;
                     continue;
                 }
 #endif
+                PolyObject* obj = (PolyObject*)(space->partialGCScan + 1);
                 ASSERT(obj->ContainsNormalLengthWord());
                 POLYUNSIGNED length = obj->Length();
                 ASSERT(space->partialGCScan+length+1 <= space->lowerAllocPtr);
@@ -522,6 +504,10 @@ void ThreadScanner::ScanOwnedAreas()
         }
     }
     // Release the spaces we're holding in case another thread wants to use them.
+    // Take the table lock before releasing them.  This is necessary on the ARM
+    // to act as a write barrier so that writes to the spaces and the space
+    // structure itself are seen by another thread that takes ownership.
+    PLocker l(&localTableLock);
     for (unsigned m = 0; m < nOwnedSpaces; m++)
     {
         LocalMemSpace *space = spaceTable[m];
@@ -540,6 +526,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
     globalStats.incCount(PSC_GC_PARTIALGC);
     mainThreadPhase = MTP_GCQUICK;
     succeeded = true;
+    gcProgressBeginMinorGC();
 
     if (debugOptions & DEBUG_GC)
         Log("GC: Beginning quick GC\n");
@@ -668,11 +655,10 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
             uintptr_t free;
             if (lSpace->allocationSpace)
             {
-#ifdef POLYML32IN64
-                lSpace->lowerAllocPtr = lSpace->bottom + 1;
-                lSpace->lowerAllocPtr[-1] = PolyWord::FromUnsigned(0);
-#else
                 lSpace->lowerAllocPtr = lSpace->bottom;
+#ifdef POLYML32IN64
+                for (unsigned i = 0; i < POLYML32IN64-1; i++)
+                    *(lSpace->lowerAllocPtr++) = PolyWord::FromUnsigned(0);
 #endif
                 free = lSpace->freeSpace();
 #ifdef FILL_UNUSED_MEMORY

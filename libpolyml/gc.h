@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further development Copyright David C.J. Matthews 2010, 2019
+    Further development Copyright David C.J. Matthews 2010, 2019, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -49,8 +49,6 @@ extern GCTaskFarm *gpTaskFarm;
 extern void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POLYUNSIGNED L);
 
 extern bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate);
-
-extern void GCSetSingleThreadAfterFork();
 
 // GC Phases.
 extern void GCSharingPhase(void);

@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: LargeInt and FixedInt structures
-    Copyright   David C.J. Matthews 1999, 2016
+    Copyright   David C.J. Matthews 1999, 2016, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -149,7 +149,7 @@ struct
                     let
                         val res = allocString(chars+0w1)
                     in
-                        RunCall.storeByte(res, wordSize, #"~");
+                        RunCall.storeByteInitialise(res, wordSize, #"~");
                         (res, wordSize+0w1)
                     end
                     else (* Positive *) (allocString chars, wordSize)
@@ -159,7 +159,7 @@ struct
                     val (result, pos) = toCharGroup(continuation, chars + pad)
                     fun addZeros n =
                         if n = pad then ()
-                        else (RunCall.storeByte(result, pos+n, #"0"); addZeros(n+0w1))
+                        else (RunCall.storeByteInitialise(result, pos+n, #"0"); addZeros(n+0w1))
                 in
                     addZeros 0w0;
                     (result, pos+pad)
@@ -175,7 +175,7 @@ struct
                     val (result, pos) =
                         toChars(i div base, chars+0w1, continuation, pad-0w1)
                 in
-                    RunCall.storeByte(result, pos, ch);
+                    RunCall.storeByteInitialise(result, pos, ch);
                     (result, pos+0w1)
                 end
 

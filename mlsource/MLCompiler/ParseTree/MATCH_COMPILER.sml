@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,9 +21,6 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development:
-    Copyright (c) 2000-13 David C.J. Matthews
-
     Title:      Parse Tree Structure and Operations.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
     Copyright   Cambridge University 1985
@@ -34,14 +31,14 @@ functor MATCH_COMPILER (
     structure BASEPARSETREE : BaseParseTreeSig
     structure PRINTTREE: PrintParsetreeSig
     structure LEX : LEXSIG
-    structure CODETREE : CODETREESIG
-    structure DEBUGGER : DEBUGGERSIG
+    structure CODETREE : CODETREE
+    structure DEBUGGER : DEBUGGER
     structure TYPETREE : TYPETREESIG
     structure TYPEIDCODE: TYPEIDCODESIG
     structure STRUCTVALS : STRUCTVALSIG
     structure VALUEOPS : VALUEOPSSIG
     structure DATATYPEREP: DATATYPEREPSIG
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
 
 
     structure MISC :
@@ -297,14 +294,14 @@ struct
                 makeAot(Cons([cr], noOfConstrs), defaults, vars)
             end
 
-        |   addConstr(cons, _, doArg, tree as Aot {patts = Cons(pl, width), defaults, vars}, patNo, polyVars) =
+        |   addConstr(cons as Value{name=consName, ...}, _, doArg, tree as Aot {patts = Cons(pl, width), defaults, vars}, patNo, polyVars) =
             let
                 (* Merge this constructor with other occurences. *)
                 fun addClist [] = (* Not there - add this on the end. *)
                     [makeConsrec(cons, singleton patNo, doArg (wild tree), polyVars)]
           
-                |   addClist ((ccl as {constructor, patts, appliedTo, ... })::ccls) =
-                    if valName constructor = valName cons
+                |   addClist ((ccl as {constructor=Value{name=cName, ...}, patts, appliedTo, ... })::ccls) =
+                    if cName = consName
                     then (* Merge in. *)
                         makeConsrec(cons, singleton patNo plus patts, doArg appliedTo, polyVars)
                             :: ccls
@@ -510,7 +507,8 @@ struct
                 e.g [1,2,3] becomes ::(1, ::(2, ::(3, nil))). *)
                 (* Get the base type. *)
                 val elementType = mkTypeVar (generalisable, false, false, false)
-                val listType = mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
+                val TypeConstrSet(tsConstr, _) = listConstr
+                val listType = mkTypeConstruction ("list", tsConstr, [elementType], [DeclaredAt inBasis])
                 val _ = unifyTypes(listType, expType)
                 val polyVars = [elementType]
 
@@ -552,10 +550,10 @@ struct
                    for this type to plug into the code.  Literals are overloaded
                    so this may require first resolving the overload to the
                    preferred type. *)
-                val constr = typeConstrFromOverload(expType, true)
+                val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload(expType, true)
                 val equality =
                     equalityForType(
-                        mkTypeConstruction(tcName constr, constr, [], []), level,
+                        mkTypeConstruction(tcName, constr, [], []), level,
                         defaultTypeVarMap(fn _ => raise InternalError "equalityForType", baseLevel) (* Should never be used. *))
                 val litValue: machineWord option =
                     getLiteralValue(converter, literal, expType, fn s => errorNear(lex, true, vars, location, s))

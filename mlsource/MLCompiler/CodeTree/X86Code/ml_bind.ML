@@ -18,104 +18,103 @@
 local
 
     structure X86OutputCode =
-        X86OUTPUTCODE(
-            structure DEBUG   = Debug
-            structure PRETTY  = Pretty
-            structure CODE_ARRAY = CODE_ARRAY
+        X86OutputCode(
+            structure Debug   = Debug
+            structure Pretty  = Pretty
+            structure CodeArray = CodeArray
         )
 
     structure X86Optimise =
-        X86OPTIMISE(
-            structure X86CODE = X86OutputCode
+        X86CodeOptimise(
+            structure X86Code = X86OutputCode
         )
 
     structure X86ForeignCall =
-        X86FOREIGNCALL (
-            structure DEBUG         = Debug
-            structure X86CODE       = X86OutputCode
-            structure X86OPTIMISE   = X86Optimise
-            structure CODE_ARRAY    = CODE_ARRAY
+        X86ForeignCall (
+            structure X86Code       = X86OutputCode
+            structure X86Optimise   = X86Optimise
+            structure CodeArray     = CodeArray
         )
 
     structure X86ICode =
         X86ICode (
-            structure X86CODE       = X86OutputCode
+            structure X86Code       = X86OutputCode
         )
 
     structure X86ICodeIdentify =
         X86ICodeIdentifyReferences (
-            structure DEBUG         = Debug
-            structure ICODE         = X86ICode
-            structure INTSET        = IntSet
+            structure Debug         = Debug
+            structure X86ICode         = X86ICode
+            structure IntSet        = IntSet
         )
 
     structure X86ICodeConflicts =
         X86ICodeGetConflictSets (
-            structure ICODE         = X86ICode
-            structure INTSET        = IntSet
-            structure IDENTIFY      = X86ICodeIdentify
+            structure X86ICode      = X86ICode
+            structure IntSet        = IntSet
+            structure Identify      = X86ICodeIdentify
         )
 
     structure X86PushRegs =
         X86PushRegisters (
-            structure ICODE         = X86ICode
-            structure INTSET        = IntSet
-            structure IDENTIFY      = X86ICodeIdentify
+            structure X86ICode      = X86ICode
+            structure IntSet        = IntSet
+            structure Identify      = X86ICodeIdentify
         )
 
     structure X86Opt =
         X86ICodeOptimise (
-            structure ICODE         = X86ICode
-            structure INTSET        = IntSet
-            structure IDENTIFY      = X86ICodeIdentify
-            structure X86CODE       = X86OutputCode
-            structure DEBUG         = Debug
-            structure PRETTY        = Pretty
+            structure X86ICode         = X86ICode
+            structure IntSet        = IntSet
+            structure Identify      = X86ICodeIdentify
+            structure X86Code       = X86OutputCode
+            structure Debug         = Debug
+            structure Pretty        = Pretty
         )
 
     structure X86IAllocate =
         X86AllocateRegisters (
-            structure ICODE         = X86ICode
-            structure IDENTIFY      = X86ICodeIdentify
-            structure CONFLICTSETS  = X86ICodeConflicts
-            structure INTSET        = IntSet
+            structure X86ICode         = X86ICode
+            structure Identify      = X86ICodeIdentify
+            structure ConflictSets  = X86ICodeConflicts
+            structure IntSet        = IntSet
         )
 
     structure X86ICodeGenerate =
         X86ICodeToX86Code (
-            structure DEBUG         = Debug
-            structure ICODE         = X86ICode
-            structure IDENTIFY      = X86ICodeIdentify
-            structure PRETTY        = Pretty
-            structure INTSET        = IntSet
-            structure X86CODE       = X86OutputCode
-            structure X86OPTIMISE   = X86Optimise
-            structure STRONGLY      = StronglyConnected
+            structure Debug         = Debug
+            structure X86ICode      = X86ICode
+            structure Identify      = X86ICodeIdentify
+            structure Pretty        = Pretty
+            structure IntSet        = IntSet
+            structure X86Code       = X86OutputCode
+            structure X86Optimise   = X86Optimise
+            structure Strongly      = StronglyConnected
         )
         
     structure X86ICodeTransform =
         X86ICodeTransform (
-            structure DEBUG         = Debug
-            structure ICODE         = X86ICode
-            structure IDENTIFY      = X86ICodeIdentify
-            structure CONFLICTSETS  = X86ICodeConflicts
-            structure ALLOCATE      = X86IAllocate
-            structure PUSHREGISTERS = X86PushRegs
-            structure OPTIMISE      = X86Opt
-            structure PRETTY        = Pretty
-            structure INTSET        = IntSet
-            structure CODEGEN       = X86ICodeGenerate
+            structure Debug         = Debug
+            structure X86ICode         = X86ICode
+            structure Identify      = X86ICodeIdentify
+            structure ConflictSets  = X86ICodeConflicts
+            structure Allocate      = X86IAllocate
+            structure PushRegisters = X86PushRegs
+            structure Optimise      = X86Opt
+            structure Pretty        = Pretty
+            structure IntSet        = IntSet
+            structure Codegen       = X86ICodeGenerate
         )
 in
 
     structure X86Code = 
         X86CodetreeToICode (
-            structure BACKENDTREE   = BackendIntermediateCode
-            structure DEBUG         = Debug
-            structure ICODE         = X86ICode
-            structure X86FOREIGN    = X86ForeignCall
-            structure ICODETRANSFORM = X86ICodeTransform
-            structure CODE_ARRAY    = CODE_ARRAY
+            structure BackEndTree   = BackendIntermediateCode
+            structure Debug         = Debug
+            structure X86ICode         = X86ICode
+            structure X86Foreign    = X86ForeignCall
+            structure ICodeTransform = X86ICodeTransform
+            structure CodeArray    = CodeArray
         )
 
 end;

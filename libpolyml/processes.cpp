@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008,2013-15, 2017, 2019 David C.J. Matthews
+    Copyright (c) 2007,2008,2013-15, 2017, 2019-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -125,24 +125,24 @@
 #include "exporter.h"
 #include "statistics.h"
 #include "rtsentry.h"
+#include "gc_progress.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(PolyObject *threadId, PolyWord lockArg, PolyWord timeArg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyWord attrs, PolyWord stack);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexBlock(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWait(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(POLYUNSIGNED threadId, POLYUNSIGNED lockArg, POLYUNSIGNED timeArg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(POLYUNSIGNED targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(POLYUNSIGNED threadId, POLYUNSIGNED function, POLYUNSIGNED attrs, POLYUNSIGNED stack);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(POLYUNSIGNED targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(POLYUNSIGNED targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(POLYUNSIGNED targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(POLYUNSIGNED threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumProcessors();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumPhysicalProcessors();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(POLYUNSIGNED threadId, POLYUNSIGNED newSize);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -161,7 +161,6 @@ extern "C" {
 
 struct _entrypts processesEPT[] =
 {
-    { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
     { "PolyThreadKillSelf",             (polyRTSFunction)&PolyThreadKillSelf},
     { "PolyThreadMutexBlock",           (polyRTSFunction)&PolyThreadMutexBlock},
     { "PolyThreadMutexUnlock",          (polyRTSFunction)&PolyThreadMutexUnlock},
@@ -185,9 +184,11 @@ class Processes: public ProcessExternal, public RtsModule
 {
 public:
     Processes();
+    // RtsModule overrides
     virtual void Init(void);
     virtual void Stop(void);
-    void GarbageCollect(ScanAddress *process);
+    virtual void GarbageCollect(ScanAddress *process);
+    virtual void ForkChild(void) { singleThreaded = true;  } // After a Unix fork this is single threaded
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);
@@ -201,14 +202,10 @@ public:
     // Return the task data for the current thread.
     virtual TaskData *GetTaskDataForThread(void);
     // Create a new task data object for the current thread.
-    virtual TaskData *CreateNewTaskData(Handle threadId, Handle threadFunction,
-                           Handle args, PolyWord flags);
-    // ForkFromRTS.  Creates a new thread from within the RTS.
-    virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg);
+    virtual TaskData *CreateNewTaskData();
     // Create a new thread.  The "args" argument is only used for threads
     // created in the RTS by the signal handler.
-    Handle ForkThread(TaskData *taskData, Handle threadFunction,
-                    Handle args, PolyWord flags, PolyWord stacksize);
+    Handle ForkThread(TaskData *taskData, Handle threadFunction, PolyWord flags, PolyWord stacksize);
     // Process general RTS requests from ML.
     Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
@@ -265,8 +262,6 @@ public:
     // woken up by the signal detection thread.
     virtual bool WaitForSignal(TaskData *taskData, PLock *sigLock);
     virtual void SignalArrived(void);
-
-    virtual void SetSingleThreaded(void) { singleThreaded = true; }
 
     // Operations on mutexes
     void MutexBlock(TaskData *taskData, Handle hMutex);
@@ -349,33 +344,7 @@ static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
     return UNTAGGED_UNSIGNED(taskData->threadObject->flags);
 }
 
-// General interface to thread.  Ideally the various cases will be made into
-// separate functions.
-POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(code);
-    Handle pushedArg = taskData->saveVec.push(arg);
-    Handle result = 0;
-
-    try {
-        result = processesModule.ThreadDispatch(taskData, pushedArg, pushedCode);
-    }
-    catch (KillException &) {
-        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
-    }
-    catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
-POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadMutexBlock(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -399,7 +368,7 @@ POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg)
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadMutexUnlock(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadMutexUnlock(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -430,9 +399,9 @@ void Processes::MutexBlock(TaskData *taskData, Handle hMutex)
     PLocker lock(&schedLock);
     // We have to check the value again with schedLock held rather than
     // simply waiting because otherwise the unlocking thread could have
-    // set the variable back to 1 (unlocked) and signalled any waiters
+    // set the variable back to 0 (unlocked) and signalled any waiters
     // before we actually got to wait.  
-    if (UNTAGGED(DEREFHANDLE(hMutex)->Get(0)) < 0)
+    if (UNTAGGED(DEREFHANDLE(hMutex)->Get(0)) > 1)
     {
         // Set this so we can see what we're blocked on.
         taskData->blockMutex = DEREFHANDLE(hMutex);
@@ -468,7 +437,7 @@ void Processes::MutexBlock(TaskData *taskData, Handle hMutex)
     // immediately.  Perhaps we do that whenever we exit from the RTS.
 }
 
-/* Unlock a mutex.  Called after incrementing the count and discovering
+/* Unlock a mutex.  Called after decrementing the count and discovering
    that at least one other thread has tried to lock it.  We may need
    to wake up threads that are blocked. */
 void Processes::MutexUnlock(TaskData *taskData, Handle hMutex)
@@ -489,7 +458,7 @@ void Processes::MutexUnlock(TaskData *taskData, Handle hMutex)
     }
 }
 
-POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadCondVarWait(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -510,7 +479,7 @@ POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg)
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadCondVarWaitUntil(PolyObject *threadId, PolyWord lockArg, PolyWord timeArg)
+POLYUNSIGNED PolyThreadCondVarWaitUntil(POLYUNSIGNED threadId, POLYUNSIGNED lockArg, POLYUNSIGNED timeArg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -544,10 +513,8 @@ void Processes::WaitInfinite(TaskData *taskData, Handle hMutex)
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->AtomicIncrement(hMutex);
-    if (UNTAGGED(decrResult->Word()) != 1)
+    if (! taskData->AtomicallyReleaseMutex(hMutex->WordP()))
     {
-        taskData->AtomicReset(hMutex);
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
         for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
@@ -594,10 +561,8 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->AtomicIncrement(hMutex);
-    if (UNTAGGED(decrResult->Word()) != 1)
+    if (!taskData->AtomicallyReleaseMutex(hMutex->WordP()))
     {
-        taskData->AtomicReset(hMutex);
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
         for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
@@ -642,29 +607,29 @@ bool Processes::WakeThread(PolyObject *targetThread)
     return result;
 }
 
-POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread)
+POLYUNSIGNED PolyThreadCondVarWake(POLYUNSIGNED targetThread)
 {
-    if (processesModule.WakeThread(targetThread.AsObjPtr()))
+    if (processesModule.WakeThread(PolyWord::FromUnsigned(targetThread).AsObjPtr()))
         return TAGGED(1).AsUnsigned();
     else return TAGGED(0).AsUnsigned();
 }
 
 // Test if a thread is active.
-POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread)
+POLYUNSIGNED PolyThreadIsActive(POLYUNSIGNED targetThread)
 {
     // There's a race here: the thread may be exiting but since we're not doing
     // anything with the TaskData object we don't need a lock.
-    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
+    TaskData *p = processesModule.TaskForIdentifier(PolyWord::FromUnsigned(targetThread).AsObjPtr());
     if (p != 0) return TAGGED(1).AsUnsigned();
     else return TAGGED(0).AsUnsigned();
 }
 
 // Send an interrupt to a specific thread
-POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread)
+POLYUNSIGNED PolyThreadInterruptThread(POLYUNSIGNED targetThread)
 {
     // Must lock here because the thread may be exiting.
     processesModule.schedLock.Lock();
-    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
+    TaskData *p = processesModule.TaskForIdentifier(PolyWord::FromUnsigned(targetThread).AsObjPtr());
     if (p) processesModule.MakeRequest(p, kRequestInterrupt);
     processesModule.schedLock.Unlock();
     // If the thread cannot be identified return false.
@@ -674,10 +639,10 @@ POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread)
 }
 
 // Kill a specific thread
-POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread)
+POLYUNSIGNED PolyThreadKillThread(POLYUNSIGNED targetThread)
 {
     processesModule.schedLock.Lock();
-    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
+    TaskData *p = processesModule.TaskForIdentifier(PolyWord::FromUnsigned(targetThread).AsObjPtr());
     if (p) processesModule.MakeRequest(p, kRequestKill);
     processesModule.schedLock.Unlock();
     // If the thread cannot be identified return false.
@@ -686,13 +651,13 @@ POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread)
     else return TAGGED(1).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadBroadcastInterrupt(PolyObject * /*threadId*/)
+POLYUNSIGNED PolyThreadBroadcastInterrupt(POLYUNSIGNED /*threadId*/)
 {
     processesModule.BroadcastInterrupt();
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId)
+POLYUNSIGNED PolyThreadTestInterrupt(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -732,12 +697,13 @@ POLYUNSIGNED PolyThreadNumPhysicalProcessors(void)
 }
 
 // Set the maximum stack size.
-POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize)
+POLYUNSIGNED PolyThreadMaxStackSize(POLYUNSIGNED threadId, POLYUNSIGNED newSizeU)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
+    PolyWord newSize = PolyWord::FromUnsigned(newSizeU);
 
     try {
             taskData->threadObject->mlStackSize = newSize;
@@ -776,8 +742,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
         return SAVE(TAGGED(0));
 
     case 7: // Fork a new thread.  The arguments are the function to run and the attributes.
-            return ForkThread(ptaskData, SAVE(args->WordP()->Get(0)),
-                        (Handle)0, args->WordP()->Get(1),
+            return ForkThread(ptaskData, SAVE(args->WordP()->Get(0)), args->WordP()->Get(1),
                         // For backwards compatibility we check the length here
                         args->WordP()->Length() <= 2 ? TAGGED(0) : args->WordP()->Get(2));
 
@@ -788,7 +753,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     default:
         {
             char msg[100];
-            sprintf(msg, "Unknown thread function: %u", c);
+            snprintf(msg, sizeof(msg), "Unknown thread function: %u", c);
             raise_fail(taskData, msg);
             return 0;
         }
@@ -806,7 +771,7 @@ void TaskData::FillUnusedSpace(void)
 
 TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
         stack(0), threadObject(0), signalStack(0),
-        inML(false), requests(kRequestNone), blockMutex(0), inMLHeap(false),
+        requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
 #ifdef HAVE_WINDOWS_H
@@ -983,7 +948,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
 {
     bool triedInterrupt = false;
 #ifdef POLYML32IN64
-    if (words & 1) words++; // Must always be an even number of words.
+    words = (words + POLYML32IN64 - 1) & (-POLYML32IN64); // Must be on correct boundary.
 #endif
 
     while (1)
@@ -995,9 +960,12 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
             // There's space in the current segment,
             taskData->allocPointer -= words;
 #ifdef POLYML32IN64
-            // Zero the last word.  If we've rounded up an odd number the caller won't set it.
-            if (words != 0) taskData->allocPointer[words-1] = PolyWord::FromUnsigned(0);
-            ASSERT((uintptr_t)taskData->allocPointer & 4); // Must be odd-word aligned
+            // Zero the last words.  If we've rounded up the caller won't set them.
+            for (unsigned i = 0; i < POLYML32IN64 && words != 0; i++)
+            {
+                taskData->allocPointer[--words] = PolyWord::FromUnsigned(0);
+            }
+            ASSERT(((taskData->allocPointer - (PolyWord*)0) & (POLYML32IN64 - 1)) == (POLYML32IN64 - 1)); // Must be odd-word aligned
 #endif
             return taskData->allocPointer;
         }
@@ -1030,7 +998,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     // Actually allocate the object
                     taskData->allocPointer -= words;
 #ifdef POLYML32IN64
-                    ASSERT((uintptr_t)taskData->allocPointer & 4); // Must be odd-word aligned
+                    ASSERT(((taskData->allocPointer - (PolyWord*)0) & (POLYML32IN64 - 1)) == (POLYML32IN64 - 1)); // Must be odd-word aligned
 #endif
                     return taskData->allocPointer;
                 }
@@ -1104,7 +1072,7 @@ Handle exitThread(TaskData *taskData)
 }
 
 // Terminate the current thread.  Never returns.
-POLYUNSIGNED PolyThreadKillSelf(PolyObject *threadId)
+POLYUNSIGNED PolyThreadKillSelf(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1159,6 +1127,8 @@ Waiter *Waiter::defaultWaiter = &defWait;
 void WaitHandle::Wait(unsigned maxMillisecs)
 {
     // Wait until we get input or we're woken up.
+    if (maxMillisecs > m_maxWait)
+        maxMillisecs = m_maxWait;
     if (m_Handle == NULL)
         Sleep(maxMillisecs);
     else WaitForSingleObject(m_Handle, maxMillisecs);
@@ -1196,8 +1166,7 @@ TaskData *Processes::GetTaskDataForThread(void)
 // Called to create a task data object in the current thread.
 // This is currently only used if a thread created in foreign code calls
 // a callback.
-TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
-                           Handle args, PolyWord flags)
+TaskData *Processes::CreateNewTaskData()
 {
     TaskData *taskData = machineDependent->CreateTaskData();
 #if defined(HAVE_WINDOWS_H)
@@ -1238,28 +1207,21 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
 
     // TODO:  Check that there isn't a problem if we try to allocate
     // memory here and result in a GC.
-    taskData->InitStackFrame(taskData, threadFunction, args);
+    taskData->InitStackFrame(taskData, 0);
 
     ThreadUseMLMemory(taskData);
 
-    // If the forking thread has created an ML thread object use that
-    // otherwise create a new one in the current context.
-    if (threadId != 0)
-        taskData->threadObject = (ThreadObject*)threadId->WordP();
-    else
-    {
-        // Make a thread reference to point to this taskData object.
-        Handle threadRef = MakeVolatileWord(taskData, taskData);
-        // Make a thread object.  Since it's in the thread table it can't be garbage collected.
-        taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject)/sizeof(PolyWord), F_MUTABLE_BIT);
-        taskData->threadObject->threadRef = threadRef->Word();
-        taskData->threadObject->flags = flags != TAGGED(0) ? TAGGED(PFLAG_SYNCH): flags;
-        taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
-        taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
-        taskData->threadObject->mlStackSize = TAGGED(0); // Unlimited stack size
-        for (unsigned i = 0; i < sizeof(taskData->threadObject->debuggerSlots)/sizeof(PolyWord); i++)
-            taskData->threadObject->debuggerSlots[i] = TAGGED(0);
-    }
+    // Make a thread reference to point to this taskData object.
+    Handle threadRef = MakeVolatileWord(taskData, taskData);
+    // Make a thread object.  Since it's in the thread table it can't be garbage collected.
+    taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject)/sizeof(PolyWord), F_MUTABLE_BIT);
+    taskData->threadObject->threadRef = threadRef->Word();
+    taskData->threadObject->flags = TAGGED(PFLAG_SYNCH);
+    taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
+    taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+    taskData->threadObject->mlStackSize = TAGGED(0); // Unlimited stack size
+    for (unsigned i = 0; i < sizeof(taskData->threadObject->debuggerSlots)/sizeof(PolyWord); i++)
+        taskData->threadObject->debuggerSlots[i] = TAGGED(0);
 
 #if (!defined(_WIN32))
     initThreadSignals(taskData);
@@ -1291,7 +1253,7 @@ static void *NewThreadFunction(void *parameter)
     globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
-        (void)taskData->EnterPolyCode(); // Will normally (always?) call ExitThread.
+        taskData->EnterPolyCode(); // Will normally (always?) call ExitThread.
     }
     catch (KillException &) {
         processesModule.ThreadExit(taskData);
@@ -1308,7 +1270,7 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
     globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
-        (void)taskData->EnterPolyCode();
+        taskData->EnterPolyCode();
     }
     catch (KillException &) {
         processesModule.ThreadExit(taskData);
@@ -1362,7 +1324,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (taskData->stack == 0)
             ::Exit("Unable to create the initial thread - insufficient memory");
 
-        taskData->InitStackFrame(taskData, taskData->saveVec.push(rootFunction), (Handle)0);
+        taskData->InitStackFrame(taskData, taskData->saveVec.push(rootFunction));
 
         // Create a packet for the Interrupt exception once so that we don't have to
         // allocate when we need to raise it.
@@ -1452,10 +1414,12 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (allStopped && threadRequest != 0)
         {
             mainThreadPhase = threadRequest->mtp;
+            gcProgressBeginOtherGC(); // The default unless we're doing a GC.
             gMem.ProtectImmutable(false); // GC, sharing and export may all write to the immutable area
             threadRequest->Perform();
             gMem.ProtectImmutable(true);
             mainThreadPhase = MTP_USER_CODE;
+            gcProgressReturnToML();
             threadRequest->completed = true;
             threadRequest = 0; // Allow a new request.
             mlThreadWait.Signal();
@@ -1517,13 +1481,16 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 PolyWord *limit = taskData->allocLimit, *ptr = taskData->allocPointer;
                 if (limit < ptr && (uintptr_t)(ptr-limit) < taskData->allocSize)
                     freeSpace += ptr-limit;
-                if (taskData->inML) threadsInML++;
+                if (taskData->inMLHeap) threadsInML++;
             }
         }
         // Add the space in the allocation areas after calculating the sizes for the
         // threads in case a thread has allocated some more.
         freeSpace += gMem.GetFreeAllocSpace();
         globalStats.updatePeriodicStats(freeSpace, threadsInML);
+
+        // Process the profile queue if necessary.
+        processProfileQueue();
     }
     schedLock.Unlock();
     finish(exitResult); // Close everything down and exit.
@@ -1531,8 +1498,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 
 // Create a new thread.  Returns the ML thread identifier object if it succeeds.
 // May raise an exception.
-Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
-                           Handle args, PolyWord flags, PolyWord stacksize)
+Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction, PolyWord flags, PolyWord stacksize)
 {
     if (singleThreaded)
         raise_exception_string(taskData, EXC_thread, "Threads not available");
@@ -1594,7 +1560,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
 
         // Allocate anything needed for the new stack in the parent's heap.
         // The child still has inMLHeap set so mustn't GC.
-        newTaskData->InitStackFrame(taskData, threadFunction, args);
+        newTaskData->InitStackFrame(taskData, threadFunction);
 
         // Now actually fork the thread.
         bool success = false;
@@ -1630,21 +1596,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
     }
 }
 
-// ForkFromRTS.  Creates a new thread from within the RTS.  This is currently used
-// only to run a signal function.
-bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
-{
-    try {
-        (void)ForkThread(taskData, proc, arg, TAGGED(PFLAG_SYNCH), TAGGED(0));
-        return true;
-    } catch (IOException &)
-    {
-        // If it failed
-        return false;
-    }
-}
-
-POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyWord attrs, PolyWord stack)
+POLYUNSIGNED PolyThreadForkThread(POLYUNSIGNED threadId, POLYUNSIGNED function, POLYUNSIGNED attrs, POLYUNSIGNED stack)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1654,7 +1606,7 @@ POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyW
     Handle result = 0;
 
     try {
-        result = processesModule.ForkThread(taskData, pushedFunction, (Handle)0, attrs, stack);
+        result = processesModule.ForkThread(taskData, pushedFunction, PolyWord::FromUnsigned(attrs), PolyWord::FromUnsigned(stack));
     }
     catch (KillException &) {
         processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
@@ -1790,11 +1742,6 @@ void Processes::RequestProcessExit(int n)
     initialThreadWait.Signal(); // Wake it if it's sleeping.
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      catchVTALRM - handler for alarm-clock signal                          */
-/*                                                                            */
-/******************************************************************************/
 #if !defined(HAVE_WINDOWS_H)
 // N.B. This may be called either by an ML thread or by the main thread.
 // On the main thread taskData will be null.

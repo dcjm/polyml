@@ -82,7 +82,7 @@ HWND hMainWindow = NULL; // Main window - exported.
 extern HINSTANCE hApplicationInstance;     // Application instance (exported)
 static HANDLE  hReadFromML; // Handles to pipe from ML thread
 static WNDPROC  wpOrigEditProc; // Saved window proc.
-static BOOL fAtEnd;         // True if we are at the end of the window
+static bool fAtEnd;         // True if we are at the end of the window
 static HWND hEditWnd;       // Edit sub-window
 static CHAR *pchInputBuffer; // Buffer to text read.
 static int  nBuffLen;       // Length of input buffer.
@@ -111,36 +111,35 @@ static void MoveToEnd(void)
         // Make sure any text we add goes at the end.
         LRESULT dwEnd = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
         SendMessage(hEditWnd, EM_SETSEL, dwEnd, dwEnd);
-        fAtEnd = TRUE;
+        fAtEnd = true;
     }
 }
 
 // Remove lines at the beginning until we have enough space.
-// If nChars is bigger than the limit we'll delete everything and
-// return.  Returns the space removed.
-static DWORD CheckForScreenSpace(LRESULT nChars)
+static void CheckForScreenSpace(size_t nChars)
 {
-    DWORD dwRemoved = 0;
     // TODO: We could avoid these calls by remembering this information.
-    LRESULT limit = SendMessage(hEditWnd, EM_GETLIMITTEXT, 0, 0);
-    LRESULT size = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
-    while (nChars+size >= limit)
+    size_t limit = SendMessage(hEditWnd, EM_GETLIMITTEXT, 0, 0);
+    size_t size = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
+    if (nChars > limit)
     {
-        int i;
-        if (size == 0) return dwRemoved;
-        for (i = 0; i < size; i++)
-        {
-            if (SendMessage(hEditWnd, EM_LINEFROMCHAR, i, 0) != 0)
-                break;
-        }
-        SendMessage(hEditWnd, EM_SETSEL, 0, i);
-        SendMessage(hEditWnd, WM_CLEAR, 0, 0);
-        fAtEnd = FALSE;
-        MoveToEnd();
-        size -= i;
-        dwRemoved += i;
+        SetWindowText(hEditWnd, _T(""));
+        SendMessage(hEditWnd, EM_SETSEL, 1, 1); // Clear selection.
     }
-    return dwRemoved;
+    else if (nChars + size >= limit)
+    {
+        // We need to remove sufficient lines to make enough space.  Find the index of
+        // the line that will create enough space and then delete to the start of the
+        // next line.
+        LRESULT lineNo = SendMessage(hEditWnd, EM_LINEFROMCHAR, nChars + size - limit, 0);
+        LRESULT firstCh = SendMessage(hEditWnd, EM_LINEINDEX, lineNo + 1, 0);
+        // Select the text we're going to remove
+        SendMessage(hEditWnd, EM_SETSEL, 0, firstCh);
+        // Use EM_REPLACESEL rather than WM_CLEAR since we don't want to undo.
+        SendMessage(hEditWnd, EM_REPLACESEL, FALSE, (LPARAM)_T(""));
+        fAtEnd = false; // Move the display to the end
+        MoveToEnd();
+    }
 }
 
 // Expand the buffer if necessary to allow room for
@@ -156,7 +155,9 @@ static void CheckForBufferSpace(int nChars)
         int nOldLen = nBuffLen;
         // Need more space.
         nBuffLen = nBuffLen + nChars + nBuffLen/2;
-        pchInputBuffer = (char*)realloc(pchInputBuffer, nBuffLen);
+        char *newBuffer = (char*)realloc(pchInputBuffer, nBuffLen);
+        if (newBuffer == 0) return; // Not sure what to do here.
+        pchInputBuffer = newBuffer;
         // Have to copy any data that has wrapped round to the
         // new area.
         if (nNextPosn < nReadPosn)
@@ -171,8 +172,7 @@ static void CheckForBufferSpace(int nChars)
             {
                 // Some of the space before will fit but not all.
                 memcpy(pchInputBuffer+nOldLen, pchInputBuffer, nExtra);
-                memmove(pchInputBuffer, pchInputBuffer+nExtra,
-                        nNextPosn-nExtra);
+                memmove(pchInputBuffer, pchInputBuffer+nExtra, nNextPosn-nExtra);
             }
             // Adjust these pointers modulo the old and new lengths.
             if (nAvailable < nNextPosn) nAvailable += nOldLen;
@@ -181,10 +181,7 @@ static void CheckForBufferSpace(int nChars)
             if (nNextPosn >= nBuffLen) nNextPosn -= nBuffLen;
         }
     }
-    ASSERT(nBuffLen >= 0 && nAvailable >= 0 && nNextPosn >= 0 &&
-           nReadPosn >= 0 &&
-           nAvailable < nBuffLen && nReadPosn < nBuffLen &&
-           nReadPosn < nBuffLen);
+    ASSERT(nBuffLen >= 0 && nAvailable >= 0 && nNextPosn >= 0 && nAvailable < nBuffLen && nReadPosn < nBuffLen);
     if (nNextPosn > nReadPosn)
         ASSERT(nAvailable >= nReadPosn && nAvailable <= nNextPosn);
     else ASSERT((nNextPosn != nReadPosn &&
@@ -209,7 +206,7 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
         case VK_RIGHT: // at the end.
         case VK_UP:
         case VK_DOWN:
-            fAtEnd = FALSE;
+            fAtEnd = false;
         default:
             return CallWindowProc(wpOrigEditProc, hwnd, uMsg,  wParam, lParam);
         }
@@ -295,7 +292,7 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
         {
             HFONT hFount;
             // Switch back to the old window proc just in case.
-#ifdef _M_AMD64
+#ifdef _WIN64
             SetWindowLongPtr(hwnd, GWLP_WNDPROC, (INT_PTR)wpOrigEditProc);
             SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
 #else
@@ -319,7 +316,7 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
     case WM_RBUTTONUP:
     case EM_SETSEL:
         // Need to record that we may no longer be at the end of the text.
-        fAtEnd = FALSE;
+        fAtEnd = false;
         // Drop through to default.
 
     default:
@@ -372,7 +369,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 // Sub-class this so that we get the keys that are pressed.
                 // Save the old window proc.
-#ifdef _M_AMD64
+#ifdef _WIN64
                 wpOrigEditProc =
                     (WNDPROC)GetWindowLongPtr(hEditWnd, GWLP_WNDPROC);
                // Set our new window proc.
@@ -383,7 +380,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                // Set our new window proc.
                 SetWindowLong(hEditWnd, GWL_WNDPROC, (LONG)EditSubclassProc);
 #endif
-                fAtEnd = TRUE;
+                fAtEnd = true;
 
                 // Get a 10 point Courier fount.
                 HDC hDC = GetDC(hEditWnd);
@@ -428,13 +425,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             case ID_EDIT_PASTE:
                 if (IsClipboardFormatAvailable(CF_TEXTFORMAT))
                 {
-                    // We need to check that we have enough space
-                    // BEFORE we try pasting.
-                    HANDLE hClip;
-                    LPCTSTR lpszText;
+                    // We need to check that we have enough space BEFORE we try pasting.
                     OpenClipboard(hEditWnd);
-                    hClip = GetClipboardData(CF_TEXTFORMAT);
-                    lpszText = (LPCTSTR)GlobalLock(hClip);
+                    HANDLE hClip = GetClipboardData(CF_TEXTFORMAT);
+                    if (hClip == NULL) return 0;
+                    LPCTSTR lpszText = (LPCTSTR)GlobalLock(hClip);
+                    if (lpszText == NULL) return 0;
                     CheckForScreenSpace(lstrlen(lpszText));
                     MoveToEnd();
                     // Add it to the screen.
@@ -498,24 +494,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             // Request from the input thread to add some text.
             {
                 // Remember the old selection and the original length.
-                LRESULT lrStart, lrEnd;
-                SendMessage(hEditWnd, EM_GETSEL,
-                            (WPARAM)&lrStart, (LPARAM)&lrEnd);
-                LRESULT lrLength = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
-                LRESULT lrRemoved = CheckForScreenSpace(lrLength);
+                DWORD lrStart, lrEnd;
+                SendMessage(hEditWnd, EM_GETSEL, (WPARAM)&lrStart, (LPARAM)&lrEnd);
+                CheckForScreenSpace(lstrlen((TCHAR*)lParam));
                 MoveToEnd();
                 SendMessage(hEditWnd, EM_REPLACESEL, 0, lParam);
-                // If the old selection was at the end (i.e. the pointer
-                // was at the end) we don't reinstate the old selection.
-                if (lrStart != lrLength && lrEnd > lrRemoved)
-                {
-                    if (lrStart > lrRemoved) lrStart -= lrRemoved; else lrStart = 0;
-                    fAtEnd = FALSE;
-                    SendMessage(hEditWnd, EM_SETSEL, lrStart, lrEnd-lrRemoved);
-                }
                 return 0;
             }
-
 
         default:
             return DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -551,8 +536,12 @@ class WinGuiConsoleStream : public WinStream
 {
 public:
     WinGuiConsoleStream()  {}
-    virtual bool isAvailable(TaskData *taskData);
-    virtual void waitUntilAvailable(TaskData *taskData);
+    virtual bool testForInput(TaskData *taskData, unsigned waitMilliSecs);
+
+    virtual bool testForOutput(TaskData *taskData, unsigned waitMilliSecs) {
+        unimplemented(taskData);
+        return false;
+    }
 
     virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
 
@@ -571,11 +560,19 @@ public:
     }
 };
 
-bool WinGuiConsoleStream::isAvailable(TaskData *taskData)
+bool WinGuiConsoleStream::testForInput(TaskData *taskData, unsigned waitMilliSecs)
 {
     if (!isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
-    PLocker locker(&iOInterlock);
-    return nAvailable != nReadPosn;
+    {
+        PLocker locker(&iOInterlock);
+        if (nAvailable != nReadPosn) return true;
+    }
+    if (waitMilliSecs != 0)
+    {
+        WaitHandle waiter(hInputEvent, waitMilliSecs); // Global event
+        processes->ThreadPauseForIO(taskData, &waiter);
+    }
+    return false; // It may actually be ready now.
 }
 
 size_t WinGuiConsoleStream::readStream(TaskData *taskData, byte *base, size_t length)
@@ -605,15 +602,6 @@ size_t WinGuiConsoleStream::readStream(TaskData *taskData, byte *base, size_t le
     if (nAvailable == nReadPosn) ResetEvent(hInputEvent);
 
     return nRes;
-}
-
-void WinGuiConsoleStream::waitUntilAvailable(TaskData *taskData)
-{
-    while (!isAvailable(taskData))
-    {
-        WaitHandle waiter(hInputEvent); // Global event
-        processes->ThreadPauseForIO(taskData, &waiter);
-    }
 }
 
 HANDLE createConsoleWindow(int nCmdShow)

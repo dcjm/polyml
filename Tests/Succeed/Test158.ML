@@ -285,4 +285,14 @@ case sys of
 (* OS.Path.joinDirFile should raise InvalidArc if the file name does not correspond to an arc *)
 (OS.Path.joinDirFile {dir="abc/def", file="ghi/jkl"}; raise Fail "incorrect") handle OS.Path.InvalidArc => ();
 
+(* Extra test added as a result of issue #167 *)
+local
+    val p1 = getParent currentArc
+    val p2 = getParent p1
+    val p3 = getParent p2
+in
+    val () = check "parent" (p1 = parentArc)
+    val () = check "parent-parent" (p2 = (case sys of Windows => "..\\.." | Posix => "../.."))
+    val () = check "parent-parent-parent" (p3 = (case sys of Windows => "..\\..\\.." | Posix => "../../.."))
+end;
 

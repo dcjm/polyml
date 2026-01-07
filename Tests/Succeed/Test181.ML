@@ -26,8 +26,13 @@ Windows.Reg.closeKey r;
 val r = Windows.Reg.openKeyEx(Windows.Reg.currentUser, "Environment", Windows.Key.read);
 val a = Windows.Reg.enumKeyEx(r, 0);
 val b = Windows.Reg.enumValueEx(r, 0);
+case b of
+    NONE => NONE
+|   SOME t => Windows.Reg.queryValueEx(r, t);
 Windows.Reg.closeKey r;
 
 Windows.Config.getVersionEx();
 Windows.Config.getWindowsDirectory();
 Windows.Config.getUserName();
+Windows.Config.getSystemDirectory();
+Windows.Config.getComputerName();

@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-20
+    Further work copyright David C. J. Matthews 2011-21, 23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -69,6 +69,7 @@
 #include "memmgr.h"
 #include "rtsentry.h"
 #include "arb.h"
+#include "bytecode.h"
 
 #include "sys.h" // Temporary
 
@@ -137,31 +138,6 @@ struct fpSaveArea {
 #define OVERFLOW_STACK_SIZE 50
 #endif
 
-union stackItem
-{
-/*
-#ifndef POLYML32IN64
-    stackItem(PolyWord v) { words[0] = v.AsUnsigned(); };
-    stackItem() { words[0] = TAGGED(0).AsUnsigned(); }
-    POLYUNSIGNED words[1];
-#else
-    // In 32-in-64 we need to clear the second PolyWord.  This assumes little-endian.
-    stackItem(PolyWord v) { words[0] = v.AsUnsigned(); words[1] = 0; };
-    stackItem() { words[0]  = TAGGED(0).AsUnsigned(); words[1] = 0; }
-    POLYUNSIGNED words[2];
-#endif
-   */
-    stackItem(PolyWord v) { argValue = v.AsUnsigned(); }
-    stackItem() { argValue = TAGGED(0).AsUnsigned(); }
-
-    // These return the low order word.
-    PolyWord w()const { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
-    operator PolyWord () { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
-    POLYCODEPTR codeAddr; // Return addresses
-    stackItem *stackAddr; // Stack addresses
-    uintptr_t argValue; // Treat an address as an int
-};
-
 class X86TaskData;
 
 // This is passed as the argument vector to X86AsmSwitchToPoly.
@@ -182,9 +158,11 @@ public:
     PolyWord        threadId;           // My thread id.  Saves having to call into RTS for it.
     stackItem       *stackPtr;          // Current stack pointer
     byte            *arbEmulationCall;  // These are filled in with the functions.
+    byte            *enterInterpreter;  // These are filled in with the functions.
     byte            *heapOverFlowCall; 
     byte            *stackOverFlowCall;
     byte            *stackOverFlowCallEx;
+    byte            *trapHandlerEntry;
     // Saved registers, where applicable.
     stackItem       p_rax;
     stackItem       p_rbx;
@@ -212,26 +190,24 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
 #define LGWORDSIZE (sizeof(uintptr_t) / sizeof(PolyWord))
 
-class X86TaskData: public TaskData {
+class X86TaskData: public TaskData, ByteCodeInterpreter {
 public:
     X86TaskData();
     unsigned allocReg; // The register to take the allocated space.
     POLYUNSIGNED allocWords; // The words to allocate.
-    Handle callBackResult;
     AssemblyArgs assemblyInterface;
     int saveRegisterMask; // Registers that need to be updated by a GC.
 
     virtual void GarbageCollect(ScanAddress *process);
     void ScanStackAddress(ScanAddress *process, stackItem &val, StackSpace *stack);
-    virtual Handle EnterPolyCode(); // Start running ML
+    virtual void EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
-    virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg);
+    virtual void InitStackFrame(TaskData *parentTask, Handle proc);
     virtual void SetException(poly_exn *exc);
 
-    // Release a mutex in exactly the same way as compiler code
-    virtual Handle AtomicIncrement(Handle mutexp);
-    virtual void AtomicReset(Handle mutexp);
+    // Atomically release a mutex using hardware interlock.
+    virtual bool AtomicallyReleaseMutex(PolyObject* mutexp);
 
     // Return the minimum space occupied by the stack.  Used when setting a limit.
     // N.B. This is PolyWords not native words.
@@ -241,7 +217,7 @@ public:
 
     // Increment the profile count for an allocation.  Also now used for mutex contention.
     virtual void addProfileCount(POLYUNSIGNED words)
-    { add_count(this, assemblyInterface.stackPtr[0].codeAddr, words); }
+    { addSynchronousCount(assemblyInterface.stackPtr[0].codeAddr, words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
     virtual void PreRTSCall(void) { TaskData::PreRTSCall();  SaveMemRegisters(); }
@@ -251,19 +227,28 @@ public:
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
-    virtual Handle EnterCallbackFunction(Handle func, Handle args);
-
-    int SwitchToPoly();
-
     void HeapOverflowTrap(byte *pcPtr);
     void EmulateArbitrary();
     PolyWord getArgumentFromModRM(byte*& pc, unsigned int rexPrefix);
+    void StackOverflowTrap(uintptr_t space);
 
     void SetMemRegisters();
     void SaveMemRegisters();
     void SetRegisterMask();
 
-    void MakeTrampoline(byte **pointer, byte*entryPt);
+    void HandleTrap();
+
+    // ByteCode overrides.  The interpreter and native code states need to be in sync.
+    // The interpreter is only used during the initial bootstrap.
+    virtual void ClearExceptionPacket() { assemblyInterface.exceptionPacket = TAGGED(0); }
+    virtual PolyWord GetExceptionPacket() { return assemblyInterface.exceptionPacket;  }
+    virtual stackItem* GetHandlerRegister() { return assemblyInterface.handlerRegister; }
+    virtual void SetHandlerRegister(stackItem* hr) { assemblyInterface.handlerRegister = hr; }
+    // Check and grow the stack if necessary.  Process any interupts.
+    virtual void HandleStackOverflow(uintptr_t space) { StackOverflowTrap(space); }
+
+    void Interpret();
+    void EndBootStrap() { mixedCode = true; }
 
     PLock interruptLock;
 
@@ -286,85 +271,118 @@ public:
     stackItem &reg13() { return assemblyInterface.p_r13; }
     stackItem &reg14() { return assemblyInterface.p_r14; }
 #endif
-
-#if (defined(_WIN32))
-    DWORD savedErrno;
-#else
-    int savedErrno;
-#endif
 };
 
 class X86Dependent: public MachineDependent {
 public:
-    X86Dependent() {}
+    X86Dependent(): mustInterpret(false) {}
 
     // Create a task data object.
     virtual TaskData *CreateTaskData(void) { return new X86TaskData(); }
 
     // Initial size of stack in PolyWords
     virtual unsigned InitialStackSize(void) { return (128+OVERFLOW_STACK_SIZE) * sizeof(uintptr_t) / sizeof(PolyWord); }
-    virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process);
+    virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length,
+        PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress *process);
 
-    virtual Architectures MachineArchitecture(void)
-#ifndef HOSTARCHITECTURE_X86_64
-         { return MA_I386; }
-#elif defined(POLYML32IN64)
-        { return MA_X86_64_32; }
-#else
-         { return MA_X86_64; }
+    virtual void SetBootArchitecture(char arch, unsigned wordLength);
+
+    virtual Architectures MachineArchitecture(void);
+
+    // During the first bootstrap phase this is interpreted.
+    bool mustInterpret;
+
+    // Override for X86-64 because of the need for position-independent code.
+#if (defined(HOSTARCHITECTURE_X86_64) && !defined(POLYML32IN64))
+    // Find the start of the constant section for a piece of code.
+    virtual void GetConstSegmentForCode(PolyObject* obj, POLYUNSIGNED obj_length, PolyWord*& cp, POLYUNSIGNED& count) const
+    {
+        PolyWord* last_word = obj->Offset(obj_length - 1); // Last word in the code
+        // Only the low order 32-bits are valid since this may be
+        // set by a 32-bit relative relocation.
+        int32_t offset = (int32_t)last_word->AsSigned();
+        cp = last_word + 1 + offset / sizeof(PolyWord);
+        count = cp[-1].AsUnsigned();
+    }
+    // Set the address of the constant area.  The default is a relative byte offset.
+    virtual void SetAddressOfConstants(PolyObject* objAddr, PolyObject* writable, POLYUNSIGNED length, PolyWord* constAddr)
+    {
+        int64_t offset = (byte*)constAddr - (byte*)objAddr - length * sizeof(PolyWord);
+        ASSERT(offset >= -(int64_t)0x80000000 && offset <= (int64_t)0x7fffffff);
+        ASSERT(offset < ((int64_t)1) << 32 && offset >((int64_t)(-1)) << 32);
+        writable->Set(length - 1, PolyWord::FromSigned(offset & 0xffffffff));
+    }
 #endif
 };
 
+static X86Dependent x86Dependent;
+
+MachineDependent* machineDependent = &x86Dependent;
+
+Architectures X86Dependent::MachineArchitecture(void)
+{
+    if (mustInterpret) return MA_Interpreted;
+#ifndef HOSTARCHITECTURE_X86_64
+        return MA_I386;
+#elif defined(POLYML32IN64)
+    return MA_X86_64_32;
+#else
+    return MA_X86_64;
+#endif
+}
+
+void X86Dependent::SetBootArchitecture(char arch, unsigned wordLength)
+{
+    if (arch == 'I')
+        mustInterpret = true;
+    else if (arch != 'X')
+        Crash("Boot file has unexpected architecture code: %c", arch);
+}
+
 // Values for the returnReason byte
 enum RETURN_REASON {
-    RETURN_IO_CALL_NOW_UNUSED = 0,
     RETURN_HEAP_OVERFLOW = 1,
     RETURN_STACK_OVERFLOW = 2,
     RETURN_STACK_OVERFLOWEX = 3,
+    RETURN_ENTER_INTERPRETER = 4,
     RETURN_ARB_EMULATION = 5,
-    RETURN_CALLBACK_RETURN = 6,
-    RETURN_CALLBACK_EXCEPTION = 7,
-    RETURN_KILL_SELF = 9
 };
 
 extern "C" {
 
     // These are declared in the assembly code segment.
     void X86AsmSwitchToPoly(void *);
+    int X86AsmCallExtraRETURN_ENTER_INTERPRETER(void);
+    int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
+    int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
+    int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
+    int X86AsmCallExtraRETURN_ARB_EMULATION(void);
 
-    extern int X86AsmKillSelf(void);
-    extern int X86AsmCallbackReturn(void);
-    extern int X86AsmCallbackException(void);
-    extern int X86AsmPopArgAndClosure(void);
-    extern int X86AsmRaiseException(void);
-    extern int X86AsmCallExtraRETURN_ARB_EMULATION(void);
-    extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
-    extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
-    extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
-
-    POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
-    POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
+    void X86TrapHandler(PolyWord threadId);
 };
 
-// Pointers to assembly code or trampolines to assembly code.
-static byte *popArgAndClosure, *killSelf, *raiseException, *callbackException, *callbackReturn;
-
-X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
+X86TaskData::X86TaskData(): ByteCodeInterpreter(&assemblyInterface.stackPtr, &assemblyInterface.stackLimit),
+    allocReg(0), allocWords(0), saveRegisterMask(0)
 {
     assemblyInterface.arbEmulationCall = (byte*)X86AsmCallExtraRETURN_ARB_EMULATION;
+    assemblyInterface.enterInterpreter = (byte*)X86AsmCallExtraRETURN_ENTER_INTERPRETER;
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
-    savedErrno = 0;
+    assemblyInterface.trapHandlerEntry = (byte*)X86TrapHandler;
+    interpreterPc = 0;
+    mixedCode = !x86Dependent.mustInterpret;
 }
 
 void X86TaskData::GarbageCollect(ScanAddress *process)
 {
     TaskData::GarbageCollect(process); // Process the parent first
+    ByteCodeInterpreter::GarbageCollect(process);
     assemblyInterface.threadId = threadObject;
 
     if (stack != 0)
     {
+        ASSERT(assemblyInterface.stackPtr >= (stackItem*)stack->bottom && assemblyInterface.stackPtr <= (stackItem*)stack->top);
         // Now the values on the stack.
         for (stackItem *q = assemblyInterface.stackPtr; q < (stackItem*)stack->top; q++)
             ScanStackAddress(process, *q, stack);
@@ -434,10 +452,9 @@ void X86TaskData::ScanStackAddress(ScanAddress *process, stackItem &stackItem, S
 void X86TaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length)
 {
     /* Moves a stack, updating all references within the stack */
-#ifdef POLYML32IN64
-    old_length = old_length / 2;
-    new_length = new_length / 2;
-#endif
+    // The lengths are the number of PolyWords but a stack item is 8 bytes in 32-in-64.
+    old_length = old_length / (sizeof(stackItem) / sizeof(PolyWord));
+    new_length = new_length / (sizeof(stackItem) / sizeof(PolyWord));
 
     stackItem *old_base  = (stackItem *)old_stack;
     stackItem *new_base  = (stackItem*)new_stack;
@@ -508,219 +525,237 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, S
     }
 }
 
-Handle X86TaskData::EnterPolyCode()
+void X86TaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
-    Handle hOriginal = this->saveVec.mark(); // Set this up for the IO calls.
-    while (1)
+    if (x86Dependent.mustInterpret)
     {
-        this->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
+        PolyWord closure = assemblyInterface.p_rdx;
+        *(--assemblyInterface.stackPtr) = closure; /* Closure address */
+        interpreterPc = *(POLYCODEPTR*)closure.AsObjPtr();
+        Interpret();
+        ASSERT(0); // Should never return
+    }
+    SetMemRegisters();
+    // Enter the ML code.
+    X86AsmSwitchToPoly(&this->assemblyInterface);
+    // This should never return
+    ASSERT(0);
+ }
 
-        // Run the ML code and return with the function to call.
-        this->inML = true;
-        int ioFunction = SwitchToPoly();
-        this->inML = false;
+void X86TaskData::Interpret()
+{
+    while (true)
+    {
+        switch (RunInterpreter(this))
+        {
+        case ReturnCall:
+            // After the call there will be an enter-int instruction so that when this
+            // returns we will re-enter the interpreter.  The number of arguments for
+            // this call is after that.
+            ASSERT(interpreterPc[0] == 0xff);
+            numTailArguments = interpreterPc[3];
 
-        try {
-            switch (ioFunction)
+        case ReturnTailCall:
+        {
+            ClearExceptionPacket();
+            // Pop the closure.
+            PolyWord closureWord = *assemblyInterface.stackPtr++;
+            PolyObject* closure = closureWord.AsObjPtr();
+            interpreterPc = *(POLYCODEPTR*)closure;
+            if (interpreterPc[0] == 0xff && interpreterPc[1] == 0x55 && (interpreterPc[2] == 0x48 || interpreterPc[2] == 0x24))
             {
-            case -1:
-                // We've been interrupted.  This usually involves simulating a
-                // stack overflow so we could come here because of a genuine
-                // stack overflow.
-                // Previously this code was executed on every RTS call but there
-                // were problems on Mac OS X at least with contention on schedLock.
-                // Process any asynchronous events i.e. interrupts or kill
-                processes->ProcessAsynchRequests(this);
-                // Release and re-acquire use of the ML memory to allow another thread
-                // to GC.
-                processes->ThreadReleaseMLMemory(this);
-                processes->ThreadUseMLMemory(this);
-                break;
-
-            case -2: // A callback has returned.
-                return callBackResult; // Return the saved value. Not used in the new interface.
-
-            default:
-                Crash("Unknown io operation %d\n", ioFunction);
+                // If the code we're going to is interpreted push back the closure and
+                // continue.
+                assemblyInterface.stackPtr--;
+                continue;
             }
+            assemblyInterface.p_rdx = closureWord; // Put closure in the closure reg.
+            // Pop the return address.
+            POLYCODEPTR originalReturn = (assemblyInterface.stackPtr++)->codeAddr;
+            // Because of the way the build process works we only ever call functions with a single argument.
+            ASSERT(numTailArguments == 1);
+            assemblyInterface.p_rax = *(assemblyInterface.stackPtr++);
+            (*(--assemblyInterface.stackPtr)).codeAddr = originalReturn; // Push return address to caller
+            (*(--assemblyInterface.stackPtr)).codeAddr = *(POLYCODEPTR*)closure; // Entry point to callee
+            interpreterPc = 0; // No longer in the interpreter (See SaveMemRegs)
+            return;
         }
-        catch (IOException &) {
+        case ReturnReturn:
+        {
+            ClearExceptionPacket();
+            if (interpreterPc[0] == 0xff && interpreterPc[1] == 0x55 && (interpreterPc[2] == 0x48 || interpreterPc[2] == 0x24))
+                continue;
+            // Get the return value from the stack and replace it by the
+            // address we're going to.
+            assemblyInterface.p_rax = assemblyInterface.stackPtr[0];
+            assemblyInterface.stackPtr[0].codeAddr = interpreterPc;
+            interpreterPc = 0; // No longer in the interpreter (See SaveMemRegs)
+            return;
+        }
         }
     }
 }
 
-// Run the current ML process.  X86AsmSwitchToPoly saves the C state so that
-// whenever the ML requires assistance from the rest of the RTS it simply
-// returns to C with the appropriate values set in assemblyInterface.requestCode and
-// 
-
-int X86TaskData::SwitchToPoly()
-// (Re)-enter the Poly code from C.  Returns with the io function to call or
-// -1 if we are responding to an interrupt.
+// Called from the assembly code as a result of a trap i.e. a request for
+// a GC or to extend the stack.
+void X86TrapHandler(PolyWord threadId)
 {
-    Handle mark = this->saveVec.mark();
-    do
-    {
-        this->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
-        SetMemRegisters();
-
-        // We need to save the C stack entry across this call in case
-        // we're making a callback and the previous C stack entry is
-        // for the original call.
-        uintptr_t savedCStack = this->assemblyInterface.saveCStack;
-        // Restore the saved error state.
-#if (defined(_WIN32))
-        SetLastError(savedErrno);
-#else
-        errno = savedErrno;
-#endif
-        // Enter the ML code.
-        X86AsmSwitchToPoly(&this->assemblyInterface);
-
-        this->assemblyInterface.saveCStack = savedCStack;
-        // Save the error codes.  We may have made an RTS/FFI call that
-        // has set these and we don't want to do anything to change them.
-#if (defined(_WIN32))
-        savedErrno = GetLastError();
-#else
-        savedErrno = errno;
-#endif
-
-        SaveMemRegisters(); // Update globals from the memory registers.
-
-        // Handle any heap/stack overflows or arbitrary precision traps.
-        switch (this->assemblyInterface.returnReason)
-        {
-
-        case RETURN_HEAP_OVERFLOW:
-            // The heap has overflowed.
-            SetRegisterMask();
-            this->HeapOverflowTrap(assemblyInterface.stackPtr[0].codeAddr); // Computes a value for allocWords only
-            break;
-
-        case RETURN_STACK_OVERFLOW:
-        case RETURN_STACK_OVERFLOWEX:
-        {
-            SetRegisterMask();
-            uintptr_t min_size; // Size in PolyWords
-            if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
-            {
-                min_size = (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) +
-                    OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
-            }
-            else
-            {
-                // Stack limit overflow.  If the required stack space is larger than
-                // the fixed overflow size the code will calculate the limit in %EDI.
-                stackItem *stackP = regDI().stackAddr;
-                min_size = (this->stack->top - (PolyWord*)stackP) +
-                    OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
-            }
-            try {
-                // The stack check has failed.  This may either be because we really have
-                // overflowed the stack or because the stack limit value has been adjusted
-                // to result in a call here.
-                CheckAndGrowStack(this, min_size);
-            }
-            catch (IOException &) {
-               // We may get an exception while handling this if we run out of store
-            }
-            {
-                PLocker l(&interruptLock);
-                // Set the stack limit.  This clears any interrupt and also sets the
-                // correct value if we've grown the stack.
-                this->assemblyInterface.stackLimit = (stackItem*)this->stack->bottom + OVERFLOW_STACK_SIZE;
-            }
-            return -1; // We're in a safe state to handle any interrupts.
-        }
-
-        case RETURN_CALLBACK_RETURN:
-            // regSP has been set by the assembly code.  N.B.  This may not be the same value as when
-            // EnterCallbackFunction was called because the callback may have grown and moved the stack.
-            // Remove the extra exception handler we created in EnterCallbackFunction
-            ASSERT(assemblyInterface.handlerRegister == regSP());
-            regSP() += 1;
-            assemblyInterface.handlerRegister = (*(regSP()++)).stackAddr; // Restore the previous handler.
-            this->callBackResult = this->saveVec.push(regAX()); // Argument to return is in RAX.
-            return -2;
-
-        case RETURN_CALLBACK_EXCEPTION:
-            // An ML callback has raised an exception.
-            // It isn't possible to do anything here except abort.
-            Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
-
-        case RETURN_KILL_SELF:
-            exitThread(this);
-
-        case RETURN_ARB_EMULATION:
-            SetRegisterMask();
-            this->EmulateArbitrary();
-            break;
-
-        default:
-            Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
-        }
-
-    } while (1);
+    X86TaskData* taskData = (X86TaskData*)TaskData::FindTaskForId(threadId);
+    taskData->HandleTrap();
 }
 
-void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
+void X86TaskData::HandleTrap()
 {
+    SaveMemRegisters(); // Update globals from the memory registers.
+
+    switch (this->assemblyInterface.returnReason)
+    {
+
+    case RETURN_HEAP_OVERFLOW:
+        // The heap has overflowed.
+        SetRegisterMask();
+        this->HeapOverflowTrap(assemblyInterface.stackPtr[0].codeAddr); // Computes a value for allocWords only
+        break;
+
+    case RETURN_STACK_OVERFLOW:
+    case RETURN_STACK_OVERFLOWEX:
+    {
+        SetRegisterMask();
+        uintptr_t min_size; // Size in PolyWords
+        if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
+        {
+            min_size = (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) +
+                OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
+        }
+        else
+        {
+            // Stack limit overflow.  If the required stack space is larger than
+            // the fixed overflow size the code will calculate the limit in %EDI.
+            stackItem* stackP = regDI().stackAddr;
+            min_size = (this->stack->top - (PolyWord*)stackP) +
+                OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
+        }
+        StackOverflowTrap(min_size);
+        break;
+    }
+
+    case RETURN_ARB_EMULATION:
+        SetRegisterMask();
+        this->EmulateArbitrary();
+        break;
+
+    case RETURN_ENTER_INTERPRETER:
+    {
+        interpreterPc = assemblyInterface.stackPtr[0].codeAddr;
+        assemblyInterface.stackPtr++; // Pop return address.
+        byte reasonCode = *interpreterPc++;
+        // Sort out arguments.
+        assemblyInterface.exceptionPacket = TAGGED(0);
+        if (reasonCode == 0xff)
+        {
+            // Exception handler.
+            ASSERT(0); // Not used
+            assemblyInterface.exceptionPacket = assemblyInterface.p_rax; // Get the exception packet
+            // We're already in the exception handler but we still have to
+            // adjust the stack pointer and pop the current exception handler.
+            assemblyInterface.stackPtr = assemblyInterface.handlerRegister;
+            assemblyInterface.stackPtr++;
+            assemblyInterface.handlerRegister = (assemblyInterface.stackPtr++)[0].stackAddr;
+        }
+        else if (reasonCode >= 128)
+        {
+            // Start of function.
+            unsigned numArgs = reasonCode - 128;
+            // We need the stack to contain:
+            // The closure, the return address, the arguments.
+            // First pop the original return address.
+            POLYCODEPTR returnAddr = (assemblyInterface.stackPtr++)[0].codeAddr;
+            // Push the register args.
+            ASSERT(numArgs == 1); // We only ever call functions with one argument.
+#ifdef HOSTARCHITECTURE_X86_64
+            ASSERT(numArgs <= 5);
+            if (numArgs >= 1) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rax;
 #ifdef POLYML32IN64
-    // In the native address versions we can store the address directly onto the stack.
-    // We can't do that in 32-in-64 because it's likely that the address will be in the
-    // bottom 32-bits and we can't distinguish it from an object ID.  Instead we have to
-    // build a small code segment which jumps to the code.
-    unsigned requiredSize = 8; // 8 words i.e. 32 bytes
-    PolyObject *result = gMem.AllocCodeSpace(requiredSize);
-    byte *p = (byte*)result;
-    *p++ = 0x48; // rex.w
-    *p++ = 0x8b; // Movl
-    *p++ = 0x0d; // rcx, pc relative
-    *p++ = 0x09; // +2 bytes
-    *p++ = 0x00;
-    *p++ = 0x00;
-    *p++ = 0x00;
-    *p++ = 0xff; // jmp
-    *p++ = 0xe1; // rcx
-    *p++ = 0xf4; // hlt - needed to stop scan of constants
-    for (unsigned i = 0; i < 6; i++) *p++ = 0;
-    uintptr_t ep = (uintptr_t)entryPt;
-    for (unsigned i = 0;  i < 8; i++)
-    {
-        *p++ = ep & 0xff;
-        ep >>= 8;
-    }
-    // Clear the remainder.  In particular this sets the number
-    // of address constants to zero.
-    for (unsigned i = 0; i < 8; i++)
-        *p++ = 0;
-    result->SetLengthWord(requiredSize, F_CODE_OBJ);
-    *pointer = (byte*)result;
+            if (numArgs >= 2) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rsi;
 #else
-    *pointer = entryPt; // Can go there directly
+            if (numArgs >= 2) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rbx;
 #endif
+            if (numArgs >= 3) *(--assemblyInterface.stackPtr) = assemblyInterface.p_r8;
+            if (numArgs >= 4) *(--assemblyInterface.stackPtr) = assemblyInterface.p_r9;
+            if (numArgs >= 5) *(--assemblyInterface.stackPtr) = assemblyInterface.p_r10;
+#else
+            ASSERT(numArgs <= 2);
+            if (numArgs >= 1) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rax;
+            if (numArgs >= 2) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rbx;
+#endif
+            (--assemblyInterface.stackPtr)[0].codeAddr = returnAddr;
+            *(--assemblyInterface.stackPtr) = assemblyInterface.p_rdx; // Closure
+        }
+        else
+        {
+            // Return from call. Push RAX
+            *(--assemblyInterface.stackPtr) = assemblyInterface.p_rax;
+        }
+        Interpret();
+        break;
+    }
+
+    default:
+        Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
+    }
+    SetMemRegisters();
 }
 
-void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle arg)
+void X86TaskData::StackOverflowTrap(uintptr_t space)
+{
+    uintptr_t min_size = (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) + OVERFLOW_STACK_SIZE + space;
+    try {
+        // The stack check has failed.  This may either be because we really have
+        // overflowed the stack or because the stack limit value has been adjusted
+        // to result in a call here.
+        CheckAndGrowStack(this, min_size);
+    }
+    catch (IOException&) {
+        // We may get an exception while handling this if we run out of store
+    }
+    {
+        PLocker l(&interruptLock);
+        // Set the stack limit.  This clears any interrupt and also sets the
+        // correct value if we've grown the stack.
+        assemblyInterface.stackLimit = (stackItem*)this->stack->bottom + OVERFLOW_STACK_SIZE;
+    }
+
+    try {
+        processes->ProcessAsynchRequests(this);
+        // Release and re-acquire use of the ML memory to allow another thread
+        // to GC.
+        processes->ThreadReleaseMLMemory(this);
+        processes->ThreadUseMLMemory(this);
+    }
+    catch (IOException&) {
+    }
+    catch (KillException&) {
+        processes->ThreadExit(this);
+    }
+}
+
+
+void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc)
 /* Initialise stack frame. */
 {
-    // Set the assembly code addresses.
-    if (popArgAndClosure == 0) MakeTrampoline(&popArgAndClosure, (byte*)&X86AsmPopArgAndClosure);
-    if (killSelf == 0) MakeTrampoline(&killSelf, (byte*)&X86AsmKillSelf);
-    if (raiseException == 0) MakeTrampoline(&raiseException, (byte*)&X86AsmRaiseException);
-    if (callbackException == 0) MakeTrampoline(&callbackException, (byte*)&X86AsmCallbackException);
-    if (callbackReturn == 0) MakeTrampoline(&callbackReturn, (byte*)&X86AsmCallbackReturn);
-
     StackSpace *space = this->stack;
     StackObject * newStack = space->stack();
     uintptr_t stack_size     = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
-    uintptr_t topStack = stack_size-6;
-    stackItem *stackTop = (stackItem*)newStack + topStack;
+    // Set the top of the stack inside the stack rather than at the end.  This wastes
+    // a word but if sp is actually at the end OpenBSD segfaults because it isn't in
+    // a MAP_STACK area.
+    uintptr_t topStack = stack_size - 1;
+    stackItem* stackTop = (stackItem*)newStack + topStack;
+    *stackTop = TAGGED(0); // Set it to non-zero.
     assemblyInterface.stackPtr = stackTop;
     assemblyInterface.stackLimit = (stackItem*)space->bottom + OVERFLOW_STACK_SIZE;
-    assemblyInterface.handlerRegister = (stackItem*)newStack+topStack+4;
+    assemblyInterface.handlerRegister = stackTop;
 
     // Floating point save area.
     memset(&assemblyInterface.p_fp, 0, sizeof(struct fpSaveArea));
@@ -729,28 +764,11 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     assemblyInterface.p_fp.cw = 0x027f ; // Control word
     assemblyInterface.p_fp.tw = 0xffff; // Tag registers - all unused
 #endif
-    assemblyInterface.p_flags = 0;
-    // Initial entry point - on the stack.
-    stackTop[0].codeAddr = popArgAndClosure;
-
-    // Push the argument and the closure on the stack.  We can't put them into the registers
-    // yet because we might get a GC before we actually start the code.
-    stackTop[1] = proc->Word(); // Closure
-    stackTop[2] = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
-    /* We initialise the end of the stack with a sequence that will jump to
-       kill_self whether the process ends with a normal return or by raising an
-       exception.  A bit of this was added to fix a bug when stacks were objects
-       on the heap and could be scanned by the GC. */
-    stackTop[5] = TAGGED(0); // Probably no longer needed
-    // Set the default handler and return address to point to this code.
-//    PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
-    // Exception handler.
-    stackTop[4].codeAddr = killSelf;
-    // Normal return address.  We need a separate entry on the stack from
-    // the exception handler because it is possible that the code we are entering
-    // may replace this entry with an argument.  The code-generator optimises tail-recursive
-    // calls to functions with more args than the called function.
-    stackTop[3].codeAddr = killSelf;
+    // Store the argument and the closure.
+    assemblyInterface.p_rdx = proc->Word(); // Closure
+    assemblyInterface.p_rax = TAGGED(0); // Argument
+    // Have to set the register mask in case we get a GC before the thread starts.
+    saveRegisterMask = (1 << 2) | 1; // Rdx and rax
 
 #ifdef POLYML32IN64
     // In 32-in-64 RBX always contains the heap base address.
@@ -769,6 +787,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 
 // Get the PC and SP(stack) from a signal context.  This is needed for profiling.
 // This version gets the actual sp and pc if we are in ML.
+// N.B. This must not call malloc since we're in a signal handler.
 bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 {
     stackItem * sp = 0;
@@ -842,7 +861,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
@@ -854,7 +873,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
@@ -869,7 +888,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
@@ -944,15 +963,14 @@ void X86TaskData::SetMemRegisters()
     if (profileMode == kProfileStoreAllocation)
         this->assemblyInterface.localMbottom = this->assemblyInterface.localMpointer;
 
-    this->assemblyInterface.returnReason = RETURN_IO_CALL_NOW_UNUSED;
-
     this->assemblyInterface.threadId = this->threadObject;
 }
 
 // This is called whenever we have returned from ML to C.
 void X86TaskData::SaveMemRegisters()
 {
-    this->allocPointer = this->assemblyInterface.localMpointer - 1;
+    if (interpreterPc == 0) // Not if we're already in the interpreter
+        this->allocPointer = this->assemblyInterface.localMpointer - 1;
     this->allocWords = 0;
     this->assemblyInterface.exceptionPacket = TAGGED(0);
     this->saveRegisterMask = 0;
@@ -1073,44 +1091,11 @@ void X86TaskData::HeapOverflowTrap(byte *pcPtr)
 }
 
 void X86TaskData::SetException(poly_exn *exc)
-// Set up the stack to raise an exception.
+// The RTS wants to raise an exception packet.  Normally this is as the
+// result of an RTS call in which case the caller will check this.  It can
+// also happen in a trap.
 {
-    // Do we need to set the PC value any longer?  It may be necessary if
-    // we have taken a trap because another thread has sent a broadcast interrupt.
-    (--assemblyInterface.stackPtr)->codeAddr = raiseException;
-    regAX() = (PolyWord)exc; /* put exception data into eax */
     assemblyInterface.exceptionPacket = (PolyWord)exc; // Set for direct calls.
-}
-
-// Sets up a callback function on the current stack.  The present state is that
-// the ML code has made a call in to foreign_dispatch.  We need to set the stack
-// up so that we will enter the callback (as with CallCodeTupled) but when we return
-// the result we enter callback_return. 
-Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
-{
-    // If we ever implement a light version of the FFI that allows a call to C
-    // code without saving enough to allow allocation in C code we need to ensure
-    // that this code doesn't do any allocation.  Essentially we need the values
-    // in localMpointer and localMbottom to be valid across a call to C.  If we do
-    // a callback the ML callback function would pick up the values saved in the
-    // originating call.
-    // However, it is essential that the light version still saves the stack pointer
-    // and reloads it afterwards.
-
-    // Set up an exception handler so we will enter callBackException if there is an exception.
-    (--regSP())->stackAddr = assemblyInterface.handlerRegister; // Create a special handler entry
-    (--regSP())->codeAddr = callbackException;
-    assemblyInterface.handlerRegister = regSP();
-    // Push the call to callBackReturn onto the stack as the return address.
-    (--regSP())->codeAddr = callbackReturn;
-    // Set up the entry point of the callback.
-    PolyObject *functToCall = func->WordP();
-    regDX() = (PolyWord)functToCall; // Closure address
-    regAX() = args->Word();
-    // Push entry point address
-    (--regSP())->codeAddr = *(POLYCODEPTR*)functToCall; // First word of closure is entry pt.
-
-    return EnterPolyCode();
 }
 
 // Decode and process an effective address.  There may
@@ -1118,9 +1103,10 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
 // to decode it to work out where the next instruction starts.
 // If this is an lea instruction any addresses are just constants
 // so must not be treated as addresses.
-static void skipea(PolyObject *base, byte **pt, ScanAddress *process, bool lea)
+static void skipea(PolyObject *base, byte *&pt, ScanAddress *process, bool lea, PolyWord* oldConstAddr,
+    POLYUNSIGNED numCodeWords, POLYSIGNED constAdjustment)
 {
-    unsigned int modrm = *((*pt)++);
+    unsigned int modrm = *(pt++);
     unsigned int md = modrm >> 6;
     unsigned int rm = modrm & 7;
 
@@ -1128,37 +1114,78 @@ static void skipea(PolyObject *base, byte **pt, ScanAddress *process, bool lea)
     else if (rm == 4)
     {
         /* s-i-b present. */
-        unsigned int sib = *((*pt)++);
+        unsigned int sib = *(pt++);
 
         if (md == 0)
         {
             if ((sib & 7) == 5) 
             {
-                if (! lea) {
-#ifndef HOSTARCHITECTURE_X86_64
-                    process->ScanConstant(base, *pt, PROCESS_RELOC_DIRECT);
+                // Absolute address on X86, PC-relative on X64
+                if (! lea)
+                {
+#ifdef HOSTARCHITECTURE_X86_64
+                    if (constAdjustment != 0)
+                    {
+                        POLYSIGNED disp = (pt[3] & 0x80) ? -1 : 0; // Set the sign just in case.
+                        for (unsigned i = 4; i > 0; i--)
+                            disp = (disp << 8) | pt[i - 1];
+                        if (pt + disp > (byte*)base + numCodeWords * sizeof(PolyWord))
+                        {
+                            disp += constAdjustment;
+                            byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
+                            for (unsigned i = 0; i < 4; i++)
+                            {
+                                wr[i] = (byte)(disp & 0xff);
+                                disp >>= 8;
+                            }
+                            ASSERT(disp == 0 || disp == -1);
+                        }
+                    }
+                    process->RelocateOnly(base, pt, PROCESS_RELOC_I386RELATIVE);
+#else
+                    process->ScanConstant(base, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
                 }
-                (*pt) += 4;
+                pt += 4;
             }
         }
-        else if (md == 1) (*pt)++;
-        else if (md == 2) (*pt) += 4;
+        else if (md == 1) pt++;
+        else if (md == 2) pt += 4;
     }
     else if (md == 0 && rm == 5)
     {
-        if (!lea) {
-#ifndef HOSTARCHITECTURE_X86_64
-            /* Absolute address. */
-            process->ScanConstant(base, *pt, PROCESS_RELOC_DIRECT);
+        // Absolute address on X86, PC-relative on X64
+        if (!lea)
+        {
+#ifdef HOSTARCHITECTURE_X86_64
+            if (constAdjustment != 0)
+            {
+                POLYSIGNED disp = (pt[3] & 0x80) ? -1 : 0; // Set the sign just in case.
+                for (unsigned i = 4; i > 0; i--)
+                    disp = (disp << 8) | pt[i - 1];
+                if (pt + disp > (byte*)base + numCodeWords * sizeof(PolyWord))
+                {
+                    disp += constAdjustment;
+                    byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
+                    for (unsigned i = 0; i < 4; i++)
+                    {
+                        wr[i] = (byte)(disp & 0xff);
+                        disp >>= 8;
+                    }
+                    ASSERT(disp == 0 || disp == -1);
+                }
+            }
+            process->RelocateOnly(base, pt, PROCESS_RELOC_I386RELATIVE);
+#else
+            process->ScanConstant(base, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
         }
-        *pt += 4;
+        pt += 4;
     }
     else
     {
-        if (md == 1) *pt += 1;
-        else if (md == 2) *pt += 4;
+        if (md == 1) pt += 1;
+        else if (md == 2) pt += 4;
     }
 }
 
@@ -1167,14 +1194,26 @@ static void skipea(PolyObject *base, byte **pt, ScanAddress *process, bool lea)
    area is still needed for the function name.
    DCJM 2/1/2001 
 */
-void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, POLYUNSIGNED length, ScanAddress *process)
+void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, POLYUNSIGNED length, PolyWord* newConstAddr, PolyWord* oldConstAddr,
+            POLYUNSIGNED numConsts, ScanAddress *process)
 {
     byte *pt = (byte*)addr;
     PolyWord *end = addr->Offset(length - 1);
-#ifdef POLYML32IN64
-    // If this begins with enter-int it's interpreted code - ignore
-    if (pt[0] == 0xff && pt[1] == 0x55 && pt[2] == 0x48) return;
+    // If we have constants and code in separate areas then we will have to
+    // adjust the offsets of constants in the constant area.
+    // There are also offsets to non-address constants and these must
+    // not be altered.
+    POLYUNSIGNED numCodeWords = length - 1;
+    if (oldConstAddr > (PolyWord*)old && oldConstAddr < ((PolyWord*)old) + length)
+        numCodeWords -= numConsts;
+    POLYSIGNED constAdjustment =
+        (byte*)newConstAddr - (byte*)addr - ((byte*)oldConstAddr - (byte*)old);
+#ifdef HOSTARCHITECTURE_X86_64
+    // Put in a relocation for the offset itself if necessary.
+    process->RelocateOnly(addr, (byte*)end, PROCESS_RELOC_I386RELATIVE);
 #endif
+    // If this begins with enter-int it's interpreted code - ignore
+    if (pt[0] == 0xff && pt[1] == 0x55 && (pt[2] == 0x48 || pt[2] == 0x24)) return;
 
     while (true)
     {
@@ -1221,7 +1260,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             pt += 3; break;
 
         case 0x8d: /* leal. */
-            pt++; skipea(addr, &pt, process, true); break;
+            pt++; skipea(addr, pt, process, true, oldConstAddr, numCodeWords, constAdjustment); break;
 
         case 0x03: case 0x0b: case 0x13: case 0x1b:
         case 0x23: case 0x2b: case 0x33: case 0x3b: /* Add r,ea etc. */
@@ -1234,7 +1273,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xd3: /* Group2_CL_A */
         case 0x87: // XCHNG
         case 0x63: // MOVSXD
-            pt++; skipea(addr, &pt, process, false); break;
+            pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); break;
 
         case 0xf6: /* Group3_a */
             {
@@ -1242,7 +1281,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 /* The test instruction has an immediate operand. */
                 if ((*pt & 0x38) == 0) isTest = 1;
-                skipea(addr, &pt, process, false);
+                skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
                 if (isTest) pt++;
                 break;
             }
@@ -1253,7 +1292,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 /* The test instruction has an immediate operand. */
                 if ((*pt & 0x38) == 0) isTest = 1;
-                skipea(addr, &pt, process, false);
+                skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
                 if (isTest) pt += 4;
                 break;
             }
@@ -1263,10 +1302,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x83: /* Group1_8_A */
         case 0x80: /* Group1_8_a */
         case 0x6b: // IMUL Ev,Ib
-            pt++; skipea(addr, &pt, process, false); pt++; break;
+            pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); pt++; break;
 
         case 0x69: // IMUL Ev,Iv
-            pt++; skipea(addr, &pt, process, false); pt += 4; break;
+            pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); pt += 4; break;
 
         case 0x81: /* Group1_32_A */
             {
@@ -1274,7 +1313,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 #ifndef HOSTARCHITECTURE_X86_64
                 unsigned opCode = *pt;
 #endif
-                skipea(addr, &pt, process, false);
+                skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
                 // Only check the 32 bit constant if this is a comparison.
                 // For other operations this may be untagged and shouldn't be an address.
 #ifndef HOSTARCHITECTURE_X86_64
@@ -1297,27 +1336,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
                 // If the new address is within the current piece of code we don't do anything
                 if (absAddr >= (byte*)addr && absAddr < (byte*)end) {}
-                else {
-#ifdef HOSTARCHITECTURE_X86_64
-                    ASSERT(sizeof(PolyWord) == 4); // Should only be used internally on x64
-#endif /* HOSTARCHITECTURE_X86_64 */
-                    if (addr != old)
-                    {
-                        // The old value of the displacement was relative to the old address before
-                        // we copied this code segment.
-                        // We have to correct it back to the original address.
-                        absAddr = absAddr - (byte*)addr + (byte*)old;
-                        // We have to correct the displacement for the new location and store
-                        // that away before we call ScanConstant.
-                        size_t newDisp = absAddr - pt - 4;
-                        for (unsigned i = 0; i < 4; i++)
-                        {
-                            pt[i] = (byte)(newDisp & 0xff);
-                            newDisp >>= 8;
-                        }
-                    }
-                    process->ScanConstant(addr, pt, PROCESS_RELOC_I386RELATIVE);
-                }
+                else process->ScanConstant(addr, pt, PROCESS_RELOC_I386RELATIVE, (byte*)old- (byte*)addr);
                 pt += 4;
                 break;
             }
@@ -1334,7 +1353,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 }
                 else
                 {
-                    skipea(addr, &pt, process, false);
+                    skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
 #ifndef HOSTARCHITECTURE_X86_64
                     // This isn't used for addresses even in 32-in-64
                     process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
@@ -1353,20 +1372,16 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             else
 #endif /* HOSTARCHITECTURE_X86_64 */
             {
-                // This is no longer generated in 64-bit mode but needs to
-                // be retained in native 64-bit for backwards compatibility.
-#ifndef POLYML32IN64
-                // 32 bits in 32-bit mode, 64-bits in 64-bit mode.
+                // This is used in native 32-bit for constants and in
+                // 32-in-64 for the special case of an absolute address.
                 process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
-#endif
-                pt += sizeof(PolyWord);
+                pt += sizeof(uintptr_t);
             }
             break;
 
         case 0x68: /* PUSH_32 */
             pt ++;
-#if (!defined(HOSTARCHITECTURE_X86_64) || defined(POLYML32IN64))
-            // Currently the only inline constant in 32-in-64.
+#if (!defined(HOSTARCHITECTURE_X86_64))
             process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif
             pt += 4;
@@ -1377,15 +1392,19 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 switch (*pt)
                 {
+                case 0xb1: // cmpxchg
                 case 0xb6: /* movzl */
                 case 0xb7: // movzw
+                case 0xbd: // bsr
+                case 0xbe: // movsx
+                case 0xbf: // movsx
                 case 0xc1: /* xaddl */
                 case 0xae: // ldmxcsr/stmxcsr
                 case 0xaf: // imul
                 case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
                 case 0x48: case 0x49: case 0x4a: case 0x4b: case 0x4c: case 0x4d: case 0x4e: case 0x4f:
                     // cmov
-                    pt++; skipea(addr, &pt, process, false); break;
+                    pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); break;
 
                 case 0x80: case 0x81: case 0x82: case 0x83:
                 case 0x84: case 0x85: case 0x86: case 0x87:
@@ -1399,16 +1418,16 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 case 0x98: case 0x99: case 0x9a: case 0x9b:
                 case 0x9c: case 0x9d: case 0x9e: case 0x9f:
                     /* SetCC. */
-                    pt++; skipea(addr, &pt, process, false); break;
+                    pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); break;
 
                 // These are SSE2 instructions
                 case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
                 case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a: case 0x6e:
                 case 0x7e: case 0x2c: case 0x2d:
-                    pt++; skipea(addr, &pt, process, false); break;
+                    pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); break;
 
                 case 0x73: // PSRLDQ - EA,imm
-                    pt++; skipea(addr, &pt, process, false); pt++;  break;
+                    pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); pt++;  break;
 
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);
                 }
@@ -1420,7 +1439,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             {
                 pt++;
                 if ((*pt & 0xe0) == 0xe0) pt++;
-                else skipea(addr, &pt, process, false);
+                else skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
                 break;
             }
 
@@ -1429,48 +1448,71 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
     }
 }
 
-// Increment the value contained in the first word of the mutex.
-Handle X86TaskData::AtomicIncrement(Handle mutexp)
+#if defined(_MSC_VER)
+// This saves having to define it in the MASM assembly code.
+static uintptr_t X86AsmAtomicExchange(PolyObject* mutexp, uintptr_t value)
 {
-    PolyObject *p = DEREFHANDLE(mutexp);
-    POLYUNSIGNED result = X86AsmAtomicIncrement(p);
-    return this->saveVec.push(PolyWord::FromUnsigned(result));
+#   if (SIZEOF_POLYWORD == 8)
+    return InterlockedExchange64((LONG64*)mutexp, value);
+#   else
+    return InterlockedExchange((LONG*)mutexp, value);
+#  endif
 }
 
-// Release a mutex.  Because the atomic increment and decrement
-// use the hardware LOCK prefix we can simply set this to one.
-void X86TaskData::AtomicReset(Handle mutexp)
+#else
+extern "C" {
+    // This is only defined in the GAS assembly code
+    uintptr_t X86AsmAtomicExchange(PolyObject*, uintptr_t);
+}
+#endif
+
+// Set the mutex to zero (released) and return true if no other thread is waiting.
+bool X86TaskData::AtomicallyReleaseMutex(PolyObject* mutexp)
 {
-    DEREFHANDLE(mutexp)->Set(0, TAGGED(1));
+    uintptr_t oldValue = X86AsmAtomicExchange(mutexp, 0);
+    return oldValue == 1;
 }
 
-static X86Dependent x86Dependent;
+extern "C" {
+    POLYEXTERNALSYMBOL void *PolyX86GetThreadData();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(POLYUNSIGNED threadId, POLYUNSIGNED function);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyX86IsLocalCode(PolyObject* destination);
+}
 
-MachineDependent *machineDependent = &x86Dependent;
-
-class X86Module : public RtsModule
+// Return the address of assembly data for the current thread.  This is normally in
+// RBP except if we are in a callback.
+void *PolyX86GetThreadData()
 {
-public:
-    virtual void GarbageCollect(ScanAddress * /*process*/);
-};
+    // We should get the task data for the thread that is running this code.
+    // If this thread has been created by the foreign code we will have to
+    // create a new one here.
+    TaskData* taskData = processes->GetTaskDataForThread();
+    if (taskData == 0)
+    {
+        try {
+            taskData = processes->CreateNewTaskData();
+        }
+        catch (std::bad_alloc&) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+        catch (MemoryException&) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+    }
+    return &((X86TaskData*)taskData)->assemblyInterface;
+}
 
-// Declare this.  It will be automatically added to the table.
-static X86Module x86Module;
-
-void X86Module::GarbageCollect(ScanAddress *process)
+// Do we require EnterInt instructions and if so for which architecture?
+// 0 = > None; 1 => X86_32, 2 => X86_64. 3 => X86_32_in_64.
+POLYUNSIGNED PolyInterpretedEnterIntMode()
 {
 #ifdef POLYML32IN64
-    // These are trampolines in the code area rather than direct calls.
-    if (popArgAndClosure != 0)
-        process->ScanRuntimeAddress((PolyObject**)&popArgAndClosure, ScanAddress::STRENGTH_STRONG);
-    if (killSelf != 0)
-        process->ScanRuntimeAddress((PolyObject**)&killSelf, ScanAddress::STRENGTH_STRONG);
-    if (raiseException != 0)
-        process->ScanRuntimeAddress((PolyObject**)&raiseException, ScanAddress::STRENGTH_STRONG);
-    if (callbackException != 0)
-        process->ScanRuntimeAddress((PolyObject**)&callbackException, ScanAddress::STRENGTH_STRONG);
-    if (callbackReturn != 0)
-        process->ScanRuntimeAddress((PolyObject**)&callbackReturn, ScanAddress::STRENGTH_STRONG);
+    return TAGGED(3).AsUnsigned();
+#elif defined(HOSTARCHITECTURE_X86_64)
+    return TAGGED(2).AsUnsigned();
+#else
+    return TAGGED(1).AsUnsigned();
 #endif
 }
 
@@ -1700,3 +1742,42 @@ PolyWord X86TaskData::getArgumentFromModRM(byte *&pc, unsigned int rexPrefix)
         return *((PolyWord*)ea);
     }
 }
+
+// End bootstrap mode and run a new function.
+POLYUNSIGNED PolyEndBootstrapMode(POLYUNSIGNED threadId, POLYUNSIGNED function)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle pushedFunction = taskData->saveVec.push(function);
+    x86Dependent.mustInterpret = false;
+    ((X86TaskData*)taskData)->EndBootStrap();
+    taskData->InitStackFrame(taskData, pushedFunction);
+    taskData->EnterPolyCode();
+    // Should never return.
+    ASSERT(0);
+    return TAGGED(0).AsUnsigned();
+}
+
+// Test whether the target is within the local code area.  This is only used on
+// native 64-bits.  A call/jump to local code can use a 32-bit displacement
+// whereas a call/jump to a function in the executable will need to use an
+// indirect reference through the code area.
+POLYUNSIGNED PolyX86IsLocalCode(PolyObject* destination)
+{
+    MemSpace* space = gMem.SpaceForObjectAddress(destination);
+    if (space->spaceType == ST_CODE)
+        return TAGGED(1).AsUnsigned();
+    else return TAGGED(0).AsUnsigned();
+}
+
+struct _entrypts machineSpecificEPT[] =
+{
+    { "PolyX86GetThreadData",           (polyRTSFunction)&PolyX86GetThreadData },
+    { "PolyInterpretedEnterIntMode",    (polyRTSFunction)&PolyInterpretedEnterIntMode },
+    { "PolyEndBootstrapMode",           (polyRTSFunction)&PolyEndBootstrapMode },
+    { "PolyX86IsLocalCode",             (polyRTSFunction)&PolyX86IsLocalCode },
+
+    { NULL, NULL} // End of list.
+};
+

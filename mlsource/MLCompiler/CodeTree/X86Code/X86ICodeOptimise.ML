@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2018-19
+    Copyright David C. J. Matthews 2018-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,18 +16,18 @@
 *)
 
 functor X86ICodeOptimise(
-    structure ICODE: ICodeSig
-    structure INTSET: INTSETSIG
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    structure X86CODE: X86CODESIG (* For invertTest. *)
-    structure DEBUG: DEBUGSIG
-    structure PRETTY: PRETTYSIG
-    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET = X86CODE
-): X86ICODEOPTSIG =
+    structure X86ICode: X86ICODE
+    structure IntSet: INTSET
+    structure Identify: X86IDENTIFYREFERENCES
+    structure X86Code: X86CODE (* For invertTest. *)
+    structure Debug: DEBUG
+    structure Pretty: PRETTY
+    sharing X86ICode.Sharing = Identify.Sharing = IntSet = X86Code
+): X86ICODEOPT =
 struct
-    open ICODE
-    open INTSET
-    open IDENTIFY
+    open X86ICode
+    open IntSet
+    open Identify
     val InternalError = Misc.InternalError
 
     datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
@@ -362,8 +362,8 @@ struct
                                 MemoryLocation{base=mapReg base, offset=offset, index=mapIndex index, cache=NONE}
                         |   mapArg arg = arg
                         fun mapInstr(instr as ResetStackPtr _) = instr
-                        |   mapInstr(ReturnResultFromFunction{resultReg, realReg, numStackArgs}) =
-                                ReturnResultFromFunction{resultReg=mapReg resultReg, realReg=realReg, numStackArgs=numStackArgs}
+                        |   mapInstr(ReturnResultFromFunction{results, numStackArgs}) =
+                                ReturnResultFromFunction{results=List.map(fn(pr, r) => (mapReg pr, r)) results, numStackArgs=numStackArgs}
                         |   mapInstr(RaiseExceptionPacket{packetReg}) =
                                 RaiseExceptionPacket{packetReg=mapReg packetReg}
                         |   mapInstr(LoadArgument{source, dest, kind}) =

@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2016
+    Modified D.C.J. Matthews 2001-2016, 2020, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -27,17 +27,17 @@
 functor STRUCTURES_ (
 
 structure LEX : LEXSIG
-structure CODETREE : CODETREESIG
+structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG;
 structure VALUEOPS : VALUEOPSSIG;
 structure EXPORTTREE: EXPORTTREESIG
 structure TYPETREE : TYPETREESIG
 structure PARSETREE : PARSETREESIG
-structure PRETTY : PRETTYSIG
+structure PRETTY : PRETTY
 structure COPIER: COPIERSIG
 structure TYPEIDCODE: TYPEIDCODESIG
 structure SIGNATURES: SIGNATURESSIG
-structure DEBUGGER : DEBUGGERSIG
+structure DEBUGGER : DEBUGGER
 
 structure UTILITIES :
 sig
@@ -63,7 +63,7 @@ sig
   val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
 end;
 
-structure DEBUG: DEBUGSIG
+structure DEBUG: DEBUG
 
 sharing LEX.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing
     = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
@@ -853,6 +853,22 @@ struct
         }
     end;
 
+    fun idAccess (TypeId { access, ...}) = access 
+    fun tcName       (TypeConstrs {name,...})       = name
+    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+    fun tcLocations  (TypeConstrs {locations, ...}) = locations
+    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
+    |   tcIsAbbreviation _ = false
+
+    val tcEquality = isEquality o tcIdentifier;
+
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
+
+    fun tsConstructors(TypeConstrSet(_, tvs)) = tvs
+
     (* TODO: If the item being errored is in a substructure it currently doesn't report
        the name of the substructure. *)
     (* Report an error about signature-structure matching. *)
@@ -1086,6 +1102,10 @@ struct
                 val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
                 fun displayType t = displayTypeConstrs(t, errorDepth lex, printTypeEnv)
                 val typeError = sigStructMatchMsg(lex, near, lno, structPath) displayType
+                (* Condition for a candidate type to match an eqtype. *)
+                fun permitsEquality(TypeConstrs {identifier=TypeId{idKind = TypeFn{equality=ref(TypeFnEq _), ...}, ...}, ...}) = true
+                |   permitsEquality(TypeConstrs {identifier=TypeId{idKind = TypeFn{equality=ref TypeFnEqNever, ...}, ...}, ...}) = false
+                |   permitsEquality(TypeConstrs{identifier, ...}) = isEquality identifier
             in (* Match up the types. This does certain checks but
                   does not check sharing. Equality is checked for. *)
                 case univLookup (sigTab candidate, typeConstrVar, dName) of
@@ -1582,7 +1602,8 @@ struct
                    are only processed again in this pass in order to get declarations
                    in the right order. *)
                 enterFix     = fn _ => (),
-                allValNames  = fn () => (#allValNames structEnv () @ #allValNames env ())
+                allValNames  = fn () => (#allValNames structEnv () @ #allValNames env ()),
+                allStructNames = fn () => (#allStructNames structEnv () @ #allStructNames env ())
             }
 
             (* process body of structure *)
@@ -1628,6 +1649,14 @@ struct
                                         ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=typeOf}) :: matches))
                         end
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
+                        fun makeTypeConstructor (name, typeVars, uid, locations) =
+                            TypeConstrs
+                            {
+                                name       = name,
+                                typeVars   = typeVars,
+                                identifier = uid,
+                                locations = locations
+                            }
                         val newConstructor =
                             makeTypeConstructor(
                                 tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
@@ -1713,7 +1742,8 @@ struct
               enterStruct   = #enterStruct  newEnv,
               enterSig      = #enterSig     newEnv,
               enterFunct    = #enterFunct   newEnv,
-              allValNames  = fn () => (#allValNames newEnv () @ #allValNames env ())
+              allValNames  = fn () => (#allValNames newEnv () @ #allValNames env ()),
+              allStructNames = fn () => (#allStructNames newEnv () @ #allStructNames env ())
              };
              
             (* Process the local declarations. *)
@@ -1877,7 +1907,8 @@ struct
             enterStruct   = #enterStruct  newEnv,
             enterSig      = #enterSig     newEnv,
             enterFunct    = #enterFunct   newEnv,
-            allValNames  = fn () => (#allValNames newEnv () @ #allValNames env ())
+            allValNames  = fn () => (#allValNames newEnv () @ #allValNames env ()),
+            allStructNames = fn () => (#allStructNames newEnv () @ #allStructNames env ())
            };
         
         (* Process the local declarations. *)
@@ -1923,7 +1954,8 @@ struct
                 #enterSig env    pair
                ),
            enterFunct    = #enterFunct   localEnv,
-           allValNames   = #allValNames  localEnv
+           allValNames   = #allValNames  localEnv,
+           allStructNames = #allStructNames localEnv
           };
       in 
         (* Now the body. *)
@@ -1973,7 +2005,8 @@ struct
                  ), 
              enterSig      = #enterSig     env,
              enterFunct    = #enterFunct   env,
-             allValNames   = #allValNames  env
+             allValNames   = #allValNames  env,
+             allStructNames = #allStructNames env
            };
 
             (* Create a new type ID for each new datatype.  Add the structure path to the
@@ -1982,9 +2015,8 @@ struct
                     makeLocalTypeId(List.length args, true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
             |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                    makeTypeFunction(
-                        { location = location, name = structPath ^ name, description = description },
-                        (typeVars, decType))
+                    makeTypeFunction(typeVars, decType,
+                        { location = location, name = structPath ^ name, description = description })
 
             (* Process the body and discard the type. *)
             val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
@@ -2034,6 +2066,14 @@ struct
             !v @ #allValNames globals ()
         end
 
+        fun allStructNames () =
+        let
+            val v = ref []
+            val () = #apply newStrEnv (fn (s, _) => v := s :: ! v)
+        in
+            !v @ #allStructNames globals ()
+        end
+
         val env = 
         {
             lookupVal     = lookupVal,
@@ -2048,7 +2088,8 @@ struct
             enterStruct   = #enter newStrEnv,
             enterSig      = #enter newSigEnv,
             enterFunct    = #enter newFuncEnv,
-            allValNames   = allValNames
+            allValNames   = allValNames,
+            allStructNames = allStructNames
         };
         (* Create the free identifiers.  These are initially Bound but are replaced
            by Free after the code has been executed and we have the values for the
@@ -2087,8 +2128,8 @@ struct
            structure declarations to freeze the types (there's an example on p90 of the
            Definition) but we can't functors to get access to unfrozen free variables because
            that can break the type system.  *)
-        fun checkValueForFreeTypeVariables(name: string, v: values) =
-            checkForFreeTypeVariables(name, valTypeOf v, lex, codeForUniqueId)
+        fun checkValueForFreeTypeVariables(name: string, Value{typeOf, ...}) =
+            checkForFreeTypeVariables(name, typeOf, lex, codeForUniqueId)
 
         (* Find all the values in the structure. *)
         fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
@@ -2276,7 +2317,8 @@ struct
                         enterStruct   = #enterStruct  env,
                         enterSig      = #enterSig     env,
                         enterFunct    = #enterFunct   env,
-                        allValNames  = fn () => (#allValNames argEnv () @ #allValNames env ())
+                        allValNames  = fn () => (#allValNames argEnv () @ #allValNames env ()),
+                        allStructNames = fn () => (#allStructNames argEnv () @ #allStructNames env ())
                     };
 
                     local
@@ -2672,6 +2714,8 @@ struct
     in
         #1 (matchSubStructure (code, actions))
     end (* applyMatchActions *)
+
+    fun vaLocal (Local x) = x | vaLocal _ = raise InternalError "not local"
 
     (* If we are declaring a structure with an opaque signature we need to create
        the run-time IDs for newly generated IDs. *)
@@ -3230,7 +3274,7 @@ struct
                         makeSignature(name, tab, firstBoundIndex, locations, composeMaps(typeIdMap, newMap), boundIds)
                 end
                 val funcTree = 
-                    makeFunctor(functorName, copiedArg, functorSigResult, makeGlobal code, functorLocations)
+                    makeFunctor(functorName, copiedArg, functorSigResult, Global code, functorLocations)
             in
                 (addr + 1, (name, funcTree) :: funcs)
             end

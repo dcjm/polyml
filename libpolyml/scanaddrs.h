@@ -1,7 +1,7 @@
 /*
     Title:  scanaddrs.h - Scan addresses in objects
 
-    Copyright (c) 2006-8, 2012, 2015, 2018 David C.J. Matthews
+    Copyright (c) 2006-8, 2012, 2015, 2018, 2021, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,7 +26,13 @@
 // Type of relocations.
 typedef enum {
     PROCESS_RELOC_DIRECT = 0,           // 32 or 64 bit address of target
-    PROCESS_RELOC_I386RELATIVE         // 32 or 64 bit relative address
+    PROCESS_RELOC_I386RELATIVE,         // 32 or 64 bit relative address
+    PROCESS_RELOC_ARM64ADRPLDR64,       // Relative address for ADRP/LDR (64-bit) pair
+    PROCESS_RELOC_ARM64ADRPLDR32,       // Relative address for ADRP/LDR (32-bit) pair
+    PROCESS_RELOC_ARM64ADRPADD,         // Relative address for ADRP/ADD pair
+    // The relocations above have corresponding object module relocation types.
+    // The next one does not and is only used within Poly/ML modules.
+    PROCESS_RELOC_C32ADDR               // Compact 32-bit object identifier
 } ScanRelocationKind;
 
 class StackSpace;
@@ -69,7 +75,9 @@ public:
     // Process a constant within the code.
     // The default action is to call the DEFAULT ScanAddressAt NOT the virtual which means that it calls
     // ScanObjectAddress for the base address of the object referred to.
-    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
+    // "displacement" is only used for relative addresses and is only non-zero when the code
+    // has been moved.
+    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement=0);
 
     // Scan the objects in the region and process their addresses.  Applies ScanAddressesInObject
     // to each of the objects.  The "region" argument points AT the first length word.
@@ -89,61 +97,15 @@ public:
 
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
+    // Create a relocation but don't adjust the address.  This is used for offsets from the
+    // code area to the constant area.
+    virtual void RelocateOnly(PolyObject* base, byte* addressOfConstant, ScanRelocationKind code) {}
+
     // Extract a constant from the code.
-#ifdef POLYML32IN64
-    static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base = globalHeapBase);
-#else
-    static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base = 0);
-#endif
+    static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement);
+
     // Store a constant in the code.
     static void SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanRelocationKind code);
-};
-
-// Recursive scan over a data structure.
-class RecursiveScan: public ScanAddress
-{
-public:
-    virtual PolyObject *ScanObjectAddress(PolyObject *base);
-    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
-    // Have to redefine this for some reason.
-    void ScanAddressesInObject(PolyObject *base)
-        { ScanAddressesInObject(base, base->LengthWord()); }
-
-protected:
-    // The derived class must provide a stack.
-    virtual void PushToStack(PolyObject *obj, PolyWord *base) = 0;
-    virtual void PopFromStack(PolyObject *&obj, PolyWord *&base) = 0;
-    virtual bool StackIsEmpty(void) = 0;
-
-    // Test the word at the location to see if it points to
-    // something that may have to be scanned.  We pass in the
-    // pointer here because the called may side-effect it.
-    virtual bool TestForScan(PolyWord *) = 0;
-    // If we are definitely scanning the address we mark it.
-    virtual void MarkAsScanning(PolyObject *) = 0;
-    // Called when the object has been completed.
-    virtual void Completed(PolyObject *) {}
-};
-
-// Recursive scan with a dynamically allocated stack
-class RScanStack;
-
-class RecursiveScanWithStack: public RecursiveScan
-{
-public:
-    RecursiveScanWithStack(): stack(0) {}
-    ~RecursiveScanWithStack();
-
-protected:
-    // StackOverflow is called if allocating a new stack
-    // segment fails.
-    virtual void StackOverflow(void) = 0;
-
-    virtual void PushToStack(PolyObject *obj, PolyWord *base);
-    virtual void PopFromStack(PolyObject *&obj, PolyWord *&base);
-    virtual bool StackIsEmpty(void);
-
-    RScanStack *stack;
 };
 
 #endif

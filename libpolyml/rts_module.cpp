@@ -1,7 +1,7 @@
 /*
     Title:  rts_module.cpp - Base class for the run-time system modules.
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -76,4 +76,11 @@ void GCModules(ScanAddress *process)
 {
     for(unsigned i = 0; i < modCount; i++)
         module_table[i]->GarbageCollect(process);
+}
+
+// Called on Unix in the child process.
+void ForkChildModules(void)
+{
+    for (unsigned i = 0; i < modCount; i++)
+        module_table[i]->ForkChild();
 }

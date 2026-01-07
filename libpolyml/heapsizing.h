@@ -34,7 +34,7 @@ public:
     Handle getGCUtime(TaskData *taskData) const;
     Handle getGCStime(TaskData *taskData) const;
 
-    void SetHeapParameters(uintptr_t minsize, uintptr_t maxsize, uintptr_t initialsize, unsigned percent);
+    void SetHeapParameters(uintptr_t minsize, uintptr_t maxsize, uintptr_t initialsize, unsigned percent, bool gcsh);
 
     void SetReservation(uintptr_t rsize);
 
@@ -77,11 +77,13 @@ private:
     // GC time to application time.
     double costFunction(uintptr_t heapSize, bool withSharing, bool withSharingCost);
 
-    bool getCostAndSize(uintptr_t &heapSize, double &cost, bool withSharing);
+    bool getCostAndSize(uintptr_t &heapSize, uintptr_t wordsRequired, double &cost, bool withSharing);
 
     // Set if we should do a full GC next time instead of a minor GC.
     bool fullGCNextTime;
 
+    // Whether to ever allow the GC sharing pass
+    bool allowGCSharing;
     // Whether a sharing pass should be performed on the next GC
     bool performSharingPass;
     // The proportion of the total heap recovered by the sharing pass

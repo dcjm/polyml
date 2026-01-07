@@ -1,13 +1,14 @@
 # ltdl.m4 - Configure ltdl for the target system. -*-Autoconf-*-
 #
-#   Copyright (C) 1999-2008, 2011-2015 Free Software Foundation, Inc.
+#   Copyright (C) 1999-2008, 2011-2019, 2021-2024 Free Software
+#   Foundation, Inc.
 #   Written by Thomas Tanner, 1999
 #
 # This file is free software; the Free Software Foundation gives
 # unlimited permission to copy and/or distribute it, with or without
 # modifications, as long as this notice is preserved.
 
-# serial 20 LTDL_INIT
+# serial 24 LTDL_INIT
 
 # LT_CONFIG_LTDL_DIR(DIRECTORY, [LTDL-MODE])
 # ------------------------------------------
@@ -335,7 +336,7 @@ AC_CONFIG_COMMANDS_PRE([
     if test -n "$_LT_LIBOBJS"; then
       # Remove the extension.
       _lt_sed_drop_objext='s/\.o$//;s/\.obj$//'
-      for i in `for i in $_LT_LIBOBJS; do echo "$i"; done | sed "$_lt_sed_drop_objext" | sort -u`; do
+      for i in `for i in $_LT_LIBOBJS; do echo "$i"; done | $SED "$_lt_sed_drop_objext" | sort -u`; do
         _ltdl_libobjs="$_ltdl_libobjs $lt_libobj_prefix$i.$ac_objext"
         _ltdl_ltlibobjs="$_ltdl_ltlibobjs $lt_libobj_prefix$i.lo"
       done
@@ -434,7 +435,8 @@ esac
 
 m4_ifdef([AM_CONDITIONAL],
 [AM_CONDITIONAL(INSTALL_LTDL, test no != "${enable_ltdl_install-no}")
- AM_CONDITIONAL(CONVENIENCE_LTDL, test no != "${enable_ltdl_convenience-no}")])
+ AM_CONDITIONAL(CONVENIENCE_LTDL, test no != "${enable_ltdl_convenience-no}")
+ AM_CONDITIONAL(LTARGZH_EXISTS, test -n "$LT_ARGZ_H")])
 ])# _LT_ENABLE_INSTALL
 
 
@@ -465,15 +467,12 @@ AC_CACHE_CHECK([whether deplibs are loaded by dlopen],
       ;;
     esac
     ;;
-  bitrig*)
-    lt_cv_sys_dlopen_deplibs=yes
-    ;;
   darwin*)
     # Assuming the user has installed a libdl from somewhere, this is true
     # If you are looking for one http://www.opendarwin.org/projects/dlcompat
     lt_cv_sys_dlopen_deplibs=yes
     ;;
-  freebsd* | dragonfly*)
+  freebsd* | dragonfly* | midnightbsd*)
     lt_cv_sys_dlopen_deplibs=yes
     ;;
   gnu* | linux* | k*bsd*-gnu | kopensolaris*-gnu)
@@ -494,6 +493,9 @@ AC_CACHE_CHECK([whether deplibs are loaded by dlopen],
   irix*)
     # The case above catches anything before 6.2, and it's known that
     # at 6.2 and later dlopen does load deplibs.
+    lt_cv_sys_dlopen_deplibs=yes
+    ;;
+  *-mlibc)
     lt_cv_sys_dlopen_deplibs=yes
     ;;
   netbsd* | netbsdelf*-gnu)
@@ -712,7 +714,7 @@ darwin[[1567]].*)
 beos*)
   LT_DLLOADERS="$LT_DLLOADERS ${lt_dlopen_dir+$lt_dlopen_dir/}load_add_on.la"
   ;;
-cygwin* | mingw* | pw32*)
+cygwin* | mingw* | windows* | pw32*)
   AC_CHECK_DECLS([cygwin_conv_path], [], [], [[#include <sys/cygwin.h>]])
   LT_DLLOADERS="$LT_DLLOADERS ${lt_dlopen_dir+$lt_dlopen_dir/}loadlibrary.la"
   ;;
@@ -760,7 +762,7 @@ AC_CACHE_CHECK([for _ prefix in compiled symbols],
   [lt_cv_sys_symbol_underscore=no
   cat > conftest.$ac_ext <<_LT_EOF
 void nm_test_func(){}
-int main(){nm_test_func;return 0;}
+int main(void){nm_test_func;return 0;}
 _LT_EOF
   if AC_TRY_EVAL(ac_compile); then
     # Now try to grab the symbols.
@@ -864,7 +866,7 @@ _LT_EOF
 #    define RTLD_NOW 0
 #  endif
 #endif
-int main () {
+int main (void) {
   void *handle = dlopen ("`pwd`/$libname$libltdl_cv_shlibext", RTLD_GLOBAL|RTLD_NOW);
   int status = $libltdl_dlunknown;
   if (handle) {

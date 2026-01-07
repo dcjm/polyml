@@ -61,6 +61,7 @@ UnusedProgramCtr    QWORD   ?
 HeapOverFlowCall    QWORD   ?
 StackOverFlowCall   QWORD   ?
 StackOverFlowCallEx QWORD   ?
+TrapHandlerEntry    QWORD   ?
 SaveRAX             QWORD   ?
 SaveRBX             QWORD   ?
 SaveRCX             QWORD   ?
@@ -86,11 +87,8 @@ ArgVector ENDS
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
+RETURN_ENTER_INTERPRETER    EQU 4
 RETURN_ARB_EMULATION        EQU 5
-RETURN_CALLBACK_RETURN      EQU 6
-RETURN_CALLBACK_EXCEPTION   EQU 7
-RETURN_KILL_SELF            EQU 9
-
 ;
 ; CODE STARTS HERE
 ;
@@ -100,24 +98,13 @@ RETURN_KILL_SELF            EQU 9
 
 CALL_EXTRA  MACRO   index
     mov     byte ptr [ArgVector.ReturnReason+rbp],index
-    jmp     SaveFullState
+    jmp     CallTrapHandler
 ENDM
 
 
-; Load the registers from the ML stack and jump to the code.
-; This is used to start ML code.
-; The argument is the address of the MemRegisters struct and goes into rbp.
-; This is the general code for switching control to ML.  There are a number of cases to consider:
-; 1.  Initial entry to root function or a new thread.  Needs to load EDX at least.
-; 2.  Normal return from an RTS call.  Could just do a simple return.
-; 3.  Exception raised in RTS call.
-; 4.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
-; 5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
-;     either because the stack can't be grown or because Interrupt has been raised.
-
-; Switch from C code to ML.  This code uses the X86/64 Windows calling conventions.  It
-; saves the callee-save registers.
-; This does not set up a correct frame because we don't want to reserve a register for
+; Enter ML code.  This is now only ever used to start a new thread.
+; It is probably unnecessary to save the callee-save regs or load the ML regs.
+; This does not set up a correct frame because we do not want to reserve a register for
 ; that.  RBP needs to be the original argument because we need to be able to modify
 ; the stack limit "register" from another thread in order to be able to interrupt
 ; this one.
@@ -155,21 +142,29 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     r12,[ArgVector.SaveR12+rbp]
     mov     r13,[ArgVector.SaveR13+rbp]
     mov     r14,[ArgVector.SaveR14+rbp]
-    mov     rax,[ArgVector.ExceptionPacket+rbp]
-    cmp     rax,1                                           ; Did we raise an exception?
-    jnz     raisex
-    mov     ah,[ArgVector.Pflags+rbp]
-    sahf
     mov     rax,[ArgVector.SaveRAX+rbp]
     cld                                     ; Clear this just in case
-    ret
+#ifdef POLYML32IN64
+#if(POLYML32IN64==2)
+    jmp     qword ptr [rbx+rdx*4]
+#elif(POLYML32IN64==4)
+    jmp     qword ptr [rbx+rdx*8]
+#else
+#error "If POLYML32IN64 is set it must be 2 or 4 on the X86"
+#endif
+
+#else
+    jmp     qword ptr [rdx]
+#endif
 
 ; Everything up to here is considered as part of the X86AsmSwitchToPoly proc
 X86AsmSwitchToPoly ENDP
 
-; Code to save the state and switch to C
-; This saves the full register state.
-SaveFullState:
+; Save all the registers and enter the trap handler.
+; It is probably unnecessary to save the FP state now.
+X86TrapHandler PROTO C
+
+CallTrapHandler:
     mov     [ArgVector.SaveRAX+rbp],rax
     mov     [ArgVector.SaveRBX+rbp],rbx
     mov     [ArgVector.SaveRCX+rbp],rcx
@@ -190,66 +185,44 @@ SaveFullState:
     mov     [ArgVector.SaveR12+rbp],r12
     mov     [ArgVector.SaveR13+rbp],r13
     mov     [ArgVector.SaveR14+rbp],r14
-    mov     [ArgVector.StackPtr+rbp],rsp
+    mov     [ArgVector.StackPtr+rbp],rsp    ; Save ML stack pointer
     mov     [ArgVector.LocalMpointer+rbp],r15       ; Save back heap pointer
     mov     rsp,[ArgVector.SaveCStack+rbp]          ; Restore C stack pointer
-    add     rsp,(Fr_size-56)
-    pop     rsi
-    pop     rdi
-    pop     r15                            ; Restore callee-save registers
-    pop     r14
-    pop     r13
-    pop     r12
-    pop     rbx
-    pop     rbp
+    sub     rsp,32                          ; Create Windows save area
+    mov     rcx,[ArgVector.ThreadId+rbp]
+    call    [ArgVector.TrapHandlerEntry+rbp]
+    add     rsp,32
+    mov     r15,[ArgVector.LocalMpointer+rbp]
+    mov     rsp,[ArgVector.StackPtr+rbp]
+    movsd   xmm0,[ArgVector.SaveXMM0+rbp]
+    movsd   xmm1,[ArgVector.SaveXMM1+rbp]
+    movsd   xmm2,[ArgVector.SaveXMM2+rbp]
+    movsd   xmm3,[ArgVector.SaveXMM3+rbp]
+    movsd   xmm4,[ArgVector.SaveXMM4+rbp]
+    movsd   xmm5,[ArgVector.SaveXMM5+rbp]
+    movsd   xmm6,[ArgVector.SaveXMM6+rbp]
+    mov     rbx,[ArgVector.SaveRBX+rbp]
+    mov     rcx,[ArgVector.SaveRCX+rbp]
+    mov     rdx,[ArgVector.SaveRDX+rbp]
+    mov     rsi,[ArgVector.SaveRSI+rbp]
+    mov     rdi,[ArgVector.SaveRDI+rbp]
+    mov     r8,[ArgVector.SaveR8+rbp]
+    mov     r9,[ArgVector.SaveR9+rbp]
+    mov     r10,[ArgVector.SaveR10+rbp]
+    mov     r11,[ArgVector.SaveR11+rbp]
+    mov     r12,[ArgVector.SaveR12+rbp]
+    mov     r13,[ArgVector.SaveR13+rbp]
+    mov     r14,[ArgVector.SaveR14+rbp]
+    mov     rax,[ArgVector.ExceptionPacket+rbp]
+    cmp     rax,1                                           ; Did we raise an exception?
+    jnz     raisexcept
+    mov     rax,[ArgVector.SaveRAX+rbp]
+    cld                                     ; Clear this just in case
     ret
 
-;# Used when entering new code.  The argument and closure are on the stack
-;# in case there is a GC before we enter the code.
-PUBLIC X86AsmPopArgAndClosure
-X86AsmPopArgAndClosure:
-    pop     rdx
-    pop     rax
-#ifdef  POLYML32IN64
-    jmp     qword ptr [rbx+rdx*4]
-#else
-    jmp     qword ptr [rdx]
-#endif
-
-;# This is used if the RTS sets up an exception.  It's probably no longer relevant.
-PUBLIC  X86AsmRaiseException
-X86AsmRaiseException:
-raisex:
+raisexcept:
     mov     rcx,[ArgVector.HandlerRegister+rbp]
     jmp     qword ptr [rcx]
-
-; RTS call to kill the current thread. 
-PUBLIC  X86AsmKillSelf
-X86AsmKillSelf:
-    CALL_EXTRA RETURN_KILL_SELF
-
-PUBLIC  X86AsmCallbackReturn
-X86AsmCallbackReturn:
-    CALL_EXTRA RETURN_CALLBACK_RETURN
-
-PUBLIC  X86AsmCallbackException
-X86AsmCallbackException:
-    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
-
-; This implements atomic addition in the same way as atomic_increment
-PUBLIC  X86AsmAtomicIncrement
-X86AsmAtomicIncrement:
-    mov     rax,rcx
-; Use rcx and rax because they are volatile (unlike rbx on X86/64/Unix)
-    mov     rcx,2
-#ifdef  POLYML32IN64
-    lock xadd [rax],ecx     ;# Rax is an absolute address but this is only a word
-#else
-    lock xadd [rax],rcx
-#endif
-    add     rcx,2
-    mov     rax,rcx
-    ret
 
 CREATE_EXTRA_CALL MACRO index
 PUBLIC  X86AsmCallExtra&index&
@@ -257,9 +230,10 @@ X86AsmCallExtra&index&:
     CALL_EXTRA index
     ENDM
 
-CREATE_EXTRA_CALL RETURN_ARB_EMULATION
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+CREATE_EXTRA_CALL RETURN_ARB_EMULATION
+CREATE_EXTRA_CALL RETURN_ENTER_INTERPRETER
 
 END

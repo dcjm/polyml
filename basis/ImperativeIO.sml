@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: ImperativeIO functor
-    Copyright   David C.J. Matthews 2000, 2015
+    Copyright   David C.J. Matthews 2000, 2015, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,21 +26,25 @@ functor BasicImperativeIO (
 ) (* No signature on the result *)
 =
 struct
+    open IO
 
     structure StreamIO = StreamIO
     type vector = Vector.vector
     and  elem = StreamIO.elem
 
     datatype instream = InStream of {
-        (* An imperative input stream is a reference to a lazy functional stream. *)
-        fStream: StreamIO.instream ref,
+        (* An imperative input stream is a reference to a lazy functional stream.
+           It is an option ref because we use a volatile ref that is set to NONE
+           if this is exported and re-imported. *)
+        fStream: StreamIO.instream option ref,
         lock: Thread.Mutex.mutex
         }
     and outstream = OutStream of {
         (* An imperative output stream is a reference to the underlying stream.
            Unlike instream the underlying stream is also imperative but we need
-           a reference here to allow us to redirect. *)
-        fStream: StreamIO.outstream ref
+           a reference here to allow us to redirect. As with instream
+           this is a volatile ref. *)
+        fStream: StreamIO.outstream option ref
         }
     (* We don't need a mutex for outstream assuming := and ! are atomic
        i.e. '!' returns either the previous value or the current one and
@@ -52,56 +56,68 @@ struct
        was called. *)
 
     fun mkInstream (s : StreamIO.instream) : instream =
-        InStream{fStream = LibrarySupport.noOverwriteRef s, lock = Thread.Mutex.mutex()}
+    let
+        val r = LibrarySupport.volatileOptionRef ()
+        val () = r := SOME s
+    in
+        InStream{fStream = r, lock = Thread.Mutex.mutex()}
+    end
         
     fun protect (InStream{fStream, lock}) f =
         LibraryIOSupport.protect lock f fStream
 
     (* Get and set the underlying stream.  We have to interlock
        setInstream at least. *)
-    fun getInstream s = protect s (fn fStream => !fStream) 
+    fun getInstream s =
+        protect s (
+            fn ref (SOME stream) => stream | _ => raise Io { name = "",  function = "getInstream", cause = ClosedStream }
+        ) 
     and setInstream(InStream{fStream, lock}, s) =
-        LibraryIOSupport.protect lock (fn fStream => fStream := s) fStream
+        LibraryIOSupport.protect lock (fn fStream => fStream := SOME s) fStream
 
     (* These are just wrappers for the underlying functional calls. *)
     fun input s = protect s 
-           (fn fStream =>
+           (fn fStream as ref(SOME stream) =>
             let
-                val (v, f') = StreamIO.input(!fStream)
+                val (v, f') = StreamIO.input stream
             in
-                fStream := f';
+                fStream := SOME f';
                 v
-            end)
+            end
+            |   _ => Vector.fromList[])
 
     (* We don't use StreamIO.input1 here because that never advances over
        a temporary EOF. *)
     fun input1 s = protect s
-           (fn fStream =>
+           (fn fStream as ref(SOME stream) =>
             let
-                val (s, f') = StreamIO.inputN(!fStream, 1)
+                val (s, f') = StreamIO.inputN(stream, 1)
             in
-                fStream := f';
+                fStream := SOME f';
                 if Vector.length s = 0 then NONE else SOME(Vector.sub(s, 0))
-            end)
+            end
+            |   _ => NONE)
 
     fun inputN(InStream{fStream, lock}, n) =
         LibraryIOSupport.protect lock
-           (fn fStream =>
+           (fn fStream as ref(SOME stream) =>
             let
-                val (v, f') = StreamIO.inputN(!fStream, n)
+                val (v, f') = StreamIO.inputN(stream, n)
             in
-                fStream := f';
+                fStream := SOME f';
                 v
-            end) fStream
+            end
+            |   _ => Vector.fromList[]) fStream
 
     fun inputAll s = protect s
-           (fn fStream =>
+           (fn fStream as ref(SOME stream) =>
             let
-                val (v, f') = StreamIO.inputAll(!fStream)
+                val (v, f') = StreamIO.inputAll stream
             in
-                fStream := f';
+                fStream := SOME f';
                 v
-            end)
+            end
+            |   _ => Vector.fromList[])
 
     (* These next functions only query the stream and don't affect the
        fStream ref so don't really need interlocking.  If two threads
@@ -109,41 +125,54 @@ struct
        anyway. *)
     fun canInput(InStream{fStream, lock}, n) =
         LibraryIOSupport.protect lock
-           (fn fStream => StreamIO.canInput(! fStream, n)) fStream
+           (fn ref(SOME stream) => StreamIO.canInput(stream, n) | _ => SOME 0) fStream
 
-    and closeIn s = protect s (fn fStream => StreamIO.closeIn(! fStream))
-    and endOfStream s = protect s (fn fStream => StreamIO.endOfStream(! fStream))
+    and closeIn s =
+        protect s (fn ref(SOME stream) => StreamIO.closeIn stream | _ => ())
+    and endOfStream s =
+        protect s (fn ref(SOME stream) => StreamIO.endOfStream stream | _ => true)
 
     fun lookahead s = protect s
-        (fn fStream =>
-            case StreamIO.input1 (! fStream) of
-                NONE => NONE
-            |   SOME(s, _) => SOME s
+        (fn ref(SOME stream) =>
+            (
+                case StreamIO.input1 stream of
+                    NONE => NONE
+                |   SOME(s, _) => SOME s
+            )
+        |   _ => NONE
         )
 
     (* These are simply wrappers. *)
 
     fun mkOutstream (s : StreamIO.outstream) : outstream =
-        OutStream{fStream = LibrarySupport.noOverwriteRef s}
+    let
+        val r = LibrarySupport.volatileOptionRef()
+        val () = r := SOME s
+    in
+        OutStream{fStream = r}
+    end
 
-    fun getOutstream(OutStream{fStream = ref s}) = s
-    and setOutstream(OutStream{fStream}, s) = fStream := s
+    fun getOutstream(OutStream{fStream = ref(SOME s)}) = s
+    |   getOutstream _ = raise Io { name = "",  function = "getOutstream", cause = ClosedStream }
+    and setOutstream(OutStream{fStream}, s) = fStream := SOME s
 
-    fun output(OutStream{fStream=ref f, ...}, v) = StreamIO.output(f, v)
-    and output1(OutStream{fStream=ref f, ...}, c) = StreamIO.output1(f, c)
-    and flushOut(OutStream{fStream=ref f, ...}) = StreamIO.flushOut f
-    and closeOut(OutStream{fStream=ref f, ...}) = StreamIO.closeOut f
-    and getPosOut(OutStream{fStream=ref f, ...}) = StreamIO.getPosOut f
+    fun output(out, v) = StreamIO.output(getOutstream out, v)
+    and output1(out, c) = StreamIO.output1(getOutstream out, c)
+    and flushOut out = StreamIO.flushOut(getOutstream out)
+    and closeOut out = StreamIO.closeOut(getOutstream out)
+    and getPosOut out = StreamIO.getPosOut(getOutstream out)
 
-    fun setPosOut(OutStream{fStream, ...}, p) = fStream := StreamIO.setPosOut p
+    fun setPosOut(OutStream{fStream}, p) = fStream := SOME(StreamIO.setPosOut p)
     
     (* Add pretty printers to hide the internals.  These just use the implementation streams. *)
     local
         open PolyML
-        fun prettyIn depth _ (InStream{ fStream = ref s, ...}) =
+        fun prettyIn depth _ (InStream{ fStream = ref(SOME s), ...}) =
             PolyML.prettyRepresentation(s, depth)
-        fun prettyOut depth _ (OutStream { fStream = ref s, ...}) =
+        |   prettyIn _ _ _ = PolyML.PrettyString("Instream-closed")
+        fun prettyOut depth _ (OutStream { fStream = ref(SOME s), ...}) =
             PolyML.prettyRepresentation(s, depth)
+        |   prettyOut _ _ _ = PolyML.PrettyString("Outstream-closed")
     in
         val () = addPrettyPrinter prettyIn
         val () = addPrettyPrinter prettyOut

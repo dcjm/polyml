@@ -7,6 +7,7 @@ exception NotApplicable;
 fun runTests parentDir =
 let
     val defaultInlineSize = ! PolyML.Compiler.maxInlineSize
+    val defaultLanguageExtensions = ! PolyML.Compiler.languageExtensions
 
     fun runTests (dirName, expectSuccess) =
     let
@@ -19,6 +20,7 @@ let
             val () = maxInlineSize := defaultInlineSize (* Set it to the default *)
             val () = debug := false (* Reset this *)
             val () = narrowOverloadFlexRecord := false
+            val () = languageExtensions := defaultLanguageExtensions
             (* First in list is the name with no suffix. *)
             val inStream = TextIO.getInstream(TextIO.openIn fileName)
             val stream = ref inStream

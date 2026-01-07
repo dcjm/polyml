@@ -61,6 +61,10 @@ sig
     val writeBinArray: OS.IO.iodesc * Word8ArraySlice.slice -> int
     val nonBlocking : ('a->'b) -> 'a ->'b option
     val protect: Thread.Mutex.mutex -> ('a -> 'b) -> 'a -> 'b
+    
+    datatype ('af,'sock_type) sock = SOCK of OS.IO.iodesc
+        (* Socket addresses are implemented as strings. *)
+    datatype 'af sock_addr = SOCKADDR of Word8Vector.vector
 end
 =
 struct
@@ -176,7 +180,7 @@ struct
                 else if (case eInProgress of SOME inProgress => e = inProgress | NONE => false) then NONE
                 else if (case wsaWouldBlock of SOME wouldBlock => e = wouldBlock | NONE => false) then NONE
                 else if (case wsaInProgress of SOME inProgress => e = inProgress | NONE => false) then NONE
-                else raise exn
+                else PolyML.Exception.reraise exn
     end
 
     val wordSize : word = LibrarySupport.wordSize;
@@ -457,6 +461,11 @@ struct
     (* Many of the IO functions need a mutex so we include this here.
        This applies a function while a mutex is being held. *)
     val protect = ThreadLib.protect
+    
+    (* These are abstract in Socket but it's convenient to be able to convert in
+       the other socket structures. *)
+    datatype ('af,'sock_type) sock = SOCK of OS.IO.iodesc
+    datatype 'af sock_addr = SOCKADDR of Word8Vector.vector
 end;
 
 structure BinPrimIO = LibraryIOSupport.BinPrimIO

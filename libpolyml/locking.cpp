@@ -244,8 +244,11 @@ PSemaphore::PSemaphore()
 PSemaphore::~PSemaphore()
 {
 #if (!defined(_WIN32))
+#ifndef MACOSX
     if (sema && isLocal) sem_destroy(sema);
-    else if (sema && !isLocal) sem_close(sema);
+    else
+#endif
+        if (sema && !isLocal) sem_close(sema);
 #else
     if (sema != NULL) CloseHandle(sema);
 #endif
@@ -254,11 +257,13 @@ PSemaphore::~PSemaphore()
 bool PSemaphore::Init(unsigned init, unsigned max)
 {
 #if (!defined(_WIN32))
+#ifndef MACOSX
     isLocal = true;
     if (sem_init(&localSema, 0, init) == 0) {
         sema = &localSema;
         return true;
     }
+#endif
 #if (defined(__CYGWIN__))
     // Cygwin doesn't define sem_unlink but that doesn't matter
     // since sem_init works.

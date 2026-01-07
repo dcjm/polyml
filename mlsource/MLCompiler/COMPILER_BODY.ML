@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2015.
+    Modified David C.J. Matthews 2008, 2015, 2020.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,25 +40,13 @@ sig
 end;
 
 structure LEX : LEXSIG
-
-structure CODETREE : CODETREESIG
+structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG; 
 structure VALUEOPS : VALUEOPSSIG;
 structure EXPORTTREE: EXPORTTREESIG
 structure STRUCTURES : STRUCTURESSIG
-
-structure PARSEDEC :
-sig
-  type lexan
-  type symset
-  type fixStatus
-  type program
-  
-  val parseDec: symset * lexan *
-    { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option } -> program
-end;
-
-structure DEBUG: DEBUGSIG
+structure PARSEDEC : PARSEDECSIG
+structure DEBUG: DEBUG
 
 structure UTILITIES :
 sig
@@ -68,7 +56,7 @@ sig
       lookup: string -> 'a  option}
 end;
 
-structure PRETTY : PRETTYSIG
+structure PRETTY : PRETTY
 
 structure MISC :
 sig
@@ -146,7 +134,8 @@ struct
             enterStruct  = #enterStruct nameSpace,
             enterSig     = #enterSig nameSpace,
             enterFunct   = #enterFunct nameSpace,
-            allValNames  = fn () => map #1 (#allVal nameSpace ())
+            allValNames  = fn () => map #1 (#allVal nameSpace ()),
+            allStructNames = fn () => map #1 (#allStruct nameSpace ())
         }
 
         val startLocn = location lex
@@ -178,7 +167,13 @@ struct
    
             (* parse a program: a sequence of topdecs ending with a semicolon. *)
             val parseTree : STRUCTURES.program = 
-                PARSEDEC.parseDec (stopSyms, lex, {enterFix  = enterFix, lookupFix = lookupFix})
+                let
+                    val fixes : PARSEDEC.fixes = {enterFix  = enterFix, lookupFix = lookupFix}
+                    val params : PARSEDEC.params =
+                        {recordPunning = DEBUG.getParameter DEBUG.languageExtensionsTag debugSwitches}
+                in
+                    PARSEDEC.parseDec (stopSyms, lex, fixes, params)
+                end
 
             val () = 
                 if printParsetree

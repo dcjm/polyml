@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2009, 2012, 2015.
+    Modified David C. J. Matthews 2009, 2012, 2015, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -23,20 +23,11 @@
     Author:     Dave Matthews,Cambridge University Computer Laboratory
     Copyright   Cambridge University 1985
 *)
-
-(* This type contains the basic structures of global and local declarations.
-   Putting the global declarations in a separate type allows us to install a new
-   compiler (particularly to fix bugs) and still be compatible with declarations
-   made with the old compiler. It is also convenient to put local values in
-   here as well.  *) 
   
 functor STRUCT_VALS (
 
-structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
+structure CODETREE : CODETREE where type machineWord = Address.machineWord
 
-(*****************************************************************************)
-(*                  UNIVERSALTABLE                                           *)
-(*****************************************************************************)
 structure UNIVERSALTABLE :
 sig
   type 'a tag = 'a Universal.tag;
@@ -51,16 +42,11 @@ sig
   val univFreeze:       univTable -> univTable
 
     val fold: (string * universal * 'a -> 'a) -> 'a -> univTable -> 'a
-end;
-
-structure PRETTY: PRETTYSIG (* Temporary addition. *)
+end
 
 ) :> STRUCTVALSIG where type codetree = CODETREE.codetree and type univTable = UNIVERSALTABLE.univTable and type level = CODETREE.level
 =  
 
-(*****************************************************************************)
-(*                  STRUCTVALS functor body                                  *)
-(*****************************************************************************)
 struct
     open CODETREE;
   
@@ -115,7 +101,17 @@ struct
     and typeIdKind =
         Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
     |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
-    |   TypeFn of typeVarForm list * types
+    |   TypeFn of
+        {
+            tyVars:     typeVarForm list,
+            resType:    types,
+            usedTvs:    BoolVector.vector,
+            typeFunCount: int,
+            equality:   typeFnEq ref,
+            uid:        uniqueId
+        }
+
+    and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
     (* A type is the union of these different cases. *)
     and types = 
@@ -268,6 +264,8 @@ struct
     |   OpenedAt of location
     |   StructureAt of location
     |   SequenceNo of FixedInt.int
+
+    and tvLevel = Generalisable | NotGeneralisable of int
   
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
@@ -276,6 +274,7 @@ struct
     and typeVarForm = 
     {
         value:    types ref,
+        level:    tvLevel,
         encoding: Word.word
     }
 
@@ -327,9 +326,7 @@ struct
         TypeId { access=access, description = desc,
             idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt, arity=arity}}
 
-    (* Type functions currently always have Free ids. *)
-    fun makeTypeFunction(desc, typeFn) =
-        TypeId { access=Global CodeZero, description = desc, idKind = TypeFn typeFn};
+    fun makeUniqueId() = ref false (* Just for type functions *)
             
     (* Find the number - assuming it is bound. *)
     fun offsetId (TypeId{idKind=Bound {offset, ...}, ...}) = offset
@@ -339,8 +336,6 @@ struct
     fun sameTypeId (TypeId{idKind=Free{uid = a, ...}, ...}, TypeId{idKind=Free {uid = b, ...}, ...}) = a = b
     |   sameTypeId (TypeId{idKind=Bound{offset=a, ...}, ...}, TypeId{idKind=Bound{offset=b, ...}, ...}) = a = b
     |   sameTypeId _ = false (* Includes type functions. *)
-
-    fun idAccess (TypeId { access, ...}) = access
 
     fun isEquality (TypeId { idKind = Free{uid = ref eq, ...}, ...}) = eq
     |   isEquality (TypeId { idKind = Bound{eqType, ...}, ...}) = pling eqType
@@ -369,11 +364,6 @@ struct
                locations = locations  }
     
   (* Types. *)
-
-  (* Level at which type is generalisable. *)
-
-  val generalisable = 9999; 
-    
     
   (* Destructors, constructors and predicates for types *)
   val emptyType            = EmptyType;
@@ -429,17 +419,19 @@ struct
     in
         fun makeTv {value : types, level, equality, nonunifiable, printable} : typeVarForm =
             { value    = ref value, (* REF HOTSPOT - 400 *)
-              encoding = (fromInt level << 0w3)
-                           orb (if equality     then 0w4 else 0w0)
+              level    = level,
+              encoding =  (if equality     then 0w4 else 0w0)
                            orb (if nonunifiable then 0w2 else 0w0)
                            orb (if printable    then 0w1 else 0w0)}
         
-        fun tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t
-        fun tvValue ({value = ref v, ...} : typeVarForm) : types = v
-        fun tvLevel ({encoding, ...} : typeVarForm) : int  = Word.toInt(encoding >> 0w3)
-        fun tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0
-        fun tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0
-        fun tvPrintity ({encoding, ...} : typeVarForm)     = encoding andb 0w1 <> 0w0
+        and tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t
+        and tvValue ({value = ref v, ...} : typeVarForm) : types = v
+        and tvLevel ({level, ...} : typeVarForm) : tvLevel  = level
+        and tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0
+        and tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0
+        and tvPrintity ({encoding, ...} : typeVarForm)     = encoding andb 0w1 <> 0w0
+        
+        val generalisable = Generalisable
     end
 
     local
@@ -458,39 +450,6 @@ struct
      constructors is for aliasing types. In this case "typeVars" points to a list 
      of type variables which are used in the "equivalent" type. ``equality'' is a 
      flag indicating if the values can be tested for equality. *)
-      
-    fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
-    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
-    fun tcLocations  (TypeConstrs {locations, ...}) = locations
-
-    (* Is this a type function?  N.B. It is possible, though unlikely, that it
-       is a datatype as well i.e. has value constructors. *)
-    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
-    |   tcIsAbbreviation _ = false
-
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn(args, _),...}, ...}) = length args
-    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
-    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
-
-    (* Equality and "equivalence" are now properties of the type id.  Retain these functions for the moment. *)
-
-    val tcEquality = isEquality o tcIdentifier;
-    fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
-
-    (* Construct a type constructor.  We need typeVars here purely to be
-       able to print datatypes with equality type variables e.g. datatype ''a t. *)
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            typeVars   = typeVars,
-            identifier = uid,
-            locations = locations
-        }
-
-    fun tsConstr(TypeConstrSet(ts, _)) = ts
-    and tsConstructors(TypeConstrSet(_, tvs)) = tvs
 
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
@@ -504,12 +463,6 @@ struct
     |   Nonfix
 
     datatype fixStatus = FixStatus of string * infixity
-
-    fun vaGlobal   (Global   x) = x | vaGlobal   _ = raise Match
-    fun vaLocal    (Local    x) = x | vaLocal    _ = raise Match
-
-    val makeGlobal = Global;
-    val makeFormal = Formal;
   
     fun makeLocal () = Local { addr = ref ~1 (* Invalid addr - catch errors *), level = ref baseLevel }
        
@@ -520,7 +473,7 @@ struct
     
     (* Global structure *)
     fun makeGlobalStruct (name, signat, code, locations) =
-        makeStruct (name, signat, makeGlobal code, locations)
+        makeStruct (name, signat, Global code, locations)
 
     (* These are used in INITIALISE so must be mutable. *)
     fun makeEmptyGlobal name =
@@ -531,7 +484,7 @@ struct
                    firstBoundIndex   = 0, 
                    boundIds   = [],
                    locations =  [DeclaredAt inBasis] },
-            makeGlobal CodeZero, [DeclaredAt inBasis])
+            Global CodeZero, [DeclaredAt inBasis])
      
     (* Local structure. *)
     fun makeLocalStruct (name, signat, location) = 
@@ -547,7 +500,7 @@ struct
       | _          => selected
   
     fun makeFormalStruct (name, signat, addr, location) =
-      makeStruct (name, signat, makeFormal addr, location);
+      makeStruct (name, signat, Formal addr, location);
      
     (* Values. *)  
     fun makeOverloaded (name, typeOf, operation) : values =
@@ -559,17 +512,6 @@ struct
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE };
 
     fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
-
-    fun valName (Value{name, ...}) = name
-    fun valTypeOf (Value{typeOf, ...}) = typeOf
-
-    fun isConstructor (Value{class=Constructor _, ...}) = true
-    | isConstructor (Value{class=Exception, ...})     = true
-    | isConstructor _                                  = false;
-
-    fun isValueConstructor (Value{class=Constructor _, ...}) = true
-    | isValueConstructor _                                 = false;
-
 
     (* Functor value. *)
     fun makeFunctor (name, arg, result, access, locations) = 
@@ -609,24 +551,27 @@ struct
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit,
-        allValNames:  unit -> string list
+        allValNames:  unit -> string list,
+        allStructNames: unit -> string list
     }
 
     (* This creates functions for entering and looking up names. *)
     fun makeEnv tab =
-        Env { lookupVal    = makeLook  valueVar      tab,
-          lookupType   = makeLook  typeConstrVar tab,
-          lookupFix    = makeLook  fixVar        tab,
-          lookupStruct = makeLook  structVar     tab,
-          lookupSig    = makeLook  signatureVar  tab,
-          lookupFunct  = makeLook  functorVar    tab,
-          enterVal     = makeEnter valueVar      tab,
-          enterType    = makeEnter typeConstrVar tab,
-          enterFix     = makeEnter fixVar        tab,
-          enterStruct  = makeEnter structVar     tab,
-          enterSig     = makeEnter signatureVar  tab,
-          enterFunct   = makeEnter functorVar    tab,
-          allValNames  = makeAllNames valueVar   tab
+        Env {
+            lookupVal      = makeLook  valueVar      tab,
+            lookupType     = makeLook  typeConstrVar tab,
+            lookupFix      = makeLook  fixVar        tab,
+            lookupStruct   = makeLook  structVar     tab,
+            lookupSig      = makeLook  signatureVar  tab,
+            lookupFunct    = makeLook  functorVar    tab,
+            enterVal       = makeEnter valueVar      tab,
+            enterType      = makeEnter typeConstrVar tab,
+            enterFix       = makeEnter fixVar        tab,
+            enterStruct    = makeEnter structVar     tab,
+            enterSig       = makeEnter signatureVar  tab,
+            enterFunct     = makeEnter functorVar    tab,
+            allValNames    = makeAllNames valueVar   tab,
+            allStructNames = makeAllNames structVar  tab
         }
 
     structure Sharing =
@@ -648,5 +593,7 @@ struct
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm
         and  level      = level
+        and  tvLevel    = tvLevel
+        and  typeFnEq   = typeFnEq
     end
-end (* STRUCTVALS *);
+end;

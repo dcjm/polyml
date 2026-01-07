@@ -58,8 +58,8 @@ BEGIN
     END
     POPUP "&Edit"
     BEGIN
-        MENUITEM "&Copy",                       ID_EDIT_COPY
-        MENUITEM "&Paste",                      ID_EDIT_PASTE
+        MENUITEM "&Copy\tCtrl+C",               ID_EDIT_COPY
+        MENUITEM "&Paste\tCtrl+V",              ID_EDIT_PASTE
     END
     POPUP "&Run"
     BEGIN
@@ -82,7 +82,7 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 FONT 8, "MS Sans Serif", 0, 0, 0x0
 BEGIN
     DEFPUSHBUTTON   "OK",IDOK,7,92,50,14
-    LTEXT           "Poly/ML v 5.8.1 Copyright David C.J. Matthews, Cambridge University Technical Services and contributors 2000-20.\n\nThis is free software and released under the GNU Lesser General Public License.",IDC_STATIC,24,30,167,47
+    LTEXT           "Poly/ML v 5.9.2 Copyright David C.J. Matthews, Cambridge University Technical Services and contributors 2000-25.\n\nThis is free software and released under the GNU Lesser General Public License.",IDC_STATIC,24,30,167,47
     ICON            IDI_ICON,IDC_STATIC,7,7,20,20
 END
 
@@ -122,8 +122,8 @@ IDI_ICON                ICON                    "poly.ico"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 5,8,1,0
- PRODUCTVERSION 5,8,1,0
+ FILEVERSION 5,9,2,0
+ PRODUCTVERSION 5,9,2,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -139,13 +139,13 @@ BEGIN
         BLOCK "080904b0"
         BEGIN
             VALUE "CompanyName", " "
-            VALUE "FileDescription", "PolyML v5.8.1"
-            VALUE "FileVersion", "5.8.1.0"
+            VALUE "FileDescription", "PolyML v5.9.2"
+            VALUE "FileVersion", "5.9.2.0"
             VALUE "InternalName", "PolyML"
-            VALUE "LegalCopyright", "Copyright © David Matthews, CUTS and contributors 2000-2020"
+            VALUE "LegalCopyright", "Copyright © David Matthews, CUTS and contributors 2000-2025"
             VALUE "OriginalFilename", "PolyML.exe"
             VALUE "ProductName", "PolyML"
-            VALUE "ProductVersion", "5.8.1.0"
+            VALUE "ProductVersion", "5.9.2.0"
         END
     END
     BLOCK "VarFileInfo"

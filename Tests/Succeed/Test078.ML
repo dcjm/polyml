@@ -10,4 +10,21 @@ val (_, port) = INetSock.fromAddr(Socket.Ctl.getSockName x)
 in
 Socket.connect(y, INetSock.toAddr(localhost, port))
 end;
-Socket.accept x;
+val (cnct, _) = Socket.accept x;
+
+(* Send the data. Use a separate thread so there's no possibility of blocking. *)
+let
+    fun sendData() =
+        (Socket.sendVec(y, Word8VectorSlice.full(Byte.stringToBytes "A test")); ())
+in
+    Thread.Thread.fork(sendData, [])
+end;
+
+if Byte.bytesToString(Socket.recvVec(cnct, 6)) <> "A test"
+then raise Fail "failed"
+else ();
+
+Socket.close cnct;
+Socket.close x;
+Socket.close y;
+
