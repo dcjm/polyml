@@ -129,7 +129,7 @@ struct
     let
         fun name num = (if num >= 26 then name (num div 26 - 1) else "")
               ^ String.str (Char.chr (num mod 26 + Char.ord #"a"))
-        val name = (if isEq then "''" else "'") ^ name(n + 1)
+        val name = (if isEq then "''" else "'") ^ name n
     in
         name
     end
