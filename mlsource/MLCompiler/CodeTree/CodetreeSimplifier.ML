@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016-17, 2020-3, 2025 David C.J. Matthews
+    Copyright (c) 2013, 2016-17, 2020-3, 2025-6 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1111,6 +1111,19 @@ struct
                     (EnvSpecTuple _, true) => (CodeFalse, decArgs, EnvSpecNone) before reprocess := true
                 |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             )
+
+            (* A general equality test against a short constant can be converted into pointer equality since they will only
+               be equal if they are the same short value.  This is reprocessed so the tests for PointerEq above will be
+               applied if appropriate. *)
+        |   (GeneralEquality, Constnt(v1, _), genArg2) =>
+                if isShort v1
+                then (Binary{oper=PointerEq, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) before reprocess := true
+                else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (GeneralEquality, genArg1, Constnt(v2, _)) =>
+                if isShort v2
+                then (Binary{oper=PointerEq, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) before reprocess := true
+                else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
 
         |   (FixedPrecisionArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
             if not(isShort v1) orelse not(isShort v2)
