@@ -3177,7 +3177,11 @@ struct
             in
                 moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
-        
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.GeneralEquality, ...}, _, _, _, _) =
+                (* This should have been removed at a higher level. *)
+                raise InternalError "codeToICodeBinaryRev: GeneralEquality"
+
         (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use
            various short cuts. *)
         and codeMultiplyConstantWordRev(arg, context, destination, multiplier, tailCode) =

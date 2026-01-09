@@ -101,144 +101,12 @@ struct
         mkBinary(BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, depthCode, mkConst(toMachineWord 1))
 
     val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default", [], 0)
-
-    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
-    |   tcIsAbbreviation _ = false
+    and codeEqDefault =
+        mkInlproc(mkBinary(BuiltIns.GeneralEquality, mkLoadArgument 0, mkLoadArgument 1), 2, "default_equality()", [], 0)
 
     fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
-
-        local
-            open TypeValue
-(*            local
-                open RunCall
-            in
-                (* Structural equality.  This is the fall back if we can't find a type-specific function. *)
-                fun structuralEquality(a: Address.machineWord, b: Address.machineWord) =
-                if PolyML.pointerEq(a, b) then true
-                else if isShort a orelse isShort b then false
-                else
-                let
-                    val aFlags = memoryCellFlags a
-                    and bFlags = memoryCellFlags b
-                    and aLen = memoryCellLength a
-                    and bLen = memoryCellLength b
-                in
-                    if aFlags <> bFlags orelse aLen <> bLen then false
-                    else if aFlags = 0w0 (* Word data *)
-                    then
-                    let
-                        fun eqWords c =
-                            if c = aLen then true
-                            else structuralEquality(loadWordFromImmutable(a, c),
-                                loadWordFromImmutable(b, c)) andalso eqWords(c+0w1)
-                    in
-                        eqWords 0w0
-                    end
-                    else if aFlags = 0w1 (* Byte data *)
-                    then
-                    let
-                        val byteLen = aLen * bytesPerWord
-                        fun eqBytes c =
-                            if c = byteLen then true
-                            else (loadByteFromImmutable(a, c): Word8.word) = loadByteFromImmutable(b, c) andalso eqBytes(c+0w1)
-                    in
-                        eqBytes 0w0
-                    end
-                    else false
-                end
-            end*)
-            (* The printer and equality functions must be valid functions even when they
-               will never be called.  We may have to construct dummy type values
-               by applying a polymorphic type constructor to them and if
-               they don't have the right form the optimiser will complain.
-               If we're only using type values for equality type variables the default
-               print function will be used in polymorphic functions so must print "?". *)
-(*            val defaultEquality =
-                mkProc(mkEval(mkConst(toMachineWord structuralEquality),
-                    [mkTuple[mkLoadArgument 0, mkLoadArgument 1]]), 2, "structureEq", [], 0)*)
-            local
-                open BuiltIns
-                val argA = mkLoadArgument 0 and argB = mkLoadArgument 1
-                (* Variables *)
-                val aFlags = 0 and bFlags = 1 and aLen = 2 and bLen = 3
-                and loopVar = 4 and loopA = 5 and loopB = 6
-                val nLocals = 7
-                fun mkOrelse(a, b) = mkIf(a, CodeTrue, b)
-                fun mkEqual(a, b) = mkBinary(WordComparison{test=TestEqual, isSigned=false }, a, b)
-                fun mkNotEq(a, b) = mkUnary(NotBoolean, mkEqual(a, b))
-                val wordFlags = mkConst(toMachineWord Address.F_words)
-                and byteFlags = mkConst(toMachineWord Address.F_bytes)
-                val bytesWord = mkConst(toMachineWord RunCall.bytesPerWord)
-                val const1 = mkConst(toMachineWord 1)
-                fun loadWord(base, index) =
-                    mkLoadOperation(LoadStoreMLWord{isImmutable=true}, base, index)
-            in
-                val defaultEquality =
-                    mkProc(
-                        mkIf(mkEqualPointerOrWord(argA, argB), CodeTrue,
-                            mkIf(
-                                mkOrelse(mkUnary(BuiltIns.IsTaggedValue, argA), mkUnary(BuiltIns.IsTaggedValue, argB)),
-                                CodeFalse,
-                                mkEnv(
-                                    [
-                                        mkDec(aFlags, mkUnary(BuiltIns.MemoryCellFlags, argA)),
-                                        mkDec(bFlags, mkUnary(BuiltIns.MemoryCellFlags, argB)),
-                                        mkDec(aLen, mkUnary(BuiltIns.MemoryCellLength, argA)),
-                                        mkDec(bLen, mkUnary(BuiltIns.MemoryCellLength, argB))
-                                    ],
-                                    mkIf(
-                                        mkOrelse(mkNotEq(mkLoadLocal aFlags, mkLoadLocal bFlags),
-                                            mkNotEq(mkLoadLocal aLen, mkLoadLocal bLen)),
-                                        CodeFalse,
-                                        mkIf(mkEqual(mkLoadLocal aFlags, wordFlags),
-
-                                            (* Word data - loop to process every word.  TODO: loop for
-                                               len-1 and then tail recurse for the last word.  This will
-                                               work better for lists.  N.B. Check for length = 0 i.e. unit. *)
-                                            mkBeginLoop(
-                                                mkIf(mkEqual(mkLoadLocal loopVar, mkLoadLocal aLen),
-                                                    CodeTrue,
-                                                    mkEnv(
-                                                        [
-                                                            mkDec(loopA, loadWord(argA, mkLoadLocal loopVar)),
-                                                            mkDec(loopB, loadWord(argB, mkLoadLocal loopVar))
-                                                        ],
-                                                        mkIf(
-                                                            mkEval(loadRecursive, [mkLoadLocal loopA, mkLoadLocal loopB]),
-                                                            mkLoop[mkBinary(WordArith ArithAdd, mkLoadLocal loopVar, const1)],
-                                                            CodeFalse))
-                                                ),
-                                                [(loopVar, CodeZero)]
-                                            ),
-
-                                            mkIf(mkEqual(mkLoadLocal aFlags, byteFlags),
-                                                (* Byte data. *)
-                                                mkBlockOperation{kind=BlockOpEqualByte, leftBase=argA, rightBase=argB,
-                                                    leftIndex=CodeZero, rightIndex=CodeZero,
-                                                    length=mkBinary(WordArith ArithMult, mkLoadLocal aLen, bytesWord)},
-                                                (* Any other flags e.g. F_mutable => false *)
-                                                CodeFalse
-                                            )
-                                        )
-                                    ))
-                                )
-                            ),
-                        2, "structureEq", [], nLocals)
-            end
-
-            (* Code generate this now so we only get one entry. *)
-            val codeTuple =
-                mkTuple[
-                    createTypeValue{ (* Unused type variable. *) eqCode=defaultEquality, printCode=codePrintDefault}
-                ]
-            val code = genCode(codeTuple, [], 0)()
-        in
-            (* Default code used for a type variable that is not referenced but
-               needs to be provided to satisfy the type. *)
-            val defaultTypeCode = mkInd(0, code)
-        end
 
     (* Generate a print function for a type.  This is used both for PolyML.print when called as a
        function and also to generate a print function for a datatype.
@@ -251,22 +119,19 @@ struct
                 (* Only in a general type.  We need to reduce the type immediately to
                    eliminate bound variables. *)
                 case followRefChainToEnd l of
-                    NONE => TypeValue.extractPrinter defaultTypeCode
+                    NONE => codePrintDefault
                 |   SOME final => printCode(reduceToType final, level)
             )
 
         |   printCode(BoundTypeVar(_, index), level) =
-            let
+            (
                  (* Return default code for a missing type variable.  This can occur
                    if we have unreferenced type variables that need to be supplied but
                    are treated as "don't care". *)
-                val code =
-                    case argTypes of
-                        NONE => (fn _ => defaultTypeCode)
-                    |   SOME typeVarMap => typeVarMap index
-            in
-                TypeValue.extractPrinter(code level)
-            end
+                case argTypes of
+                        NONE => codePrintDefault
+                    |   SOME typeVarMap => TypeValue.extractPrinter(typeVarMap index level)
+            )
 
         |   printCode(TypeConstruction { constr=TypeConstrs {identifier=TypeId{idKind = TypeFn{resType, ...}, ...},...}, args, ...}, level) =
             let (* Type function *)
@@ -427,14 +292,12 @@ struct
         else
         let
             open TypeValue
-            (* Get argument types parameters for polytypes.  There's a special case
-               here for type vars, essentially the type arguments to the datatype, to avoid taking
-               apart the type value record and then building it again.
-               Is this correct any longer? *)
+            (* For historical reasons the argument to the polytype is a pair consisting of
+               the equality and print functions.  This should be changed but leave it for the moment. *)
             fun getArg(TypeVar(TypeVariable{link=ref l, ...})) =
                 (
                     case followRefChainToEnd l of
-                        NONE => defaultTypeCode
+                        NONE => createTypeValue{eqCode=codeEqDefault, printCode=CodeZero}
                     |   SOME ty => getArg(reduceToType ty)
                 )
             |   getArg ty =
@@ -457,24 +320,25 @@ struct
             TypeVar(TypeVariable{link=ref l, ...}) =>
             (
                 case followRefChainToEnd l of
-                    NONE => TypeValue.extractEquality defaultTypeCode
+                    NONE => codeEqDefault
                 |   SOME tyVal => makeEq(reduceToType tyVal, level, getTypeValueForID, typeVarMap)
             )
 
         |   BoundTypeVar(_, index) =>
-            let
-                val code =
-                    case typeVarMap of
-                        NONE => (fn _ => defaultTypeCode)
-                    |   SOME typeVarMap => typeVarMap index
+            (
+                case typeVarMap of
+                    NONE => codeEqDefault
+                |   SOME typeVarMap => TypeValue.extractEquality(typeVarMap index level)
+            )
+
+        |   TypeConstruction { constr=TypeConstrs {identifier=TypeId{idKind = TypeFn{resType, ...}, ...},...}, args, ...} =>
+            let (* Type function *)
+                val argMap = createTypeFnArgumentMap(args, fn _ => NONE)
             in
-                TypeValue.extractEquality(code level)
+                makeEq (reduceToType(Instance(resType, argMap)), level, getTypeValueForID, typeVarMap)
             end
 
-        |   TypeConstruction{constr, args, ...} =>
-                if tcIsAbbreviation constr  (* May be an alias *)
-                then makeEq (makeEquivalent (constr, args), level, getTypeValueForID, typeVarMap)
-                else equalityForConstruction(constr, args)
+        |   TypeConstruction{constr, args, ...} => equalityForConstruction(constr, args)
 
         |   LabelledRecord [{typeOf=singleton, ...}] =>
                 (* Unary tuples are optimised - no indirection. *)
@@ -507,7 +371,7 @@ struct
         |   FlexibleRecordVar{recList=ref _, fullList=ref _, ...} =>
                 (* TODO: If we have all the fields treat it as a labelled record otherwise fall back to
                    structure equality. *)
-                TypeValue.extractEquality defaultTypeCode
+                codeEqDefault
 
         |   _ => raise InternalError "Equality for function"
     end

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-23 David C.J. Matthews
+    Copyright (c) 2012, 2016-23, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -89,6 +89,7 @@ struct
         |   RealArith of arithmeticOperations * precision
         |   PointerEq
         |   FreeCStack
+        |   GeneralEquality
 
         and nullaryOps =
             GetCurrentThreadId
@@ -131,6 +132,7 @@ struct
         |   binaryRepr (RealArith (arithOp, prec)) = arithRepr arithOp ^ precRepr prec
         |   binaryRepr PointerEq = "PointerEq"
         |   binaryRepr FreeCStack = "FreeCStack"
+        |   binaryRepr GeneralEquality = "GeneralEquality"
         
         and nullaryRepr GetCurrentThreadId = "GetCurrentThreadId"
         |   nullaryRepr CPUPause = "CPUPause"

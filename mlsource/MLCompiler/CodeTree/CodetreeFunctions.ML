@@ -146,6 +146,7 @@ struct
                     |   RealArith _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   FreeCStack => PROPWORD_NORAISE orb PROPWORD_NODEREF
                     |   PointerEq => applicative
+                    |   GeneralEquality => applicative
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

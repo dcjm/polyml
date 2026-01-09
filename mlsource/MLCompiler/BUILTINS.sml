@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016, 2018-23
+    Copyright David C. J. Matthews 2016, 2018-23, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -102,6 +102,7 @@ sig
            values are tagged. *)
     |   PointerEq
     |   FreeCStack  (* Free  space on the C stack. *)
+    |   GeneralEquality (* Generalised structural equality *)
     
     and nullaryOps =
         (* Get the current thread id *)

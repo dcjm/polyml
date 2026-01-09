@@ -22,6 +22,7 @@ functor CodetreeStaticLinkAndCases(
     structure Debug: DEBUG
     structure Pretty : PRETTY
     structure BackendTree: BACKENDINTERMEDIATECODE
+    structure CodeArray: CODEARRAY
 
     sharing
         BaseCodeTree.Sharing
@@ -29,6 +30,7 @@ functor CodetreeStaticLinkAndCases(
     =   GCode.Sharing
     =   Pretty.Sharing
     =   BackendTree.Sharing
+    =   CodeArray.Sharing
 ) : CODEGENTREE
 =
 struct
@@ -62,6 +64,126 @@ struct
         }
     |   NotACase of backendIC
 
+    (* Code for structure equality. *)
+    (*
+        local
+            open RunCall
+        in
+            (* Structural equality.  This is the fall back if we can't find a type-specific function. *)
+            fun structuralEquality(a, b) =
+            if PolyML.pointerEq(a, b) then true
+            else if isShort a orelse isShort b then false
+            else
+            let
+                val aFlags = memoryCellFlags a
+                and bFlags = memoryCellFlags b
+                and aLen = memoryCellLength a
+                and bLen = memoryCellLength b
+            in
+                if aFlags <> bFlags orelse aLen <> bLen then false
+                else if aLen = 0w0 then true
+                else if aFlags = 0w0 (* Word data *)
+                then
+                let
+                    val lenM1 = aLen - 0w1
+                    fun eqWords c =
+                        if c = lenM1 (* Tail recursion on last word *)
+                        then structuralEquality(loadWordFromImmutable(a, c), loadWordFromImmutable(b, c))
+                        else structuralEquality(loadWordFromImmutable(a, c),
+                            loadWordFromImmutable(b, c)) andalso eqWords(c+0w1)
+                in
+                    eqWords 0w0
+                end
+                else if aFlags = 0w1 (* Byte data *)
+                then
+                let
+                    val byteLen = aLen * bytesPerWord
+                    fun eqBytes c =
+                        if c = byteLen then true
+                        else (loadByteFromImmutable(a, c): Word8.word) = loadByteFromImmutable(b, c) andalso eqBytes(c+0w1)
+                in
+                    eqBytes 0w0
+                end
+                else false
+            end
+        end;
+    *)
+
+    (* It would be possible to simply cast the above code into a constant but that would always take a tuple as
+       an argument.  If we want to avoid that and pass two arguments we need to generate the code directly. *)
+    local
+        open BuiltIns
+        val param0 = BICExtract(BICLoadArgument 0) and param1 = BICExtract(BICLoadArgument 1)
+        val trueValue = BICConstnt(toMachineWord true, []) and falseValue = BICConstnt(toMachineWord false, [])
+        val zeroValue = BICConstnt(toMachineWord 0w0, []) and oneValue = BICConstnt(toMachineWord 0w1, [])
+        fun mkOrElse(a, b) = BICCond(a, trueValue, b) and mkAndAlso(a, b) = BICCond(a, b, falseValue)
+        fun equal(a, b) = BICBinary{oper=WordComparison{test=TestEqual, isSigned=false}, arg1=a, arg2=b}
+        fun notEqual(a, b) = BICUnary{oper=NotBoolean, arg1=equal(a,b)}
+        fun getLocal n = BICExtract(BICLoadLocal n)
+
+        val structureEqualityCode =
+            { name = "structuralEquality(2)", closure = [], argTypes = [GeneralType, GeneralType],
+                resultType = GeneralType, localCount = 6,
+                body =
+                BICCond(BICBinary{oper=PointerEq, arg1=param0, arg2=param1}, trueValue,
+                    BICCond(mkOrElse(BICUnary{oper=IsTaggedValue, arg1=param0}, BICUnary{oper=IsTaggedValue, arg1=param1}), 
+                    falseValue,
+                    BICNewenv([
+                        BICDeclar{addr=0, value=BICUnary{oper=MemoryCellFlags, arg1=param0}},
+                        BICDeclar{addr=1, value=BICUnary{oper=MemoryCellFlags, arg1=param1}},
+                        BICDeclar{addr=2, value=BICUnary{oper=MemoryCellLength, arg1=param0}},
+                        BICDeclar{addr=3, value=BICUnary{oper=MemoryCellLength, arg1=param1}}
+                        ],
+                        BICCond(mkOrElse(notEqual(getLocal 0, getLocal 1), notEqual(getLocal 2, getLocal 3)),
+                            falseValue,
+                            BICCond(equal(getLocal 2, zeroValue),
+                                trueValue,
+                                BICCond(equal(getLocal 0, zeroValue), (* Immutable word data *)
+                                    BICNewenv([
+                                        BICDeclar{addr=4, value=BICBinary{oper=WordArith ArithSub, arg1=getLocal 2, arg2=oneValue}}],
+                                        BICBeginLoop{arguments=[({addr=5, value=zeroValue}, GeneralType)],
+                                            loop=BICCond(equal(getLocal 5, getLocal 4),
+                                                BICEval{function=BICExtract BICLoadRecursive, resultType=GeneralType,
+                                                    argList=[
+                                                        (BICLoadOperation{ kind=LoadStoreMLWord{isImmutable=true},
+                                                                    address={base=param0, index=SOME(getLocal 5), offset=0}}, GeneralType),
+                                                        (BICLoadOperation{ kind=LoadStoreMLWord{isImmutable=true},
+                                                                    address={base=param1, index=SOME(getLocal 5), offset=0}}, GeneralType)]},
+                                                mkAndAlso(
+                                                    BICEval{function=BICExtract BICLoadRecursive, resultType=GeneralType,
+                                                        argList=[
+                                                           (BICLoadOperation{ kind=LoadStoreMLWord{isImmutable=true},
+                                                                        address={base=param0, index=SOME(getLocal 5), offset=0}}, GeneralType),
+                                                            (BICLoadOperation{ kind=LoadStoreMLWord{isImmutable=true},
+                                                                        address={base=param1, index=SOME(getLocal 5), offset=0}}, GeneralType)]},
+                                                    BICLoop[(BICBinary{oper=WordArith ArithAdd, arg1=getLocal 5, arg2=oneValue}, GeneralType)]
+                                                )
+                                            )
+                                        }
+                                    ),
+
+                                    BICCond(equal(getLocal 0, oneValue), (* Immutable byte data *)
+                                        BICBlockOperation{kind=BlockOpEqualByte,
+                                            sourceLeft={base=param0, index=NONE, offset=0}, destRight={base=param1, index=NONE, offset=0},
+                                            length=BICBinary{oper=WordArith ArithMult, arg1=getLocal 2,
+                                                                arg2=BICConstnt(toMachineWord RunCall.bytesPerWord, [])}},
+
+                                        falseValue (* Anything else, probably mutable. *)
+                                    )
+                                )
+                            )
+                        )
+                    )
+                    )
+                )
+            }
+
+        val closure = CodeArray.makeConstantClosure()
+        val () = GCode.gencodeLambda(structureEqualityCode, [], closure)
+    in
+        val structureEquality = BICConstnt(CodeArray.closureAsAddress closure, [])
+    end
+    
     (* Tuples, and structures, larger than this are code-generated as vectors. *)
     val largeTupleAsVector = 40
 
@@ -86,6 +208,9 @@ struct
         |   insert(Nullary{oper}) = BICNullary{oper=oper}
 
         |   insert(Unary { oper, arg1 }) = BICUnary { oper = oper, arg1 = insert arg1 }
+
+        |   insert(Binary { oper=BuiltIns.GeneralEquality, arg1, arg2 }) =
+                BICEval{function=structureEquality, argList = [(insert arg1, GeneralType), (insert arg2, GeneralType)], resultType=GeneralType}
 
         |   insert(Binary { oper, arg1, arg2 }) = BICBinary { oper = oper, arg1 = insert arg1, arg2 = insert arg2 }
         
