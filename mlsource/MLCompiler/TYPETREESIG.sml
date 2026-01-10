@@ -109,7 +109,7 @@ sig
     
     (* Support for printing type variables. *)
     val createBoundVar: bool -> int -> types
-    val printTypeVariables: ('a * int * 'b -> pretty) -> 'a list * int * 'b -> pretty list
+    val printTypeVariables: ('a * FixedInt.int * 'b -> pretty) -> 'a list * FixedInt.int * 'b -> pretty list
     val varNameSequence: unit -> typeVar -> string
 
     (* Returns the preferred type constructor from an overload. *)
