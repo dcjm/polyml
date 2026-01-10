@@ -609,6 +609,8 @@ struct
                 
                 |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
 
+                |   GeneralEquality => raise InternalError "gencde: GeneralEquality"
+                    (* Should have been removed at a higher level. *)
                  ;
                 decsp() (* Removes one item from the stack. *)
             end
