@@ -43,7 +43,7 @@
 	<source name="basis\LibrarySupport.sml" />
 	<source name="basis\List.sml" />
 	<source name="basis\ListPair.sml" />
-	<source name="basis\MATH.sml" />
+	<source name="basis\MATH.sig" />
 	<source name="basis\MONO_ARRAY.sml" />
 	<source name="basis\MONO_ARRAY_SLICE.sml" />
 	<source name="basis\MONO_VECTOR.sml" />
@@ -62,10 +62,9 @@
 	<source name="basis\PrettyPrinter.sml" />
 	<source name="basis\PRIM_IO.sml" />
 	<source name="basis\PrimIO.sml" />
+	<source name="basis\REAL.sig" />
 	<source name="basis\Real.sml" />
-	<source name="basis\Real32.sml" />
 	<source name="basis\RealArray.sml" />
-	<source name="basis\RealSignature.sml" />
 	<source name="basis\Signal.sml" />
 	<source name="basis\SingleAssignment.sml" />
 	<source name="basis\SML90.sml" />

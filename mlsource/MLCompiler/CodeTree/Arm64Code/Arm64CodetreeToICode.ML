@@ -2808,6 +2808,10 @@ struct
                 returnUnit(destination, code, false)
             end
 
+        |   codeToICodeBinaryRev({oper=GeneralEquality, ...}, _, _, _, _) =
+                (* This should have been removed at a higher level *)
+                raise InternalError "codeToICodeBinaryRev: GeneralEquality"
+
         (* Code-generate an address into one or two Pregs. At this point they are in a state where
            we can code-generate arbitrary code before the address is used *)
         and addressToPregAddress({base, index, offset}, context, code) =
