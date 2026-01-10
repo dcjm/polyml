@@ -94,7 +94,7 @@ struct
                 in
                     eqWords 0w0
                 end
-                else if aFlags = 0w1 (* Byte data *)
+                else if aFlags = 0w1 (* Byte data *) orelse aFlags = 0wx11 (* Negative arbitrary precision *)
                 then
                 let
                     val byteLen = aLen * bytesPerWord
@@ -116,6 +116,7 @@ struct
         val param0 = BICExtract(BICLoadArgument 0) and param1 = BICExtract(BICLoadArgument 1)
         val trueValue = BICConstnt(toMachineWord true, []) and falseValue = BICConstnt(toMachineWord false, [])
         val zeroValue = BICConstnt(toMachineWord 0w0, []) and oneValue = BICConstnt(toMachineWord 0w1, [])
+        and negativeByteTag = BICConstnt(toMachineWord 0wx11, [])
         fun mkOrElse(a, b) = BICCond(a, trueValue, b) and mkAndAlso(a, b) = BICCond(a, b, falseValue)
         fun equal(a, b) = BICBinary{oper=WordComparison{test=TestEqual, isSigned=false}, arg1=a, arg2=b}
         fun notEqual(a, b) = BICUnary{oper=NotBoolean, arg1=equal(a,b)}
@@ -162,7 +163,8 @@ struct
                                         }
                                     ),
 
-                                    BICCond(equal(getLocal 0, oneValue), (* Immutable byte data *)
+                                    (* Immutable byte data - the negative flag could be present. *)
+                                    BICCond(mkOrElse(equal(getLocal 0, oneValue), equal(getLocal 0, negativeByteTag)),
                                         BICBlockOperation{kind=BlockOpEqualByte,
                                             sourceLeft={base=param0, index=NONE, offset=0}, destRight={base=param1, index=NONE, offset=0},
                                             length=BICBinary{oper=WordArith ArithMult, arg1=getLocal 2,
