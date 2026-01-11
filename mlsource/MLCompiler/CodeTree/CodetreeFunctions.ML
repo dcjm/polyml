@@ -410,6 +410,7 @@ struct
        side-effects/raise exceptions e.g. #1 (1, raise Fail "bad") *)
     local
         fun mkIndirect isVar (addr, base as Constnt _) = findEntryInBlock(base, addr, isVar)
+        |   mkIndirect isVar (addr, base as Raise _) = base
         |   mkIndirect isVar (addr, base) =
                 Indirect {base = base, offset = addr, indKind = if isVar then IndVariant else IndTuple}
     

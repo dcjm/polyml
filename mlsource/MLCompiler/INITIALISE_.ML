@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-23
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-23, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -168,10 +168,19 @@ struct
                     Global (genCode(code, [], 0) ())
                 end
         end
-        
+
+        fun makeTypeConstructor (name, typeVars, uid, locations) =
+            TypeConstrs
+            {
+                name       = name,
+                typeVars   = typeVars,
+                identifier = uid,
+                locations = locations
+            }
+
         fun makeTypeAbbreviation(name, fullName, typeVars, typeResult, locations) =
             makeTypeConstructor(
-                name, typeVars, makeTypeFunction(basisDescription fullName, (typeVars, typeResult)),
+                name, typeVars, makeTypeFunction(typeVars, typeResult, basisDescription fullName),
                 locations)
 
         (* Make an opaque type and add it to an environment. *)
@@ -185,6 +194,9 @@ struct
             #enterType env (typeName, TypeConstrSet(typeconstr, []));
             mkTypeConstruction (typeName, typeconstr, [], declInBasis)
         end;
+
+        fun tsConstr(TypeConstrSet(ts, _)) = ts
+        and tsConstructors(TypeConstrSet(_, tvs)) = tvs
 
         (* List of something *)
         fun List (base : types) : types =
@@ -1468,6 +1480,7 @@ struct
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, t ->> environEntryType, code, false, numConstrs, declInBasis))
                         (constrs, constrReps)
+            fun valName (Value{name, ...}) = name
             val () = List.app (fn c => #enterVal debuggerEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
             val () = #enterType debuggerEnv ("environEntry", TypeConstrSet(environEntryConstr, constructors))
@@ -1686,6 +1699,7 @@ struct
             (* This representation must match the representation defined in ExportTree.sml. *)
             val numConstrs = List.length constrs
             val {constrs=constrReps, ...} = chooseConstrRepr(constrs, [])
+            fun valName (Value{name, ...}) = name
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, t ->> PtProperties, code, false, numConstrs, declInBasis))
@@ -1891,13 +1905,16 @@ struct
                         displayValues(valu, depth, makeTypeEnv nameSpace)
                 and propsForValue (Value {locations, typeOf, ...}) = PTtype typeOf :: mapLocationProps locations
 
-                fun isConstructor (Value{class = Exception, ...}) = true
-                |   isConstructor (Value{class = Constructor _, ...}) = true
-                |   isConstructor _ = false
-                
                 fun isException (Value{class = Exception, ...}) = true
                 |   isException _ = false
-                
+
+                fun valName (Value{name, ...}) = name
+                fun valTypeOf (Value{typeOf, ...}) = typeOf
+
+                fun isConstructor (Value{class=Constructor _, ...}) = true
+                |   isConstructor (Value{class=Exception, ...})     = true
+                |   isConstructor _                                  = false;
+    
             in
                 val () = applyList (fn (name, v, t) =>
                                     #enterVal valuesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))

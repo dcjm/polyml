@@ -127,6 +127,10 @@ struct
         }
        
     fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
+
+    type bindEnv =
+        { lookup: string -> typeVarForm option,
+          apply: (string * typeVarForm -> unit) -> unit }
     
     fun mkValDeclaration (dec, explicit, implicit, location) : parsetree = 
         ValDeclaration 

@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified David C. J. Matthews 2009, 2010, 2015, 2016, 2018.
+    Modified David C. J. Matthews 2009, 2010, 2015, 2016, 2018, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -32,6 +32,7 @@ sig
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
           endLine: FixedInt.int, endPosition: FixedInt.int }
+    type typeIdDescription = { location: location, name: string, description: string }
     type exportTree = location * ptProperties list
     type navigation =
         {parent: (unit -> exportTree) option,
@@ -41,13 +42,15 @@ sig
     type locationProp
     type structVals
     type codetree
+    type tvLevel
+    type valAccess
 
     type printTypeEnv =
         { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
           lookupStruct: string -> (structVals * (int->typeId) option) option}
     val emptyTypeEnv: printTypeEnv
 
-    val mkTypeVar:          int * bool * bool * bool -> types
+    val mkTypeVar:          tvLevel * bool * bool * bool -> types
     val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
     val mkProductType:      types list -> types;
     val mkFunctionType:     types * types -> types;
@@ -60,7 +63,10 @@ sig
     val recordWidth:        types -> int;
     val recordFieldMap:     (types -> 'a) -> types -> 'a list
     val makeEquivalent:     typeConstrs * types list -> types;
-    val firstArg:           types -> types;
+    val firstArg:           types -> types
+
+    val makeGeneralTypeFunction:   typeVarForm list * types * typeIdDescription * valAccess -> typeId
+    and makeTypeFunction:   typeVarForm list * types * typeIdDescription -> typeId
 
     (* Follow a chain of unified type variables *)
     val eventual:           types -> types
@@ -70,7 +76,7 @@ sig
    
     (* Unify two type variables which would otherwise be non-unifiable. *)
     val linkTypeVars: typeVarForm * typeVarForm -> unit;
-    val setTvarLevel: typeVarForm * int -> unit;
+    val setTvarLevel: typeVarForm * tvLevel -> unit
 
     (* Copy a type constructor. *)
     val copyTypeConstr:
@@ -108,9 +114,7 @@ sig
     (* Pretty print the error message. *)
     val unifyTypesErrorReport: lexan * printTypeEnv * printTypeEnv * string -> matchResult -> pretty
 
-    (* Check that a type constructor permits equality. *)
-    val permitsEquality: typeConstrs -> bool
-    (* And whether a type admits equality. *)
+    (* Check whether a type admits equality. *)
     val typePermitsEquality: types -> bool
 
     (* Generate new copies of all unbound type variables - this is used on all
@@ -254,6 +258,8 @@ sig
         and  typeVarForm = typeVarForm
         and  codetree   = codetree
         and  matchResult = matchResult
+        and  tvLevel = tvLevel
+        and  valAccess  = valAccess
     end
 
 end;

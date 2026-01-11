@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2016, 2020
+    Modified D.C.J. Matthews 2001-2016, 2020, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -79,12 +79,10 @@ struct
   open PRETTY;
 
   open COPIER;
-  open LEX;
   open CODETREE;
   open STRUCTVALS;
   open VALUEOPS;
   open TYPETREE;
-  open PARSETREE;
   open UTILITIES;
   open DEBUG;
   open UNIVERSALTABLE;
@@ -465,7 +463,7 @@ struct
                 )
 
           | CoreLang {dec, ...} =>
-              displayParsetree (dec, depth - 1)
+              PARSETREE.displayParsetree (dec, depth - 1)
 
     and displayStructValue (str, depth) =
         if depth <= 0 (* elide further text. *)
@@ -660,7 +658,7 @@ struct
             end
 
         |   CoreLang {dec, ...} => (* A value parse-tree entry. *)
-                getExportTree(navigation, dec)
+                PARSETREE.getExportTree(navigation, dec)
 
         |   Localdec {decs, body, line, ...} =>
                 (line, exportList(structExportTree, SOME asParent) (decs @ body) @ commonProps)
@@ -843,15 +841,31 @@ struct
     (* Puts out an error message and then prints the piece of tree. *)
     fun errorMsgNear (lex, hard, near, lno, message) : unit =
     let
-        val parameters = debugParams lex
+        val parameters = LEX.debugParams lex
         val errorDepth = getParameter errorDepthTag parameters
     in
-        reportError lex
+        LEX.reportError lex
         {
             hard = hard, location = lno, message = message,
             context = SOME(near errorDepth)
         }
     end;
+
+    fun idAccess (TypeId { access, ...}) = access 
+    fun tcName       (TypeConstrs {name,...})       = name
+    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+    fun tcLocations  (TypeConstrs {locations, ...}) = locations
+    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
+    |   tcIsAbbreviation _ = false
+
+    val tcEquality = isEquality o tcIdentifier;
+
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
+
+    fun tsConstructors(TypeConstrSet(_, tvs)) = tvs
 
     (* TODO: If the item being errored is in a substructure it currently doesn't report
        the name of the substructure. *)
@@ -1086,6 +1100,10 @@ struct
                 val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
                 fun displayType t = displayTypeConstrs(t, errorDepth lex, printTypeEnv)
                 val typeError = sigStructMatchMsg(lex, near, lno, structPath) displayType
+                (* Condition for a candidate type to match an eqtype. *)
+                fun permitsEquality(TypeConstrs {identifier=TypeId{idKind = TypeFn{equality=ref(TypeFnEq _), ...}, ...}, ...}) = true
+                |   permitsEquality(TypeConstrs {identifier=TypeId{idKind = TypeFn{equality=ref TypeFnEqNever, ...}, ...}, ...}) = false
+                |   permitsEquality(TypeConstrs{identifier, ...}) = isEquality identifier
             in (* Match up the types. This does certain checks but
                   does not check sharing. Equality is checked for. *)
                 case univLookup (sigTab candidate, typeConstrVar, dName) of
@@ -1629,6 +1647,14 @@ struct
                                         ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=typeOf}) :: matches))
                         end
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
+                        fun makeTypeConstructor (name, typeVars, uid, locations) =
+                            TypeConstrs
+                            {
+                                name       = name,
+                                typeVars   = typeVars,
+                                identifier = uid,
+                                locations = locations
+                            }
                         val newConstructor =
                             makeTypeConstructor(
                                 tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
@@ -1682,7 +1708,7 @@ struct
                 else (addrs, matches)
             
             val () = matchToResult := #2(univFold(structTable, enterItem, (0, [])))
-            val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
+            val locations = [DeclaredAt location, SequenceNo (LEX.newBindingId lex)]
             val resSig =
                 makeSignature("", finalTable, currentTypeCount(), locations, newTypeIdEnv(), [])
           in
@@ -1845,7 +1871,7 @@ struct
                 (* Any values in the signature are counted as exported. *)
                 val () = markValsAsExported resSig;
                 (* Now make a local structure variable using this signature. *)
-                val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                val locations = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
                 val var = makeLocalStruct (name, resSig, locations)
             in
                 #enter sEnv (name, var);
@@ -1987,12 +2013,11 @@ struct
                     makeLocalTypeId(List.length args, true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
             |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                    makeTypeFunction(
-                        { location = location, name = structPath ^ name, description = description },
-                        (typeVars, decType))
+                    makeTypeFunction(typeVars, decType,
+                        { location = location, name = structPath ^ name, description = description })
 
             (* Process the body and discard the type. *)
-            val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
+            val _ : types = PARSETREE.pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
        in
          ()
        end (* pass2Singleton *)
@@ -2020,16 +2045,11 @@ struct
         and newSigEnv   = UTILITIES.searchList()
         and newFuncEnv  = UTILITIES.searchList()
 
-        val lookupVal =
-            lookupDefault (#lookup newValEnv)  (#lookupVal globals)
-        and lookupType =
-            lookupDefault (#lookup newTypeEnv) (#lookupType globals)
-        and lookupStruct =
-            lookupDefault (#lookup newStrEnv)  (#lookupStruct globals)
-        and lookupSig =
-            lookupDefault (#lookup newSigEnv)  (#lookupSig globals)
-        and lookupFunct =
-            lookupDefault (#lookup newFuncEnv) (#lookupFunct globals)
+        val lookupVal = lookupDefault (#lookup newValEnv) (#lookupVal globals)
+        and lookupType = lookupDefault (#lookup newTypeEnv) (#lookupType globals)
+        and lookupStruct = lookupDefault (#lookup newStrEnv) (#lookupStruct globals)
+        and lookupSig = lookupDefault (#lookup newSigEnv) (#lookupSig globals)
+        and lookupFunct = lookupDefault (#lookup newFuncEnv) (#lookupFunct globals)
 
         fun allValNames () =
         let
@@ -2101,8 +2121,8 @@ struct
            structure declarations to freeze the types (there's an example on p90 of the
            Definition) but we can't functors to get access to unfrozen free variables because
            that can break the type system.  *)
-        fun checkValueForFreeTypeVariables(name: string, v: values) =
-            checkForFreeTypeVariables(name, valTypeOf v, lex, codeForUniqueId)
+        fun checkValueForFreeTypeVariables(name: string, Value{typeOf, ...}) =
+            checkForFreeTypeVariables(name, typeOf, lex, codeForUniqueId)
 
         (* Find all the values in the structure. *)
         fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
@@ -2141,9 +2161,9 @@ struct
                 end
             in
                 (* strdec: structure or core-language topdec. *)
-                pass2Struct([str], makeId, topLevelIdNumber, makeTopLevelIdEnv, Env env, lex, location lex, "");
+                pass2Struct([str], makeId, topLevelIdNumber, makeTopLevelIdEnv, Env env, lex, LEX.location lex, "");
 
-                pass2TopDec(rest, if errorOccurred lex then [] else (newValEnv, newStrEnv) :: envs)
+                pass2TopDec(rest, if LEX.errorOccurred lex then [] else (newValEnv, newStrEnv) :: envs)
             end
    
         |   pass2TopDec((topdec as FunctorDec (structList : functorBind list, lno)) :: rest, envs) =
@@ -2185,7 +2205,7 @@ struct
 
                     (* TODO: The location here is the location of the argument id if there is one.
                        nameLoc is the location of the name of the functor. *)
-                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
                     val resArg = makeLocalStruct (argName, argumentSignature, locations)
 
                     (* sigVal will have numbered the bound IDs to start at startTopLevelIDs.  We
@@ -2325,7 +2345,7 @@ struct
                             structValue(body, newTypeId, fn () => !typeStamps, typeIdEnv,
                                         Env envWithArgs, lex, line, "")                        
                         val () =
-                            if errorOccurred lex then ()
+                            if LEX.errorOccurred lex then ()
                             else checkStructSigForFreeTypeVariables(name^"().", resSig)
                         (* This counts as a reference. *)
                         val () = markValsAsExported resSig
@@ -2373,7 +2393,7 @@ struct
                         between them. They will then be taken as a single
                         declaration and F will be picked up as a local. *)
                       (* Set the size of the type map. *)
-                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
                     val var = makeFunctor (name, resArg, functorSig, makeLocal (), locations)
                 in
                     #enter sEnv (name, var);
@@ -2408,7 +2428,7 @@ struct
                 let (* Each element in the list is a signature binding. *)
                     val Signatures { tab, typeIdMap, firstBoundIndex, boundIds, ...} =
                        sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line)
-                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
                     val namedSig = (* Put in the signature name. *)
                         makeSignature(name, tab, firstBoundIndex, locations, typeIdMap, boundIds)
                 in
@@ -2464,7 +2484,7 @@ struct
                     (* Declarations are independent so can be processed in order. *)
                     List.app (leastGenStructValue o #value) bindings
 
-            |   leastGenStructDec(CoreLang{dec, ...}) = setLeastGeneralTypes(dec, lex)
+            |   leastGenStructDec(CoreLang{dec, ...}) = PARSETREE.setLeastGeneralTypes(dec, lex)
 
             |   leastGenStructDec(Localdec{decs, body, ...}) =
                 (
@@ -2585,14 +2605,14 @@ struct
                                     in
                                         case getFnArgType sourceTypeOf of
                                             NONE => mkTuple [loadEx localLevel, mkStr name,
-                                                     CodeZero, codeLocation nullLocation]
+                                                     CodeZero, codeLocation LEX.nullLocation]
                                         |   SOME _ =>
                                             let
                                                 val nLevel = newLevel level
                                             in
                                                 mkProc 
                                                     (mkTuple[loadEx nLevel, mkStr name,
-                                                        mkLoadArgument 0, codeLocation nullLocation],
+                                                        mkLoadArgument 0, codeLocation LEX.nullLocation],
                                                     1, "", getClosure nLevel, 0)
                                             end
                                     end
@@ -2606,11 +2626,11 @@ struct
                             (
                                 case coercion of
                                     NoCoercion =>
-                                        codeVal (sourceValue, localLevel, typeVarMap, [], lex, location nullLex)
+                                        codeVal (sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex)
                                 |   ExceptionToValue =>
-                                        codeExFunction(sourceValue, localLevel, typeVarMap, [], lex, location nullLex)
+                                        codeExFunction(sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex)
                                 |   ConstructorToValue =>
-                                        mkInd(1, codeVal (sourceValue, localLevel, typeVarMap, [], lex, location nullLex))
+                                        mkInd(1, codeVal (sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex))
                             )
 
                     local
@@ -2687,6 +2707,8 @@ struct
     in
         #1 (matchSubStructure (code, actions))
     end (* applyMatchActions *)
+
+    fun vaLocal (Local x) = x | vaLocal _ = raise InternalError "not local"
 
     (* If we are declaring a structure with an opaque signature we need to create
        the run-time IDs for newly generated IDs. *)
@@ -2881,7 +2903,7 @@ struct
                 codeStrdecs (strName, sTail, newDebugEnv, mkAddr, level, newTypeVarMap,
                               newCode, processBody)
             val (code, debug) =
-                gencode (dec, lex, debugEnv, level, mkAddr, typeVarMap, strName, processTail)
+                PARSETREE.gencode (dec, lex, debugEnv, level, mkAddr, typeVarMap, strName, processTail)
         in
             (leadingDecs @ code, debug)
         end
@@ -2911,13 +2933,13 @@ struct
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
             val typeVarMap = TypeVarMap.defaultTypeVarMap(fn _ => raise InternalError "typeVarMap", level)
-            fun loadVals (CoreValue v, rest)  = codeVal (v, level, typeVarMap, [], nullLex, location nullLex) :: rest
+            fun loadVals (CoreValue v, rest)  = codeVal (v, level, typeVarMap, [], LEX.nullLex, LEX.location LEX.nullLex) :: rest
             |   loadVals (CoreStruct s, rest) = codeStruct (s, level) :: rest
             |   loadVals (CoreType (TypeConstrSet(_, tcConstructors)), rest) =
                     (* Type IDs are handled separately but we need to load the value constructors if
                        this is a datatype.  This is really only because of datatype replication where
                        we need to be able to get the value constructors from the datatype. *)
-                    List.rev(List.map( fn v => codeVal (v, level, typeVarMap, [], nullLex, location nullLex)) tcConstructors)
+                    List.rev(List.map( fn v => codeVal (v, level, typeVarMap, [], LEX.nullLex, LEX.location LEX.nullLex)) tcConstructors)
                         @ rest
             |   loadVals (_, rest) = rest
         in
@@ -2984,7 +3006,7 @@ struct
                         val matchedCode = applyMatchActions(strLoad, matchToResult, getIds, mkAddr, level)
                     in
                         val functorCode = (* The function that implements the functor. *)
-                            (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
+                            (if getParameter inlineFunctorsTag (LEX.debugParams lex) then mkMacroProc else mkProc)
                                 (mkEnv(mkDec(localAddr, mkLoadArgument 0) :: (fBindDebugDecs @ strCode), matchedCode),
                                 1, name, getClosure level, mkAddr 0)
                     end
@@ -3245,7 +3267,7 @@ struct
                         makeSignature(name, tab, firstBoundIndex, locations, composeMaps(typeIdMap, newMap), boundIds)
                 end
                 val funcTree = 
-                    makeFunctor(functorName, copiedArg, functorSigResult, makeGlobal code, functorLocations)
+                    makeFunctor(functorName, copiedArg, functorSigResult, Global code, functorLocations)
             in
                 (addr + 1, (name, funcTree) :: funcs)
             end

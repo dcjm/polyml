@@ -145,9 +145,8 @@ struct
         Ident {name, ...} =>
           PrettyString name
           
-      | Literal{literal, converter, ...} =>
+      | Literal{literal, converter=Value{name=convName, ...}, ...} =>
         let
-            val convName = valName converter
             val lit =
                 if convName = "convString"
                 then concat["\"" , literal, "\""]

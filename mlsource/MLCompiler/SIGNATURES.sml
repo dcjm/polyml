@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2015, 2020
+    Modified D.C.J. Matthews 2001-2015, 2020, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -408,6 +408,15 @@ struct
                 (loc, exportList(sigExportTree, SOME asParent) sigs @ commonProps)
     end
 
+    fun tcName       (TypeConstrs {name,...})       = name
+    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+    fun tcLocations  (TypeConstrs {locations, ...}) = locations
+
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
+
     (* Puts out an error message and then prints the piece of tree. *)
     fun errorMsgNear (lex, hard, near, lno, message) : unit =
     let
@@ -433,7 +442,8 @@ struct
 
     val makeEnv = fn x => let val Env e = makeEnv x in e end;
 
-    fun printId(TypeId{description, ...}) = printDesc description
+    fun printId(TypeId{idKind = TypeFn _, ...}) = PrettyString "a type function"
+    |   printId(TypeId{description, ...}) = printDesc description
 
     and printDesc{ location: location, name: string, description = "" } =
             PrettyBlock(0, false, [ContextLocation location], [PrettyString name])
@@ -583,7 +593,7 @@ struct
                                 reason
                             ]))
                 end
- 
+
                 fun alreadyBound(path, typeName, tcId) =
                     cantShare (
                         PrettyBlock(3, false, [],
@@ -709,9 +719,9 @@ struct
                         nil => raise Empty
                     |   hd :: tl =>
                         let
-                            val first  = lookupSharing hd
+                            val first as TypeConstrSet(tsConstr, _) = lookupSharing hd
                         in
-                            if isUndefinedTypeConstr(tsConstr first)
+                            if isUndefinedTypeConstr tsConstr
                             then ()
                             else List.app (fn typ =>
                                     shareTypes (lookupSharing typ, "", typeIdEnv(), first, "", typeIdEnv(), line, near)) tl
@@ -814,7 +824,7 @@ struct
                 giveError (str, line, lex) (msg ^ " in signature.")
 
             (* Look up the type constructor in the signature. *)
-            val sigTypeConstr =
+            val TypeConstrSet(sigTConstr, _) =
                 lookupTyp
                   ({
                     lookupType   = #lookupType sigEnv,
@@ -860,13 +870,13 @@ struct
             end
          in
             (* Now try to set the target type to the type function. *)
-            if isUndefinedTypeConstr (tsConstr sigTypeConstr)
+            if isUndefinedTypeConstr sigTConstr
             then () (* Probably because looking up the type constructor name failed. *)
             else
             let
                 (* Map the type identifier to be set. *)
                 val typeId =
-                    case tcIdentifier (tsConstr sigTypeConstr) of
+                    case tcIdentifier sigTConstr of
                         TypeId{idKind=Bound{offset, ...}, ...} => idMap offset
                     |   id => id
             in
@@ -928,9 +938,8 @@ struct
                                         else
                                         let
                                             val typeId =
-                                                makeTypeFunction(
-                                                    { location = line, description = "", name = typeName },
-                                                    (typeVars, realisation))
+                                                makeTypeFunction(typeVars, realisation,
+                                                    { location = line, description = "", name = typeName })
                                         in
                                             StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
                                         end
@@ -985,7 +994,8 @@ struct
                       checkAndEnter (#enterVal structEnv, #lookupVal structEnv, "Value",
                         fn (Value{ locations, ...}) => locations),
                     enterType     =
-                      checkAndEnter (#enterType structEnv, #lookupType structEnv, "Type", tcLocations o tsConstr),
+                      checkAndEnter (#enterType structEnv, #lookupType structEnv, "Type",
+                                            fn(TypeConstrSet(TypeConstrs {locations, ...}, _)) => locations),
                     enterStruct   =
                       checkAndEnter (#enterStruct structEnv, #lookupStruct structEnv, "Structure", fn Struct{locations, ...} => locations),
                     (* These next three can't occur. *)
@@ -1161,6 +1171,14 @@ struct
                                     [] => tySet (* Not a datatype. *)
                                 |   constrs =>
                                     let
+                                        fun makeTypeConstructor (name, typeVars, uid, locations) =
+                                            TypeConstrs
+                                            {
+                                                name       = name,
+                                                typeVars   = typeVars,
+                                                identifier = uid,
+                                                locations = locations
+                                            }
                                         val newTy =
                                             makeTypeConstructor(tcName ty, tcTypeVars ty, tcIdentifier ty, tcLocations ty)
                                     in
@@ -1247,15 +1265,15 @@ struct
                     makeVariableId(length args, eq, isdt, true, loc, structPath)
 
                 |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                        makeTypeFunction(
-                            { location = location, name = structPath ^ name, description = description },
-                            (typeVars, decType))
+                        makeTypeFunction(typeVars, decType, { location = location, name = structPath ^ name, description = description })
 
                 (* We need a map to look up types.  This is only used in one place:
                    if the item we're processing is a datatype then we need to look
                    at the bindings of type identifiers to compute equality correctly.
                    e.g. type t = int*int datatype s = X of t . *)
-                fun equalityForId(TypeId{idKind=TypeFn(_, equiv), ...}) = typePermitsEquality equiv
+                (* We shouldn't have a type function here because we only look up bound variables
+                   and we can't share with type functions. *)
+                fun equalityForId(TypeId{idKind=TypeFn _, ...}) = raise InternalError "equalityForId: type function"
                 |   equalityForId id = isEquality id
 
                 fun findEquality n =
@@ -1341,7 +1359,7 @@ struct
                         (newId :: distinctIds, newId :: mappedIds)
                     end
 
-                |   FreeSlot (TypeId{idKind=TypeFn(args, equiv), description, ...}) =>
+                |   FreeSlot (TypeId{idKind=TypeFn{tyVars=args, resType=equiv, ...}, description, ...}) =>
                     let
                         (* Generally, IDs in a FreeSlot will be either Bound or Free but
                            they could be TypeFunctions as a result of a "where type" and
@@ -1361,7 +1379,7 @@ struct
                             copyType(equiv, fn x => x,
                                 fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
                         (* For the moment always use a Free ID here. *)
-                        val copiedId = makeTypeFunction(description, (args, copiedEquiv))
+                        val copiedId = makeTypeFunction(args, copiedEquiv, description)
                         (* Update the array with this copied version.  If other subsequent type functions
                            use this entry they will then pick up the copied version.  Because "where type"
                            constraints can only refer to earlier types we have to process this from earlier

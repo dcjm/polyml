@@ -41,11 +41,11 @@ local
     val maxLen = CharVector.maxLen
 
     val wVecLength: vector -> word = LibrarySupport.Word8Array.wVecLength
-    val vecLength: vector -> int = Word.toInt o wVecLength
 
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
+    val vecLength: vector -> int = wordAsInt o wVecLength
 
 
     infix 9 sub (* For what it's worth *)

@@ -180,8 +180,8 @@ in
         and fromLargeInt = wordFromLargeInt
 
         (* Conversion to signed integer is simple. *)
-	val toLargeIntX: word -> LargeInt.int = RunCall.unsafeCast
-        val toIntX = Int.fromLarge o toLargeIntX
+        val toLargeIntX: word -> LargeInt.int = RunCall.unsafeCast
+        val toIntX: word -> int = RunCall.unsafeCast
         
         (* Conversion to unsigned integer has to treat values with the sign bit
            set specially. *)
@@ -193,8 +193,12 @@ in
             end
 
         (* If int is arbitrary precision we just convert it
-           otherwise we have to check the range. *)
-        val toInt =  Int.fromLarge o toLargeInt
+           otherwise we have to check the range.  If it is negative there's
+           an overflow. *)
+        val toInt =
+            if Bootstrap.intIsArbitraryPrecision
+            then Int.fromLarge o toLargeInt
+            else fn n => let val v = toIntX n in if v >= 0 then v else raise Overflow end
 
         fun scan radix getc src =
             case scanWord radix getc src of

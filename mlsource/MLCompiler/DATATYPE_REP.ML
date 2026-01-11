@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16, 2020-21 David C.J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020-21, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -249,7 +249,11 @@ struct
      mkTagTest which can be converted into an indexed case.  This can't be
      used for ShortForm because the values for the datatype include addresses. 
 *)
-  
+    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
+    |   tcIsAbbreviation _ = false
+
   
   datatype constructorKind =
     Nullary             (* a nullary constructor *)
@@ -415,6 +419,14 @@ struct
 (*****************************************************************************)
 (*             Standard values and exceptions.                               *)
 (*****************************************************************************)
+    fun makeTypeConstructor (name, typeVars, uid, locations) =
+        TypeConstrs
+        {
+            name       = name,
+            typeVars   = typeVars,
+            identifier = uid,
+            locations = locations
+        }
 
     (* Build a datatype within the basis. *)
     fun buildBasisDatatype(tcName, tIdPath, tyVars, isEqType: bool,
@@ -560,7 +572,7 @@ struct
         in
             val locationCons =
                 makeTypeConstructor("location", [],
-                    makeTypeFunction(basisDescription "PolyML.location", ([], mkLabelled(sortLabels fields, true))),
+                    makeTypeFunction([], mkLabelled(sortLabels fields, true), basisDescription "PolyML.location"),
                     [DeclaredAt inBasis])
             val locationConstr = TypeConstrSet(locationCons, [])
         end
@@ -648,6 +660,7 @@ struct
         fun mkExIden(ty, level, tvMap) =
         let
             (* Get the constructor tuple, select the constructor operation, apply it to the type. *)
+            fun vaGlobal   (Global   x) = x | vaGlobal   _ = raise Match
             val makeSome =
                 applyToInstance(
                     [{value=exnPrinter, equality=false, printity=false}], level, tvMap,

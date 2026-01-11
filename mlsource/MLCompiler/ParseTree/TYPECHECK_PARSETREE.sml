@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015 David C.J. Matthews
+    Copyright (c) 2013-2015, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -351,6 +351,22 @@ struct
             applyList badType l
         end
 
+        fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+        fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+        fun tcLocations  (TypeConstrs {locations, ...}) = locations
+
+        val tcEquality = isEquality o tcIdentifier;
+        fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
+
+        fun valName (Value{name, ...}) = name
+        fun valTypeOf (Value{typeOf, ...}) = typeOf
+
+        fun tsConstr(TypeConstrSet(ts, _)) = ts
+
+        fun isConstructor (Value{class=Constructor _, ...}) = true
+        |   isConstructor (Value{class=Exception, ...})     = true
+        |   isConstructor _                                  = false;
+
         (* Variables, constructors and fn are non-expansive.
            [] is a derived form of "nil" so must be included.
            Integer and string constants are also constructors but
@@ -497,6 +513,15 @@ struct
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
+        fun makeTypeConstructor (name, typeVars, uid, locations) =
+            TypeConstrs
+            {
+                name       = name,
+                typeVars   = typeVars,
+                identifier = uid,
+                locations = locations
+            }
+
         fun processPattern(pat, enterResult, level, notConst, mkVar, isRec) =
         let
             val mapProcessPattern =
@@ -564,7 +589,7 @@ struct
                         else
                         let
                             val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
-                            val var =  mkVar(name, mkTypeVar (level, false, false, false), props)
+                            val var =  mkVar(name, mkTypeVar (NotGeneralisable level, false, false, false), props)
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -796,7 +821,7 @@ struct
                 val () =
                     if nonExpansive v
                     then ()
-                    else (unifyTypes (funType, mkTypeVar(level, false, false, false)); ())
+                    else (unifyTypes (funType, mkTypeVar(NotGeneralisable level, false, false, false)); ())
                 (* Test to see if we have a function. *)
                 val fType =
                     case eventual funType of
@@ -1498,10 +1523,10 @@ struct
         and assValDeclaration (valdecs: valbind list, explicit, implicit) =
         (* assignTypes for a val-declaration. *)
         let
-            val newLevel = level + 1;
+            val newLevel = level + 1
       
             (* Set the scope of explicit type variables. *)
-            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, newLevel));
+            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable newLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
@@ -1509,7 +1534,7 @@ struct
             val () = 
                 #apply implicit
                     (fn (name, tv) =>
-                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, newLevel));
+                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable newLevel));
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1652,7 +1677,7 @@ struct
       
             (* Set the scope of explicit type variables. *)
             val () =
-                #apply explicit(fn (_, tv) => setTvarLevel (tv, funLevel));
+                #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable funLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
@@ -1660,7 +1685,7 @@ struct
             val () = 
                 #apply implicit
                   (fn (name, tv) =>
-                      case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, funLevel));
+                      case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable funLevel));
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1687,7 +1712,7 @@ struct
                     (* Declare a new identifier with this name. *)
                     val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
                     val funVar =
-                        mkValVar (name, mkTypeVar (funLevel, false, false, false), locations)
+                        mkValVar (name, mkTypeVar (NotGeneralisable funLevel, false, false, false), locations)
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -2010,10 +2035,11 @@ struct
             in
                 tcRef := tset;
                 enterType(tset, name); (* Checks for duplicates. *)
-                #enterType env (name, tset) (* Put in the global environment. *)
+                #enterType env (name, tset); (* Put in the global environment. *)
+                tset
             end
 
-            val () = ListPair.app enterWithType (withtypes, decTypes);
+            val withTypeConstrSets = ListPair.map enterWithType (withtypes, decTypes)
         
             (* For the constructors *)
             fun messFn (name, _, Value{locations, ...}) =
@@ -2075,8 +2101,9 @@ struct
                 tcon := tset;
                 tset
             end (* genValueConstrs *)
-      
-            val listOfTypeSets = ListPair.map genValueConstrs (typeList, listOfTypes);
+
+            val listOfTypeSets =
+                ListPair.map genValueConstrs (typeList, listOfTypes) @ withTypeConstrSets
 
             (* Third pass - Check to see if equality testing is allowed for
                these types. *)

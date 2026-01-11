@@ -806,7 +806,7 @@ struct
     fun optimise (context, use) (Lambda lambda) =
             SOME(mapLambdaResult(optLambda(context, use, lambda, LCNormal)))
 
-    |   optimise (context, use) (Newenv(envDecs, envExp)) =
+    |   optimise (context as { reprocess, makeAddr, ... }, use) (Newenv(envDecs, envExp)) =
         let
             fun mapExp mapUse = mapCodetree (optimise(context, mapUse))
 
@@ -825,7 +825,79 @@ struct
                 end
             |   mapbinding(NullBinding exp) = NullBinding(mapExp [UseGeneral] exp)
             |   mapbinding(Container{addr, use, size, setter}) =
-                    Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
+                let
+                    fun returnsContainer (Newenv(_, exp)) = returnsContainer exp
+                      | returnsContainer (Cond(_, t, e)) = returnsContainer t andalso returnsContainer e
+                      | returnsContainer (Handle {exp, handler, ...}) = returnsContainer exp andalso returnsContainer handler
+                      | returnsContainer (Raise _) =  true
+                      | returnsContainer (BeginLoop {loop, ...}) = returnsContainer loop
+                      | returnsContainer (Loop _) = true
+                      | returnsContainer (SetContainer _) = true
+                      | returnsContainer _ = false
+
+                    val redundant_fields   =
+                        if List.all(fn UseField _ => true | _ => false) use
+                        then
+                        let val newFilter = BoolVector.tabulate(size,
+                                  (fn i => List.exists (fn UseField(n,_) => n = i
+                                                         | _ => false) use))
+                        in
+                           if BoolVector.all (fn i => i) newFilter then NONE
+                           else SOME newFilter
+                        end
+                        else NONE
+                in
+                   case redundant_fields of
+                        NONE => Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
+                   |    SOME newFilter =>
+                        if returnsContainer setter then
+                        let
+                            fun updateContainer leafFn (Newenv(envDecs, exp)) =
+                                      Newenv(envDecs, updateContainer leafFn exp)
+                              | updateContainer leafFn (Cond(i, t, e)) =
+                                      Cond(i,updateContainer leafFn t,updateContainer leafFn e)
+                              | updateContainer leafFn (Handle {exp, handler, exPacketAddr}) =
+                                      Handle{exp= updateContainer leafFn exp, handler = updateContainer leafFn handler, exPacketAddr=exPacketAddr}
+                              | updateContainer leafFn (BeginLoop {loop, arguments}) =
+                                      BeginLoop {loop = updateContainer leafFn loop,arguments = arguments}
+                              | updateContainer leafFn (SetContainer {tuple,...}) = leafFn tuple
+                              | updateContainer _ exp = exp
+                            val newSize = BoolVector.foldl (fn (true, n) => n+1 | (false, n) => n) 0 newFilter
+                        in
+                            if newSize = 1
+                            then
+                            let
+                                (* Find the offset *)
+                                val (offset,_) = valOf (BoolVector.findi (fn (_, b) => b) newFilter)
+                                val field = updateContainer (fn tuple => mkInd(offset, tuple)) setter
+                                fun mkFields n = if n = offset then field else CodeZero
+                                val fields = List.tabulate(BoolVector.length newFilter, mkFields)
+                                val container = SetContainer{container= Extract(LoadLocal addr),
+                                                             tuple= Tuple{fields =fields ,isVariant=false},
+                                                             filter=BoolVector.tabulate(size,fn _ => true)}
+                            in
+                                reprocess := true;
+                                Container{addr=addr, use=use, size=size, setter = container}
+                            end
+                            else
+                            let
+                                val newAddr = makeAddr()
+                                val newContainer = Extract(LoadLocal newAddr)
+                                val newSetter = updateContainer (fn tuple => SetContainer{container = newContainer ,tuple = tuple,filter= newFilter}) setter
+                                val makeContainer = Container{addr=newAddr, use=[], size=newSize, setter = newSetter}
+                                val fields = List.rev (#2 (BoolVector.foldl
+                                        (fn (true,(a,l)) => (a+1,(mkIndContainer(a,newContainer))::l)
+                                          | (false,(a,l)) => (a,CodeZero::l)) (0,[]) newFilter))
+                                val container = SetContainer{container= Extract(LoadLocal addr),
+                                                             tuple= Tuple{fields =fields ,isVariant=false},
+                                                             filter=BoolVector.tabulate(size,fn _ => true)}
+                            in
+                                reprocess := true;
+                                Container{addr=addr, use=use, size=size, setter=mkEnv([makeContainer], container)}
+                            end
+                        end
+                        else Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
+                end
         in
             SOME(Newenv(map mapbinding envDecs, mapExp use envExp))
         end

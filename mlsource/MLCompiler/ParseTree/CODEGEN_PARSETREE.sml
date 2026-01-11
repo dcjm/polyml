@@ -278,6 +278,13 @@ struct
 (*    fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
         DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)*)
 
+    fun valName (Value{name, ...}) = name
+    fun valTypeOf (Value{typeOf, ...}) = typeOf
+
+    fun isConstructor (Value{class=Constructor _, ...}) = true
+    |   isConstructor (Value{class=Exception, ...})     = true
+    |   isConstructor _                                  = false;
+
     (* Find all the variables declared by each pattern. *)
     fun getVariablesInPatt (Ident {value = ref ident, ...}, varl) =
             (* Ignore constructors *)
@@ -1001,8 +1008,11 @@ struct
             (* The debugging environment for the declarations should include
                the constructors but the result shouldn't.  For the moment
                ignore the constructors. *)
+            fun tcEquality(TypeConstrSet(TypeConstrs {identifier,...}, _)) = isEquality identifier
+            fun tcSetEquality(TypeConstrs {identifier,...}, eq) = setEquality(identifier, eq)
+
             val typeCons = List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-            val eqStatus = if isAbsType then absEq else List.map (tcEquality o tsConstr) typeCons
+            val eqStatus = if isAbsType then absEq else List.map tcEquality typeCons
 
             local
                 fun getConstrCode(DatatypeBind {tcon = ref (tc as TypeConstrSet(_, constrs)), typeVars, ...}, eqStatus) =
@@ -1063,7 +1073,7 @@ struct
             (* Mark these in the type value cache.  If they are used in subsequent polymorphic IDs
                we must create them after this. *)
             val newTypeVarMap =
-                markTypeConstructors(List.map tsConstr typeCons, mkAddr, level, typeVarMap)
+                markTypeConstructors(List.map (fn TypeConstrSet(ts, _) => ts) typeCons, mkAddr, level, typeVarMap)
 
             (* Process the with..end part. We have to restore the equality attribute for abstypes
                here in case getPolymorphism requires it. *)

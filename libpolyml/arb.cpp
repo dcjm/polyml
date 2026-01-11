@@ -2118,43 +2118,61 @@ POLYUNSIGNED PolyShiftRightArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, PO
         }
         else
         {
+            int sign = OBJ_IS_NEGATIVE(GetLengthWord(pushedArg->Word())) ? -1 : 1;
 #if USE_GMP
             POLYUNSIGNED srcLimbs = numLimbs(pushedArg->Word());
             POLYUNSIGNED shiftLimbs = shiftBy / (sizeof(mp_limb_t)*8), shiftBits = shiftBy & (sizeof(mp_limb_t)*8 - 1);
             if (shiftLimbs >= srcLimbs)
-                result = taskData->saveVec.push(TAGGED(0));
+                result = taskData->saveVec.push(sign < 0 ? TAGGED(-1): TAGGED(0));
             else
             {
+                bool hasRemainder = false;
                 POLYUNSIGNED destLimbs = srcLimbs - shiftLimbs;
-                int sign = OBJ_IS_NEGATIVE(GetLengthWord(pushedArg->Word())) ? -1 : 1;
                 POLYUNSIGNED destWords = WORDS(destLimbs * sizeof(mp_limb_t));
                 Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+                mp_ptr srcPtr = DEREFLIMBHANDLE(pushedArg);
+                for (POLYUNSIGNED p = 0; p < shiftLimbs; p++)
+                    if (srcPtr[p] != 0) hasRemainder = true;
                 if (shiftBits == 0)
                     memcpy(DEREFLIMBHANDLE(z), DEREFLIMBHANDLE(pushedArg) + shiftLimbs, destLimbs * sizeof(mp_limb_t));
-                else mpn_rshift(DEREFLIMBHANDLE(z), DEREFLIMBHANDLE(pushedArg) + shiftLimbs,
+                else
+                {
+                    mp_limb_t remainder =
+                        mpn_rshift(DEREFLIMBHANDLE(z), DEREFLIMBHANDLE(pushedArg) + shiftLimbs,
                         destLimbs, shiftBits);
+                    if (remainder != 0) hasRemainder = true;
+                }
                 result = make_canonical(taskData, z, sign);
+                // If we have shifted out non-zero bits and the value is negative we need to subtract one.
+                if (hasRemainder && sign < 0)
+                {
+                    Handle one = taskData->saveVec.push(TAGGED(1));
+                    result = add_unsigned_long(taskData, one, result, -1); //
+                }
             }
 #else
             POLYUNSIGNED srcBytes = get_length(pushedArg->Word());
             POLYUNSIGNED shiftBytes = shiftBy >> 3, shiftBits = shiftBy & 0x7;
             if (shiftBytes >= srcBytes)
-                result = taskData->saveVec.push(TAGGED(0));
+                result = taskData->saveVec.push(sign < 0 ? TAGGED(-1) : TAGGED(0));
             else
             {
+                bool hasRemainder = false;
                 POLYUNSIGNED destBytes = srcBytes - shiftBytes;
-                int sign = OBJ_IS_NEGATIVE(GetLengthWord(pushedArg->Word())) ? -1 : 1;
                 POLYUNSIGNED destWords = WORDS(destBytes);
                 Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
                 // Set the last word to zero so that any uncopied bytes are zeroed
                 z->WordP()->Set(destWords - 1, PolyWord::FromUnsigned(0));
+                byte* srcPtr = DEREFBYTEHANDLE(pushedArg);
+                for (POLYUNSIGNED p = 0; p < shiftBytes; p++)
+                    if (srcPtr[p] != 0) hasRemainder = true;
                 if (shiftBits == 0) // Copy the bytes.
-                    memcpy(DEREFBYTEHANDLE(z), DEREFBYTEHANDLE(pushedArg) + shiftBytes, destBytes);
+                    memcpy(DEREFBYTEHANDLE(z), srcPtr + shiftBytes, destBytes);
                 else
                 {
                     // Shift each of the bytes.
                     byte b = 0;
-                    byte* src = DEREFBYTEHANDLE(pushedArg) + srcBytes;
+                    byte* src = srcPtr + srcBytes;
                     byte* dest = DEREFBYTEHANDLE(z) + destBytes;
                     while (destBytes-- > 0)
                     {
@@ -2162,8 +2180,15 @@ POLYUNSIGNED PolyShiftRightArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, PO
                         *(--dest) = b | (c >> shiftBits);
                         b = c << (8 - shiftBits);
                     }
+                    if (b != 0) hasRemainder = true;
                 }
                 result = make_canonical(taskData, z, sign);
+                // If we have shifted out non-zero bits and the value is negative we need to subtract one.
+                if (hasRemainder && OBJ_IS_NEGATIVE(GetLengthWord(pushedArg->Word())))
+                {
+                    Handle one = taskData->saveVec.push(TAGGED(1));
+                    result = add_unsigned_long(taskData, one, result, -1);
+                }
             }
 #endif
         }
