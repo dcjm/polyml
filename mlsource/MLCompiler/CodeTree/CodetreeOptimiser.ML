@@ -1586,7 +1586,7 @@ struct
             val codeTreePrinter = if printCodeTree then Pretty.getCompilerOutput debugSwitches else fn _ => ()
         end
 
-        fun processTree (code, nLocals, optAgain, loopCount) =
+        fun processTree (code, nLocals, optimisedOnce) =
         let
             (* First run the simplifier.  Among other things this does inline
                expansion and if it does any we at least need to run cleanProc
@@ -1594,8 +1594,9 @@ struct
             val (simpCode, simpCount, simpAgain) =
                 Simplifier.simplifier{code=code, numLocals=nLocals, maxInlineSize=FixedInt.toInt maxInlineSize,
                                       codeTreePrinter = codeTreePrinter}
+            val () = print "S"
         in
-            if optAgain orelse simpAgain
+            if simpAgain orelse not optimisedOnce
             then
             let
                 (* Identify usage information and remove redundant code. *)
@@ -1603,6 +1604,7 @@ struct
                 val () = codeTreePrinter(Pretty.PrettyString "Output of simplifier")
                 val () = codeTreePrinter(BaseCodeTree.pretty simpCode)
                 val preOptCode = RemoveRedundant.cleanProc(simpCode, topLevel, simpCount)
+                
                 (* Print the code with the use information before it goes into the optimiser. *)
                 val () = codeTreePrinter(Pretty.PrettyString "Output of cleaner")
                 val () = codeTreePrinter(BaseCodeTree.pretty preOptCode)
@@ -1619,28 +1621,42 @@ struct
                     maxInlineSize = maxInlineSize,
                     codeTreePrinter = codeTreePrinter
                 }
-                (* Optimise the code, rewriting it as necessary. *)
-                val optCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
+                (* Optimise the code, rewriting it as necessary.  Only do this once. *)
+                val (optCode, haveOptimised, reprocess) =
+                    if simpAgain orelse optimisedOnce
+                    then (preOptCode, optimisedOnce, simpAgain)
+                    else
+                    let
+                        val postOptCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
+                        val () = print "O"
+                        (* Print the code after the optimiser. *)
+                        val () = codeTreePrinter(Pretty.PrettyString "Output of optimiser")
+                        val () = codeTreePrinter(BaseCodeTree.pretty postOptCode)
+                    in
+                        (postOptCode, true, !reprocess)
+                    end
                 
-                val (llCode, llCount, llAgain) =
+                val (llCode, llCount, _) =
                     (* If we have optimised it or the simplifier has run something that it wants to
                        run again we must rerun these before we try to generate any code. *)
-                    if ! reprocess (* Re-optimise *) orelse simpAgain (* The simplifier wants to run again on this. *)
-                    then (optCode, ! addressAllocator, ! reprocess)
+                    if reprocess (* The simplifier wants to run again on this or we've optimised *)
+                    then (optCode, ! addressAllocator, true)
                     else (* We didn't detect any inlineable functions.  Check for lambda-lifting. *)
                         lambdaLiftAndConstantFunction(optCode, debugSwitches, ! addressAllocator, codeTreePrinter)
 
                 (* Print the code after the optimiser. *)
                 val () = codeTreePrinter(Pretty.PrettyString "Output of optimiser")
                 val () = codeTreePrinter(BaseCodeTree.pretty llCode)
+
+                (* We need to rerun the simplifier after lambdaLiftAndConstantFunction because we
+                   may have generated constants. *)
             in
-                (* Rerun the simplifier at least. *)
-                processTree(llCode, llCount, llAgain, loopCount+1)
+                processTree(llCode, llCount, haveOptimised)
             end
-            else (simpCode, simpCount) (* We're done *)
+            else (simpCode, simpCount) (* We're done *) before print "\n"
         end
 
-        val (postOptCode, postOptCount) = processTree(code, numLocals, true (* Once at least *), 0)
+        val (postOptCode, postOptCount) = processTree(code, numLocals, false)
         val (rGeneral, rDecs, rSpec) = postOptCode
     in
         { numLocals = postOptCount, general = rGeneral, bindings = rDecs, special = rSpec }
