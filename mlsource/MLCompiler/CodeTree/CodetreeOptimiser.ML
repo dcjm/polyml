@@ -1594,7 +1594,6 @@ struct
             val (simpCode, simpCount, simpAgain) =
                 Simplifier.simplifier{code=code, numLocals=nLocals, maxInlineSize=FixedInt.toInt maxInlineSize,
                                       codeTreePrinter = codeTreePrinter}
-            val () = print "S"
         in
             if simpAgain orelse not optimisedOnce
             then
@@ -1628,7 +1627,6 @@ struct
                     else
                     let
                         val postOptCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
-                        val () = print "O"
                         (* Print the code after the optimiser. *)
                         val () = codeTreePrinter(Pretty.PrettyString "Output of optimiser")
                         val () = codeTreePrinter(BaseCodeTree.pretty postOptCode)
@@ -1653,7 +1651,7 @@ struct
             in
                 processTree(llCode, llCount, haveOptimised)
             end
-            else (simpCode, simpCount) (* We're done *) before print "\n"
+            else (simpCode, simpCount) (* We're done *)
         end
 
         val (postOptCode, postOptCount) = processTree(code, numLocals, false)
