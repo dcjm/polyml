@@ -199,25 +199,29 @@ POLYUNSIGNED PolyCopyByteVecToClosure(POLYUNSIGNED threadId, POLYUNSIGNED byteVe
             raise_fail(taskData, "Invalid closure size");
         if (!pushedClosure->WordP()->IsMutable())
             raise_fail(taskData, "Closure is not mutable");
-        do {
-            PolyObject *initCell = pushedByteVec->WordP();
-            POLYUNSIGNED requiredSize = initCell->Length();
+        PolyObject *initCell = pushedByteVec->WordP();
+        POLYUNSIGNED requiredSize = initCell->Length();
+        result = gMem.AllocCodeSpace(requiredSize);
+        if (result == 0)
+        {
+            // Only a full GC can reclaim code space.  A quick GC may succeed
+            // because there is heap space, even when no code space is available.
+            FullGC(taskData);
+            // The byte vector may have moved during the GC.
+            initCell = pushedByteVec->WordP();
+            requiredSize = initCell->Length();
             result = gMem.AllocCodeSpace(requiredSize);
             if (result == 0)
-            {
-                // Could not allocate - must GC.
-                if (!QuickGC(taskData, pushedByteVec->WordP()->Length()))
-                    raise_fail(taskData, "Insufficient memory");
-            }
-            else memcpy(gMem.SpaceForObjectAddress(result)->writeAble((byte*)result), initCell, requiredSize * sizeof(PolyWord));
-        } while (result == 0);
+                raise_fail(taskData, "Insufficient memory");
+        }
+        memcpy(gMem.SpaceForObjectAddress(result)->writeAble((byte*)result), initCell, requiredSize * sizeof(PolyWord));
+
+        // Store the code address only after it has been copied successfully.
+        *((PolyObject**)pushedClosure->WordP()) = result;
+        // Lock the closure.
+        pushedClosure->WordP()->SetLengthWord(pushedClosure->WordP()->LengthWord() & ~_OBJ_MUTABLE_BIT);
     }
     catch (...) {} // If an ML exception is raised
-
-    // Store the code address in the closure.
-    *((PolyObject**)pushedClosure->WordP()) = result;
-    // Lock the closure.
-    pushedClosure->WordP()->SetLengthWord(pushedClosure->WordP()->LengthWord() & ~_OBJ_MUTABLE_BIT);
 
 #ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
     pthread_jit_write_protect_np(true);
