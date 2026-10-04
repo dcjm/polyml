@@ -459,13 +459,18 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
     // allocate something very big.
     uintptr_t nextLimit = highWaterMark + highWaterMark / 32 + wordsRequired;
     if (nextLimit > newHeapSize) nextLimit = newHeapSize;
+    // If the GC could not copy everything out of the allocation areas they are
+    // not empty and have not been deleted.  AllocHeapSpace compares
+    // spaceBeforeMinorGC with their total size so include them here, otherwise
+    // we may not be able to create a new area, e.g. for a large object.
+    uintptr_t currAlloc = gMem.CurrentAllocSpace();
     // gMem.CurrentHeapSize() is the live space size.
     if (gMem.CurrentHeapSize() > nextLimit)
     // This previously set the space to zero which resulted in a Run out of space
     // error.  Instead allow at least this allocation in the hope that everything
     // will sort itself out.
-        gMem.SetSpaceBeforeMinorGC(wordsRequired);
-    else gMem.SetSpaceBeforeMinorGC((nextLimit-gMem.CurrentHeapSize())/2);
+        gMem.SetSpaceBeforeMinorGC(currAlloc + wordsRequired);
+    else gMem.SetSpaceBeforeMinorGC(currAlloc + (nextLimit-gMem.CurrentHeapSize())/2);
 
     lastFreeSpace = newHeapSize - currentSpaceUsed;
     predictedRatio = cost;
