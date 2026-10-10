@@ -239,6 +239,8 @@ struct
                                             |   RegPropUntagged => chooseReg(regs, bestReg, bestCost)
                                             |   RegPropCacheUntagged => chooseReg(regs, bestReg, bestCost)
                                             |   RegPropCacheTagged => reg (* Pick the first cache reg. *)
+                                            |   RegPropMultiple => (* Must not pick a merge reg *)
+                                                    chooseReg(regs, bestReg, bestCost)
                                             |   RegPropGeneral =>
                                                 if cost >= bestCost
                                                 then chooseReg(regs, reg, active)
