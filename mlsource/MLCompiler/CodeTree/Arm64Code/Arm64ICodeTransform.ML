@@ -109,9 +109,11 @@ struct
                 in
                     case prop of
                         RegPropUntagged => (r, ~1, ~1)
+                    |   RegPropCacheUntagged => (r, ~1, ~1)
                     |   RegPropStack _ => (r, ~1, ~1)
                     |   RegPropMultiple => (r, ~1, ~1)
-                    |   _ => (r, Array.sub(activeIn, r), if refs = 0 then 0 else Int.quot(active, refs))
+                    |   RegPropGeneral => (r, Array.sub(activeIn, r), if refs = 0 then 0 else Int.quot(active, refs))
+                    |   RegPropCacheTagged => (r, Array.sub(activeIn, r), if refs = 0 then 0 else Int.quot(active, refs))
                 end
                 val withCosts = List.map addCosts currentActive
                 (* Order so that the earlier items are those that appear in more sets and
@@ -234,9 +236,10 @@ struct
                                         in
                                             case prop of
                                                 RegPropStack _ => chooseReg(regs, bestReg, bestCost)
-                                            |   RegPropCacheUntagged => reg (* Pick the first cache reg. *)
+                                            |   RegPropUntagged => chooseReg(regs, bestReg, bestCost)
+                                            |   RegPropCacheUntagged => chooseReg(regs, bestReg, bestCost)
                                             |   RegPropCacheTagged => reg (* Pick the first cache reg. *)
-                                            |   _ =>
+                                            |   RegPropGeneral =>
                                                 if cost >= bestCost
                                                 then chooseReg(regs, reg, active)
                                                 else chooseReg(regs, bestReg, bestCost)
