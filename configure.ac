@@ -1,7 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT([Poly/ML],[5.9.2],[polyml AT polyml DOT org],[polyml])
+AC_INIT([Poly/ML],[5.9.3],[polyml AT polyml DOT org],[polyml])
 AM_INIT_AUTOMAKE
 AC_PREREQ([2.71])
 # libtoolize recommends this line.

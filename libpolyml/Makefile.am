@@ -8,7 +8,7 @@ AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -version-info 16:0:0
+libpolyml_la_LDFLAGS = -version-info 17:0:0
 
 if NO_UNDEFINED
 # Force all references to be defined to build the DLL.
