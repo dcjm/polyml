@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-23
+    Copyright David C. J. Matthews 2016-23, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,7 +38,8 @@ struct
             case targetArch of
                 Native32Bit => [eax, ebx]
             |   Native64Bit => [eax, ebx, r8, r9, r10]
-            |   ObjectId32Bit => [eax, esi, r8, r9, r10]
+            |   ObjectId32Bit2Word => [eax, esi, r8, r9, r10]
+            |   ObjectId32Bit4Word => [eax, esi, r8, r9, r10]
         val fpResult = case targetArch of Native32Bit => FPReg fp0 | _ => XMMReg xmm0
         val fpArgRegs = case targetArch of Native32Bit => [] | _ => [xmm0, xmm1, xmm2]
     in
@@ -356,7 +357,12 @@ struct
 
         
         (* Indicate that the base address is actually an object index where appropriate. *)
-        val memIndexOrObject = case targetArch of ObjectId32Bit => ObjectIndex | _ => NoMemIndex
+        val memIndexOrObject =
+            case targetArch of
+                ObjectId32Bit2Word => ObjectIndex2
+            |   ObjectId32Bit4Word => ObjectIndex4
+            |   Native32Bit => NoMemIndex
+            |   Native64Bit => NoMemIndex
 
         (* Generally we have an offset in words and no index register. *)
         fun wordOffsetAddress(offset, baseReg: preg): argument =
@@ -697,13 +703,19 @@ struct
                         fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
                         let
                             val () = Array.update(locToPregArray, addr, PregLocation dest)
-                            val sizeClosure = List.length closure + (if targetArch = ObjectId32Bit then 2 else 1)
+                            (* The code address is always a native address even in compact 32-bit mode. *)
+                            val (codeAddrWords, closureFlags) =
+                                case targetArch of
+                                    Native32Bit => (1, F_mutable)
+                                |   Native64Bit => (1, F_mutable)
+                                |   ObjectId32Bit2Word => (2, Word8.orb(F_mutable, F_closure))
+                                |   ObjectId32Bit4Word => (2, Word8.orb(F_mutable, F_closure))
+                            val sizeClosure = List.length closure + codeAddrWords
                             open Address
 
                             fun clear n =
                                 if n = sizeClosure
-                                then [BlockSimple(AllocateMemoryOperation{size=sizeClosure,
-                                        flags=if targetArch = ObjectId32Bit then Word8.orb(F_mutable, F_closure) else F_mutable, dest=dest, saveRegs=[]})]
+                                then [BlockSimple(AllocateMemoryOperation{size=sizeClosure, flags=closureFlags, dest=dest, saveRegs=[]})]
                                 else
                                     (clear (n+1) @
                                         [BlockSimple(
@@ -730,33 +742,47 @@ struct
                                     code @ storeValue @ loadFields(rest, n+1)
                                 end
                             val setCodeAddress =
-                                if targetArch = ObjectId32Bit
-                                then
-                                let (* We can't get the code address until run time. *)
-                                    val codeReg = newUReg()
-                                    val closureReg = newPReg()
-                                in
-                                    map BlockSimple
-                                    [
-                                        LoadArgument{ source=AddressConstant(toMachineWord clResult), dest=closureReg, kind=movePolyWord},
-                                        LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex, cache=NONE},
-                                            dest=codeReg, kind=Move64Bit},
-                                        StoreArgument{ source=RegisterArgument codeReg, offset=0, base=dest, index=ObjectIndex,
-                                            kind=moveNativeWord, isMutable=false}
-                                    ]
-                                end
-                                else
-                                let
-                                    val codeAddr = codeAddressFromClosure clResult
-                                    val (code, source, _) =
-                                        moveIfNotAllowed(Allowed allowInMemMove, [], AddressConstant codeAddr)
-                                in
-                                    code @
-                                        [BlockSimple(
-                                            StoreArgument{ source=source, base=dest, offset=0, index=NoMemIndex, kind=movePolyWord, isMutable=false })]
-                                end
+                                case targetArch of
+                                    ObjectId32Bit2Word =>
+                                    let (* We can't get the code address until run time. *)
+                                        val codeReg = newUReg()
+                                        val closureReg = newPReg()
+                                    in
+                                        map BlockSimple
+                                        [
+                                            LoadArgument{ source=AddressConstant(toMachineWord clResult), dest=closureReg, kind=movePolyWord},
+                                            LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex2, cache=NONE},
+                                                dest=codeReg, kind=Move64Bit},
+                                            StoreArgument{ source=RegisterArgument codeReg, offset=0, base=dest, index=ObjectIndex2,
+                                                kind=moveNativeWord, isMutable=false}
+                                        ]
+                                    end
+                                |   ObjectId32Bit4Word =>
+                                    let
+                                        val codeReg = newUReg()
+                                        val closureReg = newPReg()
+                                    in
+                                        map BlockSimple
+                                        [
+                                            LoadArgument{ source=AddressConstant(toMachineWord clResult), dest=closureReg, kind=movePolyWord},
+                                            LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex4, cache=NONE},
+                                                dest=codeReg, kind=Move64Bit},
+                                            StoreArgument{ source=RegisterArgument codeReg, offset=0, base=dest, index=ObjectIndex4,
+                                                kind=moveNativeWord, isMutable=false}
+                                        ]
+                                    end
+                                |   _ =>
+                                    let
+                                        val codeAddr = codeAddressFromClosure clResult
+                                        val (code, source, _) =
+                                            moveIfNotAllowed(Allowed allowInMemMove, [], AddressConstant codeAddr)
+                                    in
+                                        code @
+                                            [BlockSimple(
+                                                StoreArgument{ source=source, base=dest, offset=0, index=NoMemIndex, kind=movePolyWord, isMutable=false })]
+                                    end
                             val setFields =
-                                setCodeAddress @ loadFields(closure, if targetArch = ObjectId32Bit then 2 else 1)
+                                setCodeAddress @ loadFields(closure, case targetArch of ObjectId32Bit2Word => 2 | ObjectId32Bit4Word => 2 | _ => 1)
                         in
                             l @ setFields @ [BlockSimple(LockMutable{addr=dest})]
                         end
@@ -839,7 +865,7 @@ struct
         |   codeToICodeRev(BICExtract(BICLoadClosure c), _, _, destination, tailCode) =
             let
                 (* Add the number of words for the code address.  This is 1 in native but 2 in 32-in-64. *)
-                val offset = case targetArch of ObjectId32Bit => c+2 | _ => c+1
+                val offset = case targetArch of ObjectId32Bit2Word => c+2 | ObjectId32Bit4Word => c+2 | _ => c+1
             in
                 if c >= List.length closure then raise InternalError "BICExtract: closure" else ();
                 (* N.B.  We need to add one to the closure entry because zero is the code address. *)
@@ -910,7 +936,7 @@ struct
                             else if flags addrAsAddr <> Address.F_words andalso flags addrAsAddr <> Address.F_closure
                             then (BlockSimple(LoadArgument{source=AddressConstant addr, dest=clPReg, kind=movePolyWord}) :: tailCode,
                                       [(RegisterArgument clPReg, GenReg edx)], FullCall)
-                            else if targetArch = ObjectId32Bit
+                            else if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
                             then (* We can't actually load the code address here. *)
                             let
                                 val addrLength = length addrAsAddr
@@ -961,7 +987,7 @@ struct
                    because we may use a memory move to set them.  We also don't allow them in
                    32-in-64 because we can't push an address constant. *)
                 val allowInStackArg =
-                    Allowed {anyConstant=not isTail andalso targetArch <> ObjectId32Bit,
+                    Allowed {anyConstant=not isTail andalso (targetArch = Native32Bit orelse targetArch = Native64Bit),
                                const32s=true, memAddr=false, existingPreg=not isTail }
                 and allowInRegArg =
                     Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
@@ -1194,11 +1220,12 @@ struct
                 val closureRef = makeConstantClosure()
                 val () = codeFunctionToX86(lambda, debugSwitches, closureRef)
             in
-                if targetArch = ObjectId32Bit
+                if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
                 then
                 let
                     val target = asTarget destination
                     val memAddr = newPReg()
+                    val indexKind = if targetArch = ObjectId32Bit2Word then ObjectIndex2 else ObjectIndex4
                     fun loadFields([], n, tlCode) =
                         let
                             val codeReg = newUReg()
@@ -1207,8 +1234,8 @@ struct
                             (* The code address occupies the first native word but we need to extract it at
                                run-time.  We don't currently have a way to have 64-bit constants. *)
                             BlockSimple(
-                                StoreArgument{ source=RegisterArgument codeReg, offset=0, base=memAddr, index=ObjectIndex, kind=moveNativeWord, isMutable=false}) ::
-                            BlockSimple(LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex, cache=NONE}, dest=codeReg, kind=Move64Bit}) ::
+                                StoreArgument{ source=RegisterArgument codeReg, offset=0, base=memAddr, index=indexKind, kind=moveNativeWord, isMutable=false}) ::
+                            BlockSimple(LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=indexKind, cache=NONE}, dest=codeReg, kind=Move64Bit}) ::
                             BlockSimple(LoadArgument{ source=AddressConstant(toMachineWord closureRef), dest=closureReg, kind=movePolyWord}) ::
                             BlockSimple(AllocateMemoryOperation{size=n, flags=F_closure, dest=memAddr, saveRegs=[]}) :: tlCode
                         end
@@ -1222,7 +1249,7 @@ struct
                             val (code2, source, _)  = moveIfNotAllowedRev(Allowed allowInMemMove, restAndAlloc, source1)
                             val storeValue =
                                 BlockSimple(StoreArgument{ source=source, offset=n*Word.toInt wordSize, base=memAddr,
-                                    index=ObjectIndex, kind=movePolyWord, isMutable=false})
+                                    index=indexKind, kind=movePolyWord, isMutable=false})
                         in
                             storeValue :: code2
                         end
@@ -1844,14 +1871,14 @@ struct
                 val addrReg = newPReg() and untagArg = newUReg()
                 val (argCode, argReg1) = codeToPRegRev(arg1, context, tailCode)
                 val (signExtend, sxReg) =
-                    case targetArch of
-                        ObjectId32Bit =>
+                    if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
+                    then
                         let
                             val sReg = newUReg()
                         in
                             ([BlockSimple(SignExtend32To64{source=RegisterArgument argReg1, dest=sReg})], sReg)
                         end
-                    |   _ => ([], argReg1)
+                    else ([], argReg1)
                 val code =
                     BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}) ::
                     BlockSimple(UntagValue{source=sxReg, dest=untagArg, isSigned=true, cache=NONE, opSize=nativeWordOpSize}) ::
@@ -3853,14 +3880,20 @@ struct
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
                 val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE, opSize=polyWordOpSize})]
                 val (codeLoadAddr, realBase) =
-                    if targetArch = ObjectId32Bit
-                    then
-                    let
-                        val addrReg = newUReg()
-                    in
-                        ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
-                    end
-                    else ([], baseReg)
+                    case targetArch of
+                        ObjectId32Bit2Word =>
+                        let
+                            val addrReg = newUReg()
+                        in
+                            ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex2, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
+                        end
+                    |   ObjectId32Bit4Word =>
+                        let
+                            val addrReg = newUReg()
+                        in
+                            ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex4, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
+                        end
+                    |   _ => ([], baseReg)
                 val memResult = {base=realBase, offset=offset, index=MemIndex1 indexReg1, cache=NONE}
             in
                 (codeLoadAddr @ codeIndex, untagCode, memResult)
@@ -3873,14 +3906,20 @@ struct
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
                 val (codeLoadAddr, realBase) =
-                    if targetArch = ObjectId32Bit
-                    then
-                    let
-                        val addrReg = newUReg()
-                    in
-                        ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
-                    end
-                    else ([], baseReg)
+                    case targetArch of
+                        ObjectId32Bit2Word =>
+                        let
+                            val addrReg = newUReg()
+                        in
+                            ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex2, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
+                        end
+                    |   ObjectId32Bit4Word =>
+                        let
+                            val addrReg = newUReg()
+                        in
+                            ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex4, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
+                        end
+                    |   _ => ([], baseReg)
                 val memResult =
                     case scale of
                         0w8 => {base=realBase, offset=offset-4, index=MemIndex4 indexReg, cache=NONE}
@@ -3915,7 +3954,7 @@ struct
                 and (codeIndex, indexReg) = codeToPReg(index, context)
                 (* The index needs to untagged and, if necessary, sign-extended to the native word size. *)
                 val (untagCode, sxReg) =
-                    if targetArch = ObjectId32Bit
+                    if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
                     then
                     let
                         val sReg1 = newUReg() and sReg2 = newUReg()
@@ -3946,7 +3985,7 @@ struct
                    to do anything special on the native code versions but on 32-in-64 we need
                    to sign extend. *)
                 val (untagCode, sxReg) =
-                    if targetArch = ObjectId32Bit
+                    if (case targetArch of ObjectId32Bit2Word => true | ObjectId32Bit4Word => true | _ => false)
                     then
                     let
                         val sReg = newUReg()
@@ -4053,9 +4092,12 @@ struct
               [BlockSimple(StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=memIndexOrObject, kind=MoveByte, isMutable=false}),
               (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
               BlockSimple(
-                if targetArch = ObjectId32Bit
-                then LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex, dest=initAddrReg, opSize=nativeWordOpSize}
-                else LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=movePolyWord}),
+                case targetArch of
+                    ObjectId32Bit2Word =>
+                        LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex2, dest=initAddrReg, opSize=nativeWordOpSize}
+                |   ObjectId32Bit4Word =>
+                        LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex4, dest=initAddrReg, opSize=nativeWordOpSize}
+                |   _ => LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=movePolyWord}),
               BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false, cache=NONE, opSize=polyWordOpSize}),
               BlockSimple(LoadArgument{source=initResult, dest=initReg, kind=movePolyWord}),
               BlockSimple(InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg}),

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021-2 David C. J. Matthews
+    Copyright (c) 2021-2, 2026 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -460,7 +460,10 @@ sig
     and heapAllocPtrOffset: int
     and mlStackPtrOffset: int
 
-    val is32in64: bool and isBigEndian: bool
+	datatype archType = ArchNative | ArchC32 of word
+	val archType: archType
+
+    val isBigEndian: bool
 
     structure Sharing:
     sig

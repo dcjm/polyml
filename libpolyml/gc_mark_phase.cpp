@@ -703,7 +703,7 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
     while (pt < top)
     {
 #ifdef POLYML32IN64
-        if ((((uintptr_t)pt) & 4) == 0)
+        if (((pt-(PolyWord*)0) & (POLYML32IN64-1)) != (POLYML32IN64-1)) // Align to length word
         {
             pt++;
             continue;
@@ -763,7 +763,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
 {
     CodeSpace *space = (CodeSpace*)arg1;
 #ifdef POLYML32IN64
-    PolyWord *pt = space->bottom+1;
+    PolyWord *pt = space->bottom + POLYML32IN64-1;
 #else
     PolyWord *pt = space->bottom;
 #endif

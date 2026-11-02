@@ -175,7 +175,7 @@ PolyObject* ByteCodeInterpreter::allocateMemory(TaskData * taskData, POLYUNSIGNE
     if (taskData->allocPointer >= taskData->allocLimit + words + 1)
     {
 #ifdef POLYML32IN64
-        if (words & 1) words++;
+        words = (words + POLYML32IN64 - 1) & (-POLYML32IN64); // Round up to the unit size
 #endif
         taskData->allocPointer -= words;
         return (PolyObject*)(taskData->allocPointer + 1);

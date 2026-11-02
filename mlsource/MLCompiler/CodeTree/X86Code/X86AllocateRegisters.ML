@@ -36,9 +36,10 @@ struct
     local
         val regs =
             case targetArch of
-                Native32Bit     => [edi, esi, edx, ecx, ebx, eax]
-            |   Native64Bit     => [edi, esi, edx, ecx, ebx, eax, r14, r13, r12, r11, r10, r9, r8]
-            |   ObjectId32Bit   => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
+                Native32Bit         => [edi, esi, edx, ecx, ebx, eax]
+            |   Native64Bit         => [edi, esi, edx, ecx, ebx, eax, r14, r13, r12, r11, r10, r9, r8]
+            |   ObjectId32Bit2Word  => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
+            |   ObjectId32Bit4Word  => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
     in
         val generalRegisters = List.map GenReg regs
         val nGenRegs = List.length generalRegisters
@@ -384,7 +385,8 @@ struct
         |   allocateArgIndex(MemIndex2(PReg r)) = allocateGeneralReg r
         |   allocateArgIndex(MemIndex4(PReg r)) = allocateGeneralReg r
         |   allocateArgIndex(MemIndex8(PReg r)) = allocateGeneralReg r
-        |   allocateArgIndex ObjectIndex = ()
+        |   allocateArgIndex ObjectIndex2 = ()
+        |   allocateArgIndex ObjectIndex4 = ()
 
         (* Return the register part of a cached item.  We must still, unfortunately, ensure that a register is
            allocated for base registers because we're assuming that a register is allocated on the last

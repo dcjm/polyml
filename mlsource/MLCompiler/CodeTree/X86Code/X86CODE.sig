@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016-21, 23
+    Copyright David C. J. Matthews 2010, 2012, 2016-21, 23, 26
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -54,8 +54,9 @@ sig
     val regRepr: reg -> string
     
     (* May be targeted at native 32-bit, native 64-bit or X86/64 with 32-bit words
-       and addresses as object Ids. *)
-    datatype targetArch = Native32Bit | Native64Bit | ObjectId32Bit
+       and addresses as object Ids.  This may be either 2-word (8 byte) or 4-word (16 byte) units. *)
+    datatype targetArch = Native32Bit | Native64Bit | ObjectId32Bit2Word | ObjectId32Bit4Word
+
     val targetArch: targetArch
 
     type addrs

@@ -70,7 +70,8 @@ struct
     |   argIndex(MemIndex2 arg) = [arg]
     |   argIndex(MemIndex4 arg) = [arg]
     |   argIndex(MemIndex8 arg) = [arg]
-    |   argIndex ObjectIndex = []
+    |   argIndex ObjectIndex2 = []
+    |   argIndex ObjectIndex4 = []
 
     fun argStacks(StackLocation { container, ...}) = [container]
     |   argStacks(ContainerAddr { container, ...}) = [container]

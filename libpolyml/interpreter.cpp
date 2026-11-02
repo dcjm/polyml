@@ -234,10 +234,9 @@ void IntTaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem, S
 // Copy a stack
 void IntTaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length)
 {
-#ifdef POLYML32IN64
-    old_length = old_length / 2;
-    new_length = new_length / 2;
-#endif
+    // The lengths are the number of PolyWords but a stack item is 8 bytes in 32-in-64.
+    old_length = old_length / (sizeof(stackItem)/sizeof(PolyWord));
+    new_length = new_length / (sizeof(stackItem)/sizeof(PolyWord));
     /* Moves a stack, updating all references within the stack */
     stackItem*old_base = (stackItem*)old_stack;
     stackItem*new_base = (stackItem*)new_stack;

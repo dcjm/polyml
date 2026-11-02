@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021-3, 2025
+    Copyright David C. J. Matthews 2021-3, 2025-6
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -113,6 +113,7 @@ struct
 
     val shiftConstant = BlockSimple o shiftConstant
 
+    val is32in64 = case archType of ArchC32 _ => true | ArchNative => false
     (* Many operations use 32-bit arguments in 32-in-64 and 64-bit in native 64. *)
     val polyWordLoadSize = if is32in64 then Load32 else Load64
     val polyWordOpSize = if is32in64 then OpSize32 else OpSize64
@@ -374,10 +375,14 @@ struct
             fun doAllocation(words, flags, tlCode) =
             let
                 val wordsRequired =
-                    if is32in64
-                    then (* Have to round this up to 8 bytes *)
-                        Word64.andb(Word64.fromInt(words+2), ~ 0w2)
-                    else Word64.fromInt(words+1)
+                    case archType of
+                        ArchC32 shift =>
+                        let
+                            val unitSize = Word64.<<(0w1, shift-0w1)
+                        in (* Have to round this up to the unit size *)
+                            Word64.andb((Word64.fromInt words+unitSize(*+1-1*)), ~ unitSize)
+                        end
+                    |   ArchNative => Word64.fromInt(words+1)
                 val bytesRequired = Word64.fromLarge(Word.toLarge wordSize) * wordsRequired
                 val lengthWord =
                     Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags),

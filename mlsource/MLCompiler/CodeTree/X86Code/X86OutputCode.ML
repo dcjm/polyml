@@ -48,21 +48,24 @@ struct
 
     (* May be targeted at native 32-bit, native 64-bit or X86/64 with 32-bit words
        and addresses as object Ids. *)
-    datatype targetArch = Native32Bit | Native64Bit | ObjectId32Bit
-        
+    datatype targetArch = Native32Bit | Native64Bit | ObjectId32Bit2Word | ObjectId32Bit4Word
+
+
     val targetArch =
-        case PolyML.architecture() of
-            "I386"      => Native32Bit
-        |   "X86_64"    => Native64Bit
-        |   "X86_64_32" => ObjectId32Bit
-        |   _ => raise InternalError "Unknown target architecture"
+        case (PolyML.architecture(), Address.compact32UnitSize) of
+            ("I386", _)      => Native32Bit
+        |   ("X86_64", _)    => Native64Bit
+        |   ("X86_64_32", 0w2) => ObjectId32Bit2Word
+        |   ("X86_64_32", 0w4) => ObjectId32Bit4Word
+        |   _ => raise InternalError "Unknown target architecture or invalid unit length"
     
     (* Some checks - *)
     val () =
         case (targetArch, wordSize, nativeWordSize) of
             (Native32Bit, 0w4, 0w4) => ()
         |   (Native64Bit, 0w8, 0w8) => ()
-        |   (ObjectId32Bit, 0w4, 0w8) => ()
+        |   (ObjectId32Bit2Word, 0w4, 0w8) => ()
+        |   (ObjectId32Bit4Word, 0w4, 0w8) => ()
         |   _ => raise InternalError "Mismatch of architecture and word-length"
 
     val hostIsX64 = targetArch <> Native32Bit
@@ -1539,8 +1542,14 @@ struct
             (
                 case targetArch of
                     Native64Bit => raise InternalError "Move32 - AddressConstArg"
-                
-                |   ObjectId32Bit =>
+
+                |   ObjectId32Bit2Word =>
+                        (* Put address constants in the constant area. *)
+                        (* The constant area is currently PolyWords.  That means we MUST use
+                           a 32-bit load in 32-in-64. *)
+                        opConstantOperand(MOVL_A_R32, output)
+
+                |   ObjectId32Bit4Word =>
                         (* Put address constants in the constant area. *)
                         (* The constant area is currently PolyWords.  That means we MUST use
                            a 32-bit load in 32-in-64. *)
@@ -1568,14 +1577,21 @@ struct
                     end
                 
                 |   Native64Bit => opConstantOperand(MOVL_A_R64, destination)
-                
-                |   ObjectId32Bit =>
+
+                |   ObjectId32Bit2Word =>
                     let
                         val (rc, rx) = getReg destination
                     in
                         opCodeBytes(MOVL_64_R rc, SOME{w=true, r=false, b=rx, x=false}) @ largeWordToBytes(LargeWord.fromLargeInt(tag 0), 8)
                     end
-                    
+
+                |   ObjectId32Bit4Word =>
+                    let
+                        val (rc, rx) = getReg destination
+                    in
+                        opCodeBytes(MOVL_64_R rc, SOME{w=true, r=false, b=rx, x=false}) @ largeWordToBytes(LargeWord.fromLargeInt(tag 0), 8)
+                    end
+
             )
 
         |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move32 }) =
@@ -1839,9 +1855,11 @@ struct
                         opb @ [mdrm] @ int32Signed(tag 0)
                     end
                 |   Native32Bit => opCodeBytes(PUSH_32, NONE) @ int32Signed(tag 0)
-                |   ObjectId32Bit =>
+                |   ObjectId32Bit2Word =>
                     (* We can't do this.  The constant area contains 32-bit quantities
                        and 32-bit literals are sign-extended rather than zero-extended. *)
+                        raise InternalError "PushToStack:AddressConstArg"
+                |   ObjectId32Bit4Word =>
                         raise InternalError "PushToStack:AddressConstArg"
            )
 
@@ -2325,7 +2343,7 @@ struct
         |   cgOp(CondMove { test, output, source=AddressConstArg _, opSize=OpSize32 }) =
             (
                 (* We only support address constants in 32-in-64. *)
-                targetArch = ObjectId32Bit orelse raise InternalError "CondMove: AddressConstArg";
+                targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word orelse raise InternalError "CondMove: AddressConstArg";
                 opConstantOperand(CMOV32 test, output)
             )
 
@@ -2776,10 +2794,18 @@ struct
                                 destination=RegisterArg output, moveSize=Move32},
                              LoadAddress{output=output, offset = ~ bytes, base=SOME output, index=NoIndex, opSize=OpSize32}]
                         end
-                    |   ObjectId32Bit =>
+                    |   ObjectId32Bit2Word =>
                         let
                             (* We must allocate an even number of words. *)
                             val heapWords = if Int.rem(size, 2) = 1 then size+1 else size+2
+                            val bytes = heapWords * Word.toInt wordSize
+                        in
+                            [LoadAddress{output=output, offset = ~ bytes, base=SOME r15, index=NoIndex, opSize=OpSize64}]
+                        end
+                    |   ObjectId32Bit4Word =>
+                        let
+                            (* We must allocate in multiples of four words. Have to add one for the length word. *)
+                            val heapWords = Int.div(size+1+3, 4) * 4
                             val bytes = heapWords * Word.toInt wordSize
                         in
                             [LoadAddress{output=output, offset = ~ bytes, base=SOME r15, index=NoIndex, opSize=OpSize64}]
@@ -2816,11 +2842,13 @@ struct
                         Negative{output=output, opSize=nativeWordOpSize},
                         ArithToGenReg{opc=ADD, output=output, source=localPointer, opSize=nativeWordOpSize}
                     ]
-                (* If this is 32-in-64 we need to round down to the next 8-byte boundary. *)
+                (* If this is 32-in-64 we need to round down to the next 8 or 16-byte boundary. *)
                 val roundCode =
-                    if targetArch = ObjectId32Bit
-                    then [ArithToGenReg{opc=AND, output=output, source=NonAddressConstArg ~8, opSize=OpSize64 }]
-                    else []
+                    case targetArch of
+                        ObjectId32Bit2Word => [ArithToGenReg{opc=AND, output=output, source=NonAddressConstArg ~8, opSize=OpSize64 }]
+                    |   ObjectId32Bit4Word => [ArithToGenReg{opc=AND, output=output, source=NonAddressConstArg ~16, opSize=OpSize64 }]
+                    |   Native32Bit => []
+                    |   Native64Bit => []
                 val resultCode = startCode @ roundCode @ allocStoreCommonCode(output, true, saveRegs)
             in
                 doExpansion(instrs, (List.rev resultCode) @ code, true)

@@ -164,9 +164,9 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
     while (pt < end)
     {
 #ifdef POLYML32IN64
-        if ((((uintptr_t)pt) & 4) == 0)
+        if (((pt - (PolyWord*)0) & (POLYML32IN64-1)) != POLYML32IN64 - 1)
         {
-            // Skip any padding.  The length word should be on an odd-word boundary.
+            // Skip any padding.  The length word should be in the last word of the unit.
             pt++;
             continue;
         }

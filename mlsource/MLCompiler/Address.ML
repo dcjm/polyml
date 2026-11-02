@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
  
-    Further development copyright David C.J. Matthews 2000-2017
+    Further development copyright David C.J. Matthews 2000-2017, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -49,7 +49,7 @@ sig
     val length: address -> short
     val flags:  address -> Word8.word
 
-    val wordSize: word and nativeWordSize: word
+    val wordSize: word and nativeWordSize: word and compact32UnitSize: word
 
     val F_words        : Word8.word
     val F_bytes        : Word8.word
@@ -219,6 +219,12 @@ struct
         else "LIT <long word data>"
     end
 
+    (* Heap unit size in Compact 32 bit mode.  Returns zero in native mode. *)
+    local
+        val getsize : unit->word = RunCall.rtsCallFast0 "PolyGetC32UnitSize"
+    in
+        val compact32UnitSize = getsize()
+    end
 end;
 
 (* Add a print function for machineWord.  This is really only for

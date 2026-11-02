@@ -215,14 +215,17 @@ struct
         |   codeExtIndex(MemIndex2(PReg r)) = Index2(getAllocatedGenReg r)
         |   codeExtIndex(MemIndex4(PReg r)) = Index4(getAllocatedGenReg r)
         |   codeExtIndex(MemIndex8(PReg r)) = Index8(getAllocatedGenReg r)
-        |   codeExtIndex ObjectIndex = raise InternalError "codeExtIndex: ObjectIndex"
+        |   codeExtIndex ObjectIndex2 = raise InternalError "codeExtIndex: ObjectIndex2"
+        |   codeExtIndex ObjectIndex4 = raise InternalError "codeExtIndex: ObjectIndex4"
 
         local
             fun codeExtArgument getReg (RegisterArgument(PReg r)) = RegisterArg(getReg r)
             |   codeExtArgument _ (AddressConstant m) = AddressConstArg m
             |   codeExtArgument _ (IntegerConstant i) = NonAddressConstArg i
-            |   codeExtArgument _ (MemoryLocation{base=PReg bReg, offset, index=ObjectIndex, cache=NONE}) =
+            |   codeExtArgument _ (MemoryLocation{base=PReg bReg, offset, index=ObjectIndex2, cache=NONE}) =
                     MemoryArg{base=ebx, index=Index4(getAllocatedGenReg bReg), offset=offset}
+            |   codeExtArgument _ (MemoryLocation{base=PReg bReg, offset, index=ObjectIndex4, cache=NONE}) =
+                    MemoryArg{base=ebx, index=Index8(getAllocatedGenReg bReg), offset=offset}
             |   codeExtArgument _ (MemoryLocation{base=PReg bReg, offset, index, cache=NONE}) =
                     MemoryArg{base=getAllocatedGenReg bReg, offset=offset, index=codeExtIndex index}
             |   codeExtArgument getReg (MemoryLocation{cache=SOME(PReg r), ...}) = RegisterArg(getReg r)
@@ -242,8 +245,10 @@ struct
         |   codeCallKind FullCall =
             (
                 case targetArch of
-                    ObjectId32Bit => MemoryArg{base=ebx, index=Index4 edx, offset=0}
-                |   _ => MemoryArg{base=edx, index=NoIndex, offset=0}
+                    ObjectId32Bit2Word => MemoryArg{base=ebx, index=Index4 edx, offset=0}
+                |   ObjectId32Bit4Word => MemoryArg{base=ebx, index=Index8 edx, offset=0}
+                |   Native32Bit => MemoryArg{base=edx, index=NoIndex, offset=0}
+                |   Native64Bit => MemoryArg{base=edx, index=NoIndex, offset=0}
             )
 
         (* Move unless the registers are the same. *)
@@ -516,10 +521,15 @@ struct
 
             (* Convert to an object index if necessary. *)
             val convertToObjId =
-                if targetArch = ObjectId32Bit
-                then [ ShiftConstant{ shiftType=SHR, output=toReg, shift=0w2, opSize=OpSize64 },
-                       ArithToGenReg{ opc=SUB, output=toReg, source=RegisterArg ebx, opSize=nativeWordOpSize } ]
-                else []
+                case targetArch of
+                    ObjectId32Bit2Word =>
+                        [ ShiftConstant{ shiftType=SHR, output=toReg, shift=0w2, opSize=OpSize64 },
+                            ArithToGenReg{ opc=SUB, output=toReg, source=RegisterArg ebx, opSize=nativeWordOpSize } ]
+                |   ObjectId32Bit4Word =>
+                        [ ShiftConstant{ shiftType=SHR, output=toReg, shift=0w3, opSize=OpSize64 },
+                            ArithToGenReg{ opc=SUB, output=toReg, source=RegisterArg ebx, opSize=nativeWordOpSize } ]
+                |   Native32Bit => []
+                |   Native64Bit => []
         in
             convertToObjId @ allocCode @ code
         end
@@ -560,7 +570,8 @@ struct
             |   indexUses(MemIndex2 arg) = used arg
             |   indexUses(MemIndex4 arg) = used arg
             |   indexUses(MemIndex8 arg) = used arg
-            |   indexUses ObjectIndex = ()
+            |   indexUses ObjectIndex2 = ()
+            |   indexUses ObjectIndex4 = ()
 
             (* LoadArgument, TagValue, CopyToCache, UntagValue and BoxValue are eliminated if their destination
                is not used.  In that case their source are not used either. *)
@@ -717,7 +728,8 @@ struct
             let
                 val (baseReg, indexVal) =
                     case index of
-                        ObjectIndex => (ebx, Index4(getAllocatedGenReg bReg))
+                        ObjectIndex2 => (ebx, Index4(getAllocatedGenReg bReg))
+                    |   ObjectIndex4 => (ebx, Index8(getAllocatedGenReg bReg))
                     |   _ => (getAllocatedGenReg bReg, codeExtIndex index)
             in
                 case (decache source, kind) of
@@ -950,10 +962,15 @@ struct
                 ]
                 (* Convert to an object index if necessary. *)
                 val convertToObjId =
-                    if targetArch = ObjectId32Bit
-                    then [ ShiftConstant{ shiftType=SHR, output=dReg, shift=0w2, opSize=OpSize64 },
-                           ArithToGenReg{ opc=SUB, output=dReg, source=RegisterArg ebx, opSize=nativeWordOpSize } ]
-                    else []
+                    case targetArch of
+                        ObjectId32Bit2Word =>
+                            [ ShiftConstant{ shiftType=SHR, output=dReg, shift=0w2, opSize=OpSize64 },
+                                ArithToGenReg{ opc=SUB, output=dReg, source=RegisterArg ebx, opSize=nativeWordOpSize } ]
+                    |   ObjectId32Bit4Word =>
+                            [ ShiftConstant{ shiftType=SHR, output=dReg, shift=0w3, opSize=OpSize64 },
+                                ArithToGenReg{ opc=SUB, output=dReg, source=RegisterArg ebx, opSize=nativeWordOpSize } ]
+                    |   Native32Bit => []
+                    |   Native64Bit => []
             in
                 convertToObjId @ allocCode @ code
             end
@@ -1023,9 +1040,11 @@ struct
         |   codeExtended _ ({instr=LockMutable{addr=PReg pr}, ...}, code) =
             let
                 val (bReg, index) =
-                    if targetArch = ObjectId32Bit
-                    then (ebx, Index4(asGenReg(getAllocatedReg pr)))
-                    else (asGenReg(getAllocatedReg pr), NoIndex)
+                    case targetArch of
+                        ObjectId32Bit2Word => (ebx, Index4(asGenReg(getAllocatedReg pr)))
+                    |   ObjectId32Bit4Word => (ebx, Index8(asGenReg(getAllocatedReg pr)))
+                    |   Native32Bit => (asGenReg(getAllocatedReg pr), NoIndex)
+                    |   Native64Bit => (asGenReg(getAllocatedReg pr), NoIndex)
             in
                 (* Mask off the mutable bit. *)
                 ArithByteMemConst{opc=AND, address={base=bReg, offset= ~1, index=index}, source=0wxff - F_mutable} :: code
@@ -1039,9 +1058,12 @@ struct
                 case decache arg1 of (* N.B. We MUST decache since we're assuming that the base reg is not used. *)
                     RegisterArgument(PReg pr) =>
                         ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=NonAddressConstArg arg2, opSize=opSize} :: code
-                |   MemoryLocation{base=PReg br, offset, index=ObjectIndex, ...} =>
+                |   MemoryLocation{base=PReg br, offset, index=ObjectIndex2, ...} =>
                         ArithMemConst{ opc=CMP,
                             address={offset=offset, base=ebx, index=Index4(asGenReg(getAllocatedReg br))}, source=arg2, opSize=opSize } :: code
+                |   MemoryLocation{base=PReg br, offset, index=ObjectIndex4, ...} =>
+                        ArithMemConst{ opc=CMP,
+                            address={offset=offset, base=ebx, index=Index8(asGenReg(getAllocatedReg br))}, source=arg2, opSize=opSize } :: code
                 |   MemoryLocation{base=PReg br, index, offset, ...} =>
                         ArithMemConst{ opc=CMP,
                             address={offset=offset, base=asGenReg(getAllocatedReg br), index=codeExtIndex index}, source=arg2, opSize=opSize } :: code
@@ -1054,7 +1076,8 @@ struct
             let
                 val (bReg, index) =
                     case index of
-                        ObjectIndex => (ebx, Index4(asGenReg(getAllocatedReg br)))
+                        ObjectIndex2 => (ebx, Index4(asGenReg(getAllocatedReg br)))
+                    |   ObjectIndex4 => (ebx, Index8(asGenReg(getAllocatedReg br)))
                     |   _ => (asGenReg(getAllocatedReg br), codeExtIndex index)
             in
                 ArithByteMemConst{ opc=CMP, address={offset=offset, base=bReg, index=index}, source=arg2 } :: code
@@ -1236,7 +1259,7 @@ struct
                     moveIfNecessary({src=realSReg, dst=regResult, kind=opSizeToIMove opSize}, code)
             end
 
-        |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index=ObjectIndex, dest=PReg dReg, opSize}, ...}, code) =
+        |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index=ObjectIndex2, dest=PReg dReg, opSize}, ...}, code) =
             let
                 val destReg = asGenReg(getAllocatedReg dReg)
                 val bReg =
@@ -1245,6 +1268,17 @@ struct
                     |   NONE => raise InternalError "LoadEffectiveAddress - ObjectIndex but no base"
             in
                 LoadAddress{ output=destReg, offset=offset, base=SOME ebx, index=Index4 bReg, opSize=opSize } :: code
+           end
+
+        |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index=ObjectIndex4, dest=PReg dReg, opSize}, ...}, code) =
+            let
+                val destReg = asGenReg(getAllocatedReg dReg)
+                val bReg =
+                    case base of
+                        SOME(PReg br) => asGenReg(getAllocatedReg br)
+                    |   NONE => raise InternalError "LoadEffectiveAddress - ObjectIndex but no base"
+            in
+                LoadAddress{ output=destReg, offset=offset, base=SOME ebx, index=Index8 bReg, opSize=opSize } :: code
            end
 
         |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg, opSize}, ...}, code) =
@@ -1350,9 +1384,11 @@ struct
             let
                 val baseReg = asGenReg (getAllocatedReg bReg) and outReg = asGenReg (getAllocatedReg rReg)
                 val address =
-                    if targetArch = ObjectId32Bit
-                    then {base=ebx, index=Index4 baseReg, offset=0}
-                    else {base=baseReg, index=NoIndex, offset=0}
+                    case targetArch of
+                        ObjectId32Bit2Word => {base=ebx, index=Index4 baseReg, offset=0}
+                    |   ObjectId32Bit4Word => {base=ebx, index=Index8 baseReg, offset=0}
+                    |   Native32Bit => {base=baseReg, index=NoIndex, offset=0}
+                    |   Native64Bit => {base=baseReg, index=NoIndex, offset=0}
             in
                 AtomicXAdd{address=address, output=outReg, opSize=nativeWordOpSize} ::
                     moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg outReg, kind=moveNativeWord}, code)
@@ -1362,9 +1398,11 @@ struct
             let
                 val baseReg = asGenReg (getAllocatedReg bReg) and outReg = asGenReg (getAllocatedReg rReg)
                 val address =
-                    if targetArch = ObjectId32Bit
-                    then {base=ebx, index=Index4 baseReg, offset=0}
-                    else {base=baseReg, index=NoIndex, offset=0}
+                    case targetArch of
+                        ObjectId32Bit2Word => {base=ebx, index=Index4 baseReg, offset=0}
+                    |   ObjectId32Bit4Word => {base=ebx, index=Index8 baseReg, offset=0}
+                    |   Native32Bit => {base=baseReg, index=NoIndex, offset=0}
+                    |   Native64Bit => {base=baseReg, index=NoIndex, offset=0}
             in
                 XChng{arg=MemoryArg address, reg=outReg, opSize=nativeWordOpSize} ::
                     moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg outReg, kind=moveNativeWord}, code)
@@ -1378,9 +1416,11 @@ struct
                 and compareReg = getAllocatedReg cReg and toStoreReg = asGenReg (getAllocatedReg tsReg)
                 val _ = baseReg <> eax orelse raise InternalError "codeGenICode: AtomicCompareAndExchange"
                 val address =
-                    if targetArch = ObjectId32Bit
-                    then {base=ebx, index=Index4 baseReg, offset=0}
-                    else {base=baseReg, index=NoIndex, offset=0}
+                    case targetArch of
+                        ObjectId32Bit2Word => {base=ebx, index=Index4 baseReg, offset=0}
+                    |   ObjectId32Bit4Word => {base=ebx, index=Index8 baseReg, offset=0}
+                    |   Native32Bit => {base=baseReg, index=NoIndex, offset=0}
+                    |   Native64Bit => {base=baseReg, index=NoIndex, offset=0}
             in
                 moveIfNecessary({src=GenReg eax, dst=outReg, kind=moveNativeWord},
                     AtomicCmpXChng{address=address, source=toStoreReg, opSize=nativeWordOpSize} ::
@@ -1402,9 +1442,11 @@ struct
                     |   BoxSSE2Float => (getAllocatedReg sReg, Word.toInt(0w4 div wordSize), MoveFloat)
                 val dstReg = getAllocatedReg dReg
                 val (bReg, index) =
-                    if targetArch = ObjectId32Bit
-                    then (ebx, Index4(asGenReg dstReg))
-                    else (asGenReg dstReg, NoIndex)
+                    case targetArch of
+                        ObjectId32Bit2Word => (ebx, Index4(asGenReg dstReg))
+                    |   ObjectId32Bit4Word => (ebx, Index8(asGenReg dstReg))
+                    |   Native32Bit => (asGenReg dstReg, NoIndex)
+                    |   Native64Bit => (asGenReg dstReg, NoIndex)
             in
                 StoreInitialised ::
                     llStoreArgument{ source=RegisterArg srcReg, offset=0, base=bReg, index=index, kind=moveKind} ::

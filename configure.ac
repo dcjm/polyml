@@ -502,10 +502,21 @@ fi
 AC_ARG_ENABLE([compact32bit],
         [AS_HELP_STRING([--enable-compact32bit],
             [use 32-bit values rather than native 64-bits.])])
+AC_ARG_ENABLE([compact32bit_large],
+	[AS_HELP_STRING([--enable-compact32bit_large],
+            [use 32-bit values with a larger heap size.])])
 
-if test "x$enable_compact32bit" = "xyes"; then
+
+if test "x$enable_compact32bit_large" = "xyes"; then
     if test X"$ac_cv_sizeof_voidp" = X8 ; then
-        AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
+        AC_DEFINE([POLYML32IN64], [4], [Define if this should use 32-bit values in 64-bit architectures and set to the unit size])
+        bootstrap64="no"
+    else
+        AC_MSG_ERROR([--enable-compact32bit is only available on a 64-bit architecture])
+    fi
+elif test "x$enable_compact32bit" = "xyes"; then
+    if test X"$ac_cv_sizeof_voidp" = X8 ; then
+        AC_DEFINE([POLYML32IN64], [2], [Define if this should use 32-bit values in 64-bit architectures and set to the unit size])
         bootstrap64="no"
     else
         AC_MSG_ERROR([--enable-compact32bit is only available on a 64-bit architecture])

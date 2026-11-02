@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-22 David C.J. Matthews
+    Copyright (c) 2016-22, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -65,14 +65,15 @@ struct
 
     val (polyWordOpSize, nativeWordOpSize) =
         case targetArch of
-            Native32Bit     => (OpSize32, OpSize32)
-        |   Native64Bit     => (OpSize64, OpSize64)
-        |   ObjectId32Bit   => (OpSize32, OpSize64)
+            Native32Bit         => (OpSize32, OpSize32)
+        |   Native64Bit         => (OpSize64, OpSize64)
+        |   ObjectId32Bit2Word  => (OpSize32, OpSize64)
+        |   ObjectId32Bit4Word  => (OpSize32, OpSize64)
     
     (* Ebx/Rbx is used for the second argument on the native architectures but
        is replaced by esi on the object ID arch because ebx is used as the
        global base register. *)
-    val mlArg2Reg = case targetArch of ObjectId32Bit => esi | _ => ebx
+    val mlArg2Reg = case targetArch of ObjectId32Bit2Word => esi | ObjectId32Bit4Word => esi | _ => ebx
     
     exception InternalError = Misc.InternalError
   
@@ -90,10 +91,16 @@ struct
     
     val loadHeapMemory =
         case targetArch of
-            ObjectId32Bit =>
+            ObjectId32Bit2Word =>
                 (
                     fn (reg, base, offset, opSize) => 
                         Move{source=MemoryArg{base=ebx, offset=offset, index=Index4 base},
+                             destination=RegisterArg reg, moveSize=opSizeToMove opSize}
+                )
+        |   ObjectId32Bit4Word =>
+                (
+                    fn (reg, base, offset, opSize) => 
+                        Move{source=MemoryArg{base=ebx, offset=offset, index=Index8 base},
                              destination=RegisterArg reg, moveSize=opSizeToMove opSize}
                 )
         |   _ => loadMemory
@@ -441,13 +448,18 @@ struct
             ) @
             Move{source=RegisterArg boxReg, destination=MemoryArg {offset=0, base=outputReg, index=NoIndex}, moveSize=opSizeToMove nativeWordOpSize} ::
             (
-                if targetArch = ObjectId32Bit
-                then
-                [
-                    ArithToGenReg{ opc=SUB, output=outputReg, source=RegisterArg rbx, opSize=nativeWordOpSize },
-                    ShiftConstant{ shiftType=SHR, output=outputReg, shift=0w2, opSize=OpSize64 }
-                ]
-                else []
+                case targetArch of
+                    ObjectId32Bit2Word =>
+                    [
+                        ArithToGenReg{ opc=SUB, output=outputReg, source=RegisterArg rbx, opSize=nativeWordOpSize },
+                        ShiftConstant{ shiftType=SHR, output=outputReg, shift=0w2, opSize=OpSize64 }
+                    ]
+                |   ObjectId32Bit4Word =>
+                    [
+                        ArithToGenReg{ opc=SUB, output=outputReg, source=RegisterArg rbx, opSize=nativeWordOpSize },
+                        ShiftConstant{ shiftType=SHR, output=outputReg, shift=0w3, opSize=OpSize64 }
+                    ]
+                |   _ => []
             ) @ [StoreInitialised]
     end
 
@@ -929,7 +941,8 @@ struct
                         (* The entry point is in a SysWord.word value in RAX. *)
                         val entryPoint =
                             case targetArch of
-                                ObjectId32Bit => MemoryArg{base=ebx, offset=0, index=Index4 eax}
+                                ObjectId32Bit2Word => MemoryArg{base=ebx, offset=0, index=Index4 eax}
+                            |   ObjectId32Bit4Word => MemoryArg{base=ebx, offset=0, index=Index8 eax}
                             |   _ => MemoryArg{base=eax, offset=0, index=NoIndex}
                     in
                         (* Call the function.  We're discarding the value in rsp so no need to remove args. *)
@@ -1100,7 +1113,7 @@ struct
             moveRR{source=r13, output=rdx, opSize=polyWordOpSize}
         ] @
         (* Reload the heap base address in 32-in-64. *)
-        ( if targetArch = ObjectId32Bit then [loadMemory(rbx, rbp, memRegSavedRbx, nativeWordOpSize)] else [] )
+        ( if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word then [loadMemory(rbx, rbp, memRegSavedRbx, nativeWordOpSize)] else [] )
          @ boxRegAsSysWord(rcx, rax, []) @
         (
             (* If we're returning a struct by reference the address for the result will have been passed in the
@@ -1112,9 +1125,10 @@ struct
         [
             (* Call the ML function using the full closure call. *)
             CallAddress(
-                if targetArch = ObjectId32Bit
-                then MemoryArg{base=rbx, index=Index4 rdx, offset=0}
-                else MemoryArg{base=rdx, index=NoIndex, offset=0}),
+                case targetArch of
+                    ObjectId32Bit2Word => MemoryArg{base=rbx, index=Index4 rdx, offset=0}
+                |   ObjectId32Bit4Word => MemoryArg{base=rbx, index=Index8 rdx, offset=0}
+                |   _ => MemoryArg{base=rdx, index=NoIndex, offset=0}),
             (* Save the ML stack pointer because we may have grown the stack.  Switch to the C stack. *)
             storeMemory(rsp, rbp, memRegStackPtr, nativeWordOpSize),
             loadMemory(rsp, rbp, memRegCStackPtr, nativeWordOpSize),
@@ -1432,7 +1446,8 @@ struct
                     (* The entry point is in a SysWord.word value in RAX. *)
                     val entryPoint =
                         case targetArch of
-                            ObjectId32Bit => MemoryArg{base=ebx, offset=0, index=Index4 eax}
+                            ObjectId32Bit2Word => MemoryArg{base=ebx, offset=0, index=Index4 eax}
+                        |   ObjectId32Bit4Word => MemoryArg{base=ebx, offset=0, index=Index8 eax}
                         |   _ => MemoryArg{base=eax, offset=0, index=NoIndex}
                 in
                     (* Call the function.  We're discarding the value in rsp so no need to remove args. *)
@@ -1620,7 +1635,7 @@ struct
             moveRR{source=r13, output=rdx, opSize=polyWordOpSize}
         ] @
         (* Reload the heap base address in 32-in-64. *)
-        ( if targetArch = ObjectId32Bit then [loadMemory(rbx, rbp, memRegSavedRbx, nativeWordOpSize)] else [] )
+        ( if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word then [loadMemory(rbx, rbp, memRegSavedRbx, nativeWordOpSize)] else [] )
          @ boxRegAsSysWord(rcx, rax, []) @
         (
             (* If we're returning a struct by reference the address for the result will have been passed in the
@@ -1632,9 +1647,10 @@ struct
         [
             (* Call the ML function using the full closure call. *)
             CallAddress(
-                if targetArch = ObjectId32Bit
-                then MemoryArg{base=rbx, index=Index4 rdx, offset=0}
-                else MemoryArg{base=rdx, index=NoIndex, offset=0}),
+                case targetArch of
+                    ObjectId32Bit2Word => MemoryArg{base=rbx, index=Index4 rdx, offset=0}
+                |   ObjectId32Bit4Word => MemoryArg{base=rbx, index=Index8 rdx, offset=0}
+                |   _ => MemoryArg{base=rdx, index=NoIndex, offset=0}),
             (* Save the ML stack pointer because we may have grown the stack.  Switch to the C stack. *)
             storeMemory(rsp, rbp, memRegStackPtr, nativeWordOpSize),
             loadMemory(rsp, rbp, memRegCStackPtr, nativeWordOpSize),
@@ -1706,7 +1722,7 @@ struct
             val codeAddress =
                 (* In the native code versions we extract the code address from the closure.
                    We don't do that in 32-in-64 and instead the RTS does it. *)
-                if targetArch = ObjectId32Bit
+                if targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word
                 then stage2Code
                 else Address.loadWord(Address.toAddress stage2Code, 0w0)
             val code =

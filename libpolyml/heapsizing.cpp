@@ -1,7 +1,7 @@
 /*
     Title:  heapsizing.cpp - parameters to adjust heap size
 
-    Copyright (c) Copyright David C.J. Matthews 2012, 2015, 2017, 2023
+    Copyright (c) Copyright David C.J. Matthews 2012, 2015, 2017, 2023, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -114,6 +114,12 @@ HeapSizeParameters::HeapSizeParameters()
     // Initial values until we've actually done a sharing pass.
     sharingRecoveryRate = 0.5; // The structure sharing recovers half the heap.
     sharingCostFactor = 2; // It doubles the cost
+    allowGCSharing = false;
+    currentSpaceUsed = 0;
+    heapSizeAtStart = 0;
+    lastMajorGCRatio = 0;
+    majorGCPageFaults = minorGCPageFaults = minorGCsSinceMajor = 0;
+    predictedRatio = userGCRatio = 0;
 }
 
 // These macros were originally in globals.h and used more generally.
@@ -130,29 +136,27 @@ static size_t GetPhysicalMemorySize(void);
 #if (SIZEOF_VOIDP == 4)
 #   define MAXIMUMADDRESS   0x3fffffff /* 4Gbytes as words */
 #elif defined(POLYML32IN64)
-#   define MAXIMUMADDRESS   0xffffffff /* 16Gbytes as words */
+#   define MAXIMUMADDRESS   ((uintptr_t)0x80000000*POLYML32IN64-1) /* 16/32Gbytes as words */ 
 #else
 #   define MAXIMUMADDRESS   0x1fffffffffffffff
 #endif
 
 // Set the initial size based on any parameters specified on the command line.
 // Any of these can be zero indicating they should default.
-void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize, uintptr_t initialsize, unsigned percent)
+void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize, uintptr_t initialsize, unsigned percent, bool gcshare)
 {
     minHeapSize = K_to_words(minsize); // If these overflow assume the result will be zero
     maxHeapSize = K_to_words(maxsize);
     uintptr_t initialSize = K_to_words(initialsize);
 
-    uintptr_t memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
+//   uintptr_t memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
 
     // If no maximum is given default it to 80% of the physical memory.
     // This allows some space for the OS and other things.
     // We now check maxsize so it should never exceed the maximum.
     if (maxHeapSize == 0 || maxHeapSize > MAXIMUMADDRESS)
     {
-        if (memsize != 0)
-            maxHeapSize = memsize - memsize / 5;
-        else maxHeapSize = MAXIMUMADDRESS;
+        maxHeapSize = MAXIMUMADDRESS;
         // But if this must not be smaller than the minimum size.
         if (maxHeapSize < minHeapSize) maxHeapSize = minHeapSize;
         if (maxHeapSize < initialSize) maxHeapSize = initialSize;
@@ -174,6 +178,8 @@ void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize,
     }
     // Together with the constraints on user settings that ensures this holds.
     ASSERT(initialSize >= minHeapSize && initialSize <= maxHeapSize);
+
+    allowGCSharing = gcshare;
 
     // Initially we divide the space equally between the major and
     // minor heaps.  That means that there will definitely be space
@@ -220,29 +226,34 @@ LocalMemSpace *HeapSizeParameters::AddSpaceInMinorGC(uintptr_t space, bool isMut
     // necessary for the object.
     uintptr_t spaceSize = gMem.DefaultSpaceSize();
 #ifdef POLYML32IN64
-    // When we allocate a space in NewLocalSpace we take one word to ensure
+    // When we allocate a space in NewLocalSpace we take one or more words to ensure
     // the that the first length word is on an odd-word boundary.
     // We need to add one here to ensure there is sufficient space to do that.
     // See AllocHeapSpace
-    space++;
+    space += POLYML32IN64-1;
 #endif
     if (space > spaceSize) spaceSize = space;
 
-    // We allow for extension if the total heap size after extending it
-    // plus one allocation area of the default size would not be more
-    // than the allowed heap size.
-    if (spaceAllocated + spaceSize + gMem.DefaultSpaceSize() <= gMem.SpaceForHeap())
-    {
-        LocalMemSpace *sp = gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
-        // If this is the first time the allocation failed report it.
-        if (sp == 0 && (debugOptions & DEBUG_HEAPSIZE) && lastAllocationSucceeded)
+    // The heap may become fragmented in 32-in-64 so try a smaller allocation
+    do {
+        // We allow for extension if the total heap size after extending it
+        // plus one allocation area of the default size would not be more
+        // than the allowed heap size.
+        if (spaceAllocated + spaceSize + gMem.DefaultSpaceSize() <= gMem.SpaceForHeap())
         {
-            Log("Heap: Allocation of new heap segment size ");
-            LogSize(spaceSize);
-            Log(" failed.  Limit reached?\n");
+            LocalMemSpace* sp = gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
+            lastAllocationSucceeded = sp != 0;
+            if (sp != 0) return sp;
         }
-        lastAllocationSucceeded = sp != 0;
-        return sp;
+        spaceSize = spaceSize / 2;
+    } while (spaceSize > space);
+
+    // If this is the first time the allocation failed report it.
+    if ((debugOptions & DEBUG_HEAPSIZE) && lastAllocationSucceeded)
+    {
+        Log("Heap: Allocation of new heap segment size ");
+        LogSize(spaceSize);
+        Log(" failed.  Limit reached?\n");
     }
     return 0; // Insufficient space
 }
@@ -382,13 +393,13 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
         performSharingPass = false;
         cumulativeSharingSaving = 0;
     }
-    else
+    else if (allowGCSharing)
     {
         uintptr_t newHeapSizeWithSharing;
         double costWithSharing;
         // Get the cost and heap size if sharing was enabled.  If we are at the
         // limit, though, we need to work using the size we can achieve.
-        if (! allocationFailedBeforeLastMajorGC)
+        if (!allocationFailedBeforeLastMajorGC)
             (void)getCostAndSize(newHeapSizeWithSharing, wordsRequired, costWithSharing, true);
         else
         {
@@ -425,6 +436,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
             }
         }
     }
+    else performSharingPass = false;
 
     if (debugOptions & DEBUG_HEAPSIZE)
     {

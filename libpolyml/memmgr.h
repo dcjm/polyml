@@ -192,7 +192,7 @@ public:
 
 #ifdef POLYML32IN64
     // We will generally set a zero cell for alignment.
-    bool isEmpty(void)const { return allocatedSpace() <= 1; }
+    bool isEmpty(void)const { return allocatedSpace() <= POLYML32IN64-1; }
 #else
     bool isEmpty(void)const { return allocatedSpace() == 0; }
 #endif

@@ -144,8 +144,15 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     r14,[ArgVector.SaveR14+rbp]
     mov     rax,[ArgVector.SaveRAX+rbp]
     cld                                     ; Clear this just in case
-#ifdef  POLYML32IN64
+#ifdef POLYML32IN64
+#if(POLYML32IN64==2)
     jmp     qword ptr [rbx+rdx*4]
+#elif(POLYML32IN64==4)
+    jmp     qword ptr [rbx+rdx*8]
+#else
+#error "If POLYML32IN64 is set it must be 2 or 4 on the X86"
+#endif
+
 #else
     jmp     qword ptr [rdx]
 #endif

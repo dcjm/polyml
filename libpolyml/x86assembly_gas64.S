@@ -179,7 +179,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    Arg_SaveRAX(%rbp),%rax
     cld                                     # Clear this just in case
 #ifdef POLYML32IN64
-    jmp     *(%rbx,%rdx,4)
+    jmp     *(%rbx,%rdx,(POLYML32IN64*2))
 #else
     jmp     *(%rdx)
 #endif

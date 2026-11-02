@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug32in64Large|ARM64">
+      <Configuration>Debug32in64Large</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug32in64Large|Win32">
+      <Configuration>Debug32in64Large</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug32in64Large|x64">
+      <Configuration>Debug32in64Large</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Debug32in64|ARM64">
       <Configuration>Debug32in64</Configuration>
       <Platform>ARM64</Platform>
@@ -43,6 +55,18 @@
     </ProjectConfiguration>
     <ProjectConfiguration Include="DebugInterpreted|x64">
       <Configuration>DebugInterpreted</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release32in64Large|ARM64">
+      <Configuration>Release32in64Large</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release32in64Large|Win32">
+      <Configuration>Release32in64Large</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release32in64Large|x64">
+      <Configuration>Release32in64Large</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
     <ProjectConfiguration Include="Release32in64|ARM64">
@@ -116,6 +140,12 @@
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
@@ -139,6 +169,13 @@
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -174,10 +211,22 @@
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'" Label="Configuration">
@@ -225,10 +274,24 @@
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -271,6 +334,9 @@
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -281,6 +347,9 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'" Label="PropertySheets">
@@ -298,7 +367,13 @@
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'" Label="PropertySheets">
@@ -322,7 +397,13 @@
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'" Label="PropertySheets">
@@ -344,6 +425,9 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">
     <TargetExt>.dll</TargetExt>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">
     <TargetExt>.dll</TargetExt>
   </PropertyGroup>
@@ -354,6 +438,9 @@
     <TargetExt>.dll</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">
     <TargetExt>.dll</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">
@@ -371,7 +458,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">
     <TargetExt>.dll</TargetExt>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">
     <TargetExt>.dll</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">
@@ -395,7 +488,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">
     <TargetExt>.dll</TargetExt>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">
     <TargetExt>.dll</TargetExt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">
@@ -428,6 +527,23 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Windows</SubSystem>
+      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
@@ -517,7 +633,24 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>POLYML32IN64;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POLYML32IN64=2;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Windows</SubSystem>
+      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYML32IN64=4;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -534,7 +667,23 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>POLYML32IN64;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_AARCH64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POLYML32IN64=2;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_AARCH64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Windows</SubSystem>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYML32IN64=4;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_AARCH64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -583,7 +732,7 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>POLYML32IN64;CODEISNOTEXECUTABLE;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POLYML32IN64=2;CODEISNOTEXECUTABLE;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -632,6 +781,27 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Windows</SubSystem>
+      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>MaxSpeed</Optimization>
@@ -743,7 +913,28 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>POLYML32IN64;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POLYML32IN64=2;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Windows</SubSystem>
+      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYML32IN64=4;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -764,7 +955,27 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>POLYML32IN64;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_AARCH64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POLYML32IN64=2;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_AARCH64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Windows</SubSystem>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYML32IN64=4;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_AARCH64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -825,7 +1036,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..;libffi\include;libffi\msvc32include;libffi\src\x86;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>POLYML32IN64;CODEISNOTEXECUTABLE;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>POLYML32IN64=2;CODEISNOTEXECUTABLE;_CRT_SECURE_NO_WARNINGS;POLYLIB_EXPORTS;HOSTARCHITECTURE_X86_64;LONG_LONG_MAX=_I64_MAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -864,41 +1075,51 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="basicio.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">true</ExcludedFromBuild>
@@ -910,23 +1131,31 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="bytecode.cpp" />
     <ClCompile Include="gc_progress.cpp" />
     <ClCompile Include="interpreter.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="osmemwin.cpp" />
     <ClCompile Include="winbasicio.cpp" />
@@ -972,16 +1201,20 @@
     <ClCompile Include="unix_specific.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">true</ExcludedFromBuild>
@@ -989,7 +1222,9 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">true</ExcludedFromBuild>
@@ -1012,8 +1247,10 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="xwindows.cpp" />
   </ItemGroup>
@@ -1086,27 +1323,36 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">true</ExcludedFromBuild>
       <FileType>Document</FileType>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1117,8 +1363,11 @@ ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename)
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1131,12 +1380,18 @@ ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename)
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1155,12 +1410,18 @@ ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename)
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1177,10 +1438,12 @@ ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename)
     <CustomBuild Include="x86assembly_masm64.S">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
@@ -1196,8 +1459,11 @@ ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename)
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1208,8 +1474,11 @@ ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1220,14 +1489,20 @@ ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64=2 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64=4 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1244,14 +1519,20 @@ ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64=2 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64=4 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1266,8 +1547,10 @@ ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">true</ExcludedFromBuild>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
@@ -1279,6 +1562,8 @@ armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1287,13 +1572,17 @@ armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER /DPOLYML32IN64=2 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER /DPOLYML32IN64=4 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
@@ -1301,7 +1590,9 @@ armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER /DPOLYML32IN64=2 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER /DPOLYML32IN64=4 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
@@ -1311,6 +1602,8 @@ armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
@@ -1319,55 +1612,69 @@ armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">$(IntDir)%(Filename).obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">$(IntDir)%(Filename).obj</Outputs>
     </CustomBuild>
     <None Include="cpp.hint" />

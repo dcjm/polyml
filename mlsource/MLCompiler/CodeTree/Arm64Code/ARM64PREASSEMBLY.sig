@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021-3 David C. J. Matthews
+    Copyright (c) 2021-3, 2026 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -235,7 +235,10 @@ sig
     and mlStackPtrOffset: int
     and exceptionPacketOffset: int
 
-    val is32in64: bool and isBigEndian: bool
+	datatype archType = ArchNative | ArchC32 of word
+	val archType: archType
+
+    val isBigEndian: bool
 
     val isEncodableBitPattern: Word64.word * wordSize -> bool
 

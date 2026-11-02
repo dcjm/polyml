@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-23
+    Copyright David C. J. Matthews 2016-23, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,7 +39,8 @@ struct
        used when hinted. *)
     val generalRegisters =
         map GenReg ([X9, X10, X11, X12, X13, X14, X15, X19, X20, X21, X22, X23,
-                      X0, X1, X2, X3, X4, X5, X6, X7, X8, X30] @ (if is32in64 then [] else [X24]))
+                      X0, X1, X2, X3, X4, X5, X6, X7, X8, X30] @
+                      (case archType of ArchC32 _ => [] | ArchNative => [X24]))
 
     val floatingPtRegisters =
         map FPReg [V7, V6, V5, V4, V3, V2, V1]
@@ -705,12 +706,13 @@ struct
                                    offset we can use an indexed load and avoid converting to an absolute address.
                                    If this is not the last reference it's likely that we're loading another field
                                    so it's probably better to convert the object index and cache it.  We might
-                                   manage to use a load-pair instruction. *)
+                                   manage to use a load-pair instruction.  N.B. This only works with a shift of 2 *)
                             (
                                 case (killThis, rest) of
                                     (true, {instr=LoadWithConstantOffset{ byteOffset=0, loadType=Load32, base, dest=destLoad, ... },
                                             kill=killLoad, ...} :: next) =>
-                                    if base = destOiA (* of objectindex *) andalso member(doia, killLoad)
+                                    if base = destOiA (* of objectindex *) andalso member(doia, killLoad) andalso
+                                            (case archType of ArchC32 0w2 => true | _ => false)
                                     then
                                     let
                                         val (destReg, newCache) = allocateGenReg(destLoad, NONE, cache)

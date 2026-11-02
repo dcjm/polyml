@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021-3 David C. J. Matthews
+    Copyright (c) 2021-3, 2026 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -806,6 +806,15 @@ struct
 
         |   toAssembler(AllocateMemoryFixedSize{ bytes, dest, save, work } :: rest, code) =
             let
+                val _ =
+                    case archType of
+                        ArchC32 shift =>
+                            let
+                                val mask = Word.<<(0w2, shift) - 0w1
+                            in
+                                if Word.andb(bytes, mask) = 0w0 then () else raise InternalError "AllocateMemoryFixedSize"
+                            end
+                    |   ArchNative => ()
                 val label = Arm64Assembly.createLabel()
                 val saveX30 = List.exists (fn r => r = X30) save
                 val preserve = List.filter (fn r => r <> X30) save
@@ -842,14 +851,20 @@ struct
                     (
                         (* Subtract the size into the result register.  Subtract a further word for
                            the length word and round down in 32-in-64. *)
-                        if is32in64
-                        then code <::>
-                            subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=dest, shift=ShiftLSL 0w2} <::>
-                            subImmediate{regN=dest, regD=dest, immed=0w4, shifted=false} <::>
-                            bitwiseAndImmediate{bits= ~ 0w8, regN=dest, regD=dest}
-                        else code <::>
-                            subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=dest, shift=ShiftLSL 0w3} <::>
-                            subImmediate{regN=dest, regD=dest, immed=0w8, shifted=false}
+                        case archType of
+                            ArchC32 shift =>
+                            let
+                                val mask = ~(Word64.<<(0w2, shift)) (* Bytes *)
+                            in
+                                code <::>
+                                    subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=dest, shift=ShiftLSL 0w2} <::>
+                                    subImmediate{regN=dest, regD=dest, immed=0w4, shifted=false} <::>
+                                    bitwiseAndImmediate{bits=mask, regN=dest, regD=dest}
+                            end
+                        |   ArchNative =>
+                                code <::>
+                                subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=dest, shift=ShiftLSL 0w3} <::>
+                                subImmediate{regN=dest, regD=dest, immed=0w8, shifted=false}
                     ) <::>
                     (* Check against the limit. If the size is large enough it is possible that this could wrap round. 
                        To check for that we trap if either the result is less than the limit or if it is
@@ -1061,39 +1076,53 @@ struct
     (* These sequences are used both in the ML code-generator and in the FFI code so it
        is convenient to have them here and share the code. *)
     local
-        fun allocateWords(fixedReg, workReg, words, bytes, regMask, code) =
+        fun allocateWords(fixedReg, workReg, words, regMask, code) =
         let
-            val (lengthWord, setLength, flagShift) = if is32in64 then (~4, Load32, 0w24) else (~8, Load64, 0w56)
+            val bytes =
+                case archType of
+                    ArchNative => (words + 0w1) * 0w8
+                |   ArchC32 shift =>
+                    let
+                        (* Round up to unit size and add the length word *)
+                        val unitSize = Word.<<(0w2, shift) (* bytes *)
+                    in
+                        Word.andb(words*0w4+unitSize-0w1+0w4, ~ unitSize)
+                    end
+            val (lengthWord, setLength, flagShift) =
+                case archType of
+                    ArchC32 _ => (~4, Load32, 0w24)
+                |   ArchNative => (~8, Load64, 0w56)
         in
             code <::>
             AllocateMemoryFixedSize{ bytes=bytes, dest=fixedReg, save=regMask, work=X16 } <::>
             LoadNonAddr(workReg,
-                    Word64.orb(words, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes), flagShift))) <::>
+                    Word64.orb(Word.toLarge words, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes), flagShift))) <::>
             (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
             StoreRegUnscaled{regT=workReg, regN=fixedReg, byteOffset= lengthWord, loadType=setLength, unscaledType=NoUpdate}
         end
 
         fun absoluteAddressToIndex(reg, code) =
-        if is32in64
-        then
-            code <::>
-            SubShiftedReg{regM=X_Base32in64, regN=reg, regD=reg, shift=ShiftNone, opSize=OpSize64, setFlags=false} <::>
-            shiftConstant{direction=ShiftRightLogical, regN=reg, regD=reg, shift=0w2, opSize=OpSize64}
-        else code
+            case archType of
+                ArchC32 shiftBits =>
+                    code <::>
+                    SubShiftedReg{regM=X_Base32in64, regN=reg, regD=reg, shift=ShiftNone, opSize=OpSize64, setFlags=false} <::>
+                    shiftConstant{direction=ShiftRightLogical, regN=reg, regD=reg, shift=shiftBits, opSize=OpSize64}
+                |   ArchNative => code
     in
         fun boxDouble({source, destination, workReg, saveRegs}, code) =
             absoluteAddressToIndex(destination,
-                allocateWords(destination, workReg, if is32in64 then 0w2 else 0w1, 0w16, saveRegs, code) <::>
+                allocateWords(destination, workReg,
+                    case archType of ArchC32 _ => 0w2 |	ArchNative => 0w1, saveRegs, code) <::>
                     StoreFPRegScaled{regT=source, regN=destination, unitOffset=0, floatSize=Double64})
                 
         and boxSysWord({source, destination, workReg, saveRegs}, code) =
             absoluteAddressToIndex(destination,
-                allocateWords(destination, workReg, if is32in64 then 0w2 else 0w1, 0w16, saveRegs, code) <::>
+                allocateWords(destination, workReg, case archType of ArchC32 _ => 0w2 | ArchNative => 0w1, saveRegs, code) <::>
                     StoreRegScaled{regT=source, regN=destination, unitOffset=0, loadType=Load64})
 
         and boxFloat({source, destination, workReg, saveRegs}, code) =
             absoluteAddressToIndex(destination, 
-                allocateWords(destination, workReg, 0w1, 0w8, saveRegs, code) <::>
+                allocateWords(destination, workReg, 0w1, saveRegs, code) <::>
                     StoreFPRegScaled{regT=source, regN=destination, unitOffset=0, floatSize=Float32})
     end
 

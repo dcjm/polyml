@@ -322,14 +322,14 @@ void PExport::exportStore(void)
         for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
         {
             p++;
-            PolyObject *obj = (PolyObject*)p;
-            POLYUNSIGNED length = obj->Length();
 #ifdef POLYML32IN64
             // We may have filler cells to get the alignment right.
             // We mustn't try to print them.
-            if (((uintptr_t)obj & 4) != 0 && length == 0)
+            if ( ((p-(PolyWord*)0) & (POLYML32IN64-1)) != 0)
                 continue;
 #endif
+            PolyObject* obj = (PolyObject*)p;
+            POLYUNSIGNED length = obj->Length();
             printObject(obj);
             p += length;
         }
@@ -395,11 +395,11 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
     return newObj;
 }
 #else
-// With 32in64 we need to allocate on 8-byte boundaries. 
+// With 32in64 we need to allocate on the correct boundary. 
 PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
 {
     size_t rounded = objWords;
-    if ((objWords & 1) == 0) rounded++;
+    while (rounded % POLYML32IN64 != POLYML32IN64-1) rounded++;
     if (memSpace == 0 || memSpace->spaceSize() - used <= rounded)
     {
         // Need some more space.
@@ -415,13 +415,17 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
             fprintf(stderr, "Unable to allocate memory\n");
             return 0;
         }
-        memSpace->writeAble(memSpace->bottom)[0] = PolyWord::FromUnsigned(0);
-        used = 1;
+        // Zero initial words at the start and align to boundary-1
+        used = 0;
+        while (used < POLYML32IN64-1)
+            memSpace->writeAble(memSpace->bottom)[used++] = PolyWord::FromUnsigned(0);
     }
     PolyObject *newObj = (PolyObject*)(memSpace->bottom + used + 1);
-    if (rounded != objWords) memSpace->writeAble(newObj)->Set(objWords, PolyWord::FromUnsigned(0));
-    used += rounded + 1;
-    ASSERT(((uintptr_t)newObj & 0x7) == 0);
+    // Clear any unused words at the end beyond the cell we're allocating.
+    for (POLYUNSIGNED i = objWords; i < rounded; i++)
+        memSpace->writeAble(newObj)->Set(i, PolyWord::FromUnsigned(0));
+    used += rounded + 1; // Actual space we're allocating
+    ASSERT(((uintptr_t)newObj & (POLYML32IN64 * sizeof(PolyWord) -1)) == 0);
     return newObj;
 }
 #endif

@@ -78,8 +78,9 @@ EXTNAME(Arm64AsmEnterCompiledCode):
     ldr     x0,[x26, RegisterArray]             // Argument
     ldr     x8,[x26, RegisterArray+8*8]         // Closure address
 #ifdef POLYML32IN64
-    ldr     x24,[x26, RegisterArray+24 * 8]
-    add     x16,x24,x8,LSL #2
+    ldr     x24,[x26, RegisterArray+24*8]     // Heap base address
+    mov     x16,POLYML32IN64*2
+    madd    x16,x16,x8,x24                      // Closure address as real address
     ldr     x16,[x16]
 #else
     ldr     x16,[x8]                            // Code address - first word of closure

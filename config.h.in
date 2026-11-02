@@ -543,7 +543,8 @@
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
 
-/* Define if this should use 32-bit values in 64-bit architectures */
+/* Define if this should use 32-bit values in 64-bit architectures and set to
+   the unit size */
 #undef POLYML32IN64
 
 /* Define to the type of arg 1 for `select'. */

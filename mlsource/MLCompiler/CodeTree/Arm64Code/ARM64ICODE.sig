@@ -1,7 +1,7 @@
 (*
     Signature for the high-level ARM64 code
 
-    Copyright David C. J. Matthews 2021-3
+    Copyright David C. J. Matthews 2021-3, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -43,7 +43,10 @@ sig
     val V0:  vReg   and V1:  vReg   and V2:  vReg   and V3: vReg
     and V4:  vReg   and V5:  vReg   and V6:  vReg   and V7: vReg
     
-    val is32in64: bool and isBigEndian: bool
+	datatype archType = ArchNative | ArchC32 of word
+	val archType: archType
+
+    val isBigEndian: bool
     
     (* Condition for conditional branches etc. *)
     datatype condition =

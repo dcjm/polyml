@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2001-12, 2015, 2017-19, 2021
+    Further development copyright David C.J. Matthews 2001-12, 2015, 2017-19, 2021, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -117,7 +117,8 @@ enum {
     OPT_DEBUGFILE,
     OPT_DDESERVICE,
     OPT_CODEPAGE,
-    OPT_REMOTESTATS
+    OPT_REMOTESTATS,
+    OPT_GCSHARING
 };
 
 static struct __argtab {
@@ -134,6 +135,7 @@ static struct __argtab {
     { _T("--gcthreads"),    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { _T("--debug"),        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
     { _T("--logfile"),      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE },
+    { _T("--enablegcsharing"), "Allow the garbage collector to run the sharing pass if needed",  OPT_GCSHARING },
 #if (defined(_WIN32))
 #ifdef UNICODE
     { _T("--codepage"),     "Code-page to use for file-names etc in Windows",       OPT_CODEPAGE },
@@ -206,8 +208,8 @@ POLYUNSIGNED parseSize(const TCHAR *p, const TCHAR *arg)
         Usage("Malformed %s option\n", arg);
     // The sizes must not exceed the possible heap size.
 #ifdef POLYML32IN64
-    if (result > 16 * 1024 * 1024)
-        Usage("Value of %s option must not exceeed 16Gbytes\n", arg);
+    if (result > 8 * POLYML32IN64 * 1024 * 1024)
+        Usage("Value of %s option must not exceeed %uGbytes\n", arg, 8 * POLYML32IN64);
 #elif (SIZEOF_VOIDP == 4)
     if (result > 4 * 1024 * 1024)
         Usage("Value of %s option must not exceeed 4Gbytes\n", arg);
@@ -224,6 +226,7 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
 {
     POLYUNSIGNED minsize=0, maxsize=0, initsize=0;
     unsigned gcpercent=0;
+    bool gcShare = false;
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
     userOptions.gcthreads = 0; // Default multi-threaded
@@ -258,7 +261,7 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                 {
                     const TCHAR *p = 0;
                     TCHAR *endp = 0;
-                    if (argTable[j].argKey != OPT_REMOTESTATS)
+                    if (argTable[j].argKey != OPT_REMOTESTATS && argTable[j].argKey != OPT_GCSHARING)
                     {
                         if (_tcslen(argv[i]) == argl)
                         { // If it has used all the argument pick the next
@@ -349,6 +352,11 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                         // If set we export the statistics on Unix.
                         globalStats.exportStats = true;
                         break;
+
+                    case OPT_GCSHARING:
+                        // If set allow the GC to run the expensive sharing pass
+                        gcShare = true;
+                        break;
                     }
                     argUsed = true;
                     break;
@@ -408,7 +416,7 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
     }
 
     // Set the heap size if it has been provided otherwise use the default.
-    gHeapSizeParameters.SetHeapParameters(minsize, maxsize, initsize, gcpercent);
+    gHeapSizeParameters.SetHeapParameters(minsize, maxsize, initsize, gcpercent, gcShare);
 
 #if (defined(_WIN32))
     SetupDDEHandler(lpszServiceName); // Windows: Start the DDE handler now we processed any service name.

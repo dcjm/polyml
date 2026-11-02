@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021-3 David C. J. Matthews
+    Copyright (c) 2021-3, 2026 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,8 +24,15 @@ functor Arm64Assembly (
 struct
     open CodeArray Address
     
-    val is32in64 = Address.wordSize = 0w4
-    
+	datatype archType = ArchNative | ArchC32 of word
+    val archType =
+        case Address.compact32UnitSize of
+            0w0 => ArchNative
+        |   0w2 => ArchC32 0w2
+        |   0w4 => ArchC32 0w3
+        |   0w8 => ArchC32 0w4
+        |   _ => raise Misc.InternalError "Unsupported compact 32 unit size"
+
     val wordsPerNativeWord: word = Address.nativeWordSize div Address.wordSize
     
     local
@@ -1071,9 +1078,9 @@ struct
         val getHeapBase: unit -> LargeWord.word = RunCall.rtsCallFull0 "PolyGetHeapBase"
     in
         fun loadGlobalHeapBaseInCallback reg =
-            if is32in64
-            then [SimpleInstr nopCode, loadNonAddressConstant(reg, getHeapBase())]
-            else raise InternalError "loadGlobalHeapBaseInCallback called with native addressing"
+			case archType of
+				ArchC32 _ => [SimpleInstr nopCode, loadNonAddressConstant(reg, getHeapBase())]
+            | 	ArchNative => raise InternalError "loadGlobalHeapBaseInCallback called with native addressing"
     end
 
     (* Size of each code word. *)
@@ -1173,7 +1180,9 @@ struct
                 in
                     (* We can only shorten these in 32-in-64.  In native 64-bits we may need to move
                        the constant area *)
-                    if is32in64 andalso willFitInRange(offset, 0w19) then length := BrShort else ();
+                    if (case archType of ArchC32 _ => true | ArchNative => false)
+						 andalso willFitInRange(offset, 0w19)
+					then length := BrShort else ();
                     adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
                 end
 
@@ -1257,7 +1266,8 @@ struct
             let
                 val code1 = 0wx90000000 orb word8ToWord32(xRegOnly reg)
                 val code2 =
-                    (if is32in64 then loadRegScaled32 else loadRegScaled) {regT=reg, regN=reg, unitOffset=0}
+                    (case archType of ArchC32 _ => loadRegScaled32 | ArchNative => loadRegScaled)
+                        {regT=reg, regN=reg, unitOffset=0}
             in
                 writeInstr(code1, wordNo, codeVec);
                 genCodeWords(code2 :: tail, wordNo+0w1, aConstNum+1, nonAConstNum)
@@ -1271,7 +1281,8 @@ struct
                 (* The offset is in 32-bit words.  The first of the constants is
                    at offset wordsOfCode+3.  Non-address constants are always 8 bytes but
                    address constants are 4 bytes in 32-in-64. *)
-                val s = if is32in64 then 0w0 else 0w1 (* Load 64-bit word in 64-bit mode and 32-bits in 32-in-64. *)
+                val s = case archType of ArchC32 _ => 0w0 | ArchNative => 0w1
+                    (* Load 64-bit word in 64-bit mode and 32-bits in 32-in-64. *)
                 val constPos = Array.sub(addrConstMap, aConstNum)
                 val offsetOfConstant =
                     (wordsOfCode+numNonAddrConsts)*0w2 + (0w3+constPos)*(Address.wordSize div 0w4) - wordNo
@@ -2553,7 +2564,7 @@ struct
                 val addrOfConstant (* byte offset *) = firstAddrConst + constPos * Address.wordSize
             in
                 codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord addrOfConstant,
-                    if is32in64 then ConstArm64AdrpLdr32 else ConstArm64AdrpLdr64);
+                    case archType of ArchC32 _ => ConstArm64AdrpLdr32 | ArchNative => ConstArm64AdrpLdr64);
                 setADRPAddrs(tail, wordNo+0w2, aConstNum+1, nonAConstNum)
             end
 

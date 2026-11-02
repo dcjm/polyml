@@ -858,6 +858,7 @@ enable_windows_gui
 with_x
 enable_native_codegeneration
 enable_compact32bit
+enable_compact32bit_large
 with_moduledir
 enable_intinf_as_int
 '
@@ -1534,6 +1535,8 @@ Optional Features:
                           disable the native code generator and use the slow
                           byte code interpreter instead.
   --enable-compact32bit   use 32-bit values rather than native 64-bits.
+  --enable-compact32bit_large
+                          use 32-bit values with a larger heap size.
   --enable-intinf-as-int  set arbitrary precision as the default int type
 
 Optional Packages:
@@ -23798,11 +23801,27 @@ then :
   enableval=$enable_compact32bit;
 fi
 
+# Check whether --enable-compact32bit_large was given.
+if test ${enable_compact32bit_large+y}
+then :
+  enableval=$enable_compact32bit_large;
+fi
 
-if test "x$enable_compact32bit" = "xyes"; then
+
+
+if test "x$enable_compact32bit_large" = "xyes"; then
     if test X"$ac_cv_sizeof_voidp" = X8 ; then
 
-printf "%s\n" "#define POLYML32IN64 1" >>confdefs.h
+printf "%s\n" "#define POLYML32IN64 4" >>confdefs.h
+
+        bootstrap64="no"
+    else
+        as_fn_error $? "--enable-compact32bit is only available on a 64-bit architecture" "$LINENO" 5
+    fi
+elif test "x$enable_compact32bit" = "xyes"; then
+    if test X"$ac_cv_sizeof_voidp" = X8 ; then
+
+printf "%s\n" "#define POLYML32IN64 2" >>confdefs.h
 
         bootstrap64="no"
     else

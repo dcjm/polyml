@@ -112,9 +112,9 @@ bool LocalMemSpace::InitSpace(PolyWord *heapSpace, uintptr_t size, bool mut)
         fullGCRescanEnd = highestWeak = bottom;
 #ifdef POLYML32IN64
     // The address must be on an odd-word boundary so that after the length
-    // word is put in the actual cell address is on an even-word boundary.
-    lowerAllocPtr[0] = PolyWord::FromUnsigned(0);
-    lowerAllocPtr = bottom + 1;
+    // word is put in the actual cell address is on the correct boundary.
+    for (unsigned i = 0; i < POLYML32IN64 - 1; i++)
+        *lowerAllocPtr++ = PolyWord::FromUnsigned(0);
 #endif
     spaceOwner = 0;
 
@@ -155,9 +155,9 @@ MemMgr::~MemMgr()
 bool MemMgr::Initialise()
 {
 #ifdef POLYML32IN64
-    // Reserve a single 16G area but with no access.
+    // Reserve a single 16/32G area but with no access.
     void *heapBase;
-    if (!osHeapAlloc.Initialise(OSMem::UsageData, (size_t)16 * 1024 * 1024 * 1024, &heapBase))
+    if (!osHeapAlloc.Initialise(OSMem::UsageData, (size_t)8 * POLYML32IN64 * 1024 * 1024 * 1024, &heapBase))
         return false;
     globalHeapBase = (PolyWord*)heapBase;
     // Allocate a 4 gbyte area for the stacks.
@@ -452,11 +452,10 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         space->topPointer = space->bottom;
 #ifdef POLYML32IN64
         // The address must be on an odd-word boundary so that after the length
-        // word is put in the actual cell address is on an even-word boundary.
-        space->writeAble(space->topPointer)[0] = PolyWord::FromUnsigned(0);
-        space->topPointer = space->bottom + 1;
+        // word is put in the actual cell address is on the correct boundary.
+        for (unsigned i = 0; i < POLYML32IN64 - 1; i++)
+            *(space->writeAble(space->topPointer++)) = PolyWord::FromUnsigned(0);
 #endif
-
         if (debugOptions & DEBUG_MEMMGR)
             Log("MMGR: New export %smutable %s%sspace %p, size=%luk words, bottom=%p, top=%p\n", mut ? "" : "im",
                 noOv ? "no-overwrite " : "", code ? "code " : "", space,
@@ -547,7 +546,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                             PolyObject *forwardedTo = obj;
                             // This is relative to globalCodeBase not globalHeapBase
                             while (forwardedTo->ContainsForwardingPtr())
-                                forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                                forwardedTo = (PolyObject*)(globalCodeBase + (((uintptr_t)(forwardedTo->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
                             PolyObject *forwardedTo = obj->FollowForwardingChain();
 #endif
@@ -638,10 +637,11 @@ void MemMgr::FillUnusedSpace(PolyWord *base, uintptr_t words)
     while (words > 0)
     {
 #ifdef POLYML32IN64
-        // Make sure that any dummy object we insert is properly aligned.
-        if (((uintptr_t)pDummy) & 4)
+        // Make sure that any dummy object we insert is properly aligned. 
+        if (((pDummy - (PolyWord*)0) & (POLYML32IN64 - 1)) != 0)
         {
-            *pDummy++ = PolyWord::FromUnsigned(0);
+            pDummy[-1] = PolyWord::FromUnsigned(0); // Put it in the length word
+            pDummy++;
             words--;
             continue;
         }
@@ -686,7 +686,7 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
                 if (available < maxWords) maxWords = available;
 #ifdef POLYML32IN64
                 // If necessary round down to an even boundary
-                if (maxWords & 1)
+                while (maxWords & (POLYML32IN64-1))
                 {
                     maxWords--;
                     space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
@@ -695,9 +695,6 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
                 PolyWord *result = space->lowerAllocPtr; // Return the address.
                 if (doAllocation)
                     space->lowerAllocPtr += maxWords; // Allocate it.
-#ifdef POLYML32IN64
-                ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
-#endif
                 return result;
             }
         }
@@ -720,7 +717,7 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         // When we create the allocation space we take one word so that the first
         // length word is on an odd-word boundary.  We need to allow for that otherwise
         // we may have available < minWords.
-        if (minWords >= spaceSize) spaceSize = minWords+1; // If we really want a large space.
+        if (minWords >= spaceSize) spaceSize = minWords + (POLYML32IN64-1); // If we really want a large space.
 #else
         if (minWords > spaceSize) spaceSize = minWords; // If we really want a large space.
 #endif
@@ -733,8 +730,8 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         {
             maxWords = available;
 #ifdef POLYML32IN64
-            // If necessary round down to an even boundary
-            if (maxWords & 1)
+            // If necessary round down to the correct boundary
+            while (maxWords & (POLYML32IN64 - 1))
             {
                 maxWords--;
                 space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
@@ -744,9 +741,6 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         PolyWord *result = space->lowerAllocPtr; // Return the address.
         if (doAllocation)
             space->lowerAllocPtr += maxWords; // Allocate it.
-#ifdef POLYML32IN64
-        ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
-#endif
         return result;
     }
     return 0; // There isn't space even for the minimum.
@@ -761,14 +755,14 @@ CodeSpace::CodeSpace(PolyWord *start, PolyWord *shadow, uintptr_t spaceSize, OSM
     isCode = true;
     spaceType = ST_CODE;
 #ifdef POLYML32IN64
-    // Dummy word so that the cell itself, after the length word, is on an 8-byte boundary.
-    writeAble(start)[0] = PolyWord::FromUnsigned(0);
-    largestFree = spaceSize - 2;
-    firstFree = start+1;
+    // Dummy words so that the cell itself, after the length word, is on the correct boundary.
+    for (unsigned i = 0; i < POLYML32IN64-1; i++)
+        *(writeAble(start++)) = PolyWord::FromUnsigned(0);
+    largestFree = spaceSize - POLYML32IN64;
 #else
     largestFree = spaceSize - 1;
-    firstFree = start;
 #endif
+    firstFree = start;
 }
 
 CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
@@ -850,14 +844,6 @@ PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
                             // Free and large enough
                             PolyWord *next = pt+requiredSize+1;
                             POLYUNSIGNED spare = length - requiredSize;
-#ifdef POLYML32IN64
-                            // Maintain alignment.
-                            if (((requiredSize + 1) & 1) && spare != 0)
-                            {
-                                space->writeAble(next++)[0] = PolyWord::FromUnsigned(0);
-                                spare--;
-                            }
-#endif
                             if (spare != 0)
                                 FillUnusedSpace(space->writeAble(next), spare);
                             space->isMutable = true; // Set this - it ensures the area is scanned on GC.
@@ -882,9 +868,9 @@ PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
             // Allocate a new area and add it at the end of the table.
             uintptr_t spaceSize = requiredSize + 1;
 #ifdef POLYML32IN64
-            // We need to allow for the extra alignment word otherwise we
+            // We need to allow for the extra alignment words otherwise we
             // may allocate less than we need.
-            spaceSize += 1;
+            spaceSize += POLYML32IN64-1;
 #endif
             CodeSpace *allocSpace = NewCodeSpace(spaceSize);
             if (allocSpace == 0)
@@ -1268,7 +1254,7 @@ void MemMgr::ReportHeapSizes(const char *phase)
 #ifdef POLYML32IN64
                 // This is relative to globalCodeBase not globalHeapBase
                 while (obj->ContainsForwardingPtr())
-                    obj = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                    obj = (PolyObject*)(globalCodeBase + (((uintptr_t)(obj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
                 obj = obj->FollowForwardingChain();
 #endif
@@ -1343,7 +1329,7 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
         PolyObject *lastObj = obj;
         // This is relative to globalCodeBase not globalHeapBase.
         while (lastObj->ContainsForwardingPtr())
-            lastObj = (PolyObject*)(globalCodeBase + ((lastObj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+            lastObj = (PolyObject*)(globalCodeBase + (((uintptr_t)(lastObj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
         PolyObject *lastObj = obj->FollowForwardingChain();
 #endif
@@ -1382,8 +1368,9 @@ POLYOBJECTPTR PolyWord::AddressToObjectPtr(void *address)
 {
     ASSERT(address >= globalHeapBase);
     uintptr_t offset = (PolyWord*)address - globalHeapBase;
-    ASSERT(offset <= 0x7fffffff); // Currently limited to 8Gbytes
-    ASSERT((offset & 1) == 0);
+    ASSERT((offset & 1) == 0); // The tag bit should not be set
+    offset = offset / (POLYML32IN64 / 2);
+    ASSERT(offset < (uintptr_t)0x100000000);
     return (POLYOBJECTPTR)offset;
 }
 #endif

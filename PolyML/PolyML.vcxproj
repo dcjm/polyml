@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug32in64Large|ARM64">
+      <Configuration>Debug32in64Large</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug32in64Large|Win32">
+      <Configuration>Debug32in64Large</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug32in64Large|x64">
+      <Configuration>Debug32in64Large</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Debug32in64|ARM64">
       <Configuration>Debug32in64</Configuration>
       <Platform>ARM64</Platform>
@@ -43,6 +55,18 @@
     </ProjectConfiguration>
     <ProjectConfiguration Include="DebugInterpreted|x64">
       <Configuration>DebugInterpreted</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release32in64Large|ARM64">
+      <Configuration>Release32in64Large</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release32in64Large|Win32">
+      <Configuration>Release32in64Large</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release32in64Large|x64">
+      <Configuration>Release32in64Large</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
     <ProjectConfiguration Include="Release32in64|ARM64">
@@ -123,17 +147,21 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
@@ -141,7 +169,9 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">true</ExcludedFromBuild>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">cd ..
@@ -150,6 +180,8 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">cd ..
@@ -157,6 +189,8 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
@@ -170,7 +204,11 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
@@ -186,7 +224,11 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
@@ -195,17 +237,21 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">$(IntDir)polyexport.obj</Outputs>
@@ -213,7 +259,9 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">$(IntDir)polyexport.obj</Outputs>
     </CustomBuild>
@@ -221,17 +269,21 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">false</ExcludedFromBuild>
@@ -239,7 +291,9 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">false</ExcludedFromBuild>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">cd ..
@@ -248,6 +302,8 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">cd ..
@@ -255,6 +311,8 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
@@ -268,7 +326,11 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
@@ -284,7 +346,11 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cd ..
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">cd ..
 $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
@@ -293,17 +359,21 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">$(IntDir)polyexport.obj</Outputs>
@@ -311,7 +381,9 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">$(IntDir)polyexport.obj</Outputs>
     </CustomBuild>
@@ -333,6 +405,12 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'" Label="Configuration">
@@ -358,6 +436,13 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -393,10 +478,22 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'" Label="Configuration">
@@ -444,10 +541,24 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -490,6 +601,9 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -500,6 +614,9 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'" Label="PropertySheets">
@@ -517,7 +634,13 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'" Label="PropertySheets">
@@ -541,7 +664,13 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'" Label="PropertySheets">
@@ -563,6 +692,9 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
@@ -578,7 +710,13 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">
@@ -599,6 +737,9 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
@@ -614,7 +755,13 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">
@@ -648,6 +795,26 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeaderFile>
+      </PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>
+      </PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>libcmtd.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <LargeAddressAware>true</LargeAddressAware>
+      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|Win32'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
@@ -766,7 +933,48 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|x64'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeaderFile>
+      </PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>
+      </PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>libcmtd.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <LargeAddressAware>true</LargeAddressAware>
+      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeaderFile>
+      </PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>
+      </PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>libcmtd.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <LargeAddressAware>true</LargeAddressAware>
+      <MinimumRequiredVersion>
+      </MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64Large|ARM64'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
@@ -915,6 +1123,30 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeaderFile>
+      </PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>
+      </PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>libcmt.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <LargeAddressAware>true</LargeAddressAware>
+      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -1034,7 +1266,56 @@ $(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; boo
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeaderFile>
+      </PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>
+      </PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>libcmt.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <LargeAddressAware>true</LargeAddressAware>
+      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeaderFile>
+      </PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>
+      </PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>libcmt.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <LargeAddressAware>true</LargeAddressAware>
+      <MinimumRequiredVersion>
+      </MinimumRequiredVersion>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64Large|ARM64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>

@@ -1,7 +1,7 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006, 2015-17, 2019, 2021 David C. J. Matthews
+    Copyright (c) 2006, 2015-17, 2019, 2021, 2026 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -68,6 +68,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(POLYUNSIGNED closure, POLYUNSIGNED offset);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(POLYUNSIGNED array);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHeapBase(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetC32UnitSize();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest4(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2, POLYUNSIGNED arg3, POLYUNSIGNED arg4);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest5(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2, POLYUNSIGNED arg3, POLYUNSIGNED arg4, POLYUNSIGNED arg5);
 }
@@ -482,6 +483,16 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest5(POLYUNSIGNED threadId, POLYUNSIGNED ar
 
 }
 
+// Return the unit size for Compact 32 bit.  This is needed by the code-generator.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetC32UnitSize()
+{
+#ifdef POLYML32IN64
+    return TAGGED(POLYML32IN64).AsUnsigned();
+#else
+    return TAGGED(0).AsUnsigned(); // Return zero
+#endif
+}
+
 
 struct _entrypts polySpecificEPT[] =
 {
@@ -497,6 +508,7 @@ struct _entrypts polySpecificEPT[] =
     { "PolyGetHeapBase",                (polyRTSFunction)&PolyGetHeapBase },
     { "PolyTest4",                      (polyRTSFunction)&PolyTest4 },
     { "PolyTest5",                      (polyRTSFunction)&PolyTest5 },
+    { "PolyGetC32UnitSize",             (polyRTSFunction)&PolyGetC32UnitSize },
 
     { NULL, NULL} // End of list.
 };

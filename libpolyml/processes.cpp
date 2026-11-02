@@ -948,7 +948,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
 {
     bool triedInterrupt = false;
 #ifdef POLYML32IN64
-    if (words & 1) words++; // Must always be an even number of words.
+    words = (words + POLYML32IN64 - 1) & (-POLYML32IN64); // Must be on correct boundary.
 #endif
 
     while (1)
@@ -960,9 +960,12 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
             // There's space in the current segment,
             taskData->allocPointer -= words;
 #ifdef POLYML32IN64
-            // Zero the last word.  If we've rounded up an odd number the caller won't set it.
-            if (words != 0) taskData->allocPointer[words-1] = PolyWord::FromUnsigned(0);
-            ASSERT((uintptr_t)taskData->allocPointer & 4); // Must be odd-word aligned
+            // Zero the last words.  If we've rounded up the caller won't set them.
+            for (unsigned i = 0; i < POLYML32IN64 && words != 0; i++)
+            {
+                taskData->allocPointer[--words] = PolyWord::FromUnsigned(0);
+            }
+            ASSERT(((taskData->allocPointer - (PolyWord*)0) & (POLYML32IN64 - 1)) == (POLYML32IN64 - 1)); // Must be odd-word aligned
 #endif
             return taskData->allocPointer;
         }
@@ -995,7 +998,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     // Actually allocate the object
                     taskData->allocPointer -= words;
 #ifdef POLYML32IN64
-                    ASSERT((uintptr_t)taskData->allocPointer & 4); // Must be odd-word aligned
+                    ASSERT(((taskData->allocPointer - (PolyWord*)0) & (POLYML32IN64 - 1)) == (POLYML32IN64 - 1)); // Must be odd-word aligned
 #endif
                     return taskData->allocPointer;
                 }

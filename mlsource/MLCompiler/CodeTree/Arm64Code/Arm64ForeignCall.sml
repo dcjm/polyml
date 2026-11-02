@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021-2 David C. J. Matthews
+    Copyright (c) 2021-2, 2026 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,13 +34,18 @@ struct
 
     val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
+    val wordToWord8 = Word8.fromLarge o Word.toLarge
+
     (* Turn an index into an absolute address. *)
     fun indexToAbsoluteAddress(iReg, absReg) =
-    if is32in64
-    then [AddShiftedReg{regM=iReg, regN=X_Base32in64, regD=absReg, shift=ShiftLSL 0w2, opSize=OpSize64, setFlags=false}]
-    else if iReg = absReg
-    then []
-    else [MoveXRegToXReg{sReg=iReg, dReg=absReg}]
+    case archType of
+        ArchC32 shift =>
+            [AddShiftedReg{regM=iReg, regN=X_Base32in64, regD=absReg, shift=ShiftLSL(wordToWord8 shift),
+                opSize=OpSize64, setFlags=false}]
+    |   ArchNative =>
+            if iReg = absReg
+            then []
+            else [MoveXRegToXReg{sReg=iReg, dReg=absReg}]
 
     (* Call the RTS.  Previously this did not check for exceptions raised in the RTS and instead
        there was code added after each call.  Doing it after the call doesn't affect the time
@@ -665,13 +670,15 @@ struct
                 (* Save X8 if we're going to need it. *)
             (if resultByReference then [StoreRegScaled{loadType=Load64, regT=X8, regN=XSP, unitOffset=0}] else []) @
             (* Now we've saved X24 we can move the global heap base into it. *)
-            (if is32in64 then [MoveXRegToXReg{sReg=X10, dReg=X_Base32in64}] else []) @
+            (case archType of ArchC32 _ => [MoveXRegToXReg{sReg=X10, dReg=X_Base32in64}] | ArchNative => []) @
             copyArgsFromRegsAndStack @
             [LoadAddr(X0, getThreadDataCall)] @
             (
-                if is32in64
-                then [AddShiftedReg{setFlags=false, opSize=OpSize64, regM=X0, regN=X_Base32in64, regD=X0, shift=ShiftLSL 0w2}]
-                else []
+                case archType of
+                    ArchC32 shift =>
+                        [AddShiftedReg{setFlags=false, opSize=OpSize64, regM=X0, regN=X_Base32in64, regD=X0,
+                                       shift=ShiftLSL(wordToWord8 shift)}]
+                |   ArchNative => []
             ) @
             [
                 (* Call into the RTS to get the thread data ptr. *)
@@ -698,13 +705,14 @@ struct
                    ML closure pointer register, X8.  Then call the ML code. *)
             [MoveXRegToXReg{sReg=X20, dReg=X8}] @
             (
-                if is32in64
-                then
-                [
-                    AddShiftedReg{regM=X8, regN=X_Base32in64, regD=X16, shift=ShiftLSL 0w2, opSize=OpSize64, setFlags=false},
-                    LoadRegScaled{loadType=Load64, regT=X16, regN=X16, unitOffset=0}
-                ]
-                else [LoadRegScaled{loadType=Load64, regT=X16, regN=X8, unitOffset=0}]
+                case archType of
+                    ArchC32 shift =>
+                    [
+                        AddShiftedReg{regM=X8, regN=X_Base32in64, regD=X16, shift=ShiftLSL(wordToWord8 shift),
+                            opSize=OpSize64, setFlags=false},
+                        LoadRegScaled{loadType=Load64, regT=X16, regN=X16, unitOffset=0}
+                    ]
+                |   ArchNative => [LoadRegScaled{loadType=Load64, regT=X16, regN=X8, unitOffset=0}]
             ) @
             [
                 BranchReg{regD=X16, brRegType=BRRAndLink},
@@ -741,29 +749,30 @@ struct
                The idea is that it should be possible to generate this eventually in a single RTS call.
                That could be done by using a version of this as a model. *)
             val instructions =
-                if is32in64
-                then
+                case archType of
+                    ArchC32 shift =>
                     (* Get the global heap base into X10. *)
                     [
                         LoadGlobalHeapBaseInCallback X10,
                         LoadAddr(X9, Address.toMachineWord f),
                         (* Have to load the actual address at run-time. *)
                         LoadAddr(X16, stage2Code),
-                        AddShiftedReg{setFlags=false, opSize=OpSize64, regM=X16, regN=X10, regD=X16, shift=ShiftLSL 0w2},
+                        AddShiftedReg{setFlags=false, opSize=OpSize64, regM=X16, regN=X10, regD=X16,
+                            shift=ShiftLSL(wordToWord8 shift)},
                         LoadRegScaled{loadType=Load64, regT=X16, regN=X16, unitOffset=0},
                         BranchReg{regD=X16, brRegType=BRRBranch}
                     ]
-                else
-                let
-                    (* We can extract the actual code address in the native address version. *)
-                    val codeAddress = Address.loadWord(Address.toAddress stage2Code, 0w0)
-                in
-                    [
-                        LoadAddr(X9, Address.toMachineWord f),
-                        LoadAddr(X16, codeAddress),
-                        BranchReg{regD=X16, brRegType=BRRBranch}
-                    ]
-                end
+                |   ArchNative =>
+                    let
+                        (* We can extract the actual code address in the native address version. *)
+                        val codeAddress = Address.loadWord(Address.toAddress stage2Code, 0w0)
+                    in
+                        [
+                            LoadAddr(X9, Address.toMachineWord f),
+                            LoadAddr(X16, codeAddress),
+                            BranchReg{regD=X16, brRegType=BRRBranch}
+                        ]
+                    end
             val functionName = "foreignCallBack(1)"
             val debugSwitches =
                 [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),

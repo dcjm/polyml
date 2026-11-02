@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021-2
+    Copyright David C. J. Matthews 2021-2, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -358,6 +358,7 @@ struct
             |   optCode({instr as UnboxTagFloat{ source, dest, floatSize=Float32 }, kill, ...} :: rest, inCond, regMap, code, changed) =
                 let
                     val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
+                    val is32in64 = case archType of ArchC32 _ => true | ArchNative => false
                 in
                     case repSource of
                         NonAddressConst cVal => (* Should only be Float32 in native 64-bits. *)
@@ -426,10 +427,15 @@ struct
                         NonAddressConst words =>
                         let
                             val wordsRequired =
-                                if is32in64
-                                then (* Have to round this up to 8 bytes *)
-                                    Word64.andb(words+0w2, ~ 0w2)
-                                else words+0w1
+                                case archType of
+                                    ArchC32 shift =>
+                                    let
+                                        (* Have to round this up to the unit size. *)
+                                        val unitSize = Word.toLarge(Word.<<(0w1, shift-0w1))
+                                    in
+                                        Word64.andb(words+unitSize(* +1 for length -1*), ~ unitSize)
+                                    end
+                                |   ArchNative => words+0w1
                             val bytesRequired = Word64.fromLarge(Word.toLarge Address.wordSize) * wordsRequired
                         in
                             optCode(rest, inCond, mapAfterReplace,
@@ -449,10 +455,12 @@ struct
                             then
                             let
                                 val nWords = LargeWord.toInt words
+                                val loadType = case archType of ArchC32 _ => Load32 | ArchNative => Load64
                                 fun unroll(n, l) =
                                     if n = nWords then l
                                     else unroll(n+1, StoreWithConstantOffset{ source=init, base=addr,
-                                            byteOffset=n*Word.toInt Address.wordSize, loadType=if is32in64 then Load32 else Load64 } :: l)
+                                            byteOffset=n*Word.toInt Address.wordSize,
+                                            loadType=loadType } :: l)
                             in
                                 optCode(rest, inCond, mapAfterReplace, unroll(0, code), true)
                             end

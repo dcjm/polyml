@@ -397,7 +397,8 @@ struct
                             let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex4 sreg, c1, c2) end
                     |   mapIndexEx(MemIndex8 r) =
                             let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex8 sreg, c1, c2) end
-                    |   mapIndexEx(ObjectIndex) = (ObjectIndex, [], [])
+                    |   mapIndexEx(ObjectIndex2) = (ObjectIndex2, [], [])
+                    |   mapIndexEx(ObjectIndex4) = (ObjectIndex4, [], [])
 
                     fun mapIndex index =
                     let
@@ -464,7 +465,7 @@ struct
                     |   mapSourceEx(i as IntegerConstant _, _) = (i, [], [])
 
                     |   mapSourceEx(MemoryLocation{base, offset, index, cache, ...}, kind) =
-                        if (case index of NoMemIndex => true | ObjectIndex => true | _ => false)
+                        if (case index of NoMemIndex => true | ObjectIndex2 => true | ObjectIndex4 => true | _ => false)
                         then
                         let
                             val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
@@ -587,7 +588,7 @@ struct
                             val () = Array.update(pregMap, dReg, ToStack(! stackCount, container))
                             val () = pushItemToStack(NewEntry{pregNo=dReg})
                         in
-                            if targetArch = ObjectId32Bit andalso
+                            if (targetArch = ObjectId32Bit2Word orelse targetArch = ObjectId32Bit4Word) andalso
                                 (case sourceVal of MemoryLocation _ => true | AddressConstant _ => true | _ => false)
                             then
                             let
@@ -622,7 +623,7 @@ struct
                                 case source of
                                     MemoryLocation{base, offset, index, ...} =>
                                     (* Only cache if we have a fixed offset (not indexed). *)
-                                    if (case index of NoMemIndex => true | ObjectIndex => true | _ => false)
+                                    if (case index of NoMemIndex => true | ObjectIndex2 => true | ObjectIndex4 => true | _ => false)
                                     then
                                     let
                                         (* The cache kind must match the kind of register we're loading.
@@ -1153,7 +1154,12 @@ struct
                                         |   BoxX87Float => MoveFloat
                                         |   BoxSSE2Double => MoveDouble
                                         |   BoxSSE2Float => MoveFloat
-                                    val indexKind = case targetArch of ObjectId32Bit => ObjectIndex | _ => NoMemIndex
+                                    val indexKind =
+                                        case targetArch of
+                                            ObjectId32Bit2Word => ObjectIndex2
+                                        |   ObjectId32Bit4Word => ObjectIndex4
+                                        |   Native32Bit => NoMemIndex
+                                        |   Native64Bit => NoMemIndex
 
                                     (* The value we're putting in the cache is untagged. *)
                                     val _ = setMemoryCache(dest, 0, indexKind, newCacheReg, false, moveKind)

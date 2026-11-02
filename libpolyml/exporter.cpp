@@ -304,7 +304,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
         PolyObject *newAddr;
         if (space->isCode)
-            newAddr = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+            newAddr = (PolyObject*)(globalCodeBase + (((uintptr_t)(obj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
         else newAddr = obj->GetForwardingPtr();
 #else
         PolyObject *newAddr = obj->GetForwardingPtr();
@@ -327,7 +327,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
                     PolyObject *newAddr;
                     if (space->isCode)
-                        newAddr = (PolyObject*)(globalCodeBase + ((tombObject->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                        newAddr = (PolyObject*)(globalCodeBase + (((uintptr_t)(tombObject->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
                     else newAddr = tombObject->GetForwardingPtr();
 #else
                     PolyObject *newAddr = tombObject->GetForwardingPtr();
@@ -421,7 +421,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
                 if (naType == NACode)
                 {
-                    POLYUNSIGNED ll = (POLYUNSIGNED)(((PolyWord*)newObj - globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT);
+                    POLYUNSIGNED ll = (POLYUNSIGNED)((((PolyWord*)newObj - globalCodeBase) / POLYML32IN64) | _OBJ_TOMBSTONE_BIT);
                     tombObject->SetLengthWord(ll);
                 }
                 else tombObject->SetForwardingPtr(newObj);
@@ -438,7 +438,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     // If this is a code address we can't use the usual forwarding pointer format.
     // Instead we have to compute the offset relative to the base of the code.
     {
-        POLYUNSIGNED ll = (POLYUNSIGNED)(((PolyWord*)newObj-globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT);
+        POLYUNSIGNED ll = (POLYUNSIGNED)((((PolyWord*)newObj - globalCodeBase) / POLYML32IN64) | _OBJ_TOMBSTONE_BIT);
         gMem.SpaceForObjectAddress(obj)->writeAble(obj)->SetLengthWord(ll);
     }
 #else
@@ -492,7 +492,7 @@ PolyObject* CopyScan::newAddressForObject(POLYUNSIGNED words, enum _newAddrType 
                 space->topPointer += words + 1;
 #ifdef POLYML32IN64
                 // Maintain the odd-word alignment of topPointer
-                if ((words & 1) == 0 && space->topPointer < space->top)
+                for(POLYUNSIGNED w = (words + 1) & (POLYML32IN64-1); w < POLYML32IN64 && space->topPointer < space->top; w++)
                 {
                     *space->writeAble(space->topPointer) = PolyWord::FromUnsigned(0);
                     space->topPointer++;
@@ -532,7 +532,7 @@ PolyObject* CopyScan::newAddressForObject(POLYUNSIGNED words, enum _newAddrType 
         space->topPointer += words + 1;
 #ifdef POLYML32IN64
         // Maintain the odd-word alignment of topPointer
-        if ((words & 1) == 0 && space->topPointer < space->top)
+        for (POLYUNSIGNED w = (words + 1) & (POLYML32IN64 - 1); w < POLYML32IN64 && space->topPointer < space->top; w++)
         {
             *space->writeAble(space->topPointer) = PolyWord::FromUnsigned(0);
             space->topPointer++;
@@ -583,7 +583,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
         {
             MemSpace *space = gMem.SpaceForObjectAddress(obj);
             if (space->isCode)
-                forwardedTo = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                forwardedTo = (PolyObject*)(globalCodeBase + (((uintptr_t)(obj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
             else forwardedTo = obj->GetForwardingPtr();
         }
 #else
@@ -618,15 +618,15 @@ static void FixForwarding(PolyWord *pt, size_t space)
     while (space)
     {
         pt++;
-        PolyObject *obj = (PolyObject*)pt;
 #ifdef POLYML32IN64
-        if ((uintptr_t)obj & 4)
+        if (((pt - (PolyWord*)0) & (POLYML32IN64 - 1)) != 0) // i.e. it's not an the required unit boundary
         {
             // Skip filler words needed to align to an even word
             space--;
             continue; // We've added 1 to pt so just loop.
         }
 #endif
+        PolyObject* obj = (PolyObject*)pt;
         size_t length = OBJ_OBJECT_LENGTH(GetObjLength(obj));
         pt += length;
         ASSERT(space > length);

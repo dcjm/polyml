@@ -428,7 +428,7 @@ PolyObject *SaveFixupAddress::ScanObjectAddress(PolyObject *obj)
         MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj - 1);
         PolyObject *newp;
         if (space->isCode)
-            newp = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+            newp = (PolyObject*)(globalCodeBase + (((uintptr_t)(obj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
         else newp = obj->GetForwardingPtr();
 #else
         PolyObject *newp = obj->GetForwardingPtr();
@@ -457,7 +457,7 @@ void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
         {
             MemSpace *space = gMem.SpaceForObjectAddress(dest);
             if (space->isCode)
-                dest = (PolyObject*)(globalCodeBase + ((dest->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                dest = (PolyObject*)(globalCodeBase + (((uintptr_t)(dest->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
             else dest = dest->GetForwardingPtr();
         }
 #else
@@ -467,6 +467,49 @@ void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
         if (length != 0)
             ScanAddressesInObject(obj, dest->LengthWord());
         pt += length;
+    }
+}
+
+// Exported function also used by the modules system.
+void switchLocalsToPermanent()
+{
+    // Update references to moved objects.
+    SaveFixupAddress fixup;
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
+    {
+        LocalMemSpace* space = *i;
+        fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+        fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
+    }
+    for (std::vector<CodeSpace*>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+        fixup.ScanCodeSpace(*i);
+
+    GCModules(&fixup);
+
+    // Restore the length words in the code areas.
+    // Although we've updated any pointers to the start of the code we could have return addresses
+    // pointing to the original code.  GCModules updates the stack but doesn't update return addresses.
+    for (std::vector<CodeSpace*>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+    {
+        CodeSpace* space = *i;
+        for (PolyWord* pt = space->bottom; pt < space->top; )
+        {
+            pt++;
+            PolyObject* obj = (PolyObject*)pt;
+            if (obj->ContainsForwardingPtr())
+            {
+#ifdef POLYML32IN64
+                PolyObject* forwardedTo = obj;
+                while (forwardedTo->ContainsForwardingPtr())
+                    forwardedTo = (PolyObject*)(globalCodeBase + (((uintptr_t)(forwardedTo->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
+#else
+                PolyObject* forwardedTo = obj->FollowForwardingChain();
+#endif
+                POLYUNSIGNED lengthWord = forwardedTo->LengthWord();
+                space->writeAble(obj)->SetLengthWord(lengthWord);
+            }
+            pt += obj->Length();
+        }
     }
 }
 
@@ -605,7 +648,7 @@ void SaveRequest::Perform()
 #ifdef POLYML32IN64
                 PolyObject *forwardedTo = obj;
                 while (forwardedTo->ContainsForwardingPtr())
-                    forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                    forwardedTo = (PolyObject*)(globalCodeBase + (((uintptr_t)(forwardedTo->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
                 PolyObject *forwardedTo = obj->FollowForwardingChain();
 #endif
@@ -2157,9 +2200,9 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
         for (PolyWord *p = space->bottom; p < space->top; )
         {
 #ifdef POLYML32IN64
-            if ((((uintptr_t)p) & 4) == 0)
+            if (((p - (PolyWord*)0) & (POLYML32IN64 - 1)) != POLYML32IN64 - 1)
             {
-                // Skip any padding.  The length word should be on an odd-word boundary.
+                // Skip any padding.  The length word should be on the correct boundary.
                 p++;
                 continue;
             }

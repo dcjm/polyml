@@ -36,7 +36,8 @@ struct
         case targetArch of
             Native32Bit     => (OpSize32, OpSize32)
         |   Native64Bit     => (OpSize64, OpSize64)
-        |   ObjectId32Bit   => (OpSize32, OpSize64)
+        |   ObjectId32Bit2Word   => (OpSize32, OpSize64)
+        |   ObjectId32Bit4Word   => (OpSize32, OpSize64)
 
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
 
@@ -68,7 +69,7 @@ struct
        object index. *)
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg |
-        MemIndex4 of preg | MemIndex8 of preg | ObjectIndex
+        MemIndex4 of preg | MemIndex8 of preg | ObjectIndex2 | ObjectIndex4
 
     (* Kinds of moves.
        Move32Bit - 32-bit loads and stores
@@ -87,7 +88,8 @@ struct
         case targetArch of
             Native32Bit     => (Move32Bit, Move32Bit)
         |   Native64Bit     => (Move64Bit, Move64Bit)
-        |   ObjectId32Bit   => (Move32Bit, Move64Bit)
+        |   ObjectId32Bit2Word   => (Move32Bit, Move64Bit)
+        |   ObjectId32Bit4Word   => (Move32Bit, Move64Bit)
 
     datatype boxKind = BoxLargeWord | BoxSSE2Double | BoxSSE2Float | BoxX87Double | BoxX87Float
 
@@ -396,8 +398,9 @@ struct
         |   printIndex(MemIndex2 i, stream) = (stream "["; printReg(i, stream); stream "*2]")
         |   printIndex(MemIndex4 i, stream) = (stream "["; printReg(i, stream); stream "*4]")
         |   printIndex(MemIndex8 i, stream) = (stream "["; printReg(i, stream); stream "*8]")
-        |   printIndex(ObjectIndex, stream) = stream "[objectindex]"
-        
+        |   printIndex(ObjectIndex2, stream) = stream "[objectindex2]"
+        |   printIndex(ObjectIndex4, stream) = stream "[objectindex4]"
+       
         fun printStackLoc(StackLoc{size, rno}, stream) =
             (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
         
@@ -962,7 +965,8 @@ struct
     |   indexRegister (MemIndex2 r) = SOME r
     |   indexRegister (MemIndex4 r) = SOME r
     |   indexRegister (MemIndex8 r) = SOME r
-    |   indexRegister ObjectIndex = NONE
+    |   indexRegister ObjectIndex2 = NONE
+    |   indexRegister ObjectIndex4 = NONE
 
     structure Sharing =
     struct

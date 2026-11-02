@@ -2,7 +2,7 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright David C. J. Matthews 2017-22
+    Copyright David C. J. Matthews 2017-22, 2026
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
@@ -81,6 +81,9 @@ typedef uintptr_t       POLYUNSIGNED;
 // libpolyml uses printf-style I/O instead of C++ standard IOstreams,
 // so we need specifier to format POLYUNSIGNED/POLYSIGNED values.
 #ifdef POLYML32IN64
+#if (POLYML32IN64 != 2 && POLYML32IN64 != 4)
+#error The value of POLYML32IN64 must be 2 (default space size) or 4 (large space size)
+#endif
 #if (defined(PRIu32))
 #  define POLYUFMT PRIu32
 #  define POLYSFMT PRId32
@@ -157,7 +160,7 @@ public:
     static POLYOBJECTPTR AddressToObjectPtr(void *address);
 #else
     static POLYOBJECTPTR AddressToObjectPtr(void *address)
-        { return (POLYOBJECTPTR)((PolyWord*)address - globalHeapBase); }
+        { return (POLYOBJECTPTR)(((PolyWord*)address - globalHeapBase)/(POLYML32IN64/2)); }
 #endif
 #endif
 
@@ -166,7 +169,7 @@ public:
     POLYUNSIGNED UnTaggedUnsigned(void) const { return contents.unsignedInt >> POLY_TAGSHIFT; }
 #ifdef POLYML32IN64
     PolyWord(POLYOBJPTR p) { contents.objectPtr = AddressToObjectPtr(p); }
-    PolyWord *AsStackAddr(PolyWord *base = globalHeapBase) const { return base + contents.objectPtr; }
+    PolyWord *AsStackAddr(PolyWord *base = globalHeapBase) const { return base + (((uintptr_t)contents.objectPtr) * (POLYML32IN64/2)); }
     POLYOBJPTR AsObjPtr(PolyWord *base = globalHeapBase) const { return (POLYOBJPTR)AsStackAddr(base); }
 #else
     // An object pointer can become a word directly.
@@ -288,8 +291,8 @@ inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK
 /* case 2 - forwarding pointer */
 inline bool OBJ_IS_POINTER(POLYUNSIGNED L)  { return (L & _OBJ_TOMBSTONE_BIT) != 0; }
 #ifdef POLYML32IN64
-inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_TOMBSTONE_BIT) << 1)); }
-inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_TOMBSTONE_BIT; }
+inline PolyObject* OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + (((uintptr_t)L & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64)); }
+inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject* pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_TOMBSTONE_BIT; }
 #else
 inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_TOMBSTONE_BIT) <<2); }
 inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_TOMBSTONE_BIT; }

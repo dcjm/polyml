@@ -44,6 +44,10 @@ struct
 
     (* These aren't currently used for anything. *)
     val workReg1 = X16 and workReg2 = X17
+    
+    val wordToWord8 = Word8.fromLarge o Word.toLarge
+    
+    val is32in64 = case archType of ArchC32 _ => true | ArchNative => false
 
     fun icodeToArm64Code {blocks: basicBlockConcrete vector, functionName, stackRequired, debugSwitches, resultClosure, profileObject, ...} =
     let
@@ -385,16 +389,21 @@ struct
                 (LoadRegScaled{regT=dest, regN=X_MLAssemblyInt, unitOffset=threadIdOffset, loadType=Load64}) :: code
 
         |   codeExtended _ (ObjectIndexAddressToAbsolute{source, dest, ...}, code) =
+            let
+                val shift = case archType of ArchC32 shift => shift | ArchNative => raise InternalError "ObjectIndexAddressToAbsolute"
+            in
                 (AddShiftedReg{regM=source, regN=X_Base32in64, regD=dest,
-                                      shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64}) :: code
+                                      shift=ShiftLSL(wordToWord8 shift), setFlags=false, opSize=OpSize64}) :: code
+            end
 
         |   codeExtended _ (AbsoluteToObjectIndex{source, dest, ...}, code) =
             let
                 val destReg = dest
+                val shift = case archType of ArchC32 shift => shift | ArchNative => raise InternalError "ObjectIndexAddressToAbsolute"
             in
                 code <::>
                 (SubShiftedReg{regM=X_Base32in64, regN=source, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64}) <::>
-                (shiftConstant{shift=0w2, regN=destReg, regD=destReg, direction=ShiftRightLogical, opSize=OpSize64})
+                (shiftConstant{shift=shift, regN=destReg, regD=destReg, direction=ShiftRightLogical, opSize=OpSize64})
             end
 
         |   codeExtended _ (AllocateMemoryFixed{ bytesRequired, dest, saveRegs={gcUpdate=saveRegs, ...} }, code) =
@@ -656,16 +665,23 @@ struct
                     case callKind of
                         Recursive => [(UnconditionalBranch startOfFunctionLabel)]
                     |   ConstantCode m =>
-                            if is32in64
-                            then raise InternalError "ConstantCode" (* Not currently *)
-                            else [(BranchReg{regD=workReg1, brRegType=BRRBranch}), (LoadAddr(workReg1, m))]
+                        (
+                            case archType of
+                                ArchC32 _ => raise InternalError "ConstantCode" (* Not currently *)
+                            |   ArchNative => [(BranchReg{regD=workReg1, brRegType=BRRBranch}), (LoadAddr(workReg1, m))]
+                        )
                     |   FullCall =>
-                            if is32in64
-                            then [BranchReg{regD=workReg1, brRegType=BRRBranch},
-                                 LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64},
-                                 AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64}]
-                            else [BranchReg{regD=workReg1, brRegType=BRRBranch},
-                                    LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64}]
+                        (
+                            case archType of
+                                ArchC32 shift =>
+                                    [BranchReg{regD=workReg1, brRegType=BRRBranch},
+                                     LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64},
+                                     AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL(wordToWord8 shift),
+                                        setFlags=false, opSize=OpSize64}]
+                            |   ArchNative =>
+                                    [BranchReg{regD=workReg1, brRegType=BRRBranch},
+                                        LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64}]
+                        )
             in
                 jumpToFunctionCode @ setArgumentsCode
             end
@@ -711,18 +727,23 @@ struct
                         case callKind of
                             Recursive => code <::> (BranchAndLink startOfFunctionLabel)
                         |   ConstantCode m =>
-                                if is32in64
-                                then raise InternalError "ConstantCode" (* Not currently *)
-                                else code <::> (LoadAddr(workReg1, m)) <::> (BranchReg{regD=workReg1, brRegType=BRRAndLink})
+                            (
+                                case archType of
+                                ArchC32 _ => raise InternalError "ConstantCode" (* Not currently *)
+                            |   ArchNative => code <::> (LoadAddr(workReg1, m)) <::> (BranchReg{regD=workReg1, brRegType=BRRAndLink})
+                            )
                         |   FullCall =>
-                                if is32in64
-                                then code <::>
-                                    AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2,
-                                                  setFlags=false, opSize=OpSize64} <::>
-                                    LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64} <::>
-                                    BranchReg{regD=workReg1, brRegType=BRRAndLink}
-                                else code <::> LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64} <::>
+                            (
+                                case archType of
+                                    ArchC32 shift => code <::>
+                                        AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL(wordToWord8 shift),
+                                                      setFlags=false, opSize=OpSize64} <::>
+                                        LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64} <::>
+                                        BranchReg{regD=workReg1, brRegType=BRRAndLink}
+                                |   ArchNative =>
+                                        code <::> LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64} <::>
                                             BranchReg{regD=workReg1, brRegType=BRRAndLink}
+                            )
                     )
 
                 |   makeSavesAndCall(reg::regs, code) =
@@ -827,10 +848,14 @@ struct
                 val destReg = dest
                 and srcReg = source
             in
-                if is32in64
-                then LoadRegScaled{regT=destReg, regN=destReg, unitOffset=0, loadType=Load64} ::
-                        AddShiftedReg{regM=srcReg, regN=X_Base32in64, regD=destReg, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64} :: code
-                else LoadRegScaled{regT=destReg, regN=srcReg, unitOffset=0, loadType=Load64} :: code
+                case archType of
+                    ArchC32 0w3 =>
+                        LoadRegIndexed{regN=X_Base32in64, regM=source, regT=dest, option=ExtUXTX ScaleOrShift, loadType=Load64} :: code
+                |   ArchC32 shift =>
+                        LoadRegScaled{regT=destReg, regN=destReg, unitOffset=0, loadType=Load64} ::
+                            AddShiftedReg{regM=srcReg, regN=X_Base32in64, regD=destReg, shift=ShiftLSL(wordToWord8 shift),
+                                          setFlags=false, opSize=OpSize64} :: code
+                |   ArchNative => LoadRegScaled{regT=destReg, regN=srcReg, unitOffset=0, loadType=Load64} :: code
             end
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Double64, source, dest, saveRegs={gcUpdate=saveRegs, ...} }, code) =
@@ -842,32 +867,48 @@ struct
                 val floatReg = source
                 and fixedReg = dest
             in
-                if is32in64
-                then boxFloat({source=floatReg, destination=fixedReg,
-                               workReg=workReg1, saveRegs=saveRegs}, code)
-                else
-                    code <::>
-                        MoveFPToGeneral{regN=floatReg, regD=fixedReg, floatSize=Float32} <::>
-                        shiftConstant{ direction=ShiftLeft, shift=0w32, regN=fixedReg, regD=fixedReg, opSize=OpSize64} <::>
-                        BitwiseLogical{ bits=0w1, regN=fixedReg, regD=fixedReg, opSize=OpSize64, setFlags=false, logOp=LogOr}
+                case archType of
+                    ArchC32 _ =>
+                        boxFloat({source=floatReg, destination=fixedReg, workReg=workReg1, saveRegs=saveRegs}, code)
+                |   ArchNative =>
+                        code <::>
+                            MoveFPToGeneral{regN=floatReg, regD=fixedReg, floatSize=Float32} <::>
+                            shiftConstant{ direction=ShiftLeft, shift=0w32, regN=fixedReg, regD=fixedReg, opSize=OpSize64} <::>
+                            BitwiseLogical{ bits=0w1, regN=fixedReg, regD=fixedReg, opSize=OpSize64, setFlags=false, logOp=LogOr}
             end
 
         |   codeExtended _ (UnboxTagFloat { floatSize=Double64, source, dest }, code) =
-                if is32in64
-                then code <::>
-                    AddShiftedReg{regM=source, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2,
-                                          setFlags=false, opSize=OpSize64} <::>
-                    LoadFPRegScaled{regT=dest, regN=workReg1, unitOffset=0, floatSize=Double64}
-                else code <::> LoadFPRegScaled{regT=dest, regN=source, unitOffset=0, floatSize=Double64}
+            (
+                case archType of
+                    ArchC32 0w3 =>
+                        code <::>
+                            LoadFPRegIndexed{regN=X_Base32in64, regM=source, regT=dest, option=ExtUXTX ScaleOrShift, floatSize=Double64}                        
+                |   ArchC32 shift =>
+                        code <::>
+                            AddShiftedReg{regM=source, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL(wordToWord8 shift),
+                                              setFlags=false, opSize=OpSize64} <::>
+                            LoadFPRegScaled{regT=dest, regN=workReg1, unitOffset=0, floatSize=Double64}
+                |   ArchNative => code <::> LoadFPRegScaled{regT=dest, regN=source, unitOffset=0, floatSize=Double64}
+            )
 
         |   codeExtended _ (UnboxTagFloat { floatSize=Float32, source, dest }, code) =
+            (
                 (* This is tagged in native 64-bits.  In 32-in-64 we're loading 32-bits so we
                    can use an indexed load directly. *)
-                if is32in64
-                then code <::> LoadFPRegIndexed{regN=X_Base32in64, regM=source, regT=dest, option=ExtUXTX ScaleOrShift, floatSize=Float32}
-                else code <::>
-                        shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=source, regD=workReg1, opSize=OpSize64} <::>
-                        MoveGeneralToFP{regN=workReg1, regD=dest, floatSize=Float32}
+                case archType of
+                    ArchC32 0w2 =>
+                        code <::>
+                            LoadFPRegIndexed{regN=X_Base32in64, regM=source, regT=dest, option=ExtUXTX ScaleOrShift, floatSize=Float32}
+                |   ArchC32 shift =>
+                        code <::>
+                            AddShiftedReg{regM=source, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL(wordToWord8 shift),
+                                              setFlags=false, opSize=OpSize64} <::>
+                            LoadFPRegScaled{regT=dest, regN=workReg1, unitOffset=0, floatSize=Float32}                    
+                |   ArchNative =>
+                        code <::>
+                            shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=source, regD=workReg1, opSize=OpSize64} <::>
+                            MoveGeneralToFP{regN=workReg1, regD=dest, floatSize=Float32}
+            )
 
         |   codeExtended _ (LoadAcquire{dest, base, loadType, ...}, code) =
                 LoadAcquireReg{regT=dest, regN=base, loadType=loadType} :: code
