@@ -1966,6 +1966,7 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
                         storer.dependencies.push_back(mn);
                         break;
                     }
+                    j++;
                 }
                 if (j == hierarchyTable.end())
                     raise_fail(taskData, "A dependency is listed but the module is not loaded");
